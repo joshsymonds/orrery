@@ -387,17 +387,17 @@ func TestStartImplementerAgentGateErrors(t *testing.T) {
 	}
 }
 
-func TestStartReturnsStartErrorAsIsSoCapReachedMatches(t *testing.T) {
+func TestStartReturnsStartErrorAsIsSoItsSentinelMatches(t *testing.T) {
 	t.Parallel()
 	setup := newStartSetup(t, readoptCommandGate("check"))
 	task := startTask(setup.base)
-	steps := &startSteps{err: enginehost.ErrCapReached}
+	steps := &startSteps{err: enginehost.ErrBadAgent}
 	_, err := startRunner(setup, steps, &startEvidence{}).startStep(
 		context.Background(), setup.epic, View{Task: task},
 		Action{Kind: ActStartStep, Unit: StageImplement, ID: "id"},
 	)
-	if !errors.Is(err, enginehost.ErrCapReached) {
-		t.Fatalf("startStep when Start is at the cap = %v, want an error matching ErrCapReached", err)
+	if !errors.Is(err, enginehost.ErrBadAgent) {
+		t.Fatalf("startStep when Start refuses its agent = %v, want an error matching ErrBadAgent", err)
 	}
 }
 

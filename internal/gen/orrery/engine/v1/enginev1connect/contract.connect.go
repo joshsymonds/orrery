@@ -52,6 +52,11 @@ const (
 	ContractsGetContractProcedure = "/orrery.engine.v1.Contracts/GetContract"
 	// ContractsListContractsProcedure is the fully-qualified name of the Contracts's ListContracts RPC.
 	ContractsListContractsProcedure = "/orrery.engine.v1.Contracts/ListContracts"
+	// ContractsDraftContractProcedure is the fully-qualified name of the Contracts's DraftContract RPC.
+	ContractsDraftContractProcedure = "/orrery.engine.v1.Contracts/DraftContract"
+	// ContractsProposeWorkingProcedure is the fully-qualified name of the Contracts's ProposeWorking
+	// RPC.
+	ContractsProposeWorkingProcedure = "/orrery.engine.v1.Contracts/ProposeWorking"
 )
 
 // ContractsClient is a client for the orrery.engine.v1.Contracts service.
@@ -70,6 +75,11 @@ type ContractsClient interface {
 	GetContract(context.Context, *connect.Request[v1.GetContractRequest]) (*connect.Response[v1.GetContractResponse], error)
 	// ListContracts returns a summary of every stored contract.
 	ListContracts(context.Context, *connect.Request[v1.ListContractsRequest]) (*connect.Response[v1.ListContractsResponse], error)
+	// DraftContract stores a contract's draft under its id, or replaces the draft already stored under it, and returns
+	// the draft. A draft is not a contract version and has no version number.
+	DraftContract(context.Context, *connect.Request[v1.DraftContractRequest]) (*connect.Response[v1.DraftContractResponse], error)
+	// ProposeWorking stores a design's working copy of a contract as a new contract, and returns it with its warnings.
+	ProposeWorking(context.Context, *connect.Request[v1.ProposeWorkingRequest]) (*connect.Response[v1.ProposeWorkingResponse], error)
 }
 
 // NewContractsClient constructs a client for the orrery.engine.v1.Contracts service. By default, it
@@ -125,6 +135,18 @@ func NewContractsClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(contractsMethods.ByName("ListContracts")),
 			connect.WithClientOptions(opts...),
 		),
+		draftContract: connect.NewClient[v1.DraftContractRequest, v1.DraftContractResponse](
+			httpClient,
+			baseURL+ContractsDraftContractProcedure,
+			connect.WithSchema(contractsMethods.ByName("DraftContract")),
+			connect.WithClientOptions(opts...),
+		),
+		proposeWorking: connect.NewClient[v1.ProposeWorkingRequest, v1.ProposeWorkingResponse](
+			httpClient,
+			baseURL+ContractsProposeWorkingProcedure,
+			connect.WithSchema(contractsMethods.ByName("ProposeWorking")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -137,6 +159,8 @@ type contractsClient struct {
 	reopenContract   *connect.Client[v1.ReopenContractRequest, v1.ReopenContractResponse]
 	getContract      *connect.Client[v1.GetContractRequest, v1.GetContractResponse]
 	listContracts    *connect.Client[v1.ListContractsRequest, v1.ListContractsResponse]
+	draftContract    *connect.Client[v1.DraftContractRequest, v1.DraftContractResponse]
+	proposeWorking   *connect.Client[v1.ProposeWorkingRequest, v1.ProposeWorkingResponse]
 }
 
 // ProposeContract calls orrery.engine.v1.Contracts.ProposeContract.
@@ -174,6 +198,16 @@ func (c *contractsClient) ListContracts(ctx context.Context, req *connect.Reques
 	return c.listContracts.CallUnary(ctx, req)
 }
 
+// DraftContract calls orrery.engine.v1.Contracts.DraftContract.
+func (c *contractsClient) DraftContract(ctx context.Context, req *connect.Request[v1.DraftContractRequest]) (*connect.Response[v1.DraftContractResponse], error) {
+	return c.draftContract.CallUnary(ctx, req)
+}
+
+// ProposeWorking calls orrery.engine.v1.Contracts.ProposeWorking.
+func (c *contractsClient) ProposeWorking(ctx context.Context, req *connect.Request[v1.ProposeWorkingRequest]) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return c.proposeWorking.CallUnary(ctx, req)
+}
+
 // ContractsHandler is an implementation of the orrery.engine.v1.Contracts service.
 type ContractsHandler interface {
 	// ProposeContract stores a new contract as its first version, in the proposed state, and returns it.
@@ -190,6 +224,11 @@ type ContractsHandler interface {
 	GetContract(context.Context, *connect.Request[v1.GetContractRequest]) (*connect.Response[v1.GetContractResponse], error)
 	// ListContracts returns a summary of every stored contract.
 	ListContracts(context.Context, *connect.Request[v1.ListContractsRequest]) (*connect.Response[v1.ListContractsResponse], error)
+	// DraftContract stores a contract's draft under its id, or replaces the draft already stored under it, and returns
+	// the draft. A draft is not a contract version and has no version number.
+	DraftContract(context.Context, *connect.Request[v1.DraftContractRequest]) (*connect.Response[v1.DraftContractResponse], error)
+	// ProposeWorking stores a design's working copy of a contract as a new contract, and returns it with its warnings.
+	ProposeWorking(context.Context, *connect.Request[v1.ProposeWorkingRequest]) (*connect.Response[v1.ProposeWorkingResponse], error)
 }
 
 // NewContractsHandler builds an HTTP handler from the service implementation. It returns the path
@@ -241,6 +280,18 @@ func NewContractsHandler(svc ContractsHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(contractsMethods.ByName("ListContracts")),
 		connect.WithHandlerOptions(opts...),
 	)
+	contractsDraftContractHandler := connect.NewUnaryHandler(
+		ContractsDraftContractProcedure,
+		svc.DraftContract,
+		connect.WithSchema(contractsMethods.ByName("DraftContract")),
+		connect.WithHandlerOptions(opts...),
+	)
+	contractsProposeWorkingHandler := connect.NewUnaryHandler(
+		ContractsProposeWorkingProcedure,
+		svc.ProposeWorking,
+		connect.WithSchema(contractsMethods.ByName("ProposeWorking")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Contracts/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContractsProposeContractProcedure:
@@ -257,6 +308,10 @@ func NewContractsHandler(svc ContractsHandler, opts ...connect.HandlerOption) (s
 			contractsGetContractHandler.ServeHTTP(w, r)
 		case ContractsListContractsProcedure:
 			contractsListContractsHandler.ServeHTTP(w, r)
+		case ContractsDraftContractProcedure:
+			contractsDraftContractHandler.ServeHTTP(w, r)
+		case ContractsProposeWorkingProcedure:
+			contractsProposeWorkingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -292,4 +347,12 @@ func (UnimplementedContractsHandler) GetContract(context.Context, *connect.Reque
 
 func (UnimplementedContractsHandler) ListContracts(context.Context, *connect.Request[v1.ListContractsRequest]) (*connect.Response[v1.ListContractsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Contracts.ListContracts is not implemented"))
+}
+
+func (UnimplementedContractsHandler) DraftContract(context.Context, *connect.Request[v1.DraftContractRequest]) (*connect.Response[v1.DraftContractResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Contracts.DraftContract is not implemented"))
+}
+
+func (UnimplementedContractsHandler) ProposeWorking(context.Context, *connect.Request[v1.ProposeWorkingRequest]) (*connect.Response[v1.ProposeWorkingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Contracts.ProposeWorking is not implemented"))
 }

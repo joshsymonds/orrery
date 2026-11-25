@@ -18,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -391,7 +392,7 @@ func (f *passFixture) pendingTriggers() []string {
 func (f *passFixture) addTaskWorktree(name string) string {
 	f.t.Helper()
 	path := filepath.Join(TaskDir(f.stateDir, passEpic, 1), name)
-	if err := AddWorktree(f.ctx, f.repo, path, f.base); err != nil {
+	if err := AddWorktree(f.ctx, hostexec.NewLocal(), f.repo, path, f.base); err != nil {
 		f.t.Fatalf("AddWorktree: %v", err)
 	}
 	return path
@@ -521,7 +522,7 @@ func TestPassPausedEpicCreatesNoBranch(t *testing.T) {
 	if got := f.epic().Branch; got != "" {
 		t.Errorf("epic Branch = %q, want none while paused", got)
 	}
-	if _, exists, err := BranchTip(f.ctx, f.repo, passEpic); err != nil || exists {
+	if _, exists, err := BranchTip(f.ctx, hostexec.NewLocal(), f.repo, passEpic); err != nil || exists {
 		t.Errorf("BranchTip = exists %t, err %v, want no branch", exists, err)
 	}
 	if got := len(f.evidence.runs); got != 0 {
@@ -615,7 +616,7 @@ func TestPassRedRunOfChangedItemReadsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	db, err := sql.Open("sqlite", f.dbPath)
+	db, err := sql.Open("sqlite3", f.dbPath)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}
@@ -675,14 +676,15 @@ func TestPassImplementerDoneWithoutCommitReadsHeadFromTheStepsWorkspace(t *testi
 	f.expectGreenAt(head)
 }
 
-// TestPassImplementerMovingMainParksEpicWithTell covers R1 and R6: a move of refs/heads/main by the implementer parks
-// the epic with the move as its reason, tells the owner, consumes the refs check, and starts no run while parked.
+// TestPassImplementerMovingMainParksEpicWithTell covers R1 and R6: a move of refs/heads/main by the implementer, onto
+// the commit it made, parks the epic with the move as its reason, tells the owner, consumes the refs check, and starts
+// no run while parked.
 func TestPassImplementerMovingMainParksEpicWithTell(t *testing.T) {
 	t.Parallel()
 	f := newImplementerFixture(t)
-	id := passStep(StageImplement, 1, 0)
-	f.setStep(id, "done", `{"summary":"done"}`)
 	moved := buildObject(t, f.repo, f.base)
+	detachStep(t, f, moved)
+	f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+moved+`"}`)
 	buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
 	f.pass()
 	reason := fmt.Sprintf("T1 implementer moved refs/heads/main (%s to %s)", f.base, moved)
@@ -990,29 +992,6 @@ func TestPassExistingDerivedStepIsNotRestarted(t *testing.T) {
 	f.pass()
 	if got := len(f.steps.starts); got != 1 {
 		t.Errorf("Start calls = %d, want the one start made before the record was lost", got)
-	}
-}
-
-// TestPassCapReachedChangesNothingAndRetriesNextPass covers F6: a step start the cap refuses changes nothing, and the
-// next pass retries the same start.
-func TestPassCapReachedChangesNothingAndRetriesNextPass(t *testing.T) {
-	t.Parallel()
-	f := newPassFixture(t)
-	f.pass()
-	f.addRun(f.lastRun().id, evidence.PhaseRed, f.base, 1, evidence.VerdictFails)
-	f.steps.err = fmt.Errorf("start step: %w", enginehost.ErrCapReached)
-	f.pass()
-	before := f.task().Build
-	if before.Stage != StageImplement || before.Step != "" {
-		t.Fatalf("build = %+v, want implement with no step after the refused start", before)
-	}
-	f.pass()
-	if got := f.task().Build; got != before {
-		t.Errorf("build after the retry = %+v, want %+v unchanged", got, before)
-	}
-	id := passStep(StageImplement, 1, 0)
-	if len(f.steps.starts) != 2 || f.steps.starts[0].ID != id || f.lastStart().ID != id {
-		t.Errorf("Start calls = %d, want two starts of %s", len(f.steps.starts), id)
 	}
 }
 

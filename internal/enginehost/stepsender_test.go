@@ -62,7 +62,7 @@ func stepNudgeRun(t *testing.T, f *stepNudgeFixture, id string) *stepRun {
 
 func TestStartStepStoresBriefSender(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -89,7 +89,7 @@ func TestStartStepStoresBriefSender(t *testing.T) {
 
 func TestContinueStoresSenderAndRound(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -123,7 +123,7 @@ func TestContinueStoresSenderAndRound(t *testing.T) {
 
 func TestSayStoresNoSenderOrRound(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

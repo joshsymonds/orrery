@@ -5,9 +5,9 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type EpicBlock, type EpicItem, blockOf, epicLine, type StepItem } from "./epics";
 import { Gauge, type GaugeInner, Icon, StateGlyph } from "./glyphs";
+import type { HeldMove } from "./held";
 import { epicNeeds } from "./needs";
-import type { CellKind } from "./orbitcells";
-import { type PipTone, Pips } from "./pips";
+import { Pips } from "./pips";
 import { durationText } from "./phases";
 import { blockerOf, trackPart } from "./status";
 import type { EpicNode, Hung } from "./tree";
@@ -19,9 +19,6 @@ const proposedState = "proposed";
 const waitsOnAccept = "waits to be read and accepted";
 // The state of a release step that did not pass.
 const failedStep = "failed";
-// pipTone is the pip a step's ring cell draws: the ring it works toward runs, a held one is held, a failed one failed,
-// a ring with evidence passed, and a ring not reached none.
-const pipTone: Record<CellKind, PipTone> = { now: "run", held: "mine", errored: "bad", passed: "ok", track: "none" };
 
 // GaugeShare is an epic's gauge: the done share of its tasks out of the total, its tone, and the mark at its centre.
 export interface GaugeShare {
@@ -183,18 +180,23 @@ function stepState(step: StepItem): string {
 // contract hung there, with the contract's mark. Its gauge, name, count, words and blocker are epicRowWords'. An epic's
 // row draws each running step, then a line for the steps past the shown ones and the block's tail. A press on the row
 // calls onSelect with its key, and a press on a step with the step's key. currentStep is the key of the step the cursor
-// is on. The row draws no command.
+// is on. held is whether this row's thing is the one held open, which the row marks open, and move is the motion of the
+// change that holds it, which a held row carries as data-move. The row draws no command.
 export function EpicRow({
   hung,
   now,
   current,
   currentStep,
+  held = false,
+  move = "",
   onSelect,
 }: {
   hung: Hung;
   now: number;
   current: boolean;
   currentStep?: string;
+  held?: boolean;
+  move?: HeldMove;
   onSelect: (key: string) => void;
 }): JSX.Element {
   const words = epicRowWords(hung, now);
@@ -212,6 +214,8 @@ export function EpicRow({
         class={classes.join(" ")}
         role="link"
         data-key={hung.key}
+        data-held={held ? "open" : undefined}
+        data-move={held && move !== "" ? move : undefined}
         aria-current={current ? "true" : undefined}
         onClick={() => onSelect(hung.key)}
       >
@@ -269,7 +273,7 @@ function EpicSteps({
           >
             <StateGlyph state={state} />
             <span class="label">{step.label}</span>
-            <Pips cells={step.pips.map((kind) => pipTone[kind])} />
+            <Pips cells={step.pips} />
             <span class="doing">{step.doing}</span>
           </div>
         );

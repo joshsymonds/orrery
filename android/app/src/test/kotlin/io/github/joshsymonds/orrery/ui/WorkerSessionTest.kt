@@ -372,9 +372,11 @@ class WorkerSessionTest {
             EpicBuildTask.newBuilder()
                 .setId(TASK)
                 .setTitle(TITLE)
-                .setStatus("dispatched")
+                .setStatus("open")
                 .setStage("implement")
                 .addRequirements("R1")
+                .setPlace("implement")
+                .setTone("run")
                 .build(),
         )
         .build()
@@ -388,7 +390,6 @@ class WorkerSessionTest {
         .setLive(true)
         .setSource("orreryd")
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     private fun nodeTop(tag: String): Float = topOf(hasTestTag(tag))

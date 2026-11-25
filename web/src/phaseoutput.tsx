@@ -7,8 +7,8 @@ import { Ctl } from "./ctl";
 import { elapsed } from "./dockwords";
 import { EvidenceRuns, type LoadArtifact } from "./evidence";
 import type { EpicsGetResponse, EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
-import type { Phase, Tone } from "./phases";
-import { type RecordTask, type RingPlace, recordTasksOf } from "./record";
+import type { Phase, RingPlace, Tone } from "./phases";
+import { type RecordTask, recordTasksOf } from "./record";
 import type { Pill, WordTone } from "./recordwords";
 import { outcomeOf } from "./refusal";
 import { Sheet } from "./sheet";
@@ -65,7 +65,7 @@ export function PhaseOutputPage(props: {
   );
   const [asking, setAsking] = useState(false);
   const [notice, setNotice] = useState("");
-  const running = runningOf(detail, task);
+  const running = runningOf(detail, record?.labels ?? [task]);
   const title = record?.title ?? task;
   const pill = pillOf(record, now);
   const crumbs: Crumb[] = [{ label: detail.epic?.slug ?? "", onGo: onOpenEpic }, { label: title }];
@@ -438,10 +438,13 @@ function stepsOf(detail: EpicsGetResponse, task: string): EpicStep[] {
     .sort((left, right) => Number(left.started - right.started));
 }
 
-// runningOf is a task's running step: its latest step, when that step has not ended.
-function runningOf(detail: EpicsGetResponse, task: string): EpicStep | undefined {
-  const latest = stepsOf(detail, task).at(-1);
-  return latest !== undefined && latest.end === "" ? latest : undefined;
+// runningOf is a task's running step: the latest step its labels name that has not ended, the step the server reads
+// the task's tone from.
+function runningOf(detail: EpicsGetResponse, labels: string[]): EpicStep | undefined {
+  return detail.steps
+    .filter((step) => labels.includes(step.task) && step.end === "")
+    .sort((left, right) => Number(left.started - right.started))
+    .at(-1);
 }
 
 // pillOf is the state pill: while a step runs, the task's place and its clock; else the task's words. Both are in the task's

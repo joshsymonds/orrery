@@ -55,7 +55,7 @@ func deliverStepEndOnce(t *testing.T, m *Manager, s *store.Store, path, dir, id 
 // the turn runs: one pass stores it, writes it and marks it, and a second pass writes nothing more.
 func TestEventsArriveRunningTurn(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
@@ -73,7 +73,7 @@ func TestEventsArriveRunningTurn(t *testing.T) {
 // nothing more.
 func TestEventsArriveBackgroundTask(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
@@ -94,7 +94,7 @@ func TestEventsArriveBackgroundTask(t *testing.T) {
 // nothing more.
 func TestEventsArriveTurnAndBackgroundTask(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BGHANG"})
@@ -115,7 +115,7 @@ func TestEventsArriveTurnAndBackgroundTask(t *testing.T) {
 // has ended.
 func TestEventsArriveIdleKeepsBackground(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
 	if err != nil {

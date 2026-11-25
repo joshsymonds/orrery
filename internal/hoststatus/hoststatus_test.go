@@ -29,6 +29,10 @@ func writeFile(t *testing.T, path, content string, mode fs.FileMode) {
 
 // stubScript writes a shell script that appends a line to a counter file on each run, prints
 // output, then runs tail. It returns the script path and the counter path.
+// hangGuard is the command limit the tests give a Runner: long enough never to end a run that passes, so no test waits
+// on it, and short enough to end a run that hangs.
+const hangGuard = time.Minute
+
 func stubScript(t *testing.T, output, tail string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -63,7 +67,7 @@ func statObjects(count int) string {
 
 func TestStatsReturnsValidStats(t *testing.T) {
 	script, _ := stubScript(t, validOutput, "")
-	runner := hoststatus.New(script, time.Now)
+	runner := hoststatus.New(script, time.Now, hangGuard)
 
 	got, err := runner.Stats(context.Background())
 	if err != nil {
@@ -82,7 +86,7 @@ func TestStatsReturnsValidStats(t *testing.T) {
 func TestStatsAcceptsBoundaries(t *testing.T) {
 	script, _ := stubScript(t, `[{"label":"low","value":"0","percent":0,"level":"ok"},`+
 		`{"label":"high","value":"100","percent":100,"level":"crit"}]`, "")
-	got, err := hoststatus.New(script, time.Now).Stats(context.Background())
+	got, err := hoststatus.New(script, time.Now, hangGuard).Stats(context.Background())
 	if err != nil {
 		t.Fatalf("percent 0 and 100: %v", err)
 	}
@@ -92,7 +96,7 @@ func TestStatsAcceptsBoundaries(t *testing.T) {
 	}
 
 	script, _ = stubScript(t, statObjects(12), "")
-	got, err = hoststatus.New(script, time.Now).Stats(context.Background())
+	got, err = hoststatus.New(script, time.Now, hangGuard).Stats(context.Background())
 	if err != nil {
 		t.Fatalf("12 stats: %v", err)
 	}
@@ -123,7 +127,7 @@ func TestStatsRejectsInvalidOutput(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			script, _ := stubScript(t, testCase.output, "")
-			if _, err := hoststatus.New(script, time.Now).Stats(context.Background()); err == nil {
+			if _, err := hoststatus.New(script, time.Now, hangGuard).Stats(context.Background()); err == nil {
 				t.Fatal("Stats succeeded, want an error")
 			}
 		})
@@ -132,16 +136,18 @@ func TestStatsRejectsInvalidOutput(t *testing.T) {
 
 func TestStatsReturnsErrorOnNonZeroExit(t *testing.T) {
 	script, _ := stubScript(t, validOutput, "exit 3")
-	if _, err := hoststatus.New(script, time.Now).Stats(context.Background()); err == nil {
+	if _, err := hoststatus.New(script, time.Now, hangGuard).Stats(context.Background()); err == nil {
 		t.Fatal("Stats succeeded after a non-zero exit, want an error")
 	}
 }
 
+// TestStatsTimesOut gives the Runner a limit that has run out before the command can start, so the run ends at the limit
+// with an error and no test waits for the limit to pass.
 func TestStatsTimesOut(t *testing.T) {
 	script, _ := stubScript(t, validOutput, "sleep 10")
-	_, err := hoststatus.New(script, time.Now).Stats(context.Background())
-	if err == nil {
-		t.Fatal("Stats succeeded past the timeout, want an error")
+	_, err := hoststatus.New(script, time.Now, 0).Stats(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stats = %v, want the limit's deadline exceeded", err)
 	}
 }
 
@@ -149,7 +155,7 @@ func TestStatsCutsLongLabelAndValueByRunes(t *testing.T) {
 	label := strings.Repeat("é", 40)
 	value := strings.Repeat("v", 70)
 	script, _ := stubScript(t, `[{"label":"`+label+`","value":"`+value+`","level":"ok"}]`, "")
-	got, err := hoststatus.New(script, time.Now).Stats(context.Background())
+	got, err := hoststatus.New(script, time.Now, hangGuard).Stats(context.Background())
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
@@ -168,7 +174,7 @@ func TestStatsCachesOutcomeForFiveSeconds(t *testing.T) {
 	script, counter := stubScript(t, validOutput, "")
 	start := time.Unix(1_000_000, 0)
 	clk := &fakeClock{now: start}
-	runner := hoststatus.New(script, clk.Now)
+	runner := hoststatus.New(script, clk.Now, hangGuard)
 
 	first, err := runner.Stats(context.Background())
 	if err != nil {
@@ -199,7 +205,7 @@ func TestStatsCachesFailure(t *testing.T) {
 	script, counter := stubScript(t, "not json", "")
 	start := time.Unix(1_000_000, 0)
 	clk := &fakeClock{now: start}
-	runner := hoststatus.New(script, clk.Now)
+	runner := hoststatus.New(script, clk.Now, hangGuard)
 
 	if _, err := runner.Stats(context.Background()); err == nil {
 		t.Fatal("first Stats succeeded, want an error")
@@ -215,7 +221,7 @@ func TestStatsCachesFailure(t *testing.T) {
 
 func TestStatsDoesNotCacheCancelledCall(t *testing.T) {
 	script, _ := stubScript(t, validOutput, "")
-	runner := hoststatus.New(script, time.Now)
+	runner := hoststatus.New(script, time.Now, hangGuard)
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()

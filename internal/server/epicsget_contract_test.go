@@ -24,7 +24,7 @@ func TestEpicsGetServesOnlyOpenQuestions(t *testing.T) {
 		{Id: "Q4", Turn: 7, Text: "asked by no turn?", State: "open"},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/shared").GetQuestions()
 	want := []*orreryv1.EpicQuestion{
@@ -49,7 +49,7 @@ func TestEpicsGetServesPausedAndParked(t *testing.T) {
 	parked := storedEpicOf("repoa/parked", "accepted", epicsAgo(time.Hour))
 	parked.Parked = "synthetic park reason"
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{paused, parked}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	if got := epicsGet(t, client, "repoa/paused"); !got.GetPaused() || got.GetParked() != "" {
 		t.Errorf("paused epic = paused %v parked %q, want paused true and parked empty",
@@ -97,7 +97,7 @@ func TestEpicsGetServesContractSectionsInOrder(t *testing.T) {
 		Base:        "synthetic base commit",
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	want := &orreryv1.EpicContract{
 		Title:    "synthetic title",
@@ -137,29 +137,12 @@ func TestEpicsGetServesContractSectionsInOrder(t *testing.T) {
 	}
 }
 
-func TestEpicsGetRecordOnlyEpicHasNoEpicFields(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	other := storedEpicOf("repoa/other", "accepted", epicsAgo(time.Hour))
-	other.Summary = "synthetic other summary"
-	store := &epicStoreFake{stored: []*enginev1.StoredEpic{other}}
-	client := epicStoreServe(t, root, &epicsFake{}, store)
-
-	got := epicsGet(t, client, "repoa/record")
-	if len(got.GetQuestions()) != 0 || got.GetContract() != nil || got.GetPaused() || got.GetParked() != "" ||
-		got.GetSummary() != "" {
-		t.Errorf("record epic = questions %v contract %v paused %v parked %q summary %q, want none",
-			got.GetQuestions(), got.GetContract(), got.GetPaused(), got.GetParked(), got.GetSummary())
-	}
-}
-
 func TestEpicsGetServesStoredSummary(t *testing.T) {
 	t.Parallel()
 	stored := storedEpicOf("repoa/shared", "accepted", epicsAgo(2*time.Hour))
 	stored.Summary = "synthetic summary paragraph"
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	if got := epicsGet(t, client, "repoa/shared").GetSummary(); got != "synthetic summary paragraph" {
 		t.Errorf("summary = %q, want %q", got, "synthetic summary paragraph")
@@ -185,7 +168,7 @@ func TestEpicsGetAnswerOptionsServesLabelChoicesAndRecommendation(t *testing.T) 
 		},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/shared").GetQuestions()
 	want := []*orreryv1.EpicQuestion{

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -368,18 +367,6 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 		text string
 	}{
 		{
-			name: "cap refusal carries its reason",
-			err:  ErrCapReached,
-			code: connect.CodeResourceExhausted,
-			text: ErrCapReached.Error(),
-		},
-		{
-			name: "wrapped cap refusal keeps the wrapping text",
-			err:  wrapf(ErrCapReached, "start session"),
-			code: connect.CodeResourceExhausted,
-			text: "start session: " + ErrCapReached.Error(),
-		},
-		{
 			name: "no such session",
 			err:  wrapf(ErrNoSession, "stop session x"),
 			code: connect.CodeNotFound,
@@ -468,20 +455,6 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestServeRefusesStartPastCapWithReason(t *testing.T) {
-	t.Parallel()
-	path, _ := startServer(t, &fakeCommands{err: wrapf(ErrCapReached, "start session")})
-	client := newClient(t, path)
-
-	_, err := client.Start(context.Background(), connect.NewRequest(&v1.StartRequest{Dir: "/work", Prompt: "hello"}))
-	if got := connect.CodeOf(err); got != connect.CodeResourceExhausted {
-		t.Fatalf("Start past cap code = %v, want %v (error %v)", got, connect.CodeResourceExhausted, err)
-	}
-	if err == nil || !strings.Contains(err.Error(), ErrCapReached.Error()) {
-		t.Fatalf("Start past cap error = %v, want the cap reason %q", err, ErrCapReached.Error())
 	}
 }
 

@@ -159,16 +159,15 @@ func TestEpicByPartWritesReturnAnAcknowledgement(t *testing.T) {
 		t.Parallel()
 		epic := largeEpic()
 		fake := &fakeEpics{resumeReply: &v1.ResumeEpicResponse{
-			Epic:         epic,
-			Resumed:      []string{"step-a", "step-b"},
-			StillLimited: []string{"step-c"},
+			Epic:    epic,
+			Resumed: []string{"step-a", "step-b"},
 		}}
 		p := newPeer(t, nil, fake)
 
 		outcome := p.tool("epic_resume", `{"id":"`+testEpicID+`"}`)
 
 		assertAcknowledgement(t, "epic_resume", outcome,
-			head+"resumed 2 limited steps: step-a, step-b; 1 left limited by the step cap: step-c", epic)
+			head+"resumed 2 limited steps: step-a, step-b", epic)
 	})
 	t.Run("epic_retry", func(t *testing.T) {
 		t.Parallel()
@@ -197,7 +196,7 @@ func TestEpicByPartWritesReturnAnAcknowledgement(t *testing.T) {
 		outcome := p.tool("epic_stop", `{"id":"`+testEpicID+`"}`)
 
 		assertAcknowledgement(t, "epic_stop", outcome,
-			head+"stopped its release and freed the release slot", epic)
+			head+"stopped its release, so no further step starts", epic)
 	})
 	t.Run("epic_close", func(t *testing.T) {
 		t.Parallel()
@@ -333,15 +332,8 @@ func TestEpicByPartAcknowledgementNamesEachBranch(t *testing.T) {
 			},
 		},
 		{
-			name: "resume with a step still limited", tool: "epic_resume", arguments: `{"id":"` + testEpicID + `"}`,
-			want: head + "resumed 0 limited steps; 1 left limited by the step cap: step-a",
-			fake: func(epic *v1.StoredEpic) *fakeEpics {
-				return &fakeEpics{resumeReply: &v1.ResumeEpicResponse{Epic: epic, StillLimited: []string{"step-a"}}}
-			},
-		},
-		{
 			name: "resume with no step limited", tool: "epic_resume", arguments: `{"id":"` + testEpicID + `"}`,
-			want: head + "resumed 0 limited steps; 0 left limited by the step cap",
+			want: head + "resumed 0 limited steps",
 			fake: func(epic *v1.StoredEpic) *fakeEpics {
 				return &fakeEpics{resumeReply: &v1.ResumeEpicResponse{Epic: epic}}
 			},

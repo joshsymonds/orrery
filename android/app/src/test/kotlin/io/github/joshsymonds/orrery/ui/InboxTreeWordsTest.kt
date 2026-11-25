@@ -1,11 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicReleaseProofRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
@@ -32,14 +32,20 @@ class InboxTreeWordsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = phaseAt,
         paused = paused,
         pauseSource = pauseSource,
         parked = parked,
     )
 
-    private fun task(status: String) = EpicTaskRow(effort = 1, slug = "task", subject = "", status = status)
+    private fun task(status: String) = EpicBuildTaskRow(
+        id = "task",
+        title = "",
+        status = status,
+        stage = "",
+        red = null,
+        green = null,
+    )
 
     private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
 
@@ -71,20 +77,21 @@ class InboxTreeWordsTest {
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
+        buildTasks: List<EpicBuildTaskRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
         releaseProof: List<EpicReleaseProofRow> = emptyList(),
         paused: Boolean = false,
         parked: String = "",
+        steererParked: Boolean = false,
     ): EpicDetail = EpicDetail(
         epic = epic,
-        tasks = tasks,
-        slices = emptyList(),
+        buildTasks = buildTasks,
         steps = steps,
         questions = questions,
         paused = paused,
         parked = parked,
+        steererParked = steererParked,
         releaseProof = releaseProof,
     )
 
@@ -136,8 +143,7 @@ class InboxTreeWordsTest {
         orreryId = "conv-1",
     )
 
-    private fun convo(pane: Pane? = null, standIn: StandIn = StandIn.NONE) =
-        Convo(key = "k", pane = pane, standIn = standIn, again = false, hung = emptyList())
+    private fun convo(pane: Pane? = null) = Convo(key = "k", pane = pane, hung = emptyList(), folded = emptyList())
 
     private fun epicWords(node: EpicNode): EpicRowWords = epicRowWords(node, now)
 
@@ -155,7 +161,7 @@ class InboxTreeWordsTest {
     @Test
     fun aBuildingEpicCountsItsDoneAndIntegratedTasksAsDone() {
         val tasks = listOf(task("done"), task("integrated"), task("pending"))
-        val words = epicWords(node(detail = detail(tasks = tasks)))
+        val words = epicWords(node(detail = detail(buildTasks = tasks)))
 
         assertEquals("2 of 3 tasks done", words.count)
         assertEquals("building · 49 min", words.words)
@@ -230,6 +236,47 @@ class InboxTreeWordsTest {
 
         assertEquals("waits on your answer · 2 min", words.blocker)
         assertEquals(GaugeShare(done = 0, total = 0, tone = GaugeTone.ATTENTION, inner = GaugeInner.DOT), words.gauge)
+    }
+
+    @Test
+    fun aQuestionItsSteererHoldsIsNoBlockerUntilItsSteererEscalatesIt() {
+        val held = question(now - 120).copy(steererHeld = true)
+        val words = epicWords(node(detail = detail(questions = listOf(held))))
+
+        assertEquals("", words.blocker)
+        assertEquals(GaugeTone.LIVE, words.gauge?.tone)
+
+        val escalated = question(now - 120).copy(escalated = now - 60, escalationBy = "conversation")
+        val asked = epicWords(node(detail = detail(questions = listOf(escalated))))
+
+        assertEquals("waits on your answer · 2 min", asked.blocker)
+        assertEquals(GaugeTone.ATTENTION, asked.gauge?.tone)
+    }
+
+    @Test
+    fun aParkItsSteererHoldsReadsParkedWithNoBlockerAndAHeldStepBesideItIsTheBlocker() {
+        val parked = epic(parked = "waits for the steerer")
+        val words = epicWords(
+            node(epic = parked, detail = detail(epic = parked, parked = "waits for the steerer", steererParked = true)),
+        )
+
+        assertEquals("parked · 49 min", words.words)
+        assertEquals("", words.blocker)
+        assertEquals(GaugeTone.LIVE, words.gauge?.tone)
+
+        val stepped = epicWords(
+            node(
+                epic = parked,
+                detail = detail(
+                    epic = parked,
+                    parked = "waits for the steerer",
+                    steererParked = true,
+                    steps = listOf(heldStep(started = now - 60)),
+                ),
+            ),
+        )
+
+        assertEquals("build held", stepped.blocker)
     }
 
     @Test
@@ -350,12 +397,7 @@ class InboxTreeWordsTest {
     }
 
     @Test
-    fun aStandInWhoseConversationIsNotListedSaysSo() {
-        assertEquals("its conversation is not listed", convoLineOf(convo(standIn = StandIn.UNLISTED), now))
-    }
-
-    @Test
-    fun aStandInWhoseConversationIsArchivedSaysSo() {
-        assertEquals("its conversation is archived", convoLineOf(convo(standIn = StandIn.ARCHIVED), now))
+    fun aRowWithNoPaneHasNoConversationLineOfItsOwn() {
+        assertEquals("", convoLineOf(convo(), now))
     }
 }

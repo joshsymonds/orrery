@@ -151,7 +151,7 @@ func wantStartedSteerer(t *testing.T, m *Manager, path, repo string, before int)
 
 func TestSteererSetHeadlessConversationIsSteererWithoutStart(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 2, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	client := steererSetClient(t, m)
 	conversation := startedConversation(t, m)
 	before := countRows(t, path, "sessions")
@@ -179,7 +179,7 @@ func TestSteererSetHeadlessConversationIsSteererWithoutStart(t *testing.T) {
 
 func TestSteererSetPaneWithStateIsSteererWithoutStart(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 2, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	client := steererSetClient(t, m)
 	pane := store.Pane{ID: "orrery-pane", Pane: "%7", Fields: store.Fields{State: "working"}}
 	if err := concreteStore(t, m).SyncPane(t.Context(), "-S "+steerSocket, pane, fixedClock()); err != nil {
@@ -233,7 +233,7 @@ func TestSteererSetCallerWithoutConversationStartsOneSession(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			m, path := newTestManager(t, 2, fakeClaudePath(t))
+			m, path := newTestManager(t, fakeClaudePath(t))
 			client := steererSetClient(t, m)
 			caller := c.caller(t, concreteStore(t, m))
 			repo := stepGitTestRepo(t)
@@ -249,7 +249,7 @@ func TestSteererSetCallerWithoutConversationStartsOneSession(t *testing.T) {
 
 func TestSteererSetStoredIDIsRefusedBeforeAnyStart(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 2, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	client := steererSetClient(t, m)
 	repo := stepGitTestRepo(t)
 	if err := steererSetCreate(
@@ -272,22 +272,6 @@ func TestSteererSetStoredIDIsRefusedBeforeAnyStart(t *testing.T) {
 	}
 }
 
-func TestSteererSetFullCapRefusesNamingCapAndStoresNothing(t *testing.T) {
-	t.Parallel()
-	m, _ := newTestManager(t, 1, fakeClaudePath(t))
-	client := steererSetClient(t, m)
-	startedConversation(t, m)
-
-	err := steererSetCreate(t, concreteStore(t, m), client, stepGitTestRepo(t), nil)
-	if got := connect.CodeOf(err); got != connect.CodeResourceExhausted {
-		t.Fatalf("code = %v (%v), want ResourceExhausted", got, err)
-	}
-	if !strings.Contains(err.Error(), "cap of 1") {
-		t.Fatalf("error %q does not name the cap of 1", err)
-	}
-	wantEpicNotStored(t, client)
-}
-
 func TestSteererSetSpawnFailureRefusesNamingReasonAndStoresNothing(t *testing.T) {
 	t.Parallel()
 	const reason = "fake systemd-run refused the scope"
@@ -306,7 +290,7 @@ func TestSteererSetSpawnFailureRefusesNamingReasonAndStoresNothing(t *testing.T)
 
 func TestSteererSetFailedStoreStopsStartedSession(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	steering := NewEpicSteering(EpicSteeringConfig{Manager: m, Sessions: m.store, Render: rowRender})
 	client := newEpicsClient(t, serveEpicsWith(t, failingCreate{concreteStore(t, m)}, steering))
 	repo := stepGitTestRepo(t)

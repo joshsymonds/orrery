@@ -107,6 +107,22 @@ func TestPaneWakeTypesIntoDonePane(t *testing.T) {
 	sendAwaitInput(t, client, pane, file, "first line\nsecond line\r")
 }
 
+// TestPaneWakeTypesIntoHeldPane requires SendIdle to type into a working pane whose @orrery_held is set, since its
+// turn ended while a background agent runs and no turn runs, as it types into a done pane.
+func TestPaneWakeTypesIntoHeldPane(t *testing.T) {
+	t.Parallel()
+	client := sendServer(t)
+	pane, file := sendStartPane(t, client, sendBoxScreen())
+	sendSetState(t, client, pane, string(protocol.StateWorking))
+	sendRun(t, client, "set-option", "-p", "-t", pane, protocol.OptionHeld, "1700000000")
+
+	sent, err := cli.SendIdleWithClock(t.Context(), &instantClock{}, client, pane, "held text")
+	if err != nil || !sent {
+		t.Fatalf("SendIdle = %v, %v; want true, nil", sent, err)
+	}
+	sendAwaitInput(t, client, pane, file, "held text\r")
+}
+
 // TestPaneWakeRefusesUntypableText requires SendIdle to return an error and send no key for text that cannot
 // be typed exactly, even when the pane is done with its input box shown. Each text is invented to fail one
 // typing rule: a control character other than the line feed, invalid UTF-8, and more than 200 typed

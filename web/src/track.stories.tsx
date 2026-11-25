@@ -22,8 +22,12 @@ function detailOf(id: string): EpicsGetResponse {
   return detail;
 }
 
-// syntheticOf is an orreryd epic in the given phase, with its build tasks in the given states.
-function syntheticOf(outcome: string, tasks: { id: string; status: string; stage: string }[]): EpicsGetResponse {
+// syntheticOf is an orreryd epic in the given phase, with its build tasks in the given states, each where the server
+// stands it.
+function syntheticOf(
+  outcome: string,
+  tasks: { id: string; status: string; stage: string; place: string; tone: string }[],
+): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic: {
       id: "lighthouse/tide-cache",
@@ -43,6 +47,8 @@ function syntheticOf(outcome: string, tasks: { id: string; status: string; stage
       title: `Task ${task.id}`,
       status: task.status,
       stage: task.stage,
+      place: task.place,
+      tone: task.tone,
       requirements: [],
     })),
   });
@@ -54,10 +60,10 @@ export const Track: Stories = {
     <TrackView
       stages={trackOf(
         syntheticOf("accepted", [
-          { id: "T1", status: "done", stage: "" },
-          { id: "T2", status: "done", stage: "" },
-          { id: "T3", status: "open", stage: "implement" },
-          { id: "T4", status: "open", stage: "" },
+          { id: "T1", status: "done", stage: "", place: "integrated", tone: "ok" },
+          { id: "T2", status: "done", stage: "", place: "integrated", tone: "ok" },
+          { id: "T3", status: "open", stage: "implement", place: "implement", tone: "run" },
+          { id: "T4", status: "open", stage: "", place: "planned", tone: "plan" },
         ]),
       )}
     />,
@@ -66,9 +72,9 @@ export const Track: Stories = {
     <TrackView
       stages={trackOf(
         syntheticOf("reviewing", [
-          { id: "T1", status: "done", stage: "" },
-          { id: "T2", status: "done", stage: "" },
-          { id: "T3", status: "open", stage: "review" },
+          { id: "T1", status: "done", stage: "", place: "integrated", tone: "ok" },
+          { id: "T2", status: "done", stage: "", place: "integrated", tone: "ok" },
+          { id: "T3", status: "open", stage: "review", place: "review", tone: "run" },
         ]),
       )}
     />,

@@ -359,18 +359,20 @@ test("ContractMine: each row's control calls onAbout with the row's id and text"
   });
 });
 
-test("ContractMine: Keep and Strike call onAbout with the addition's location and Keep: or Strike: text", () => {
-  const calls: RowAbout[] = [];
-  return withDoc(propsOf(tideProposed, { onAbout: (about) => calls.push(about) }), (container) => {
+test("ContractMine: Keep and Strike call keeping with the addition's position, once each", () => {
+  const calls: string[] = [];
+  const keeping = {
+    sending: false,
+    onKeep: (index: number) => calls.push(`keep ${index}`),
+    onStrike: (index: number) => calls.push(`strike ${index}`),
+  };
+  return withDoc(propsOf(tideProposed, { keeping }), (container) => {
     const [keep, strike] = all(container, ".keepdrop button");
     assert.equal(keep?.textContent, "Keep");
     assert.equal(strike?.textContent, "Strike");
     keep?.click();
     strike?.click();
-    assert.deepEqual(calls, [
-      { id: "alerts/send.go", text: "Keep: Retry a failed send three times." },
-      { id: "alerts/send.go", text: "Strike: Retry a failed send three times." },
-    ]);
+    assert.deepEqual(calls, ["keep 0", "strike 0"]);
   });
 });
 

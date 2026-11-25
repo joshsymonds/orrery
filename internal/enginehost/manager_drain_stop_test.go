@@ -41,7 +41,7 @@ func stubbornClaudePath(t *testing.T) string {
 	return path
 }
 
-// newClaudeManager returns a manager with one slot whose controller speaks holder wire version version, over writer and
+// newClaudeManager returns a manager whose controller speaks holder wire version version, over writer and
 // s, that runs claude for its sessions. Its sessions run their holders under the fake systemd-run in root. Close runs at
 // the end of the test. The caller runs Reconcile.
 func newClaudeManager(
@@ -56,7 +56,6 @@ func newClaudeManager(
 		Shell:         sh,
 		Claude:        claude,
 		Environ:       []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:           1,
 		Writer:        writer,
 		Now:           fixedClock,
 		Notifier:      sink,

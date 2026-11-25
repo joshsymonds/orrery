@@ -3,10 +3,8 @@ package enginehost
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -138,10 +136,9 @@ func startLimitProbe(t *testing.T, rig stepsRig, repo, revision, prompt string) 
 	return id
 }
 
-// TestStepLimitSevenDayHoldsStepAndFreesSlot covers R1 for a seven-day limit: the step stays open and limited with the
-// kind and reset the rejected rate limit gave, it spends no round or continue, its fake claude is gone, and a second step
-// starts under the step cap of one.
-func TestStepLimitSevenDayHoldsStepAndFreesSlot(t *testing.T) {
+// TestStepLimitSevenDayHoldsStepAndEndsItsProcess covers R1 for a seven-day limit: the step stays open and limited with
+// the kind and reset the rejected rate limit gave, it spends no round or continue, and its fake claude is gone.
+func TestStepLimitSevenDayHoldsStepAndEndsItsProcess(t *testing.T) {
 	t.Parallel()
 	rig := newStepsRig(t, nil)
 	repo := stepGitTestRepo(t)
@@ -166,74 +163,7 @@ func TestStepLimitSevenDayHoldsStepAndFreesSlot(t *testing.T) {
 	if row.LoopRound != 0 || row.LoopContinues != 0 {
 		t.Fatalf("round %d, continues %d, want 0 and 0 for a limited turn", row.LoopRound, row.LoopContinues)
 	}
-	// The limit is stored before the step's session is released, and the release frees the slot only once the
-	// session's pump has ended, after its fake claude has exited. So the second Start waits for the slot itself.
-	waitUntil(t, engineOf(rig.manager, rig.steps), "the limited step's slot to be freed", func() bool {
-		return stepSlotsTaken(rig.manager) == 0
-	})
 	requireGone(t, pid)
-
-	if _, err := rig.steps.Start(t.Context(), stepStartReadOnly(repo, revision)); err != nil {
-		t.Fatalf("Start of a second step under step cap 1: %v", err)
-	}
-}
-
-// stepSlotsTaken returns how many step slots m holds.
-func stepSlotsTaken(m *Manager) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.stepsRunning
-}
-
-// holdRelease is the stepSessions of a Manager whose Release, the one a limited turn makes, waits after signaling entered
-// until release closes, and closes returned once the Manager's Release has returned.
-type holdRelease struct {
-	*Manager
-	entered  chan struct{}
-	release  chan struct{}
-	returned chan struct{}
-}
-
-func (h *holdRelease) Release(ctx context.Context, id string) error {
-	close(h.entered)
-	<-h.release
-	defer close(h.returned)
-	return h.Manager.Release(ctx, id)
-}
-
-// A limited step holds its slot until its release has returned: the limit is stored first, so a Start between the
-// stored limit and the release is refused at the step cap, and a Start once the release has returned is not. The test
-// pauses the release to force a Start into that gap.
-func TestStepLimitHoldsItsSlotUntilTheReleaseReturns(t *testing.T) {
-	t.Parallel()
-	rig := newStepsRig(t, nil)
-	held := &holdRelease{
-		Manager: rig.manager, entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{}),
-	}
-	releaseOnce := sync.OnceFunc(func() { close(held.release) })
-	defer releaseOnce()
-	steps := newRigSteps(t, rig, held, rig.manager.writer, rig.environ, slog.New(slog.DiscardHandler))
-	repo := stepGitTestRepo(t)
-	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
-	start := stepStartReadOnly(repo, revision)
-	start.Prompt = "LIMIT"
-	id, err := steps.Start(t.Context(), start)
-	if err != nil {
-		t.Fatalf("Start of a LIMIT step: %v", err)
-	}
-
-	receive(t, held.entered)
-	if row := stepRowOf(t, steps, id); !row.LoopLimited {
-		t.Fatalf("step %s is not stored limited when its release starts", id)
-	}
-	if _, err = steps.Start(t.Context(), stepStartReadOnly(repo, revision)); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Start while the limited step's release waits = %v, want ErrCapReached: its slot is still held", err)
-	}
-	releaseOnce()
-	receive(t, held.returned)
-	if _, err = steps.Start(t.Context(), stepStartReadOnly(repo, revision)); err != nil {
-		t.Fatalf("Start once the limited step's release returned: %v", err)
-	}
 }
 
 // TestStepLimitWithoutResetHoldsStepWithNoKind covers R1 for a limit whose turn carries the error but no rejected rate

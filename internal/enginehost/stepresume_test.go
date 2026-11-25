@@ -2,7 +2,6 @@ package enginehost
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,65 +185,6 @@ func TestStepsResumeOfEndedStepIsNotRunning(t *testing.T) {
 	}
 }
 
-// waitStepSlotsFree waits until rig's manager holds no step slot. A limited step's process can exit before the manager
-// has read it to the end and freed its slot, so a test that starts another step under a full step cap waits for that
-// release first, or the start races it and is refused at the cap.
-func waitStepSlotsFree(t *testing.T, rig stepsRig) {
-	t.Helper()
-	waitUntil(t, engineOf(rig.manager, rig.steps), "the limited step's slot freed", func() bool {
-		rig.manager.mu.Lock()
-		defer rig.manager.mu.Unlock()
-		return rig.manager.stepsRunning == 0
-	})
-}
-
-// TestStepsResumeWithStepCapFullLeavesStepLimited covers R2: with the step cap full by another live step, Resume
-// returns ErrCapReached and the step stays limited, and a later Resume once the slot frees succeeds.
-func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
-	t.Parallel()
-	rig := newStepsRig(t, nil)
-	repo := stepGitTestRepo(t)
-	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
-	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
-	dir := filepath.Join(rig.worktrees, id)
-	pid := fakePID(t, dir)
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"step limited",
-		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
-	)
-	// The loop stores the limit before it releases the process, so the slot is free only once the release finishes.
-	requireGone(t, pid)
-	waitStepSlotsFree(t, rig)
-	writeResumeFiles(t, dir)
-	holder := startLimitProbe(t, rig, repo, revision, "READDONE")
-
-	err := rig.steps.Resume(t.Context(), id)
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Resume with the step cap full = %v, want ErrCapReached", err)
-	}
-	if row := stepRowOf(t, rig.steps, id); !row.LoopLimited || row.End != "" {
-		t.Fatalf("limited %t, end %q after the refused Resume, want limited and open", row.LoopLimited, row.End)
-	}
-
-	if err := rig.steps.Stop(t.Context(), holder); err != nil {
-		t.Fatalf("Stop of the step holding the slot: %v", err)
-	}
-	if err := rig.steps.Resume(t.Context(), id); err != nil {
-		t.Fatalf("Resume once the slot frees: %v", err)
-	}
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"resumed step done",
-		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
-	)
-	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
-		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
-	}
-}
-
 // resumeFixtureRun makes the fixture's Continue return err, limits the fixture's run and resumes it in its loop.
 func resumeFixtureRun(t *testing.T, f *stepLoopFixture, err error) error {
 	t.Helper()
@@ -256,26 +196,9 @@ func resumeFixtureRun(t *testing.T, f *stepLoopFixture, err error) error {
 	return f.run.do(t.Context(), f.run.resumeLimited)
 }
 
-// TestStepResumeCapRefusalLeavesRunLimited covers R2: a Continue that the step cap refuses returns an error matching
-// ErrCapReached, and the run stays limited and open.
-func TestStepResumeCapRefusalLeavesRunLimited(t *testing.T) {
-	t.Parallel()
-	f := newStepLimitFixture(t)
-	f.start(t)
-
-	err := resumeFixtureRun(t, f, fmt.Errorf("%w: 1 live sessions, cap 1", ErrCapReached))
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Resume = %v, want ErrCapReached", err)
-	}
-	row := f.row(t)
-	if !row.LoopLimited || row.End != "" {
-		t.Fatalf("limited %t, end %q, want limited and open after the refused Continue", row.LoopLimited, row.End)
-	}
-}
-
-// TestStepResumeOtherContinueErrorEndsStepFailed covers R2: a Continue that fails for any reason other than the step
-// cap ends the step failed and returns that error.
-func TestStepResumeOtherContinueErrorEndsStepFailed(t *testing.T) {
+// TestStepResumeContinueErrorEndsStepFailed covers R2: a Continue that fails ends the step failed and returns that
+// error.
+func TestStepResumeContinueErrorEndsStepFailed(t *testing.T) {
 	t.Parallel()
 	f := newStepLimitFixture(t)
 	f.start(t)

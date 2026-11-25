@@ -32,7 +32,7 @@ func TestReopenedTaskRebuildRestartsEndedBuildRun(t *testing.T) {
 	if err := s.RecordNodeResult(ctx, integrateEpic, rebuildEndedPath, 0, `{"built":true}`); err != nil {
 		t.Fatalf("RecordNodeResult: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, integrateEpic, rebuildEndedPath, 0, "", nil, integrateEndedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, integrateEpic, rebuildEndedPath, 0, nil, integrateEndedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs: %v", err)
 	}
 	if err := s.EndNodes(ctx, integrateEpic, []NodeEnd{

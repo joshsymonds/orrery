@@ -20,7 +20,7 @@ class SessionSenderTest {
     @Test
     fun retryAfterResourceExhaustedRefusalReusesPromptId() {
         FakeOrreryServer().use { server ->
-            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "cap reached")
+            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "request body over 1 MiB")
             val sender = sender(server)
 
             val error = assertThrows(OrreryCallException::class.java) { sender.send(TEXT) }
@@ -73,7 +73,7 @@ class SessionSenderTest {
     @Test
     fun changedTextAfterFailureTakesFreshPromptId() {
         FakeOrreryServer().use { server ->
-            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "cap reached")
+            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "request body over 1 MiB")
             val sender = sender(server)
 
             assertThrows(OrreryCallException::class.java) { sender.send(TEXT) }

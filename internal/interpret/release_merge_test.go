@@ -20,6 +20,7 @@ type mergeWire struct {
 	Behind    bool   `json:"behind"`
 	Candidate string `json:"candidate"`
 	Tip       string `json:"tip"`
+	Origin    string `json:"origin"`
 }
 
 // mergeRepo makes a scratch repository on main, with the identity the release's merge commit is written under.
@@ -93,10 +94,10 @@ func TestReleasePrepareNotBehindRecordsTipAsCandidate(t *testing.T) {
 	}
 }
 
-// TestReleasePrepareBehindPinsTwoParentMerge: origin's main has a commit the tip lacks, so the candidate is a merge of
+// TestEpicBaseReleasePrepareBehindPinsTwoParentMerge: origin's main has a commit the tip lacks, so the candidate is a merge of
 // the tip and origin's commit that holds both sides. It is pinned under the run's release ref, and no ref outside
 // refs/orrery moves: not a branch, origin's remote-tracking refs, HEAD or the checkout.
-func TestReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
+func TestEpicBaseReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	repo := w.repo
@@ -185,7 +186,7 @@ func TestReleasePrepareRepeatChangesNothing(t *testing.T) {
 // TestReleasePrepareResultSetPreparesRecordedCandidate: a run whose Result is recorded and whose revision is not, as a
 // crash between the two writes leaves it, is prepared at the candidate its Result names. Origin has moved past the tip
 // since the Result was recorded, so a prepare that read git again would pin a merge that contains origin's main. The
-// epic is paused for the first pass, so the run starts and takes the slot but does not prepare.
+// epic is paused for the first pass, so the run starts but does not prepare.
 //
 // This test used to assert that the recorded candidate stayed and that no ref moved. Its assertions changed because
 // the candidate is now checked before the first step starts, whether an attempt recorded it or an earlier one did: the

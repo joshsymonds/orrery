@@ -36,7 +36,7 @@ func steeringOf(m *Manager, render func(store.EpicRow) ([]string, error)) *EpicS
 
 func TestEpicSteeringStartRunsOneSessionInRepository(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	repo := t.TempDir()
 	id, err := steeringOf(m, fakeRender).Start(t.Context(), store.EpicRow{ID: "orrery-epic", Repository: repo})
 	if err != nil {
@@ -69,28 +69,6 @@ func TestEpicSteeringStartRunsOneSessionInRepository(t *testing.T) {
 	}
 }
 
-func TestEpicSteeringStartAtFullCapNamesCapAndStartsNoSession(t *testing.T) {
-	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
-		t.Fatalf("Start of the session that fills the cap: %v", err)
-	}
-
-	id, err := steeringOf(m, fakeRender).Start(t.Context(), store.EpicRow{ID: "orrery-epic", Repository: t.TempDir()})
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Start error = %v, want ErrCapReached", err)
-	}
-	if !strings.Contains(err.Error(), "cap of 1") {
-		t.Fatalf("Start error %q does not name the cap of 1", err)
-	}
-	if id != "" {
-		t.Fatalf("refused Start returned id %q, want none", id)
-	}
-	if n := countRows(t, path, "sessions"); n != 1 {
-		t.Fatalf("sessions rows = %d, want 1", n)
-	}
-}
-
 func TestEpicSteeringStartNamesSpawnFailure(t *testing.T) {
 	t.Parallel()
 	const reason = "fake systemd-run refused the scope"
@@ -119,7 +97,7 @@ func TestEpicSteeringStartNamesSpawnFailure(t *testing.T) {
 
 func TestEpicSteeringRenderErrorStartsNothing(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	failing := func(store.EpicRow) ([]string, error) { return nil, errRender }
 
 	id, err := steeringOf(m, failing).Start(t.Context(), store.EpicRow{ID: "orrery-epic", Repository: t.TempDir()})
@@ -136,7 +114,7 @@ func TestEpicSteeringRenderErrorStartsNothing(t *testing.T) {
 
 func TestEpicSteeringStopStopsStartedSession(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	repo := t.TempDir()
 	steering := steeringOf(m, fakeRender)
 	id, err := steering.Start(t.Context(), store.EpicRow{ID: "orrery-epic", Repository: repo})
@@ -159,7 +137,7 @@ func TestEpicSteeringStopStopsStartedSession(t *testing.T) {
 
 func TestEpicSteeringStartStopsSessionWhoseRowReadFails(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	repo := t.TempDir()
 	steering := NewEpicSteering(EpicSteeringConfig{Manager: m, Sessions: failingSessions{}, Render: fakeRender})
 
@@ -182,9 +160,5 @@ func TestEpicSteeringStartStopsSessionWhoseRowReadFails(t *testing.T) {
 	}
 	if live := m.Live(); len(live) != 0 {
 		t.Fatalf("live sessions = %v, want none", live)
-	}
-	// The stop freed the cap's one slot, so another session starts.
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
-		t.Fatalf("Start after the stopped steering session: %v", err)
 	}
 }

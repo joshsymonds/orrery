@@ -32,7 +32,7 @@ func containsCommit(t *testing.T, repo, ancestor, descendant string) bool {
 }
 
 // stopAtFirstStep ends the first release step of the world's release as a step that returned blocked does, and passes,
-// so the release stops at it.
+// so the release stops at it. That holds while origin's main is in the candidate the step started from.
 func (w *releaseWorld) stopAtFirstStep() {
 	w.t.Helper()
 	w.endStep(w.stepID(1), "returned", "blocked", map[string]any{
@@ -118,8 +118,8 @@ func TestReleaseRepreparesCandidateOriginMovedPastIt(t *testing.T) {
 		t.Fatalf("step starts = %d, want the first step started again once the new candidate is recorded", got)
 	}
 	again := w.fakes.steps.calls[1]
-	if again.ID != w.stepID(1) || again.Revision != prepared {
-		t.Errorf("first step start = %+v, want it at the new candidate %s", again, prepared)
+	if again.ID != w.generationID("release 1") || again.Revision != prepared {
+		t.Errorf("first step start = %+v, want it at the new candidate %s under generation 1", again, prepared)
 	}
 
 	verify := w.releaseVerifyRuns()
@@ -180,6 +180,14 @@ func (w *releaseWorld) lastCheck() store.NodeCheck {
 	return w.fakes.checks.calls[len(w.fakes.checks.calls)-1]
 }
 
+// generationID returns the id of part of the world's release run's work under generation 1, as the executor walks it
+// once the run's candidate was prepared again at its attempt: the id ReleaseGatedID gives the run at that generation.
+func (w *releaseWorld) generationID(part string) string {
+	w.t.Helper()
+	run := runAt(w.t, w.s, releaseNodePath)
+	return store.NodeWorkID(store.ReleaseGatedID(run.ID, 1), run.Attempt, part)
+}
+
 // endLastCheck ends the check the world's fake was last asked to run with exit, whatever its id is.
 func (w *releaseWorld) endLastCheck(exit int) {
 	w.t.Helper()
@@ -226,8 +234,8 @@ func TestReleaseRepreparesSameAttemptCandidate(t *testing.T) {
 	if got := len(w.fakes.steps.calls); got != 1 {
 		t.Fatalf("step starts = %d, want the first step started once the new candidate is recorded", got)
 	}
-	if start := w.fakes.steps.calls[0]; start.ID != w.stepID(1) || start.Revision != prepared {
-		t.Errorf("first step start = %+v, want it at the new candidate %s", start, prepared)
+	if start := w.fakes.steps.calls[0]; start.ID != w.generationID("release 1") || start.Revision != prepared {
+		t.Errorf("first step start = %+v, want it at the new candidate %s under generation 1", start, prepared)
 	}
 
 	verify := w.releaseVerifyRuns()

@@ -73,7 +73,7 @@ type StepsClient interface {
 	// 4000 runes.
 	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
 	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
-	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// step carries no result: its summary carries what a list reads of it. A list of the
 	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
@@ -84,8 +84,8 @@ type StepsClient interface {
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
-	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
-	// resource_exhausted, and an id with no row with not_found.
+	// process in its session. A step no limit holds refuses with failed_precondition, and an id with no row with
+	// not_found.
 	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 
@@ -235,7 +235,7 @@ type StepsHandler interface {
 	// 4000 runes.
 	ReadStepCheck(context.Context, *connect.Request[v1.ReadStepCheckRequest]) (*connect.Response[v1.ReadStepCheckResponse], error)
 	// ListSteps lists the labelled steps, oldest first. An unlabelled step is listed only by a caller listing. A listed
-	// step carries no result: its summary, red_evidence and green_evidence carry what a list reads of it. A list of the
+	// step carries no result: its summary carries what a list reads of it. A list of the
 	// running steps also counts, by epic, the matching steps that have ended, without reading them.
 	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
 	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
@@ -246,8 +246,8 @@ type StepsHandler interface {
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
-	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
-	// resource_exhausted, and an id with no row with not_found.
+	// process in its session. A step no limit holds refuses with failed_precondition, and an id with no row with
+	// not_found.
 	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 

@@ -12,8 +12,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 
-	// The blank import registers the pure-Go "sqlite" driver the kind check opens the file with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver the kind check opens the file with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // stepSchema is a JSON schema with no spaces, so it stays one field of the fake claude's argument line.
@@ -42,10 +42,10 @@ func writeStepAgents(t *testing.T, home string) {
 	}
 }
 
-// newStepManager returns a manager with a session cap of one and stepCap steps that runs the claude at claude and
+// newStepManager returns a manager that runs the claude at claude and
 // sends its notices to sink. Its HOME holds the step agents. It reads rows from the store at the returned path. Close
 // runs before the writer stops and the store closes.
-func newStepManager(t *testing.T, stepCap int, claude string, sink NoticeSink) (*Manager, string) {
+func newStepManager(t *testing.T, claude string, sink NoticeSink) (*Manager, string) {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -60,8 +60,6 @@ func newStepManager(t *testing.T, stepCap int, claude string, sink NoticeSink) (
 		Shell:    sh,
 		Claude:   claude,
 		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
-		Cap:      1,
-		StepCap:  stepCap,
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,
@@ -74,7 +72,7 @@ func newStepManager(t *testing.T, stepCap int, claude string, sink NoticeSink) (
 // rowKind returns the kind of the sessions row id in the store at path, read on a separate connection.
 func rowKind(t *testing.T, path, id string) string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -112,7 +110,7 @@ func changedHas(changes []map[string]string, field, value string) bool {
 
 func TestStartStepRunsAgentWithSchemaAndRecordsRowOpsAndPrompt(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	seen := "1700000000"
 	err := m.StartStep(t.Context(), StepSession{
@@ -154,34 +152,10 @@ func TestStartStepRunsAgentWithSchemaAndRecordsRowOpsAndPrompt(t *testing.T) {
 	}
 }
 
-func TestStartStepCapCountsStepsApartFromSessions(t *testing.T) {
-	t.Parallel()
-	m, _ := newStepManager(t, 2, fakeClaudePath(t), &fakeSink{})
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
-		t.Fatalf("Start of the session: %v", err)
-	}
-	for _, id := range []string{stepA, stepB} {
-		step := StepSession{ID: id, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer"}
-		if err := m.StartStep(t.Context(), step); err != nil {
-			t.Fatalf("StartStep %s: %v", id, err)
-		}
-	}
-	third := StepSession{ID: stepC, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer"}
-	if err := m.StartStep(t.Context(), third); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("third StartStep: err = %v, want ErrCapReached", err)
-	}
-	if err := m.Stop(t.Context(), stepA); err != nil {
-		t.Fatalf("Stop of a step: %v", err)
-	}
-	if err := m.StartStep(t.Context(), third); err != nil {
-		t.Fatalf("StartStep after a stop freed a slot: %v", err)
-	}
-}
-
 func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, fakeClaudePath(t), sink)
 	if err := m.StartStep(
 		t.Context(),
 		StepSession{ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer"},
@@ -212,7 +186,7 @@ func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 func TestStepInterruptedByCloseSendsNoNotice(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, fakeClaudePath(t), sink)
 	if err := m.StartStep(
 		t.Context(),
 		StepSession{ID: stepA, Dir: t.TempDir(), Prompt: "HANG", Agent: "reviewer"},
@@ -236,7 +210,7 @@ func TestStepWithUnfindableClaudeFailsWithoutNotice(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	missing := filepath.Join(t.TempDir(), "no-claude")
-	m, path := newStepManager(t, 1, missing, sink)
+	m, path := newStepManager(t, missing, sink)
 	if err := m.StartStep(
 		t.Context(),
 		StepSession{ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer"},
@@ -264,7 +238,7 @@ func TestSayToStepIsRefusedAndNeverResumes(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	claude := fakeClaudePath(t)
-	m, path := newStepManager(t, 1, claude, sink)
+	m, path := newStepManager(t, claude, sink)
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), StepSession{ID: stepA, Dir: dir, Prompt: "hi", Agent: "reviewer"}); err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -306,7 +280,7 @@ func TestStartStepRefusesBadInputAndStoresNothing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+			m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 			err := m.StartStep(t.Context(), tc.step)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("StartStep: err = %v, want %v", err, tc.want)

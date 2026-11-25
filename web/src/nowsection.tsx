@@ -5,17 +5,15 @@ import { epicAsk, parkAsk } from "./askmodel";
 import { AskFirst } from "./blocker";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { Icon } from "./glyphs";
-import { recordTasksOf } from "./record";
-import { type PipTone, Pips } from "./pips";
+import { pipsOf, recordTasksOf } from "./record";
+import { Pips } from "./pips";
 import { askingOf, nowSentenceOf, stepLinesOf } from "./recordwords";
 import { elapsed } from "./dockwords";
 
-// A step with no task, or a task the record does not list, draws five unreached pips.
-const unreached: readonly PipTone[] = ["none", "none", "none", "none", "none"];
-
 // NowSection is the record's Now: its one sentence, what asks placed first under it, and each running step as a row. An
 // open question draws as its Ask, which answers on confirm, and an owner's park as its Ask, whose one answer is Retry,
-// then Stop that asks first; a planner's park draws as one quiet line, and every running step limited as Resume now.
+// then Stop that asks first; a planner's park, and a park or question the epic's steerer holds, draw as one quiet line
+// with no Ask, and every running step limited as Resume now.
 // numberKeys is whether a digit key picks an option of the Ask; narrow (under 760px) draws it without key caps. Nothing
 // here reads the clock: now is a prop.
 export function NowSection({
@@ -90,7 +88,7 @@ export function NowSection({
           </div>
         </>
       )}
-      {asking?.kind === "planner" && <p class="inote quiet">{asking.line}</p>}
+      {(asking?.kind === "planner" || asking?.kind === "steerer") && <p class="inote quiet">{asking.line}</p>}
       {asking?.kind === "limited" && (
         <button
           type="button"
@@ -106,7 +104,7 @@ export function NowSection({
           <div key={line.id} class={`tr t-${line.glyph}`}>
             <span class={`g g-${line.glyph}`} aria-label={line.glyph} />
             <span class="strong">{line.label}</span>
-            <Pips cells={tasks.find((task) => task.task === line.task)?.cells ?? unreached} />
+            <Pips cells={pipsOf(line.task, tasks)} />
             <span class="doing wide">{line.doing}</span>
             <span class="end">{elapsed(now - line.since)}</span>
           </div>

@@ -151,16 +151,14 @@ func (r *stepRun) autoResumeLimited(ctx context.Context, resets time.Time) error
 }
 
 // resumeWith sends prompt to a limited run, which respawns its released process in its session. It runs in the loop
-// goroutine. A Continue the step cap refuses leaves the run limited, and any other failed Continue ends the step failed. A
+// goroutine. A failed Continue ends the step failed. A
 // sent resume clears the limit, moves the loop into turn, restarts an agent gate step's limit from now, so the wait for the
 // reset never ends it overtime, and stores the loop state with the step's stored rate limit deleted and its due rows closed
 // in one write. A resume that is stored wakes the caller events (see wakeCaller).
 func (r *stepRun) resumeWith(ctx context.Context, prompt StepPrompt) error {
 	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
-		if !errors.Is(err, ErrCapReached) {
-			r.finish(ctx, stepLoopEndFailed, "", err.Error())
-		}
+		r.finish(ctx, stepLoopEndFailed, "", err.Error())
 		return err
 	}
 	r.limited = false
@@ -244,7 +242,6 @@ func (s *Steps) Nudge(ctx context.Context, id, text string) error {
 // step's released process in its session with --resume. The resume runs in the step's loop, as Hold does. Resume returns
 // ErrStepNotLimited for a step that no limit holds, ErrStepNotRunning when the step has ended or has no loop, and
 // ErrStepGating when the step is running its gate. An id with no row returns an error matching store.ErrNoStep. A
-// Continue refused by the step cap returns an error matching ErrCapReached and leaves the step limited. Any other
 // Continue error ends the step failed and is returned.
 func (s *Steps) Resume(ctx context.Context, id string) error {
 	defer s.calls.enter()()
@@ -259,8 +256,8 @@ func (s *Steps) Resume(ctx context.Context, id string) error {
 // names. It runs in the step's loop as Resume does, and sends the resume prompt under the PromptID derived from the step
 // and resets. It returns ErrStepNotLimited, and sends nothing, when no limit holds the step or its limit resets at another
 // time. A prompt of the step already stored under that PromptID is not sent again: the resume only clears the limit and
-// closes the due rows. Its other errors are Resume's: an error matching ErrCapReached leaves the step limited, and an
-// error matching ErrStepGating, ErrStepNotRunning or store.ErrNoStep is returned as Resume returns it.
+// closes the due rows. Its other errors are Resume's: an error matching ErrStepGating, ErrStepNotRunning or
+// store.ErrNoStep is returned as Resume returns it.
 func (s *Steps) AutoResume(ctx context.Context, id string, resets time.Time) error {
 	defer s.calls.enter()()
 	run, err := s.runOf(ctx, id)

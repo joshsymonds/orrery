@@ -559,12 +559,23 @@ func runningBatchOf(runs []NodeRun, task sqlcgen.EpicTask) string {
 }
 
 // claimedPassed reports whether the integrate run that claims task ended passed with the task in its batch, so the stored
-// base holds the task's commit. A task its claiming run left out is not in the base, though the run passed.
+// base holds the task's commit (batchPassed).
 func claimedPassed(runs []NodeRun, task sqlcgen.EpicTask) bool {
-	if task.Batch == "" {
+	return batchPassed(runs, task.Batch, task.Seq)
+}
+
+// Integrated reports whether the integrate run among runs that claims task ended passed with the task in its batch, so
+// the stored base holds the task's commit (batchPassed).
+func Integrated(runs []NodeRun, task EpicTask) bool {
+	return batchPassed(runs, task.Batch, task.Seq)
+}
+
+// batchPassed reports whether the integrate run at batch ended passed and composed task seq. A task no run claims has
+// an empty batch, and a task its claiming run left out is not in the base, though the run passed.
+func batchPassed(runs []NodeRun, batch string, seq int64) bool {
+	if batch == "" {
 		return false
 	}
-	i := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == task.Batch })
-	return i >= 0 && runs[i].State == NodeEnded && runs[i].Outcome == nodePassedOutcome &&
-		composesTask(runs[i], task.Seq)
+	i := slices.IndexFunc(runs, func(run NodeRun) bool { return run.Path == batch })
+	return i >= 0 && runs[i].State == NodeEnded && runs[i].Outcome == nodePassedOutcome && composesTask(runs[i], seq)
 }

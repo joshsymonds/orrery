@@ -256,7 +256,7 @@ class SessionScreenTest {
     fun resourceExhaustedRefusalKeepsTheDraft() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(delta(seq = 1L, state = stateOf("done"))))
-            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "synthetic cap reached")
+            server.fail(SAY_PATH, Code.RESOURCE_EXHAUSTED, "synthetic request body over 1 MiB")
             setScreen(server)
             composeRule.awaitExactlyOne(hasTestTag("composer"))
 

@@ -238,6 +238,7 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; touch "$MARKER"; exit 0`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,
@@ -333,6 +334,7 @@ func TestGrantedGateQueueSignalLimitCountsFromItsGrant(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:        gateTestHost(),
 			Argv:        []string{"/bin/sh", "-c", `echo 1 > "$RAN"; sleep 60`},
 			Dir:         t.TempDir(),
 			Limit:       time.Hour,
@@ -427,6 +429,7 @@ func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host: gateTestHost(),
 			Argv: []string{
 				"/bin/sh",
 				"-c",
@@ -497,6 +500,7 @@ func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host: gateTestHost(),
 			Argv: []string{
 				"/bin/sh",
 				"-c",
@@ -547,6 +551,7 @@ func TestGrantedGateCancelKillsGroupAndErrors(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,
@@ -578,6 +583,7 @@ func TestGrantedGateKillsGateWhenItsGrantEndsEarly(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,
@@ -603,6 +609,7 @@ func TestGrantedGateErrorsWhenAcquireFails(t *testing.T) {
 	pools := &fakeGatePools{err: refused}
 
 	_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,
@@ -621,6 +628,7 @@ func TestGrantedGateErrorsWithoutPools(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "started")
 
 	_, err := runGrantedGate(t.Context(), nil, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,
@@ -642,6 +650,7 @@ func TestGrantedGateErrorsWhenCtxEndsBeforeGrant(t *testing.T) {
 	defer cancel()
 
 	_, err := runGrantedGate(ctx, pools, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", `touch "$MARKER"`},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,
@@ -664,6 +673,7 @@ func TestGrantedGateNeverStartsOnAGrantThatEndedAsItArrived(t *testing.T) {
 	// time the gate could start. Each round gives the select a fresh chance to pick the grant first.
 	for range 50 {
 		_, err := runGrantedGate(ctx, &fakeGatePools{}, gateGrantRequest(), gateRun{
+			Host:    gateTestHost(),
 			Argv:    []string{"/bin/sh", "-c", `touch "$MARKER"`},
 			Dir:     t.TempDir(),
 			Limit:   time.Minute,

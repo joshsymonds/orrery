@@ -12,21 +12,18 @@ type unparsableEntry struct {
 	data []byte
 }
 
-// unparsableEntries returns the contents Parse rejects: text that is not JSON, an entry lacking its status, an entry
-// lacking its session id, and an entry whose status is none of busy, waiting, idle and shell. Each one is otherwise the
-// entry of pid 4242 in session sess-invented-1, which names pane %9.
+// unparsableEntries returns the contents Parse rejects: text that is not JSON, an entry lacking its session id, and an
+// entry whose status is none of busy, waiting, idle and shell. Each one is otherwise the entry of pid 4242 in session
+// sess-invented-1, which names pane %9.
 func unparsableEntries(t *testing.T) []unparsableEntry {
 	t.Helper()
 	whole := cliEntry(4242, "sess-invented-1", "testsrv:@7.%9")
-	noStatus := whole
-	noStatus.Status = ""
 	noSession := whole
 	noSession.SessionID = ""
 	unknown := whole
 	unknown.Status = "running"
 	return []unparsableEntry{
 		{name: "not JSON", data: []byte(`{"pid":4242,"sessionId":"sess-invented-1","status":`)},
-		{name: "no status", data: entryData(t, noStatus)},
 		{name: "no sessionId", data: entryData(t, noSession)},
 		{name: "status outside busy waiting idle shell", data: entryData(t, unknown)},
 	}
@@ -173,4 +170,72 @@ func TestPaneRegistryUnreadableNoticesAgainAfterWholeRead(t *testing.T) {
 
 	publish(t, dir, "4242.json", bad)
 	expectNotice(t, r, filepath.Join(dir, "4242.json"))
+}
+
+// startingEntry returns the entry Claude Code writes for pid 4242 in session sess-invented-1 before the session's first
+// status: every key of a cli entry naming pane %9, and no status key.
+func startingEntry() []byte {
+	return []byte(`{"pid":4242,"sessionId":"sess-invented-1","cwd":"` + testCwd + `","kind":"interactive",` +
+		`"entrypoint":"cli","tmux":"testsrv:@7.%9"}`)
+}
+
+// TestPaneRegistryStartingEntryNoticesNothingAndBindsOnItsStatus checks that the entry of a starting session, read on
+// each of several writes, raises no notice and binds nothing, and that the entry binds its pane once it is written with
+// a status.
+func TestPaneRegistryStartingEntryNoticesNothingAndBindsOnItsStatus(t *testing.T) {
+	t.Parallel()
+	dir, proc := readyRegistry(t)
+	proc.add(4242, cliEnv()).add(4243, cliEnv())
+	r := startWatch(t, dir, proc)
+	expectBinding(t, r.next(t), readyPane, readySession)
+
+	publish(t, dir, "4242.json", startingEntry())
+	publish(t, dir, "4242.json", startingEntry())
+	writeInPlace(t, dir, startingEntry())
+	settle(t, dir, r)
+	expectNoNotice(t, r)
+
+	publish(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-1", "testsrv:@7.%9")))
+	expectBinding(t, r.next(t), "%9", "sess-invented-1")
+	expectNoNotice(t, r)
+}
+
+// TestPaneRegistryStartingEntryKeepsItsBinding checks that a bound entry rewritten without a status emits nothing and
+// keeps the binding it held, so the next event is the unbinding that removing the entry makes.
+func TestPaneRegistryStartingEntryKeepsItsBinding(t *testing.T) {
+	t.Parallel()
+	dir, proc := readyRegistry(t)
+	r := startWatch(t, dir, proc.add(4242, cliEnv()))
+	expectBinding(t, r.next(t), readyPane, readySession)
+
+	publish(t, dir, "4242.json", entryData(t, cliEntry(4242, "sess-invented-1", "testsrv:@7.%9")))
+	bound := expectBinding(t, r.next(t), "%9", "sess-invented-1")
+
+	publish(t, dir, "4242.json", startingEntry())
+	publish(t, dir, "4242.json", startingEntry())
+	if err := os.Remove(filepath.Join(dir, "4242.json")); err != nil {
+		t.Fatalf("remove entry: %v", err)
+	}
+	expectEvent(t, r.next(t), Event{Binding: bound, Unbound: true})
+	expectNoNotice(t, r)
+}
+
+// TestPaneRegistryStartingEntryClearsAHeldFault checks that a starting entry is a whole read: an entry read torn once
+// and then read as starting is not reported when it is next read torn, since that read is the first failure again. Each
+// change is settled before the next, so each read finds the contents its change wrote.
+func TestPaneRegistryStartingEntryClearsAHeldFault(t *testing.T) {
+	t.Parallel()
+	torn := unparsableEntries(t)[0].data
+	dir, proc := readyRegistry(t)
+	proc.add(4242, cliEnv()).add(4243, cliEnv())
+	r := startWatch(t, dir, proc)
+	expectBinding(t, r.next(t), readyPane, readySession)
+
+	publish(t, dir, "4242.json", torn)
+	settle(t, dir, r)
+	publish(t, dir, "4242.json", startingEntry())
+	settle(t, dir, r)
+	publish(t, dir, "4242.json", torn)
+	settle(t, dir, r)
+	expectNoNotice(t, r)
 }

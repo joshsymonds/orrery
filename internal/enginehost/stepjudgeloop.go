@@ -111,17 +111,17 @@ func (r *stepRun) judgeCall(ctx context.Context, value json.RawMessage, commit s
 	return parseStepJudge(raw)
 }
 
-// judgeDiffStat returns git diff --stat from the step's start to commit in its directory.
+// judgeDiffStat returns git diff --stat from the step's start to commit in its directory, on its host.
 func (r *stepRun) judgeDiffStat(ctx context.Context, commit string) (string, error) {
-	from, err := stepGitResolve(ctx, r.dir, r.start)
+	from, err := stepGitResolve(ctx, r.host, r.dir, r.start)
 	if err != nil {
 		return "", err
 	}
-	to, err := stepGitResolve(ctx, r.dir, commit)
+	to, err := stepGitResolve(ctx, r.host, r.dir, commit)
 	if err != nil {
 		return "", err
 	}
-	return stepGit(ctx, r.dir, "diff", "--stat", from, to)
+	return stepGit(ctx, r.host, r.dir, "diff", "--stat", from, to)
 }
 
 // judgeGateTails returns the stdout and stderr tails of the gate check among checks, or empty when the round ran no gate.

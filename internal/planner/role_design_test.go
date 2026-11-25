@@ -17,12 +17,13 @@ func TestPlannerRoleDesignTaskCarriesAKind(t *testing.T) {
 }
 
 // TestPlannerRoleDesignInterfacesComeAsDesignTasks asserts that the role text says a judge checks the design tasks
-// against the contract and that the other tasks of the turn wait until they integrate.
+// against the contract and that a task waits only for the tasks its depends_on names, so one naming none starts at once.
 func TestPlannerRoleDesignInterfacesComeAsDesignTasks(t *testing.T) {
 	t.Parallel()
 	for _, want := range []string{
 		"A judge checks them against the contract",
-		"the other tasks of that turn wait until they integrate",
+		"A task waits only for the tasks its depends_on names, design tasks among them",
+		"a task that names none starts at once",
 	} {
 		if !strings.Contains(role, want) {
 			t.Errorf("role text lacks %q", want)

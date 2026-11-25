@@ -136,7 +136,7 @@ func deliverSender(t *testing.T, s *store.Store, deliver func(context.Context, D
 	t.Helper()
 	return NewCallerSender(CallerSenderConfig{
 		Deliver: deliver,
-		WakePane: func(context.Context, string, string, string) (bool, error) {
+		WakePane: func(context.Context, string, string, string, string) (bool, error) {
 			t.Error("a pane caller was woken in a headless delivery test")
 			return false, nil
 		},

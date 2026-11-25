@@ -29,7 +29,7 @@ func sessionsClient(t *testing.T, reader *store.Reader) orreryv1connect.Sessions
 // sessionsClientAt is sessionsClient with the clock now, which dates the retention window ListHeadless answers.
 func sessionsClientAt(t *testing.T, reader *store.Reader, now func() time.Time) orreryv1connect.SessionsClient {
 	t.Helper()
-	path, handler := newSessionsHandler(reader, "", now, nil, newChangeHub(nil, nil), nil, 0, 0, nil)
+	path, handler := newSessionsHandler(reader, "", now, nil, nil, newChangeHub(nil, nil), nil, 0, 0, nil)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
@@ -95,7 +95,7 @@ func writeStore(t *testing.T, path string) int64 {
 		t.Fatalf("store.Open: %v", err)
 	}
 	now := time.Unix(1_700_000_000, 0)
-	if err = s.SyncServer(ctx, "-L a", []store.Pane{
+	if err = s.SyncServer(ctx, "", "-L a", []store.Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: rowFields("orrery-1")},
 		{ID: "orrery-2", Pane: "%1", Fields: rowFields("orrery-2")},
 	}, now); err != nil {
@@ -113,7 +113,7 @@ func writeStore(t *testing.T, path string) int64 {
 		t.Fatalf("Close store: %v", err)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for seq: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestListReturnsUnavailableWhileStoreIsWriteLocked(t *testing.T) {
 	writeStore(t, path)
 
 	// An exclusive-locking connection holds the write lock, so the reader cannot read the file.
-	holder, err := sql.Open("sqlite", path)
+	holder, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open lock holder: %v", err)
 	}

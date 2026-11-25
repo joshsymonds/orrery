@@ -14,10 +14,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTell
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTrigger
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTurn
@@ -93,7 +91,6 @@ class OrreryClientEpicsTest {
         .setLive(true)
         .addRunningSteps(runningStepProto)
         .setEndedSteps(3)
-        .setProblem("efforts/1/state.json: does not parse")
         .setSeen(1700000500L)
         .build()
 
@@ -106,7 +103,6 @@ class OrreryClientEpicsTest {
         live = true,
         runningSteps = listOf(runningStepRow),
         endedSteps = 3,
-        problem = "efforts/1/state.json: does not parse",
         seen = 1700000500L,
     )
 
@@ -229,12 +225,12 @@ class OrreryClientEpicsTest {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_LIST,
-                EpicsListResponse.newBuilder().addEpics(epicProto.toBuilder().setWaiting(true)).build(),
+                EpicsListResponse.newBuilder().addEpics(epicProto).build(),
             )
 
             val epics = OrreryClient(server.baseUrl).epics()
 
-            assertEquals(listOf(epicRow.copy(waiting = true)), epics)
+            assertEquals(listOf(epicRow), epics)
             assertConnectRequest(EPICS_LIST, server.requests.single())
         }
     }
@@ -266,12 +262,13 @@ class OrreryClientEpicsTest {
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto)
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task")
-                            .setSubject("Example subject")
-                            .setStatus("DONE?  as written "),
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("example-task")
+                            .setTitle("Example subject")
+                            .setStatus("DONE?  as written ")
+                            .setPlace("integrated")
+                            .setTone("ok"),
                     )
                     .addSteps(runningStepProto)
                     .addSteps(endedStepProto)
@@ -283,15 +280,18 @@ class OrreryClientEpicsTest {
             assertEquals(
                 EpicDetail(
                     epic = epicRow,
-                    tasks = listOf(
-                        EpicTaskRow(
-                            effort = 1,
-                            slug = "example-task",
-                            subject = "Example subject",
+                    buildTasks = listOf(
+                        EpicBuildTaskRow(
+                            id = "example-task",
+                            title = "Example subject",
                             status = "DONE?  as written ",
+                            stage = "",
+                            red = null,
+                            green = null,
+                            place = "integrated",
+                            tone = "ok",
                         ),
                     ),
-                    slices = emptyList(),
                     steps = listOf(
                         runningStepRow,
                         StepRow(
@@ -326,94 +326,26 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun epicMapsEverySliceFieldInServeOrder() {
+    fun epicMapsEachTasksPlaceAndToneAsServeSendsThem() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto)
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-a")
-                            .setHue("dispatched")
-                            .setRedTest(true)
-                            .setWorking(true)
-                            .setTestsPass(true)
-                            .setChecks(true)
-                            .setGateAccepted(false)
-                            .setAt(4)
-                            .setHeld(false)
-                            .setErrorAt(0),
-                    )
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-b")
-                            .setHue("gap")
-                            .setWorking(true)
-                            .setTestsPass(true)
-                            .setAt(0)
-                            .setHeld(true)
-                            .setErrorAt(3),
-                    )
-                    .addSlices(
-                        EpicSlice.newBuilder()
-                            .setTask("example-task-c")
-                            .setHue("done")
-                            .setRedTest(false)
-                            .setWorking(true)
-                            .setTestsPass(false)
-                            .setChecks(true)
-                            .setGateAccepted(true)
-                            .setAt(0)
-                            .setHeld(false)
-                            .setErrorAt(4),
+                    .addBuildTasks(
+                        EpicBuildTask.newBuilder()
+                            .setId("T1")
+                            .setStatus("open")
+                            .setStage("review")
+                            .setPlace("review")
+                            .setTone("limited"),
                     )
                     .build(),
             )
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
-            assertEquals(
-                listOf(
-                    EpicSliceRow(
-                        task = "example-task-a",
-                        hue = "dispatched",
-                        redTest = true,
-                        working = true,
-                        testsPass = true,
-                        checks = true,
-                        gateAccepted = false,
-                        at = 4,
-                        held = false,
-                        errorAt = 0,
-                    ),
-                    EpicSliceRow(
-                        task = "example-task-b",
-                        hue = "gap",
-                        redTest = false,
-                        working = true,
-                        testsPass = true,
-                        checks = false,
-                        gateAccepted = false,
-                        at = 0,
-                        held = true,
-                        errorAt = 3,
-                    ),
-                    EpicSliceRow(
-                        task = "example-task-c",
-                        hue = "done",
-                        redTest = false,
-                        working = true,
-                        testsPass = false,
-                        checks = true,
-                        gateAccepted = true,
-                        at = 0,
-                        held = false,
-                        errorAt = 4,
-                    ),
-                ),
-                detail?.slices,
-            )
+            assertEquals(listOf("review" to "limited"), detail?.buildTasks?.map { it.place to it.tone })
         }
     }
 
@@ -477,7 +409,9 @@ class OrreryClientEpicsTest {
                             .setStatus("done")
                             .setStage("green")
                             .setRed(buildRunProto("example-run-1", "red", "example/red-screen.png"))
-                            .setGreen(buildRunProto("example-run-2", "green", "example/green-screen.png")),
+                            .setGreen(buildRunProto("example-run-2", "green", "example/green-screen.png"))
+                            .setPlace("integrated")
+                            .setTone("ok"),
                     )
                     .addBuildTasks(
                         EpicBuildTask.newBuilder()
@@ -486,7 +420,9 @@ class OrreryClientEpicsTest {
                             .setStatus("open")
                             .setStage("implement")
                             .setRed(buildRunProto("example-run-3", "red", "example/second-red-screen.png"))
-                            .setGreen(buildRunProto("example-run-4", "green", "example/second-green-screen.png")),
+                            .setGreen(buildRunProto("example-run-4", "green", "example/second-green-screen.png"))
+                            .setPlace("implement")
+                            .setTone("run"),
                     )
                     .build(),
             )
@@ -502,6 +438,8 @@ class OrreryClientEpicsTest {
                         stage = "green",
                         red = buildRunRow("example-run-1", "red", "example/red-screen.png"),
                         green = buildRunRow("example-run-2", "green", "example/green-screen.png"),
+                        place = "integrated",
+                        tone = "ok",
                     ),
                     EpicBuildTaskRow(
                         id = "T2",
@@ -510,6 +448,8 @@ class OrreryClientEpicsTest {
                         stage = "implement",
                         red = buildRunRow("example-run-3", "red", "example/second-red-screen.png"),
                         green = buildRunRow("example-run-4", "green", "example/second-green-screen.png"),
+                        place = "implement",
+                        tone = "run",
                     ),
                 ),
                 detail?.buildTasks,
@@ -552,51 +492,19 @@ class OrreryClientEpicsTest {
     }
 
     @Test
-    fun recordEpicMapsNoRequirementsAndItsSource() {
+    fun epicWithNoRequirementsOrContractMapsEmptyAndNull() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
-                    .setEpic(epicProto.toBuilder().setSource("record"))
+                    .setEpic(epicProto)
                     .build(),
             )
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
             assertEquals(emptyList<EpicRequirementRow>(), detail?.requirements)
-            assertEquals("record", detail?.epic?.source)
             assertNull(detail?.contract)
-        }
-    }
-
-    @Test
-    fun epicsAndEpicMapEachEpicsSource() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_LIST,
-                EpicsListResponse.newBuilder()
-                    .addEpics(epicProto.toBuilder().setSource("orreryd"))
-                    .addEpics(
-                        epicProto.toBuilder()
-                            .setId("example-repo/example-record")
-                            .setSlug("example-record")
-                            .setSource("record"),
-                    )
-                    .build(),
-            )
-            server.respond(
-                EPICS_GET,
-                EpicsGetResponse.newBuilder()
-                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
-                    .build(),
-            )
-            val client = OrreryClient(server.baseUrl)
-
-            assertEquals(
-                listOf("orreryd", "record"),
-                client.epics().map { it.source },
-            )
-            assertEquals("orreryd", client.epic("example-repo/example-epic")?.epic?.source)
         }
     }
 
@@ -725,21 +633,47 @@ class OrreryClientEpicsTest {
     }
 
     @Test
+    fun epicMapsTheSteerersParkAndWhichQuestionsItsSteererHolds() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .setParked("example park reason")
+                    .setSteererParked(true)
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q1")
+                            .setText("Example question one?")
+                            .setTurn(2L)
+                            .setAsked(4102444700L)
+                            .setSteererHeld(true),
+                    )
+                    .addQuestions(
+                        EpicQuestion.newBuilder()
+                            .setId("Q2")
+                            .setText("Example question two?")
+                            .setTurn(3L)
+                            .setAsked(4102444800L),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(true, detail?.steererParked)
+            assertEquals(false, detail?.plannerParked)
+            assertEquals(listOf(true, false), detail?.questions?.map { it.steererHeld })
+        }
+    }
+
+    @Test
     fun epicMapsEveryTaskAndBuildTaskRequirementInOrder() {
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
                 EpicsGetResponse.newBuilder()
                     .setEpic(epicProto.toBuilder().setSource("orreryd"))
-                    .addTasks(
-                        EpicTask.newBuilder()
-                            .setEffort(1)
-                            .setSlug("example-task")
-                            .setSubject("Example subject")
-                            .setStatus("DONE")
-                            .addRequirements("R1")
-                            .addRequirements("R3"),
-                    )
                     .addBuildTasks(
                         EpicBuildTask.newBuilder()
                             .setId("T1")
@@ -753,7 +687,6 @@ class OrreryClientEpicsTest {
 
             val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
 
-            assertEquals(listOf("R1", "R3"), detail?.tasks?.single()?.requirements)
             assertEquals(listOf("R2", "R4"), detail?.buildTasks?.single()?.requirements)
         }
     }

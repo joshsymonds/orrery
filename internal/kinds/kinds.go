@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -22,9 +21,7 @@ type Node struct {
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
 // checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, how
 // many of the actions its planner returned are pending, its end-of-epic review, the epic-stage reviewers enabled for it
-// in merged order, its release runs, the epic that holds the release slot of its repository, which is "" when the
-// slot is free, and its integrate rounds, the rounds of each conflicting task's integrator. Now is the time of the
-// runner's clock the rows are decided at, which the age of the epic's last read of origin's main is measured to.
+// in merged order, its release runs, and its integrate rounds, the rounds of each conflicting task's integrator.
 type Rows struct {
 	Epic     store.EpicRow
 	Runs     []store.NodeRun
@@ -46,8 +43,6 @@ type Rows struct {
 	Review       store.Review
 	Reviewers    []Reviewer
 	Releases     []store.ReleaseRun
-	Slot         string
-	Now          time.Time
 	// Stranded holds, in seq order, the done tasks whose work a failed batch composed and the base a fresh task starts
 	// on does not hold, as interpret reads them. nil reads as none.
 	Stranded []int64
@@ -98,9 +93,7 @@ const (
 // Phase are what a review, closure or conclusion ends with. Gaps are the live gaps a conclusion's gap round gives
 // each a planner turn, and Question is the gaps question an ending with gaps opens. Revision, when set, is the revision
 // the work runs at in place of the run's own: a release run walks the Done gates and captures of a merge the release
-// integrator committed, and records it as the candidate, at that commit. Reason, on a sync run's advance, is why the
-// epic is no longer at the quiet point the sync started at, and empty while it is. Tell, on a sync run's end, reports
-// whether its output is told to the owner.
+// integrator committed, and records it as the candidate, at that commit.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string
@@ -116,7 +109,6 @@ type Action struct {
 	Phase    string
 	Revision string
 	Reason   string
-	Tell     bool
 	Gaps     []Gap
 	Question store.GapsQuestion
 }
@@ -144,7 +136,7 @@ type Plan struct{}
 
 // Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
 // is not ended, and ends once the task is no longer open. A task that has not started, one whose build has no stage yet,
-// waits for the design tasks planned in its turn, and then for the tasks it depends on: it gives none while one is
+// waits for the tasks its depends_on names, design tasks among them, and for no other: it gives none while one is
 // pending, and gives a gap naming the first lost one, so it runs only once each of them has been integrated into a
 // batch.
 type Build struct{}
@@ -229,9 +221,9 @@ func anyTaskOpen(tasks []store.EpicTask) bool {
 }
 
 // Decide returns end with no outcome when the run's task is not open on the epic. An open task that has not started
-// waits for the design tasks planned in its turn, in seq order, when it is not a design task itself, and then for the
-// tasks it depends on: each returns gap when one of them is lost, naming the first lost one in its order, and none
-// while one is pending. A dependency that its batch composed is lost too when Rows.Stranded holds it: a failed batch
+// waits for the tasks it depends on, and only those: a design task holds a task only when the task names it in
+// depends_on. It returns gap when one of them is lost, naming the first lost one in its order, and none while one is
+// pending. A dependency that its batch composed is lost too when Rows.Stranded holds it: a failed batch
 // composed it, and the base a fresh task starts on does not hold its work. Otherwise it returns run when the epic has a
 // base and its phase is not ended, and none when it does not.
 func (Build) Decide(node Node, rows Rows) Action {
@@ -240,9 +232,6 @@ func (Build) Decide(node Node, rows Rows) Action {
 		return Action{Kind: ActEnd}
 	}
 	if task.Build.Stage == "" {
-		if action, waiting := awaitDependencies(heldDesigns(task, rows.Epic.Tasks), rows); waiting {
-			return action
-		}
 		if action, waiting := awaitDependencies(task.DependsOn, rows); waiting {
 			return action
 		}
@@ -251,22 +240,6 @@ func (Build) Decide(node Node, rows Rows) Action {
 		return Action{Kind: ActRun}
 	}
 	return Action{Kind: ActNone}
-}
-
-// heldDesigns returns, in seq order, the seqs of the design tasks task waits on: those planned in its turn. A design
-// task is held by no design task, so it returns nil for one, as it does for a turn that planned none.
-func heldDesigns(task store.EpicTask, tasks []store.EpicTask) []int64 {
-	if task.Kind == store.TaskKindDesign {
-		return nil
-	}
-	var seqs []int64
-	for i := range tasks {
-		if tasks[i].Turn == task.Turn && tasks[i].Kind == store.TaskKindDesign {
-			seqs = append(seqs, tasks[i].Seq)
-		}
-	}
-	slices.Sort(seqs)
-	return seqs
 }
 
 // openTask returns the task with seq among tasks, and whether it is open.

@@ -1,8 +1,8 @@
 import type { EpicHistoryEntry, EpicQuestion, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import { releaseOf } from "./ending";
-import { durationText, wedgesOf } from "./phases";
+import { durationText, tasksOf } from "./phases";
+import { recordTasksOf } from "./record";
 import { clock } from "./reader";
-import { stateOf } from "./status";
 
 // The words and tones of an epic's record: its track, its state and blocker pills, its contract door, the sections it
 // has reached, and Now's sentence, what asks, and its running rows. A component draws these and decides nothing.
@@ -30,6 +30,7 @@ export type Asking =
   | { kind: "question"; question: EpicQuestion }
   | { kind: "park"; reason: string }
   | { kind: "planner"; line: string }
+  | { kind: "steerer"; line: string }
   | { kind: "limited" }
   | null;
 export interface StepLine {
@@ -71,10 +72,6 @@ function stageIndexOf(phase: string): number {
 
 const reportIndex = stageIndexOf("released");
 
-function isOrreryd(detail: EpicsGetResponse): boolean {
-  return detail.epic?.source === "orreryd";
-}
-
 function phaseOf(detail: EpicsGetResponse): string {
   return detail.epic?.outcome ?? "";
 }
@@ -93,12 +90,33 @@ function runningTasks(detail: EpicsGetResponse): number {
   return new Set(runningSteps(detail).map((step) => step.task).filter((task) => task !== "")).size;
 }
 
+// Whether the epic is parked and the park waits on the owner: neither its planner nor its steerer holds it.
 export function ownerParked(detail: EpicsGetResponse): boolean {
-  return detail.parked !== "" && !detail.plannerParked;
+  return detail.parked !== "" && !detail.plannerParked && !detail.steererParked;
 }
 
 export function plannerParked(detail: EpicsGetResponse): boolean {
   return detail.plannerParked;
+}
+
+// Whether the epic is parked and its steerer holds the park, until it escalates the park's question to the owner.
+export function steererParked(detail: EpicsGetResponse): boolean {
+  return detail.steererParked;
+}
+
+// The open questions the owner is asked: every one its steerer does not hold.
+function ownerQuestions(detail: EpicsGetResponse): EpicQuestion[] {
+  return detail.questions.filter((question) => !question.steererHeld);
+}
+
+// The open questions the epic's steerer holds, which ask the owner nothing until the steerer escalates them.
+function steererQuestions(detail: EpicsGetResponse): EpicQuestion[] {
+  return detail.questions.filter((question) => question.steererHeld);
+}
+
+// The quiet line of a question the epic's steerer holds, as the record and a conversation's event ring draw it.
+export function steererQuestionLine(question: EpicQuestion): string {
+  return `Its steerer holds this question, and answers it or escalates it to you: ${question.text}`;
 }
 
 // Whether at least one step runs and every running step is held by a usage limit.
@@ -107,9 +125,9 @@ export function allLimited(detail: EpicsGetResponse): boolean {
   return running.length > 0 && running.every((step) => step.limited);
 }
 
-// Whether something asks the owner: an open question, or a park the owner holds.
+// Whether something asks the owner: an open question its steerer does not hold, or a park the owner holds.
 function asksYou(detail: EpicsGetResponse): boolean {
-  return detail.questions.length > 0 || ownerParked(detail);
+  return ownerQuestions(detail).length > 0 || ownerParked(detail);
 }
 
 // The tone of a live phase: grey when every running step is limited, else live.
@@ -128,7 +146,7 @@ function orrerydPill(detail: EpicsGetResponse): Pill {
   const phase = phaseOf(detail);
   switch (phase) {
     case "accepted":
-      return { word: wedgesOf(detail).length === 0 ? "planning" : "building", tone: liveTone(detail) };
+      return { word: tasksOf(detail).length === 0 ? "planning" : "building", tone: liveTone(detail) };
     case "built":
       return { word: "building", tone: liveTone(detail) };
     case "reviewing":
@@ -159,11 +177,8 @@ function orrerydPill(detail: EpicsGetResponse): Pill {
   }
 }
 
-// The track of an orreryd epic: five stages, the one its phase is in, and the words of each. A record epic has none.
+// The track of an epic: five stages, the one its phase is in, and the words of each.
 export function trackOf(detail: EpicsGetResponse): Stage[] {
-  if (!isOrreryd(detail)) {
-    return [];
-  }
   const phase = phaseOf(detail);
   const now = stageIndexOf(phase);
   return stageNames.map((name, index) => {
@@ -203,12 +218,12 @@ function acceptedWords(detail: EpicsGetResponse): string {
 // The Build stage: its task count, and while it is now, what asks, whether it is paused, and whether a step waits on a
 // limit.
 function buildStage(detail: EpicsGetResponse, state: "done" | "now"): Stage {
-  const wedges = wedgesOf(detail);
-  if (state === "now" && wedges.length === 0) {
+  const tasks = recordTasksOf(detail);
+  if (state === "now" && tasks.length === 0) {
     return { name: "Build", state, tone: buildTone(detail), words: "the planner is outlining tasks" };
   }
-  const done = wedges.filter((wedge) => wedge.place === "integrated").length;
-  let words = `${done} of ${wedges.length} tasks done`;
+  const done = tasks.filter((task) => task.place === "integrated").length;
+  let words = `${done} of ${tasks.length} tasks done`;
   if (state === "now") {
     if (asksYou(detail)) {
       words += " · 1 waits on you";
@@ -258,7 +273,7 @@ function reportStage(detail: EpicsGetResponse): Stage {
 
 // The state pill: the epic's state word and tone, with its time since the phase began once it has begun.
 export function statePillOf(detail: EpicsGetResponse, now: number): Pill {
-  const pill = isOrreryd(detail) ? orrerydPill(detail) : { word: stateOf(detail), tone: "quiet" as const };
+  const pill = orrerydPill(detail);
   const phaseAt = Number(detail.epic?.phaseAt ?? 0);
   if (pill.word === "" || phaseAt <= 0) {
     return pill;
@@ -266,17 +281,14 @@ export function statePillOf(detail: EpicsGetResponse, now: number): Pill {
   return { word: `${pill.word} · ${durationText(Math.max(0, now - phaseAt))}`, tone: pill.tone };
 }
 
-// The blocker pill, when something asks: an open question with its time, an owner's park, a step the owner held, or the
-// release or close the owner waits on.
+// The blocker pill, first match: what asks the owner, in attention (an open question with its time, an owner's park, a
+// step the owner held), then a park its steerer holds, quiet, then the release or close the owner waits on, then a
+// question its steerer holds with its time, quiet. The steerer's park comes ahead of the ending because the park holds
+// the stopped release, which the owner is not asked about until the steerer escalates it.
 export function blockerPillOf(detail: EpicsGetResponse, now: number): Pill | null {
-  const question = detail.questions[0];
+  const question = ownerQuestions(detail)[0];
   if (question !== undefined) {
-    const asked = Number(question.asked);
-    const word = "asks you a question";
-    return {
-      word: asked > 0 ? `${word} · ${durationText(Math.max(0, now - asked))}` : word,
-      tone: "attention",
-    };
+    return { word: askedWord("asks you a question", question, now), tone: "attention" };
   }
   if (ownerParked(detail)) {
     return { word: "asks you what to do", tone: "attention" };
@@ -285,15 +297,29 @@ export function blockerPillOf(detail: EpicsGetResponse, now: number): Pill | nul
   if (held !== undefined) {
     return { word: `${stepName(held)} held`, tone: "attention" };
   }
-  return endingPillOf(detail);
+  if (steererParked(detail)) {
+    return { word: "its steerer holds the park", tone: "quiet" };
+  }
+  const ending = endingPillOf(detail);
+  if (ending !== null) {
+    return ending;
+  }
+  const steerer = steererQuestions(detail)[0];
+  if (steerer !== undefined) {
+    return { word: askedWord("asks its steerer a question", steerer, now), tone: "quiet" };
+  }
+  return null;
+}
+
+// A question pill's word, with the time since the question was asked once it has an asked time.
+function askedWord(word: string, question: EpicQuestion, now: number): string {
+  const asked = Number(question.asked);
+  return asked > 0 ? `${word} · ${durationText(Math.max(0, now - asked))}` : word;
 }
 
 // The blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release's step with no undo,
 // or an epic that ended with gaps. Null for every other epic.
 function endingPillOf(detail: EpicsGetResponse): Pill | null {
-  if (!isOrreryd(detail)) {
-    return null;
-  }
   const release = releaseOf(detail);
   if (release !== null && release.offer !== 0) {
     return { word: `step ${release.offer} failed and cannot be undone`, tone: "attention" };
@@ -318,12 +344,10 @@ function summaryText(detail: EpicsGetResponse): string {
   return detail.summary !== "" ? detail.summary : (detail.contract?.title ?? "");
 }
 
-// The sections an epic has reached. A record epic reaches its Now and its tasks only.
+// The sections an epic has reached. Its track and its Now always show; its summary, history, tasks and requirements
+// show once it has any.
 export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[]): Reached {
-  const tasks = wedgesOf(detail).length > 0;
-  if (!isOrreryd(detail)) {
-    return { summary: false, track: false, now: true, history: false, tasks, requirements: false };
-  }
+  const tasks = tasksOf(detail).length > 0;
   return {
     summary: summaryText(detail) !== "",
     track: true,
@@ -336,9 +360,6 @@ export function reachedOf(detail: EpicsGetResponse, history: EpicHistoryEntry[])
 
 // The Now sentence of a releasing or stopped orreryd epic, or null for any other epic.
 function releaseSentenceOf(detail: EpicsGetResponse): string | null {
-  if (!isOrreryd(detail)) {
-    return null;
-  }
   const steps = detail.releaseSteps;
   switch (phaseOf(detail)) {
     case "releasing": {
@@ -374,11 +395,14 @@ export function nowSentenceOf(detail: EpicsGetResponse): string {
   if (plannerParked(detail)) {
     return "The planner holds a park and is deciding what to do. Nothing is asked of you.";
   }
+  if (steererParked(detail)) {
+    return "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it.";
+  }
   if (allLimited(detail)) {
     return limitedSentence(runningSteps(detail));
   }
   const tasks = runningTasks(detail);
-  if (detail.questions.length > 0) {
+  if (ownerQuestions(detail).length > 0) {
     if (tasks === 0) {
       return "It waits on your answer.";
     }
@@ -387,14 +411,23 @@ export function nowSentenceOf(detail: EpicsGetResponse): string {
     }
     return `${tasks} tasks are being worked on, and one waits on you.`;
   }
+  if (steererQuestions(detail).length > 0) {
+    if (tasks === 0) {
+      return "It waits on its steerer's answer.";
+    }
+    if (tasks === 1) {
+      return "One task is being worked on, and one waits on its steerer.";
+    }
+    return `${tasks} tasks are being worked on, and one waits on its steerer.`;
+  }
   const release = releaseSentenceOf(detail);
   if (release !== null) {
     return release;
   }
-  if (isOrreryd(detail) && stageIndexOf(phaseOf(detail)) === reportIndex) {
+  if (stageIndexOf(phaseOf(detail)) === reportIndex) {
     return `It ended: ${orrerydPill(detail).word}.`;
   }
-  if (isOrreryd(detail) && wedgesOf(detail).length === 0) {
+  if (tasksOf(detail).length === 0) {
     return "The planner is reading the contract and outlining tasks. No task has started.";
   }
   if (tasks === 0) {
@@ -422,10 +455,11 @@ function plainReason(reason: string): string {
   return capital.endsWith(".") ? capital : `${capital}.`;
 }
 
-// What asks the owner, first match: the open question, the owner's park, the planner's park as its quiet line, or every
-// running step limited. Null when nothing asks.
+// What asks the owner, first match: the open question its steerer does not hold, the owner's park, the planner's park as
+// its quiet line, the steerer's park as its quiet line, the first question the steerer holds as its quiet line, or
+// every running step limited. Null when nothing asks.
 export function askingOf(detail: EpicsGetResponse): Asking {
-  const question = detail.questions[0];
+  const question = ownerQuestions(detail)[0];
   if (question !== undefined) {
     return { kind: "question", question };
   }
@@ -434,6 +468,13 @@ export function askingOf(detail: EpicsGetResponse): Asking {
   }
   if (plannerParked(detail)) {
     return { kind: "planner", line: `The planner holds this park: ${detail.parked}. It will retry, replan, or ask you.` };
+  }
+  if (steererParked(detail)) {
+    return { kind: "steerer", line: `Its steerer holds this park, and answers it or escalates it to you: ${detail.parked}` };
+  }
+  const steerer = steererQuestions(detail)[0];
+  if (steerer !== undefined) {
+    return { kind: "steerer", line: steererQuestionLine(steerer) };
   }
   if (allLimited(detail)) {
     return { kind: "limited" };

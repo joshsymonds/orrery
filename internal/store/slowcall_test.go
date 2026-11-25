@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -105,36 +106,43 @@ func (f slowCallFixture) wantSlowCall(t *testing.T, fields ...string) {
 	}
 }
 
-// holdConnection takes the store's one connection, so the next call waits for it, and returns its release.
-func (f slowCallFixture) holdConnection(t *testing.T) func() {
+// holdReadConnections takes every connection of the store's read pool, so the next read waits for one, and returns
+// their release.
+func (f slowCallFixture) holdReadConnections(t *testing.T) func() {
 	t.Helper()
-	held, err := f.store.db.Conn(t.Context())
-	if err != nil {
-		t.Fatalf("take the store's connection: %v", err)
+	held := make([]*sql.Conn, 0, readConns)
+	for range readConns {
+		conn, err := f.store.read.Conn(t.Context())
+		if err != nil {
+			t.Fatalf("take a connection of the read pool: %v", err)
+		}
+		held = append(held, conn)
 	}
 	return func() {
-		if closeErr := held.Close(); closeErr != nil {
-			t.Fatalf("release the store's connection: %v", closeErr)
+		for _, conn := range held {
+			if closeErr := conn.Close(); closeErr != nil {
+				t.Fatalf("release a connection of the read pool: %v", closeErr)
+			}
 		}
 	}
 }
 
-// awaitQueued waits until a call beyond the before calls the pool has queued waits for the connection. It fails at
+// awaitQueued waits until a call beyond the before calls the read pool has queued waits for a connection. It fails at
 // once if ended, the end of that call, closes first.
 func (f slowCallFixture) awaitQueued(t *testing.T, before int64, ended <-chan struct{}) {
 	t.Helper()
-	waittest.Until(t, ended, "the call's wait for the store's connection", func() bool {
-		return f.store.db.Stats().WaitCount > before
+	waittest.Until(t, ended, "the call's wait for a connection of the read pool", func() bool {
+		return f.store.read.Stats().WaitCount > before
 	})
 }
 
-// A query that waits 150 ms for the store's one connection, held by another call, and then runs at once is logged
-// with that wait and no run.
+// A query that waits 150 ms for a connection of the store's read pool, every one of which another call holds, and then
+// runs at once is logged with that wait and no run.
 func TestSlowCallLogsItsWaitForTheConnection(t *testing.T) {
 	t.Parallel()
 	f := newSlowCallFixture(t)
-	before := f.store.db.Stats().WaitCount
-	release := f.holdConnection(t)
+	before := f.store.read.Stats().WaitCount
+	release := f.holdReadConnections(t)
 
 	done := make(chan error, 1)
 	go func() {
@@ -151,12 +159,13 @@ func TestSlowCallLogsItsWaitForTheConnection(t *testing.T) {
 	f.wantSlowCall(t, "queries=ListHolds", "wait=150ms", "run=0s")
 }
 
-// A read transaction that waits for the connection is one call from BeginTx to its end, named by every query it ran.
+// A read transaction that waits for a connection of the read pool is one call from BeginTx to its end, named by every
+// query it ran.
 func TestSlowReadTransactionIsOneCallUntilItEnds(t *testing.T) {
 	t.Parallel()
 	f := newSlowCallFixture(t)
-	before := f.store.db.Stats().WaitCount
-	release := f.holdConnection(t)
+	before := f.store.read.Stats().WaitCount
+	release := f.holdReadConnections(t)
 
 	done := make(chan error, 1)
 	go func() {

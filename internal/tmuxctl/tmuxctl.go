@@ -56,7 +56,7 @@ type Client struct {
 const listFieldSeparator = "\x1f"
 
 // listFieldCount is the number of fields in listFormat: one per Pane member other than Host, then the three Listed options.
-const listFieldCount = 19
+const listFieldCount = 20
 
 // listFormat is the list-panes format: one field per Pane member in declaration order, then the Listed options.
 const listFormat = "#{pane_id}" + listFieldSeparator +
@@ -75,6 +75,7 @@ const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{" + protocol.OptionClaudeSession + "}" + listFieldSeparator +
 	"#{session_activity}" + listFieldSeparator +
 	"#{" + protocol.OptionTool + "}" + listFieldSeparator +
+	"#{" + protocol.OptionHeld + "}" + listFieldSeparator +
 	"#{" + protocol.OptionID + "}" + listFieldSeparator +
 	"#{" + protocol.OptionTranscript + "}" + listFieldSeparator +
 	"#{" + protocol.OptionTurnStart + "}"
@@ -328,7 +329,7 @@ func parseListed(line string) (Listed, error) {
 	if err != nil {
 		return Listed{}, err
 	}
-	turnStart, err := parseTimestamp(fields[0], protocol.OptionTurnStart, fields[18])
+	turnStart, err := parseTimestamp(fields[0], protocol.OptionTurnStart, fields[19])
 	if err != nil {
 		return Listed{}, err
 	}
@@ -351,9 +352,10 @@ func parseListed(line string) (Listed, error) {
 			ClaudeSession: fields[13],
 			Activity:      activity,
 			Tool:          fields[15],
+			Held:          fields[16] != "",
 		},
-		OrreryID:   fields[16],
-		Transcript: fields[17],
+		OrreryID:   fields[17],
+		Transcript: fields[18],
 		TurnStart:  turnStart,
 	}, nil
 }

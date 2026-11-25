@@ -206,7 +206,7 @@ func TestOrphanedBatchRerunAtTheLandedStoredBaseEndsGreenThere(t *testing.T) {
 	ctx := context.Background()
 	w, candidate := toOrphanedRerun(t)
 	w.git("update-ref", integrateBranch, candidate)
-	db, err := sql.Open("sqlite", w.path)
+	db, err := sql.Open("sqlite3", w.path)
 	if err != nil {
 		t.Fatalf("open %s: %v", w.path, err)
 	}

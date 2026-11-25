@@ -176,8 +176,6 @@ func startCallerWiringHost(
 	t.Helper()
 	opts := options{
 		socket:            filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap:        defaultSessionCap,
-		stepCap:           defaultStepCap,
 		callerEventPassed: func() { passed <- struct{}{} },
 	}
 	host, err := startSessions(t.Context(), opts, callerEventHost, st, nil, nil, slog.New(slog.DiscardHandler), getenv)

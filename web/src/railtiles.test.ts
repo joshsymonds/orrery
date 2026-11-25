@@ -3,9 +3,11 @@ import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
+import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
+import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import { type Epic, EpicSchema, EpicsGetResponseSchema, EpicStepSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type Row } from "./rows";
-import { flyoutOf, type FlyoutRow, railTiles, type RailTileModel } from "./railtiles";
+import { flyoutOf, type FlyoutRow, railLineage, railTiles, type RailTileModel } from "./railtiles";
 import { buildTree, type Project, type TreeInput } from "./tree";
 
 const serving = "halyard";
@@ -89,7 +91,7 @@ test("InboxRail makes a tile quiet when nothing in its project waits on you and 
     makeRow({ key: "w", label: "w", project: "/srv/waiting", state: "waiting" }),
     makeRow({ key: "u", label: "u", project: "/srv/new", state: "done", unseen: true }),
     makeRow({ key: "r", label: "r", project: "/srv/rest", state: "working" }),
-    makeRow({ key: "e", label: "e", project: "/srv/ended", state: "stopped", archiveKind: "headless", unseen: true }),
+    makeRow({ key: "e", label: "e", project: "/srv/ended", state: "stopped", archiveKind: "headless", unseen: true, ended: true }),
   ];
   const tiles = railTiles(buildTree(inputOf(rows)), "");
   assert.equal(tileOf(tiles, "|/srv/waiting").quiet, false, "a project with a row that waits is not quiet");
@@ -98,7 +100,7 @@ test("InboxRail makes a tile quiet when nothing in its project waits on you and 
   assert.equal(tileOf(tiles, "|/srv/ended").quiet, false, "an unseen row behind the ended line is new");
 });
 
-test("InboxRail counts a project's waiting things as the tree does, including an epic under a stand-in", () => {
+test("InboxRail counts a project's waiting things as the tree does, including an epic with no listed conversation", () => {
   const rows = [
     makeRow({ key: "w", label: "w", archiveId: "sess-w", project: "/srv/app", state: "waiting" }),
     makeRow({ key: "q", label: "q", archiveId: "sess-q", project: "/srv/quiet", state: "done" }),
@@ -189,8 +191,8 @@ test("InboxRail titles a tile with its name, and with its waiting count when one
 // flyoutProject is one project of each kind of row a flyout draws, at /srv/app on the serving host:
 // - w-old and w-new wait on you, changed at 100 and 300, and w-new is also unseen;
 // - the epic alpha, steered by the seen done row d, is parked, so it waits on you, changed at 200;
-// - u is a done row, unseen; e is an unseen headless row that stopped, so it is behind the ended line;
-// - s is a seen done row, and ended-seen is a seen stopped headless row behind the ended line.
+// - u is a done row, unseen; e is an unseen headless row serve reports ended, so it is behind the ended line;
+// - s is a seen done row, and ended-seen is a seen headless row serve reports ended, behind the ended line.
 function flyoutProject(): Project {
   const rows = [
     makeRow({ key: "w-old", label: "old ask", archiveId: "sess-wo", state: "waiting", changed: 100 }),
@@ -198,8 +200,8 @@ function flyoutProject(): Project {
     makeRow({ key: "d", label: "steers alpha", archiveId: "sess-d", state: "done", changed: 50 }),
     makeRow({ key: "u", label: "fresh", archiveId: "sess-u", state: "done", changed: 400, unseen: true }),
     makeRow({ key: "s", label: "seen", archiveId: "sess-s", state: "done", changed: 20 }),
-    makeRow({ key: "e", label: "ended fresh", archiveId: "sess-e", state: "stopped", archiveKind: "headless", changed: 10, unseen: true }),
-    makeRow({ key: "ended-seen", label: "ended seen", archiveId: "sess-x", state: "stopped", archiveKind: "headless", changed: 5 }),
+    makeRow({ key: "e", label: "ended fresh", archiveId: "sess-e", state: "stopped", archiveKind: "headless", changed: 10, unseen: true, ended: true }),
+    makeRow({ key: "ended-seen", label: "ended seen", archiveId: "sess-x", state: "stopped", archiveKind: "headless", changed: 5, ended: true }),
   ];
   const projects = buildTree(
     inputOf(rows, {
@@ -263,7 +265,7 @@ test("ProjectFlyout's rest line drops a zero part, and is empty when there is no
   const ended = buildTree(
     inputOf([
       makeRow({ key: "w", label: "w", state: "waiting" }),
-      makeRow({ key: "e", label: "e", state: "stopped", archiveKind: "headless" }),
+      makeRow({ key: "e", label: "e", state: "stopped", archiveKind: "headless", ended: true }),
     ]),
   )[0];
   assert.equal(flyoutOf(ended, 1000).rest, "1 ended");
@@ -276,4 +278,124 @@ test("ProjectFlyout of a quiet project lists no rows, so a click on its tile ope
   const model = flyoutOf(quiet, 1000);
   assert.deepEqual(model.rows, []);
   assert.equal(model.rest, "and 1 more, none waiting");
+});
+
+type DesignInit = MessageInitShape<typeof DesignSchema>;
+
+// makeDesign is a design of the conversation sess-a, created at 10, unless the init says otherwise.
+function makeDesign(init: DesignInit): Design {
+  return create(DesignSchema, { id: "design", title: "Design", conversation: "sess-a", created: 10n, ...init });
+}
+
+// makeContract is a proposed contract of the repository /srv/app, proposed by sess-a, unless the init says otherwise.
+function makeContract(id: string, init: MessageInitShape<typeof ContractSchema> = {}): Contract {
+  return create(ContractSchema, {
+    id,
+    repository: "/srv/app",
+    title: id,
+    state: "proposed",
+    version: 1n,
+    conversation: "sess-a",
+    ...init,
+  });
+}
+
+// lineageProject is /srv/app with sess-a working design-x, whose contracts are beta at position 2 and the epic alpha at
+// position 1, and sess-b working nothing; sess-a is the first row of the tree, since it is the working one.
+function lineageProject(): Project {
+  const rows = [
+    makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" }),
+    makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
+  ];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [makeEpic({ id: "repo-a/alpha", steering: "sess-nobody", path: "/srv/app" })],
+      details: new Map([["repo-a/alpha", makeDetail({})]]),
+      contracts: [makeContract("repo-a/beta")],
+      designs: [
+        makeDesign({
+          id: "design-x",
+          title: "Tide alerts",
+          contracts: [
+            { id: "repo-a/beta", position: 2n },
+            { id: "repo-a/alpha", position: 1n },
+          ],
+        }),
+      ],
+    }),
+  );
+  assert.equal(projects.length, 1, "the rows are one project");
+  return projects[0];
+}
+
+test("RailLineage lists each conversation that works a design, with its design and that design's marks in position order", () => {
+  assert.deepEqual(railLineage(lineageProject(), ""), [
+    {
+      key: "a",
+      held: false,
+      own: [],
+      designs: [
+        {
+          key: "design:design-x",
+          name: "Tide alerts",
+          open: false,
+          marks: [
+            { key: "epic:repo-a/alpha", kind: "epic", name: "alpha", open: false },
+            { key: "contract:repo-a/beta", kind: "contract", name: "beta", open: false },
+          ],
+        },
+      ],
+    },
+  ]);
+});
+
+test("RailLineage lists two designs of one conversation in created order, each with its own marks", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const project = buildTree(
+    inputOf(rows, {
+      contracts: [makeContract("repo-a/beta"), makeContract("repo-a/gamma")],
+      designs: [
+        makeDesign({ id: "design-late", title: "Late", created: 30n, contracts: [{ id: "repo-a/gamma", position: 1n }] }),
+        makeDesign({ id: "design-early", title: "Early", created: 20n, contracts: [{ id: "repo-a/beta", position: 1n }] }),
+      ],
+    }),
+  )[0];
+  const [convo] = railLineage(project, "");
+  assert.deepEqual(
+    convo.designs.map((design) => [design.name, design.marks.map((mark) => mark.name)]),
+    [
+      ["Early", ["beta"]],
+      ["Late", ["gamma"]],
+    ],
+  );
+});
+
+test("RailLineage gives a project whose conversations work no design no lineage", () => {
+  const rows = [makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", state: "working" })];
+  const project = buildTree(inputOf(rows))[0];
+  assert.deepEqual(railLineage(project, ""), []);
+});
+
+test("RailLineage opens the design or the child whose key is open, and no other", () => {
+  const project = lineageProject();
+  const open = (key: string) => {
+    const [convo] = railLineage(project, key);
+    return [convo.designs[0].open, convo.designs[0].marks.map((mark) => mark.open)];
+  };
+  assert.deepEqual(open("design:design-x"), [true, [false, false]]);
+  assert.deepEqual(open("epic:repo-a/alpha"), [false, [true, false]]);
+  assert.deepEqual(open("contract:repo-a/beta"), [false, [false, true]]);
+  assert.deepEqual(open("epic:repo-a/other"), [false, [false, false]]);
+});
+
+test("RailLineage is carried by each tile, with the open thing of the lineage the tiles are given", () => {
+  const tiles = railTiles([lineageProject()], "", "contract:repo-a/beta");
+  assert.deepEqual(
+    tiles[0].lineage?.[0].designs[0].marks.map((mark) => [mark.name, mark.open]),
+    [
+      ["alpha", false],
+      ["beta", true],
+    ],
+  );
+  assert.deepEqual(railTiles([buildTree(inputOf([makeRow({ key: "s", label: "s" })]))[0]], "")[0].lineage, []);
 });

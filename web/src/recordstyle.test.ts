@@ -187,11 +187,6 @@ test("EpicWords: at phone width Just happened sets its time apart from its text"
   assert.equal(declaredValue(phone, ".epic-page .happen .at", "margin-right"), "var(--o-space-12)");
 });
 
-test("EpicWords: at phone width the problem line wraps and does not ellipsis", () => {
-  assert.equal(declaredValue(phone, ".problem", "white-space"), "normal");
-  assert.equal(declaredValue(phone, ".problem", "text-overflow"), "clip");
-});
-
 test("EpicWords: at phone width the track's stages take the full column, so a name reads whole", () => {
   assert.equal(declaredValue(phone, ".epic-page .stage", "padding-right"), "0");
 });
@@ -217,13 +212,14 @@ test("EpicCommands: a confirm sheet's Stop is drawn in the bad role, apart from 
 
 test("EpicRecord: in the desk's panel the epic page's title row stays pinned at the card's top edge, under the panel's controls", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  const row = ".rcard > section.page > .epic-page > .title-row";
+  const row = ".held-card > .held-body > section.page > .epic-page > .title-row";
   assert.equal(declaredValue(desk, row, "position"), "sticky");
   assert.equal(declaredValue(desk, row, "top"), "calc(-1 * var(--o-space-16))");
   assert.equal(declaredValue(desk, row, "padding-top"), "var(--o-space-16)");
   assert.equal(declaredValue(desk, row, "margin-top"), "calc(-1 * var(--o-space-16))");
   assert.equal(declaredValue(desk, row, "z-index"), "var(--o-z-sticky)");
-  assert.equal(declaredValue(desk, row, "background"), "var(--o-surface-page)");
+  assert.equal(declaredValue(desk, row, "background"), "var(--o-surface-side)");
+  assert.equal(declaredValue(desk, row, "background"), declaredValue(rules, ".held-card", "background"), "the row is drawn in the held card's own surface");
   assert.equal(declaredValue(rules, ".panel-ctl", "z-index"), "var(--o-z-flyout)", "the panel's controls sit above its pinned title row");
   assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), undefined, "no page-wide pin outside the panel");
 });
@@ -248,9 +244,9 @@ function outsideMedia(sheet: string, query: string): string {
 
 test("EpicPageLook: at the desk the epic page's sticky title row takes the card's own surface, so it reads as part of the card", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  const card = declaredValue(rules, ".rcard", "background");
-  assert.equal(card, "var(--o-surface-page)", "the card is drawn in the page surface");
-  assert.equal(declaredValue(desk, ".rcard > section.page > .epic-page > .title-row", "background"), card);
+  const card = declaredValue(rules, ".held-card", "background");
+  assert.equal(card, "var(--o-surface-side)", "the held card is drawn in the side surface");
+  assert.equal(declaredValue(desk, ".held-card > .held-body > section.page > .epic-page > .title-row", "background"), card);
 });
 
 test("EpicPageLook: at the desk the epic page's sections sit 32 apart", () => {
@@ -428,9 +424,9 @@ function outsideDesk(sheet: string): string {
 
 test("EpicPageLook: at the desk the epic page's sticky title row takes the card's own background, so it reads as part of the card", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  const row = ".rcard > section.page > .epic-page > .title-row";
-  assert.equal(declaredValue(rules, ".rcard", "background"), "var(--o-surface-page)");
-  assert.equal(declaredValue(desk, row, "background"), declaredValue(rules, ".rcard", "background"));
+  const row = ".held-card > .held-body > section.page > .epic-page > .title-row";
+  assert.equal(declaredValue(rules, ".held-card", "background"), "var(--o-surface-side)");
+  assert.equal(declaredValue(desk, row, "background"), declaredValue(rules, ".held-card", "background"));
 });
 
 test("EpicPageLook: at the desk the epic page's sections sit 32 apart", () => {

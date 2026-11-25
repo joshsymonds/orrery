@@ -1732,6 +1732,7 @@ const stepRefusals: [string, unknown][] = [
   ["failed_precondition", new ConnectError("step is done", Code.FailedPrecondition)],
   ["not_found", new ConnectError("no such step", Code.NotFound)],
   ["invalid_argument", new ConnectError("bad text", Code.InvalidArgument)],
+  ["resource_exhausted", new ConnectError("request body over 1 MiB", Code.ResourceExhausted)],
 ];
 
 // stepUnknowns are the failures that leave a step's call outcome unknown.
@@ -2392,7 +2393,7 @@ test("DockState: a step's message with markup is drawn as text, not as elements"
   );
 });
 
-test("DockState: outcomeOf refuses failed_precondition, not_found and invalid_argument with the raw message", () => {
+test("DockState: outcomeOf refuses failed_precondition, not_found, invalid_argument and resource_exhausted with the raw message", () => {
   for (const [, error] of stepRefusals) {
     const refused = error as ConnectError;
     assert.deepEqual(outcomeOf(refused), { outcome: "refused", message: refused.rawMessage });

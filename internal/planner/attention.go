@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -187,8 +188,8 @@ func (a *Attention) storedIDs(ctx context.Context) (map[string]bool, error) {
 }
 
 // attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as
-// the epic's notice, unless it is a silent move tell (see store.SilentMoveTell) or a question tell that a heard epic
-// keeps to itself (see heardQuestionTell), and marked told. Each open question that is escalated and not yet told is
+// the epic's notice, unless it is a silent move tell (see store.SilentMoveTell) or a question tell the epic keeps to its
+// steerer (see steererQuestionTell), and marked told. Each open question that is escalated and not yet told is
 // routed as its escalation notice and marked told (see escalate), whether or not the epic is heard. Last, the latest
 // turn, when it has ended and is not told, tells the owner once, if the need is one the owner must answer (see
 // tellsOwner), and is marked told. Each notice routed here carries the mark of its turn, tell or escalation, which its
@@ -227,13 +228,13 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 
 // tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and
 // marks it told. A ref move that carries no park question is routed to no surface, so it is only marked told and stays
-// in the epic's tells (see store.SilentMoveTell). A question tell that a heard epic keeps to itself is routed to no
-// surface either, and is marked told (see heardQuestionTell). The notice's row marks the tell told in the write that
+// in the epic's tells (see store.SilentMoveTell). A question tell the epic keeps to its steerer is routed to no surface
+// either, and is marked told (see steererQuestionTell). The notice's row marks the tell told in the write that
 // stores it, so a restart after the route finds the tell told whether or not the row is still stored. The mark after
 // the route covers a tell whose row write failed, and a tell whose mark fails is routed again on the next pass only
 // when its notice is not stored.
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
-	if !store.SilentMoveTell(tell.Text, tell.Question != nil) && !heardQuestionTell(entry, tell) {
+	if !store.SilentMoveTell(tell.Text, tell.Question != nil) && !steererQuestionTell(entry, tell) {
 		id := tellNoticeID(entry.Epic, tell.Seq)
 		if !stored[id] {
 			a.notify(
@@ -338,15 +339,17 @@ func attentionNotice(stored epicNotice) route.Notice {
 	}
 }
 
-// needOf returns what entry needs from its owner: a park first, then a usage limit that freed the epic, then open
-// questions, then a latest tell that is newer than the latest ended turn, or than any turn when none has ended.
+// needOf returns what entry needs from its owner: a park that waits on the owner first (see ownerParked), then a usage
+// limit that freed the epic, then open questions that wait on the owner (see ownerQuestion), then a latest tell that is
+// newer than the latest ended turn, or than any turn when none has ended. A park or question its steerer holds is no
+// need of the owner's.
 func needOf(entry store.EpicAttention) attentionNeed {
 	switch {
-	case entry.Parked != "":
+	case ownerParked(entry):
 		return needPark
 	case entry.Paused && entry.Latest.State == turnFree && entry.Latest.Limited:
 		return needLimit
-	case len(entry.Open) > 0:
+	case slices.ContainsFunc(entry.Open, func(question store.EpicQuestion) bool { return ownerQuestion(entry, question) }):
 		return needQuestions
 	case !entry.LatestTell.IsZero() && (entry.Latest.Seq == 0 || entry.LatestTell.After(entry.Latest.Ended)):
 		return needTell
@@ -355,8 +358,8 @@ func needOf(entry store.EpicAttention) attentionNeed {
 	}
 }
 
-// tellsOwner reports whether the latest turn of entry, whose need is need, gets a notice. A park and a limit always
-// do. Open questions do when the turn succeeded, asked some, and its epic is not heard: a heard epic's steerer hears
+// tellsOwner reports whether the latest turn of entry, whose need is need, gets a notice. A park that waits on the owner
+// and a limit always do. Open questions do when the turn succeeded, asked some, and its epic is not heard: a heard epic's steerer hears
 // its questions, so the turn gets no notice for them.
 func tellsOwner(need attentionNeed, entry store.EpicAttention) bool {
 	switch need {
@@ -410,11 +413,28 @@ func parkTell(tell store.EpicTell) bool {
 	return tell.Question != nil && tell.Question.Label == store.ParkLabel
 }
 
-// heardQuestionTell reports whether tell is a question tell that entry, being heard, keeps to itself: a tell of a
-// question that is not a park question and is not escalated. Its steerer hears of the question, so the owner is not
-// notified of it. An escalated question's tell is notified as its escalation is.
-func heardQuestionTell(entry store.EpicAttention, tell store.EpicTell) bool {
-	return entry.Heard && tell.Question != nil && !parkTell(tell) && tell.Question.Escalated.IsZero()
+// steererQuestionTell reports whether tell is a question tell that entry keeps to its steerer: a tell of a question,
+// park questions included, that the steerer holds (see ownerQuestion). Its steerer hears of the question, so the owner
+// is not notified of it. An escalated question's tell is notified as its escalation is.
+func steererQuestionTell(entry store.EpicAttention, tell store.EpicTell) bool {
+	return tell.Question != nil && !ownerQuestion(entry, *tell.Question)
+}
+
+// ownerParked reports whether entry's park waits on the owner: entry is parked with a park question (store.EpicAttention
+// reads a planner park as no park), and its open park question waits on the owner (ownerQuestion). A park with no open
+// park question waits on the owner too, since its steerer has no question to answer or escalate.
+func ownerParked(entry store.EpicAttention) bool {
+	if entry.Parked == "" {
+		return false
+	}
+	question := openParkQuestion(entry)
+	return question == nil || ownerQuestion(entry, *question)
+}
+
+// ownerQuestion reports whether question, open on entry, waits on the owner rather than on entry's steerer: it is
+// escalated, or no steering session hears entry (see store.SteererHolds).
+func ownerQuestion(entry store.EpicAttention, question store.EpicQuestion) bool {
+	return !store.SteererHolds(entry.Heard, !question.Escalated.IsZero())
 }
 
 // escalationBody returns the body of the notice of the escalation of question: the maker's phrase and the escalation's

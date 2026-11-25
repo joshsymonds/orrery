@@ -64,8 +64,7 @@ const (
 // EngineClient is a client for the orrery.engine.v1.Engine service.
 type EngineClient interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
-	// exists and its process is spawned. A start past the session cap is refused with a reason. A start that names an
-	// existing session's id returns that id and starts nothing.
+	// exists and its process is spawned. A start that names an existing session's id returns that id and starts nothing.
 	Start(context.Context, *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error)
 	// Say sends a text message to a session's conversation.
 	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
@@ -249,8 +248,7 @@ func (c *engineClient) BringBack(ctx context.Context, req *connect.Request[v1.Br
 // EngineHandler is an implementation of the orrery.engine.v1.Engine service.
 type EngineHandler interface {
 	// Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
-	// exists and its process is spawned. A start past the session cap is refused with a reason. A start that names an
-	// existing session's id returns that id and starts nothing.
+	// exists and its process is spawned. A start that names an existing session's id returns that id and starts nothing.
 	Start(context.Context, *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error)
 	// Say sends a text message to a session's conversation.
 	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)

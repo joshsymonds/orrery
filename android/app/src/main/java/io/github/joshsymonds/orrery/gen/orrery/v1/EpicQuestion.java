@@ -749,6 +749,50 @@ public  final class EpicQuestion extends
 
   }
 
+  public static final int STEERER_HELD_FIELD_NUMBER = 12;
+  private boolean steererHeld_;
+  /**
+   * <pre>
+   * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+   * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+   * question of an epic no steering session hears.
+   * </pre>
+   *
+   * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+   * @return The steererHeld.
+   */
+  @java.lang.Override
+  public boolean getSteererHeld() {
+    return steererHeld_;
+  }
+  /**
+   * <pre>
+   * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+   * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+   * question of an epic no steering session hears.
+   * </pre>
+   *
+   * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+   * @param value The steererHeld to set.
+   */
+  private void setSteererHeld(boolean value) {
+    
+    steererHeld_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+   * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+   * question of an epic no steering session hears.
+   * </pre>
+   *
+   * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+   */
+  private void clearSteererHeld() {
+
+    steererHeld_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1605,6 +1649,52 @@ public  final class EpicQuestion extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+     * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+     * question of an epic no steering session hears.
+     * </pre>
+     *
+     * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+     * @return The steererHeld.
+     */
+    @java.lang.Override
+    public boolean getSteererHeld() {
+      return instance.getSteererHeld();
+    }
+    /**
+     * <pre>
+     * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+     * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+     * question of an epic no steering session hears.
+     * </pre>
+     *
+     * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+     * @param value The steererHeld to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteererHeld(boolean value) {
+      copyOnWrite();
+      instance.setSteererHeld(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the epic's steerer answers the question, so the owner is not asked about it: a steering session hears the
+     * epic and the question is not escalated. The owner is asked once the steerer escalates it, and is asked every open
+     * question of an epic no steering session hears.
+     * </pre>
+     *
+     * <code>bool steerer_held = 12 [json_name = "steererHeld"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSteererHeld() {
+      copyOnWrite();
+      instance.clearSteererHeld();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicQuestion)
   }
   @java.lang.Override
@@ -1634,11 +1724,12 @@ public  final class EpicQuestion extends
             "escalationReason_",
             "escalationBy_",
             "escalationSession_",
+            "steererHeld_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0002\u0004\u0002\u0005\u0208\u0006\u001b\u0007\u1009\u0000\b\u0002\t\u0208" +
-              "\n\u0208\u000b\u0208";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0002" +
+              "\u0004\u0002\u0005\u0208\u0006\u001b\u0007\u1009\u0000\b\u0002\t\u0208\n\u0208\u000b" +
+              "\u0208\f\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

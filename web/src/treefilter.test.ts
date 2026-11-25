@@ -77,6 +77,11 @@ function layout(convos: Convo[]): Record<string, string[]> {
   return Object.fromEntries(convos.map((convo) => [convo.key, convo.hung.map((hung) => hung.key)]));
 }
 
+// folds maps each conversation of a list to the keys of the ended epics folded under it.
+function folds(convos: Convo[]): Record<string, string[]> {
+  return Object.fromEntries(convos.map((convo) => [convo.key, convo.folded.map((hung) => hung.key)]));
+}
+
 test("InboxTree counts an epic with three questions once, and its waiting conversation once", () => {
   const details = new Map([["repo-a/alpha", threeQuestions]]);
   const epics = [makeEpic({ steering: "sess-a" })];
@@ -140,7 +145,7 @@ test("InboxTree never counts an archived conversation or an archived epic as wai
   assert.equal(countsOf(projects).waiting, 0);
 });
 
-test("InboxTree counts a live epic and a proposed contract hung under an archived stand-in, each once, in countsOf and projectWaiting", () => {
+test("InboxTree counts a live epic and a proposed contract under an archived conversation, each once, as rows of their own, in countsOf and projectWaiting", () => {
   const rows = [
     makeRow({ key: "a", label: "a", archiveId: "sess-a", project: "/srv/app", archived: true }),
     makeRow({ key: "b", label: "b", archiveId: "sess-b", project: "/srv/app", state: "done" }),
@@ -154,7 +159,8 @@ test("InboxTree counts a live epic and a proposed contract hung under an archive
   );
   assert.deepEqual(layout(projectAt(projects, "|/srv/app").convos), {
     b: [],
-    "standin:archived:|/srv/app": ["epic:repo-a/alpha", "contract:repo-a/beta"],
+    "epic:repo-a/alpha": ["epic:repo-a/alpha"],
+    "contract:repo-a/beta": ["contract:repo-a/beta"],
   });
   assert.equal(countsOf(projects).waiting, 2);
   assert.equal(projectWaiting(projectAt(projects, "|/srv/app")), 2);
@@ -221,11 +227,12 @@ test("InboxTree narrows to what waits, keeping each waiting conversation as the 
       details: new Map([["repo-a/alpha", threeQuestions]]),
     }),
   );
-  assert.equal(projectAt(projects, "|/srv/app").ended.length, 2);
+  assert.deepEqual(folds(projectAt(projects, "|/srv/app").convos), { w: [], d: ["epic:repo-a/beta"], n: ["epic:repo-a/gamma"] });
   const waiting = narrow(projects, "waiting");
   assert.deepEqual(waiting.map((project) => project.name), ["app"]);
   const app = waiting[0];
   assert.deepEqual(layout(app.convos), { w: [], d: ["epic:repo-a/alpha"] });
+  assert.deepEqual(folds(app.convos), { w: [], d: [] });
   assert.deepEqual(app.ended, []);
 });
 
@@ -255,6 +262,7 @@ test("InboxTree narrows to unseen rows, each with nothing hung under it and no e
   const keys = fresh.flatMap((project) => project.convos.map((convo) => convo.key));
   assert.deepEqual(keys.sort(), ["h", "u1", "x"]);
   assert.deepEqual(fresh.flatMap((project) => project.convos.flatMap((convo) => convo.hung)), []);
+  assert.deepEqual(fresh.flatMap((project) => project.convos.flatMap((convo) => convo.folded)), []);
   assert.deepEqual(fresh.flatMap((project) => project.ended), []);
 });
 
@@ -304,6 +312,23 @@ test("InboxTree search keeps all of a conversation's things when the conversatio
   assert.deepEqual(layout(projectAt(projects, "|/home/owner/code/lighthouse").convos), {
     a: ["epic:repo-a/alpha", "epic:repo-a/beta"],
   });
+});
+
+test("InboxTree search keeps only the folded epics that match under their conversation, and all of them when it matches", () => {
+  const rows = [makeRow({ key: "a", label: "alpha convo", archiveId: "sess-a", project: "/home/owner/code/lighthouse", host: "halyard" })];
+  const projects = buildTree(
+    inputOf(rows, {
+      epics: [
+        makeEpic({ id: "repo-a/alpha", steering: "sess-a", live: false, slug: "alpha-work", outcome: "shipping", changed: 20n }),
+        makeEpic({ id: "repo-a/beta", steering: "sess-a", live: false, slug: "beta-work", outcome: "planning", changed: 10n }),
+      ],
+    }),
+  );
+  const shipping = search(projects, ["shipping"]);
+  assert.deepEqual(layout(projectAt(shipping, "|/home/owner/code/lighthouse").convos), { a: [] });
+  assert.deepEqual(folds(projectAt(shipping, "|/home/owner/code/lighthouse").convos), { a: ["epic:repo-a/alpha"] });
+  const convo = search(projects, ["convo"]);
+  assert.deepEqual(folds(projectAt(convo, "|/home/owner/code/lighthouse").convos), { a: ["epic:repo-a/alpha", "epic:repo-a/beta"] });
 });
 
 test("InboxTree search finds a contract by its title, a conversation by its state, and a project by its path", () => {
@@ -405,4 +430,42 @@ test("WaitsOnYou: an archived waiting conversation in the archived view counts n
   assert.equal(countsOf(projects).waiting, 0);
   assert.deepEqual(waitOrder(projects), []);
   assert.deepEqual(narrow(projects, "waiting"), []);
+});
+
+test("SteererHolds: an epic whose only question its steerer holds is not counted, and counts once the steerer escalates it", () => {
+  const quiet = [makeRow({ key: "a", label: "a", archiveId: "sess-a", state: "done" })];
+  const epics = [makeEpic({ steering: "sess-a", steererHeard: true })];
+  const withQuestion = (question: { steererHeld: boolean; escalated: bigint }) =>
+    buildTree(
+      inputOf(quiet, {
+        epics,
+        details: new Map([["repo-a/alpha", makeDetail({ questions: [{ id: "Q1", text: "one?", ...question }] })]]),
+      }),
+    );
+  const held = withQuestion({ steererHeld: true, escalated: 0n });
+  assert.equal(countsOf(held).waiting, 0);
+  assert.deepEqual(waitOrder(held), []);
+  assert.deepEqual(narrow(held, "waiting"), []);
+  const escalated = withQuestion({ steererHeld: false, escalated: 1700000300n });
+  assert.equal(countsOf(escalated).waiting, 1);
+  assert.deepEqual(waitOrder(escalated), ["epic:repo-a/alpha"]);
+});
+
+test("SteererHolds: a steerer-parked epic is not counted", () => {
+  const projects = buildTree(
+    inputOf([makeRow({ key: "a", label: "a", archiveId: "sess-a", state: "done" })], {
+      epics: [makeEpic({ steering: "sess-a", steererHeard: true, parked: "gate failed" })],
+      details: new Map([
+        [
+          "repo-a/alpha",
+          makeDetail({
+            parked: "gate failed",
+            steererParked: true,
+            questions: [{ id: "Q1", text: "Retry the gate?", steererHeld: true }],
+          }),
+        ],
+      ]),
+    }),
+  );
+  assert.equal(countsOf(projects).waiting, 0);
 });

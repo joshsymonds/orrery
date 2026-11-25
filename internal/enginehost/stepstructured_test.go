@@ -83,7 +83,7 @@ func structuredOutputOf(t *testing.T, lines []string) json.RawMessage {
 // schema round is spent, and no Continue is sent, so the fake claude reads only the step's first prompt.
 func TestStructuredOutputMissingFromInitEndsStepFailed(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 1)
+	f := newRefusalFixture(t)
 	workspace := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	start := stepStartWriting(workspace)
 	start.Agent = restrictedAgent

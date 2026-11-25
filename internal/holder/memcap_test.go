@@ -3,7 +3,6 @@ package holder
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -43,42 +42,20 @@ func writeMemoryEvents(t *testing.T, path, oomKills string) {
 	}
 }
 
-func TestHolderCommandCapsTheScopeAtScopeMemoryWithNoSwap(t *testing.T) {
+// TestHolderCommandLeavesTheScopesMemoryToTheHost checks that a scoped holder's systemd-run argv sets no memory
+// property, so the host's drop-in for orrery-hold-*.scope units caps the scope, and that a plain holder's argv carries
+// none either.
+func TestHolderCommandLeavesTheScopesMemoryToTheHost(t *testing.T) {
 	t.Parallel()
-	child := LaunchConfig{Scope: "/run/systemd-run", Session: testSession}
-	for _, tc := range []struct {
-		name   string
-		memory int64
-		want   string
-	}{
-		{name: "default", memory: 0, want: "MemoryMax=8589934592"},
-		{name: "configured", memory: 512 << 20, want: "MemoryMax=536870912"},
+	for _, cfg := range []LaunchConfig{
+		{Scope: "/run/systemd-run", Session: testSession},
+		{Session: testSession},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := child
-			cfg.ScopeMemory = tc.memory
-			_, argv := holderCommand(cfg, "/bin/orrery", "/state", "orrery-hold-unit")
-			want := []string{
-				"--user", "--scope", "--collect", "-p", "OOMPolicy=continue",
-				"-p", tc.want, "-p", "MemorySwapMax=0", "--unit", "orrery-hold-unit", "/bin/orrery",
+		_, argv := holderCommand(cfg, "/bin/orrery", "/state", "orrery-hold-unit")
+		for _, arg := range argv {
+			if strings.HasPrefix(arg, "Memory") {
+				t.Fatalf("holder argv %q (scope %q) carries a memory property", argv, cfg.Scope)
 			}
-			if len(argv) < len(want) || !slices.Equal(argv[:len(want)], want) {
-				t.Fatalf("scope argv %q, want it to start with %q", argv, want)
-			}
-		})
-	}
-}
-
-func TestHolderCommandWithoutScopeSetsNoCap(t *testing.T) {
-	t.Parallel()
-	program, argv := holderCommand(LaunchConfig{Session: testSession, ScopeMemory: 1 << 30}, "/bin/orrery", "/s", "")
-	if program != "/bin/orrery" {
-		t.Fatalf("program %q, want orrery itself", program)
-	}
-	for _, arg := range argv {
-		if strings.HasPrefix(arg, "Memory") {
-			t.Fatalf("plain holder argv %q carries a memory property", argv)
 		}
 	}
 }

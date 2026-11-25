@@ -31,14 +31,16 @@ enum class RingPlace(val word: String) {
 enum class CellTone { NONE, PLAN, RUN, MINE, LIMITED, BAD, ACC, OK }
 
 /**
- * A task of an epic as the record places it: [place] is its ring, null while planned, and [integrated] is true once it is
- * done. [cells] are its five cells outside in, [words] its words in the task table, and [since] when its running step's
- * stage started, 0 when none runs.
+ * A task of an epic at the place serve computed for it: [place] is its ring, null while planned, and [integrated] is true
+ * once it is integrated. [labels] are the step labels that belong to it: its id, and for a build task the evidence label
+ * of its red and green runs. [cells] are its five cells outside in, [words] its words in the task table, and [since]
+ * when its running step's stage started, 0 when none runs.
  */
 data class RecordTask(
     val task: String,
     val title: String,
     val requirements: List<String>,
+    val labels: Set<String>,
     val place: RingPlace?,
     val integrated: Boolean,
     val tone: WedgeTone,
@@ -47,44 +49,42 @@ data class RecordTask(
     val since: Long,
 )
 
-/** The record's tasks, one per wedge of [wedgesOf] in the same order, each with its place, cells and words. */
+/**
+ * The record's tasks, one per wedge of [wedgesOf] in the same order, each with the place and tone serve computed for it,
+ * its cells and its words. Its running step is its latest unended step among the steps its labels name.
+ */
 fun recordTasksOf(detail: EpicDetail): List<RecordTask> = tasksOf(detail).map { task ->
-    val steps = detail.steps.filter { it.task == task.task }
-    val placement = placementOf(task, steps)
-    val integrated = placement.place == WedgePlace.INTEGRATED
-    val place = ringOf(placement.place, task.stage)
-    val running = steps.lastOrNull()?.takeIf { it.end == "" }
+    val integrated = task.place == INTEGRATED
+    val place = ringPlaceOf(task.place)
+    val tone = wedgeToneOf(task.tone)
+    val running = detail.steps.lastOrNull { it.task in task.labels && it.end == "" }
     RecordTask(
         task = task.task,
         title = task.title,
         requirements = task.requirements,
+        labels = task.labels,
         place = place,
         integrated = integrated,
-        tone = placement.tone,
-        cells = cellsOf(place, integrated, placement.tone),
-        words = wordsOf(place, integrated, placement.tone, running),
+        tone = tone,
+        cells = cellsOf(place, integrated, tone),
+        words = wordsOf(place, integrated, tone, running),
         since = running?.let { if (it.stageStarted != 0L) it.stageStarted else it.started } ?: 0L,
     )
 }
 
-// The ring a task is in. Integrated and integrating are integrate and planned has none; in an implementing, checking or
-// reviewing phase the build stage names the ring when it names one.
-private fun ringOf(place: WedgePlace, stage: String): RingPlace? = when (place) {
-    WedgePlace.PLANNED -> null
-    WedgePlace.INTEGRATING, WedgePlace.INTEGRATED -> RingPlace.INTEGRATE
-    WedgePlace.IMPLEMENTING -> stageRingOf(stage) ?: RingPlace.IMPLEMENT
-    WedgePlace.CHECKING -> stageRingOf(stage) ?: RingPlace.GREEN
-    WedgePlace.REVIEWING -> stageRingOf(stage) ?: RingPlace.REVIEW
-}
+/**
+ * The task a step labelled [label] belongs to: the task whose id the label is, or, for an evidence judge step labelled
+ * evidence-<run id>, the build task whose red or green run has that id. Null when no task claims the label.
+ */
+fun List<RecordTask>.taskOfStep(label: String): RecordTask? = find { label in it.labels }
 
-// The ring a build stage names, null for a stage the rules do not name.
-private fun stageRingOf(stage: String): RingPlace? = when (stage) {
-    "red" -> RingPlace.RED
-    "implement", "orchestrate" -> RingPlace.IMPLEMENT
-    "green" -> RingPlace.GREEN
-    "review", "verify" -> RingPlace.REVIEW
-    else -> null
-}
+// The place serve names once the integrate run that claims a task passed.
+private const val INTEGRATED = "integrated"
+
+// The ring of a task's place as serve names it: integrate for integrate and integrated. Planned, or a place serve does
+// not name, has none, the reading that claims no progress.
+private fun ringPlaceOf(place: String): RingPlace? =
+    if (place == INTEGRATED) RingPlace.INTEGRATE else RingPlace.entries.find { it.word == place }
 
 /**
  * A task's five cells, outside in: integrated is five ok, planned is five none, else the cells before its place are ok, its

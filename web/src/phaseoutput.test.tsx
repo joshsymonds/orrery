@@ -129,7 +129,8 @@ function betaSteps(): EpicStep[] {
 }
 
 // The Get answer of an epic with T1 Parser in review, running rev1 (held or not), T2 Printer integrated, and T3 Logout
-// planned. T1's red and green runs have ended and passed, and its review has one confirmed finding.
+// planned, each where the server stands it. T1's red and green runs have ended and passed, and its review has one
+// confirmed finding.
 function detailOf(held: boolean): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic: { slug: "orrery-style", outcome: "accepted" },
@@ -140,6 +141,8 @@ function detailOf(held: boolean): EpicsGetResponse {
         status: "dispatched",
         stage: "review",
         requirements: ["R1"],
+        place: "review",
+        tone: held ? "mine" : "run",
         red: {
           id: "red-alpha",
           phase: "red",
@@ -188,9 +191,11 @@ function detailOf(held: boolean): EpicsGetResponse {
         title: "Printer",
         status: "done",
         requirements: ["R2", "R3"],
+        place: "integrated",
+        tone: "ok",
         reviews: [{ attempt: 1n, gate: "beta review gate", step: "b2", verdict: "holds", findings: [] }],
       },
-      { id: "T3", title: "Logout", status: "", requirements: ["R2"] },
+      { id: "T3", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
     ],
     requirements: [
       { id: "R1", text: "The parser parses" },
@@ -340,7 +345,7 @@ test("TaskBand: the epic pin names the epic, its state and its tasks done, and p
   const calls: string[] = [];
   await withPage(pageProps(detailOf(false), "T1", calls), async (container) => {
     assert.equal(elementOf(container, ".epic-pin .slug").textContent, "orrery-style");
-    assert.equal(elementOf(container, ".epic-pin .words").textContent, "accepted · 1 of 3 tasks done");
+    assert.equal(elementOf(container, ".epic-pin .words").textContent, "building · 1 of 3 tasks done");
     await click(elementOf(container, ".epic-pin"));
     assert.equal(calls.join(","), "epic");
   });

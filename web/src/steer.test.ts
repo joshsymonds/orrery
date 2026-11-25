@@ -85,13 +85,12 @@ test("SteerMenu: steerFailureOf reads other Connect codes as refused with orrery
   }
 });
 
-test("SteerMenu: steersLive is true for a live orreryd epic only", () => {
-  const epic = (init: { live: boolean; source: string }) =>
-    create(EpicsGetResponseSchema, { epic: create(EpicSchema, { id: "orrery-1/planner", ...init }) });
+test("SteerMenu: steersLive is true for a live epic only", () => {
+  const epic = (live: boolean) =>
+    create(EpicsGetResponseSchema, { epic: create(EpicSchema, { id: "orrery-1/planner", live }) });
   assert.equal(steersLive(undefined), false);
-  assert.equal(steersLive(epic({ live: true, source: "orreryd" })), true);
-  assert.equal(steersLive(epic({ live: false, source: "orreryd" })), false);
-  assert.equal(steersLive(epic({ live: true, source: "record" })), false);
+  assert.equal(steersLive(epic(true)), true);
+  assert.equal(steersLive(epic(false)), false);
 });
 
 // fakeClients records each request the real Clients make, and answers with reply for its path.

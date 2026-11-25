@@ -45,7 +45,7 @@ func requireCronJobs(t *testing.T, s *store.Store, session string, want []string
 
 func TestCronStopRemovesLiveSessionJobs(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

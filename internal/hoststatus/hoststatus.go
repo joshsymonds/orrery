@@ -21,8 +21,10 @@ type Stat struct {
 	Level   string   `json:"level"`
 }
 
+// CommandLimit is how long serve lets the host status command run before it is killed.
+const CommandLimit = 2 * time.Second
+
 const (
-	commandTimeout = 2 * time.Second
 	waitDelay      = 500 * time.Millisecond
 	cacheWindow    = 5 * time.Second
 	maxOutputBytes = 64 << 10
@@ -37,10 +39,11 @@ var (
 	errInvalidOutput  = errors.New("host status output is invalid")
 )
 
-// Runner runs the host status command at path and caches its outcome.
+// Runner runs the host status command at path, killing it past limit, and caches its outcome.
 type Runner struct {
-	path string
-	now  func() time.Time
+	path  string
+	now   func() time.Time
+	limit time.Duration
 
 	mu       sync.Mutex
 	filled   bool
@@ -49,9 +52,10 @@ type Runner struct {
 	runErr   error
 }
 
-// New returns a Runner for the command at path, timed by now.
-func New(path string, now func() time.Time) *Runner {
-	return &Runner{path: path, now: now}
+// New returns a Runner for the command at path, timed by now, which kills the command once it has run for limit. A limit
+// of zero or less ends every run before the command starts.
+func New(path string, now func() time.Time, limit time.Duration) *Runner {
+	return &Runner{path: path, now: now, limit: limit}
 }
 
 // Stats returns the host status stats, from the cache when a call ran within the last 5 s.
@@ -64,7 +68,7 @@ func (r *Runner) Stats(ctx context.Context) ([]Stat, error) {
 	if r.filled && now.Sub(r.cachedAt) < cacheWindow {
 		return r.stats, r.runErr
 	}
-	stats, err := run(ctx, r.path)
+	stats, err := run(ctx, r.path, r.limit)
 	if ctx.Err() != nil {
 		return stats, err
 	}
@@ -72,9 +76,9 @@ func (r *Runner) Stats(ctx context.Context) ([]Stat, error) {
 	return stats, err
 }
 
-// run executes path with no arguments and no shell, and parses its stdout.
-func run(ctx context.Context, path string) ([]Stat, error) {
-	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+// run executes path with no arguments and no shell, killing it past limit, and parses its stdout.
+func run(ctx context.Context, path string, limit time.Duration) ([]Stat, error) {
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
 	var out capWriter

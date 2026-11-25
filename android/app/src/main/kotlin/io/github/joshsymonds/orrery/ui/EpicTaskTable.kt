@@ -55,14 +55,15 @@ fun TaskTable(tasks: List<RecordTask>, now: Long, onOpenPhase: ((task: String, p
 }
 
 /**
- * The running steps of an epic as rows: each glyph names its state, then the label, the pips of the step's task (five
- * not reached when the task is not in [tasks]), what the step does, and how long its stage has run as of [now].
+ * The running steps of an epic as rows: each glyph names its state, then the label, the pips of the task in [tasks] the
+ * step belongs to by [taskOfStep] (five not reached when none does), what the step does, and how long its stage has run
+ * as of [now].
  */
 @Composable
 fun StepRows(lines: List<StepLine>, tasks: List<RecordTask>, now: Long) {
     Column(modifier = Modifier.fillMaxWidth()) {
         lines.forEach { line ->
-            val cells = tasks.find { it.task == line.task }?.cells ?: RingPlace.entries.map { CellTone.NONE }
+            val cells = tasks.taskOfStep(line.task)?.cells ?: RingPlace.entries.map { CellTone.NONE }
             StepLineRow(line = line, cells = cells, now = now)
         }
     }

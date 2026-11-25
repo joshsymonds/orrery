@@ -1,19 +1,16 @@
 package enginehost
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -34,6 +31,10 @@ func (s *contractService) ReviseContract(
 	contract := req.Msg.GetContract()
 	decisions := req.Msg.GetDecisions()
 	if err := s.checkContract(ctx, id, contract, decisions); err != nil {
+		return nil, s.refuseRevision(ctx, req.Header(), id, err)
+	}
+	warnings, err := s.contractLengthWarnings(contract, decisions)
+	if err != nil {
 		return nil, err
 	}
 	if req.Msg.GetWords() == "" {
@@ -67,11 +68,16 @@ func (s *contractService) ReviseContract(
 	if err = s.contracts.Store.ReviseContract(ctx, id, version); err != nil {
 		return nil, reviseRefusal(id, err)
 	}
+	what := fmt.Sprintf("revised to version %d", version.Version)
+	err = s.logContract(ctx, id, what, writer, req.Msg.GetWords())
+	if err != nil {
+		return nil, err
+	}
 	stored, err := s.read(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored}), nil
+	return connect.NewResponse(&v1.ReviseContractResponse{Contract: stored, Warnings: warnings}), nil
 }
 
 // reviseRefusal returns the refusal a store revise of the contract id gets.
@@ -91,9 +97,10 @@ func reviseRefusal(id string, err error) error {
 }
 
 // AcceptContract accepts the contract at its newest version, by the sessions row the caller resolves to or by the owner
-// when it resolves to none. Every decision of that version must have an answer. The accept stores the commit origin's
-// main names in the contract's repository as the contract's base. When that commit cannot be read, the accept is refused
-// and stores nothing.
+// when it resolves to none. Every decision of that version must have an answer. The accept records who made it, as
+// acceptMaker works out. Once the contract is read, the Contracts' AcceptCheck, when it is set, must pass: a refusal of
+// it stores nothing. The accept stores the commit origin's main names in the contract's repository as the contract's
+// base. When that commit cannot be read, the accept is refused and stores nothing.
 func (s *contractService) AcceptContract(
 	ctx context.Context,
 	req *connect.Request[v1.AcceptContractRequest],
@@ -106,6 +113,10 @@ func (s *contractService) AcceptContract(
 	if err != nil {
 		return nil, err
 	}
+	maker, err := acceptMaker(session, req.Msg.GetMaker())
+	if err != nil {
+		return nil, err
+	}
 	record, err := s.contracts.Store.Contract(ctx, id)
 	if errors.Is(err, store.ErrNoContract) {
 		return nil, contractNotFound(id)
@@ -113,21 +124,42 @@ func (s *contractService) AcceptContract(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
+	if s.contracts.AcceptCheck != nil {
+		if err = s.contracts.AcceptCheck(ctx, id); err != nil {
+			return nil, acceptCheckError(err)
+		}
+	}
 	base, err := s.originMain(ctx, record.Repository)
 	if err != nil {
 		return nil, refuseEpic(connect.CodeFailedPrecondition, "base: fetch origin main: "+err.Error())
 	}
 	change := s.contractChange(session, req.Msg.GetWords())
 	change.Base = base
+	change.Maker = maker
 	err = s.contracts.Store.AcceptContract(ctx, id, change)
 	if err != nil {
 		return nil, acceptRefusal(id, err)
+	}
+	err = s.logContract(ctx, id, "accepted", session, req.Msg.GetWords())
+	if err != nil {
+		return nil, err
 	}
 	stored, err := s.read(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&v1.AcceptContractResponse{Contract: stored}), nil
+}
+
+// acceptCheckError returns the error an accept answers with when its check refuses it. A Connect error the check returns
+// keeps its code, so a failed read stays internal. Any other error is a refusal, answered as a failed precondition with
+// the check's message.
+func acceptCheckError(err error) error {
+	var coded *connect.Error
+	if errors.As(err, &coded) {
+		return err
+	}
+	return refuseEpic(connect.CodeFailedPrecondition, err.Error())
 }
 
 // acceptRefusal returns the refusal a store accept of the contract id gets.
@@ -142,6 +174,54 @@ func acceptRefusal(id string, err error) error {
 	default:
 		return epicStoreError(err)
 	}
+}
+
+// acceptMaker returns the maker an accept stores, given the sessions row the caller resolves to, session, which is ""
+// for none, and the maker the request names, named, which is nil for none. A caller that resolves to no session is
+// serve's owner, whose accept is owner_serve when it names no maker. A caller that resolves to a session stores the
+// maker it names, and none when it names none. A named maker is checked as the stage checks one: owner_serve is the
+// owner through serve, so the caller must resolve to no session; owner_conversation is the owner in the conversation,
+// so the caller must resolve to a session and give the owner's quote; conversation is the conversation deciding for the
+// owner, so the caller must resolve to a session and give the reason and the delegation it rests on. A caller of the
+// wrong kind is refused as permission denied. A kind that is none of the three, or evidence it lacks, is refused as an
+// invalid argument that names the field.
+func acceptMaker(session string, named *v1.StageMaker) (store.StageMaker, error) {
+	if named == nil {
+		if session == "" {
+			return store.StageMaker{Kind: store.StageMakerOwnerServe}, nil
+		}
+		return store.StageMaker{}, nil
+	}
+	kind := named.GetKind()
+	switch kind {
+	case store.StageMakerOwnerServe:
+		if session != "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied,
+				"maker: owner_serve is serve's call, which carries no session")
+		}
+		return store.StageMaker{Kind: kind}, nil
+	case store.StageMakerOwnerConversation:
+		if session == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
+		}
+		if strings.TrimSpace(named.GetQuote()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "quote: empty")
+		}
+		return store.StageMaker{Kind: kind, Quote: named.GetQuote()}, nil
+	case store.StageMakerConversation:
+		if session == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodePermissionDenied, "caller: resolves to no session")
+		}
+		if strings.TrimSpace(named.GetReason()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "reason: empty")
+		}
+		if strings.TrimSpace(named.GetDelegation()) == "" {
+			return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument, "delegation: empty")
+		}
+		return store.StageMaker{Kind: kind, Reason: named.GetReason(), Delegation: named.GetDelegation()}, nil
+	}
+	return store.StageMaker{}, refuseEpic(connect.CodeInvalidArgument,
+		fmt.Sprintf("kind: %q is not owner_serve, owner_conversation or conversation", kind))
 }
 
 // SetAsideContract sets the contract aside with words, by the sessions row the caller resolves to or by the owner when
@@ -164,6 +244,10 @@ func (s *contractService) SetAsideContract(
 	err = s.contracts.Store.SetAsideContract(ctx, id, s.contractChange(session, req.Msg.GetWords()))
 	if err != nil {
 		return nil, setAsideRefusal(id, err)
+	}
+	err = s.logContract(ctx, id, "set aside", session, req.Msg.GetWords())
+	if err != nil {
+		return nil, err
 	}
 	stored, err := s.read(ctx, id)
 	if err != nil {
@@ -204,6 +288,10 @@ func (s *contractService) ReopenContract(
 	if err != nil {
 		return nil, reopenRefusal(id, err)
 	}
+	err = s.logContract(ctx, id, "reopened", session, req.Msg.GetWords())
+	if err != nil {
+		return nil, err
+	}
 	stored, err := s.read(ctx, id)
 	if err != nil {
 		return nil, err
@@ -229,29 +317,43 @@ func (s *contractService) contractChange(session, words string) store.ContractCh
 }
 
 // originMain returns the commit origin's main names in repository: what OriginMain returns when the Contracts sets it,
-// and otherwise the commit fetchOriginMain fetches.
+// and otherwise the commit fetchOriginMain fetches on the controller's Host.
 func (s *contractService) originMain(ctx context.Context, repository string) (string, error) {
 	if s.contracts.OriginMain != nil {
 		return s.contracts.OriginMain(ctx, repository)
 	}
-	return fetchOriginMain(ctx, repository)
+	host, err := s.controllerHost()
+	if err != nil {
+		return "", err
+	}
+	return fetchOriginMain(ctx, host, repository)
 }
 
-// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository, and returns the full commit that ref
-// names. git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch that needs one fails. The fetch runs in a
-// process group of its own, which ctx's end kills whole, so a transport it started does not outlive the accept.
-func fetchOriginMain(ctx context.Context, repository string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git")
-	cmd.Args = append(cmd.Args,
-		"-C", repository, "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = originFetchGrace
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git fetch origin: %w: %s", err, strings.TrimSpace(stderr.String()))
+// FetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on this machine's Host, as
+// fetchOriginMain does, and returns the full commit that ref names.
+func FetchOriginMain(ctx context.Context, repository string) (string, error) {
+	return fetchOriginMain(ctx, hostexec.NewLocal(), repository)
+}
+
+// FetchOriginMainOn fetches origin's main into refs/remotes/origin/main of repository on host, as fetchOriginMain does,
+// and returns the full commit that ref names. A held epic starts from the commit it returns, on the host it lives on.
+func FetchOriginMainOn(ctx context.Context, host hostexec.Host, repository string) (string, error) {
+	return fetchOriginMain(ctx, host, repository)
+}
+
+// fetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on host, and returns the full
+// commit that ref names. The fetch is a remote run: git never prompts for a login (GIT_TERMINAL_PROMPT=0), so a fetch
+// that needs one fails, and the run's process group is killed whole once ctx ends, so a transport it started does not
+// outlive the accept.
+func fetchOriginMain(ctx context.Context, host hostexec.Host, repository string) (string, error) {
+	_, err := host.Git(ctx, hostexec.GitCall{
+		Dir:       repository,
+		Args:      []string{"fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"},
+		Remote:    true,
+		WaitDelay: originFetchGrace,
+	})
+	if err != nil {
+		return "", fmt.Errorf("git fetch origin: %w", err)
 	}
-	return stepGitResolve(ctx, repository, "refs/remotes/origin/main")
+	return stepGitResolve(ctx, host, repository, "refs/remotes/origin/main")
 }

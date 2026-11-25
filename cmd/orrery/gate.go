@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
@@ -36,14 +37,14 @@ func runGate(
 	if err != nil {
 		return err
 	}
-	gate, err := gates.Resolve(ctx, name, gatesFile, ".", getenv)
+	gate, err := gates.Resolve(ctx, hostexec.NewLocal(), name, gatesFile, ".", getenv)
 	if err != nil {
 		return refuseGate(stderr, err)
 	}
 	if gate.Agent != "" {
 		return refuseGate(stderr, fmt.Errorf("gate %s is an agent gate; it runs only as a read-only step", name))
 	}
-	project, defined, err := pools.Load(ctx, ".", getenv)
+	project, defined, err := pools.Load(ctx, hostexec.NewLocal(), ".", getenv)
 	if err != nil {
 		return refuseGate(stderr, err)
 	}

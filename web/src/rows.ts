@@ -38,6 +38,14 @@ export interface Row {
   // and always false for a Sessions.List row. A new question reads false again.
   putOff: boolean;
   archiveKind: ArchiveKind;
+  // Whether serve reports the row's session as ended: a pane's Session with its orrery_id, a Sessions.List row's
+  // Session, or a headless session's HeadlessSession. Absent reads as false.
+  ended?: boolean;
+  // The unix seconds serve's ended_at gives when the session ended, or 0 while it runs or when unknown.
+  // Absent reads as 0.
+  endedAt?: number;
+  // Whether the pane is unbound (Pane.unbound). Absent reads as false, and always false for a session or headless row.
+  unbound?: boolean;
 }
 
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
@@ -46,20 +54,26 @@ const shellSessionPrefix = "_orrery-shell-";
 // A Sessions.List row with no label reads this word as its line.
 const sessionLabel = "session";
 
-// rowsFrom makes a row of each pane outside orrery's own shells, of each session that names no pane, and of each headless
-// session. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
+// rowsFrom makes a row of each pane outside orrery's own shells that has a conversation or is unbound, of each session
+// that names no pane, and of each headless session. A pane with no claudeSession and not unbound is a plain shell and
+// makes no row. A row's project is its directory and its label is its line: a pane's summary, a headless session's served
 // headline, or a Sessions.List row's label. A session row is driven by its id, through the session row path,
 // Sessions.WatchConversation and Control.
 export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessSession[] = []): Row[] {
   const archivedSessions = new Map(sessions.map((session) => [session.id, session.archived]));
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
   const rows: Row[] = [];
   for (const pane of panes) {
     if (pane.session.startsWith(shellSessionPrefix)) {
       continue;
     }
+    if (pane.claudeSession === "" && !pane.unbound) {
+      continue;
+    }
     const changed = Number(pane.changed);
     const seen = Number(pane.seen);
     const archivable = pane.orreryId !== "";
+    const owner = archivable ? sessionsById.get(pane.orreryId) : undefined;
     rows.push({
       key: `pane:${pane.host}:${pane.id}`,
       id: pane.id,
@@ -79,6 +93,9 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       archived: archivable && archivedSessions.get(pane.orreryId) === true,
       putOff: pane.putOff,
       archiveKind: archivable ? "session" : "none",
+      ended: owner?.ended ?? false,
+      endedAt: owner ? Number(owner.endedAt) : 0,
+      unbound: pane.unbound,
     });
   }
   for (const session of sessions) {
@@ -106,6 +123,9 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       archived: session.archived,
       putOff: false,
       archiveKind: "session",
+      ended: session.ended,
+      endedAt: Number(session.endedAt),
+      unbound: false,
     });
   }
   for (const session of headless) {
@@ -130,6 +150,9 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       archived: session.archived,
       putOff: session.putOff,
       archiveKind: "headless",
+      ended: session.ended,
+      endedAt: Number(session.endedAt),
+      unbound: false,
     });
   }
   return rows;

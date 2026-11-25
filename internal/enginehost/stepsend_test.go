@@ -13,7 +13,7 @@ import (
 // gets it.
 func TestStepTurnThatEndsWhileItsOwnSendIsUnderWayIsHandedToTheObserver(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -53,7 +53,7 @@ func TestSayTurnThatEndsWhileItsOwnSendIsUnderWayEndsDone(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
-	m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
+	m := newManagerOn(t, path, fakeClaudePath(t), sink)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {

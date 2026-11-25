@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +35,8 @@ const (
 	sendSettle     = 300 * time.Millisecond
 	// sendTypeBound bounds a started typed send, which runs even when its caller's context is done.
 	sendTypeBound = 15 * time.Second
-	// sendPaneFields is the number of fields in the display-message format sendTypable reads.
-	sendPaneFields = 3
+	// sendPaneFields is the number of fields in the display-message format paneInputReady reads.
+	sendPaneFields = 4
 	sendKeysCmd    = "send-keys"
 	// sendTypeLimit is the most typed invocations, before Enter, that sendTypeable accepts.
 	sendTypeLimit = 200
@@ -234,10 +233,11 @@ func sendText(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client,
 	return sendPaste(ctx, client, pane, text)
 }
 
-// SendIdle types text into pane and presses Enter when Claude Code runs in the pane's foreground, the pane is done,
-// not in a tmux mode, and its captured screen shows Claude Code's input box. Otherwise it sends no key and returns
-// false. It never pastes: text that cannot be typed exactly is an error, and no key is sent. It returns true once it
-// begins typing, so an error after that means the pane may hold part of the text.
+// SendIdle types text into pane and presses Enter when Claude Code runs in the pane's foreground, the pane is idle,
+// not in a tmux mode, and its captured screen shows Claude Code's input box. A pane is idle when it is done, or working
+// and held: its turn ended while a background agent or workflow runs, so no turn runs (see protocol.Idle). Otherwise it
+// sends no key and returns false. It never pastes: text that cannot be typed exactly is an error, and no key is sent.
+// It returns true once it begins typing, so an error after that means the pane may hold part of the text.
 func SendIdle(ctx context.Context, client *tmuxctl.Client, pane, text string) (bool, error) {
 	return sendIdleWithClock(ctx, rpcretry.SystemClock{}, client, pane, text)
 }
@@ -256,7 +256,7 @@ func sendIdleWithClock(
 	if !runs {
 		return false, nil
 	}
-	ready, err := paneInputReady(ctx, client, pane, protocol.StateDone)
+	ready, err := paneInputReady(ctx, client, pane, protocol.Idle)
 	if err != nil || !ready {
 		return false, err
 	}
@@ -290,14 +290,18 @@ func sendTypeable(pane, text string) bool {
 // sendTypable reports whether pane may take typed text: it is not in a tmux mode, its orrery state is
 // working or done, and its captured screen shows Claude Code's input box at the pane's width.
 func sendTypable(ctx context.Context, client *tmuxctl.Client, pane string) (bool, error) {
-	return paneInputReady(ctx, client, pane, protocol.StateWorking, protocol.StateDone)
+	return paneInputReady(ctx, client, pane, func(state protocol.State, _ bool) bool {
+		return state == protocol.StateWorking || state == protocol.StateDone
+	})
 }
 
-// paneInputReady reports whether pane is not in a tmux mode, its orrery state is one of states, and its
-// captured screen shows Claude Code's input box at the pane's width.
-func paneInputReady(ctx context.Context, client *tmuxctl.Client, pane string, states ...protocol.State) (bool, error) {
+// paneInputReady reports whether pane is not in a tmux mode, accept takes its orrery state and whether its
+// @orrery_held is set, and its captured screen shows Claude Code's input box at the pane's width.
+func paneInputReady(
+	ctx context.Context, client *tmuxctl.Client, pane string, accept func(state protocol.State, held bool) bool,
+) (bool, error) {
 	out, err := client.Run(ctx, "display-message", "-p", "-t", pane,
-		"#{pane_in_mode}|#{pane_width}|#{@orrery_state}")
+		"#{pane_in_mode}|#{pane_width}|#{"+protocol.OptionState+"}|#{"+protocol.OptionHeld+"}")
 	if err != nil {
 		return false, fmt.Errorf("send: %w", err)
 	}
@@ -309,8 +313,7 @@ func paneInputReady(ctx context.Context, client *tmuxctl.Client, pane string, st
 	if err != nil {
 		return false, fmt.Errorf("send: pane width %q: %w", fields[1], err)
 	}
-	state := protocol.State(fields[2])
-	if fields[0] != "0" || !slices.Contains(states, state) {
+	if fields[0] != "0" || !accept(protocol.State(fields[2]), fields[3] != "") {
 		return false, nil
 	}
 	screen, err := client.Run(ctx, "capture-pane", "-p", "-t", pane)

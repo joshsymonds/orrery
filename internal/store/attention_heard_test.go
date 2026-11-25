@@ -87,7 +87,7 @@ func TestAttentionHeard(t *testing.T) {
 		}
 
 		// The pane leaves the server, so its sessions row is removed and the steerer's row is gone with it.
-		if err := s.SyncServer(ctx, server, nil, claimedAt().Add(time.Minute)); err != nil {
+		if err := s.SyncServer(ctx, "", server, nil, claimedAt().Add(time.Minute)); err != nil {
 			t.Fatalf("SyncServer: %v", err)
 		}
 		if heardOf(t, s) {

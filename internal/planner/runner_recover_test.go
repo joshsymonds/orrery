@@ -147,30 +147,6 @@ func TestRecoveryStartsStepOfTurnWithNoStepAndSettlesItByItsDoneEnd(t *testing.T
 	}
 }
 
-func TestRecoveryFreesTurnWhenStepCapRefusesItsStartAndNextPassReRunsIt(t *testing.T) {
-	t.Parallel()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	claimTurnLeftRunning(t, s, "", "", "")
-	steps := newFakeSteps()
-	steps.watchStore(s)
-	refusing := &refuseOnceSteps{recoverSteps: recoverSteps{fakeSteps: steps, read: s}, err: enginehost.ErrCapReached}
-	var reads atomic.Int64
-	runRunner(t, runnerConfig(s, refusing, agentReturning(runnerAgent, nil, &reads)))
-
-	waitFor(t, &steps.changeNotice, "step-1 recorded on turn 2 after turn 1 is freed", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) == 2 && turns[1].Step == "step-1"
-	})
-	epic := epicOf(t, s)
-	if turn := epic.Turns[0]; turn.State != "free" || turn.Reason != "step cap full" {
-		t.Errorf("turn 1 = state %q reason %q, want free step cap full", turn.State, turn.Reason)
-	}
-	if got, want := steps.started()[0].ID, turnStepID(runnerEpicID, 2); got != want {
-		t.Errorf("step id of turn 2 = %q, want %q", got, want)
-	}
-}
-
 func TestRecoveryParksEpicWhenStartRefusesItsAgent(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)

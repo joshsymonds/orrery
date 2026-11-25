@@ -97,7 +97,11 @@ func (e *Evidence) runUnder(
 	if phase != evidence.PhaseRed && phase != evidence.PhaseGreen {
 		return store.EvidenceRun{}, fmt.Errorf("%w: phase %q is not red or green", ErrEvidenceRefused, phase)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, revision)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, epic)
+	if err != nil {
+		return store.EvidenceRun{}, err
+	}
+	commit, err := stepGitResolve(ctx, host, row.Repository, revision)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf(
 			"%w: revision %q does not resolve: %w", ErrEvidenceRefused, revision, err,

@@ -93,7 +93,7 @@ func waitsForOwnerSpeech(t *testing.T, history store.EngineHistory) bool {
 // the step end unmarked. The owner's Say clears the quiet, and the next pass writes the step end once.
 func TestDeliverNowQuietCallerWaitsForOwnersSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "start"})
@@ -140,7 +140,7 @@ func TestDeliverNowQuietCallerWaitsForOwnersSay(t *testing.T) {
 // the step end once, to the resumed process.
 func TestDeliverNowStoppedCallerWaitsForOwnersSayToResume(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -197,7 +197,7 @@ func TestDeliverNowStoppedCallerWaitsForOwnersSayToResume(t *testing.T) {
 // nothing and leaves the step end unmarked. Once the question is answered, the next pass writes the step end once.
 func TestDeliverNowOpenQuestionWaitsForAnswer(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "ASK"})
@@ -247,7 +247,7 @@ func TestDeliverNowOpenQuestionWaitsForAnswer(t *testing.T) {
 // step end once. A further pass writes nothing.
 func TestDeliverNowEscapeCancelledStepEndPendingWaitsSpeakThenWrittenOnceAfterSay(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
@@ -333,7 +333,7 @@ func TestDeliverNowEscapeCancelledStepEndPendingWaitsSpeakThenWrittenOnceAfterSa
 // nothing.
 func TestDeliverNowUnstartedStepEndAtProcessEndUnmarkedThenWrittenOnceOnResume(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	s := storeOf(t, m)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "DIEQUEUED"})

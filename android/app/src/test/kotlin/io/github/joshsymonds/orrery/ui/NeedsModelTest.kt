@@ -19,7 +19,6 @@ private val alpha = EpicRow(
     live = true,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
 )
 
 private fun detail(
@@ -27,19 +26,24 @@ private fun detail(
     parked: String = "",
     releaseProof: List<EpicReleaseProofRow> = emptyList(),
     steps: List<StepRow> = emptyList(),
+    plannerParked: Boolean = false,
+    steererParked: Boolean = false,
 ) = EpicDetail(
     epic = alpha,
-    tasks = emptyList(),
-    slices = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,
+    plannerParked = plannerParked,
+    steererParked = steererParked,
     releaseProof = releaseProof,
 )
 
 private fun needsOf(detail: EpicDetail): List<Need> = epicNeedsOf(listOf(alpha), mapOf(EPIC_ID to detail))
 
-private fun question(id: String, text: String) = EpicQuestionRow(id = id, text = text, turn = 0L, asked = 0L)
+private fun question(id: String, text: String, steererHeld: Boolean = false) =
+    EpicQuestionRow(id = id, text = text, turn = 0L, asked = 0L, steererHeld = steererHeld)
+
+private val failedPublish = listOf(release(1L, "publish", "failed", "registry 503"))
 
 private fun release(position: Long, step: String, state: String, reason: String = "") = EpicReleaseProofRow(
     position = position,
@@ -171,6 +175,72 @@ class NeedsModelTest {
     fun anOpenQuestionBesideAHeldStepGivesBothNeeds() {
         val needs = needsOf(
             detail(
+                questions = listOf(question("Q1", "Use Postgres?")),
+                steps = listOf(heldStep("web-line")),
+            ),
+        )
+        assertEquals(
+            listOf(
+                Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", EPIC_ID, "Q1"),
+                Need(NeedKind.OTHER, "alpha: web-line held", EPIC_ID, ""),
+            ),
+            needs,
+        )
+    }
+
+    @Test
+    fun aQuestionItsSteererHoldsRaisesNoNeed() {
+        assertEquals(emptyList<Need>(), needsOf(detail(questions = listOf(question("Q1", "Use Postgres?", true)))))
+    }
+
+    @Test
+    fun aQuestionItsSteererHoldsBesideAnOwnersQuestionRaisesOnlyTheOwners() {
+        val needs = needsOf(
+            detail(questions = listOf(question("Q1", "Use Postgres?", true), question("Q2", "Ship on Friday?"))),
+        )
+        assertEquals(listOf(Need(NeedKind.QUESTION, "alpha asks: Ship on Friday?", EPIC_ID, "Q2")), needs)
+    }
+
+    @Test
+    fun theSameQuestionOnceItsSteererEscalatesItRaisesAQuestionNeedWhoseAskCarriesTheEscalationLine() {
+        val escalated = question("Q1", "Use Postgres?").copy(
+            escalated = 1_700_000_000L,
+            escalationReason = "the schema is the owner's call",
+            escalationBy = "conversation",
+            escalationSession = "example-session-1",
+        )
+        val needs = needsOf(detail(questions = listOf(escalated)))
+        assertEquals(listOf(Need(NeedKind.QUESTION, "alpha asks: Use Postgres?", EPIC_ID, "Q1")), needs)
+        assertEquals(
+            "escalated by session example-session-1: the schema is the owner's call",
+            epicAsk(alpha, escalated).escalation,
+        )
+    }
+
+    @Test
+    fun aParkItsSteererHoldsRaisesNoParkNeedAndNoReleaseNeedForAFailedStep() {
+        assertEquals(emptyList<Need>(), needsOf(detail(parked = "budget", steererParked = true)))
+        assertEquals(
+            emptyList<Need>(),
+            needsOf(detail(parked = "budget", steererParked = true, releaseProof = failedPublish)),
+        )
+    }
+
+    @Test
+    fun aParkThePlannerHoldsRaisesNoParkNeedAndNoReleaseNeedForAFailedStep() {
+        assertEquals(emptyList<Need>(), needsOf(detail(parked = "budget", plannerParked = true)))
+        assertEquals(
+            emptyList<Need>(),
+            needsOf(detail(parked = "budget", plannerParked = true, releaseProof = failedPublish)),
+        )
+    }
+
+    @Test
+    fun aHeldParkStillRaisesTheOwnersQuestionAndAHeldStepWithoutThePark() {
+        val needs = needsOf(
+            detail(
+                parked = "budget",
+                steererParked = true,
                 questions = listOf(question("Q1", "Use Postgres?")),
                 steps = listOf(heldStep("web-line")),
             ),

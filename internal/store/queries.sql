@@ -5,10 +5,13 @@ SELECT * FROM sessions WHERE id = ?;
 SELECT * FROM sessions WHERE kind = '' ORDER BY id;
 
 -- name: ListServerSessions :many
-SELECT * FROM sessions WHERE server = ? AND kind = '' ORDER BY id;
+SELECT * FROM sessions WHERE host = sqlc.arg(host) AND server = sqlc.arg(server) AND kind = '' ORDER BY id;
+
+-- name: ListHostSessions :many
+SELECT * FROM sessions WHERE host = ? AND kind = '' ORDER BY id;
 
 -- name: InsertSession :exec
-INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?);
+INSERT INTO sessions (id, server, pane, host) VALUES (?, ?, ?, ?);
 
 -- name: UpdateSessionFields :exec
 UPDATE sessions
@@ -62,7 +65,10 @@ WHERE sessions.kind = 'engine'
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?);
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed, host) VALUES (?, '', '', ?, ?, ?, ?, ?);
+
+-- name: NameUnhostedSessions :execrows
+UPDATE sessions SET host = sqlc.arg(host) WHERE host = '';
 
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
@@ -169,35 +175,11 @@ ORDER BY MAX(known.at) DESC, known.dir;
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
-    sessions.title, sessions.headline,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
-          AND json_extract(events.payload, '$.kind') = 'text'
-          AND json_extract(events.payload, '$.role') = 'assistant'
-          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
-        ORDER BY events.at DESC, events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS reply,
-    CAST(COALESCE((
-        SELECT MAX(events.at) FROM events
-        WHERE events.session_id = sessions.id AND (
-            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
-             AND json_extract(events.payload, '$.role') = 'assistant'
-             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
-            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
-        )
-    ), 0) AS INTEGER) AS newest_reply,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.text') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_prompt'
-        ORDER BY events.seq LIMIT 1
-    ), '') AS TEXT) AS first_prompt,
-    CAST(COALESCE((
-        SELECT json_extract(events.payload, '$.requestId') FROM events
-        WHERE events.session_id = sessions.id AND events.kind = 'engine_request'
-          AND json_extract(events.payload, '$.refused') IS NOT 1
-        ORDER BY events.seq DESC LIMIT 1
-    ), '') AS TEXT) AS request_id
+    sessions.title, sessions.headline, sessions.host,
+    sessions.latest_reply AS reply,
+    sessions.newest_reply_at AS newest_reply,
+    sessions.first_prompt_text AS first_prompt,
+    sessions.latest_request_id AS request_id
 FROM sessions
 WHERE sessions.kind = 'engine'
   AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
@@ -205,8 +187,25 @@ ORDER BY sessions.id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
-SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?, held = ?
 WHERE id = ? AND kind IN ('engine', 'step');
+
+-- name: SetSessionLatestReply :exec
+UPDATE sessions
+SET latest_reply = sqlc.arg(latest_reply),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionLatestRequest :exec
+UPDATE sessions
+SET latest_request_id = sqlc.arg(request_id),
+    newest_reply_at = MAX(newest_reply_at, CAST(sqlc.arg(at) AS INTEGER))
+WHERE id = sqlc.arg(id);
+
+-- name: SetSessionFirstPrompt :exec
+UPDATE sessions
+SET first_prompt_text = sqlc.arg(text)
+WHERE id = sqlc.arg(id) AND first_prompt_text = '';
 
 -- name: UpdateEngineConsumed :execrows
 UPDATE sessions
@@ -328,8 +327,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents, caller, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -486,12 +485,15 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key;
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key, host = excluded.host;
+
+-- name: NameUnhostedPaneNotices :execrows
+UPDATE pending_notices SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -506,14 +508,22 @@ SELECT * FROM pending_notices ORDER BY id;
 SELECT high FROM pending_notice_ids WHERE id = 1;
 
 -- name: UpsertPushedNotice :exec
-INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
-ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time;
+INSERT INTO pushed_notices (host, pane, session, time) VALUES (?, ?, ?, ?)
+ON CONFLICT (host, pane, session) DO UPDATE SET time = excluded.time;
 
 -- name: DeletePushedNotice :exec
-DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
+DELETE FROM pushed_notices WHERE host = ? AND pane = ? AND session = ?;
 
 -- name: ListPushedNotices :many
-SELECT * FROM pushed_notices ORDER BY pane, session;
+SELECT * FROM pushed_notices ORDER BY host, pane, session;
+
+-- name: DeleteUnhostedPaneDuplicatePushes :exec
+DELETE FROM pushed_notices WHERE host = '' AND pane <> ''
+    AND EXISTS (SELECT 1 FROM pushed_notices AS named WHERE named.host = sqlc.arg(host)
+        AND named.pane = pushed_notices.pane AND named.session = pushed_notices.session);
+
+-- name: NameUnhostedPanePushes :execrows
+UPDATE pushed_notices SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: UpsertPushedEpicNotice :exec
 INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)
@@ -549,21 +559,25 @@ SELECT * FROM pushed_alert_notices ORDER BY alert;
 UPDATE notice_history SET state = ?, title = ?, body = ?, block = ?, block_ref = ?, time = ?
 WHERE id = (
     SELECT newest.id FROM notice_history AS newest
-    WHERE newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ? AND newest.alert = ?
+    WHERE newest.host = ? AND newest.pane = ? AND newest.session = ? AND newest.epic = ? AND newest.limit_key = ?
+        AND newest.alert = ?
     ORDER BY newest.id DESC LIMIT 1
 ) AND read = 0;
 
 -- name: InsertNoticeHistory :exec
-INSERT INTO notice_history (pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO notice_history (host, pane, session, epic, limit_key, alert, state, title, body, block, block_ref, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: MarkNoticeHistoryRead :exec
 UPDATE notice_history SET read = 1
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND time <= ?;
 
 -- name: CountUnreadNoticeHistory :one
 SELECT COUNT(*) FROM notice_history
-WHERE pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+WHERE host = ? AND pane = ? AND session = ? AND epic = ? AND limit_key = ? AND alert = ? AND read = 0;
+
+-- name: NameUnhostedPaneHistory :execrows
+UPDATE notice_history SET host = sqlc.arg(host) WHERE pane <> '' AND host = '';
 
 -- name: MarkAllNoticeHistoryRead :exec
 UPDATE notice_history SET read = 1;
@@ -572,8 +586,8 @@ UPDATE notice_history SET read = 1;
 SELECT * FROM notice_history WHERE time >= ? ORDER BY time DESC, id DESC;
 
 -- name: ListUnreadNoticeHistoryKeys :many
-SELECT DISTINCT pane, session, epic, limit_key, alert FROM notice_history
-WHERE read = 0 ORDER BY pane, session, epic, limit_key, alert;
+SELECT DISTINCT host, pane, session, epic, limit_key, alert FROM notice_history
+WHERE read = 0 ORDER BY host, pane, session, epic, limit_key, alert;
 
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
@@ -587,8 +601,8 @@ SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
-    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    phase, created, changed, workflow, workflow_text, workflow_sha256, phase_at, steerer, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -596,17 +610,28 @@ SELECT COUNT(*) FROM epics WHERE id = ?;
 -- name: GetEpic :one
 SELECT * FROM epics WHERE id = ?;
 
+-- name: GetEpicHost :one
+SELECT host FROM epics WHERE id = ?;
+
+-- name: AdoptEpicHosts :exec
+UPDATE epics SET host = ? WHERE host = '';
+
+-- name: AdoptStepHosts :exec
+UPDATE steps SET host = ? WHERE host = '';
+
 -- name: ListEpics :many
 SELECT sqlc.embed(epics), CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision
 FROM epics LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 ORDER BY epics.id;
 
 -- name: ListEpicListings :many
-SELECT epics.id, epics.repository, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
+SELECT epics.id, epics.repository, epics.host, epics.title, epics.phase, epics.phase_at, epics.created, epics.changed,
     epics.steerer, epics.paused, epics.pause_source, epics.parked,
     CAST(COALESCE(epic_revisions.revision, 0) AS INTEGER) AS revision, epic_seen.at AS seen_at,
     CAST((SELECT COUNT(*) FROM epic_questions WHERE epic_questions.epic = epics.id AND epic_questions.state = 'open')
-        AS INTEGER) AS open_questions
+        AS INTEGER) AS open_questions,
+    CAST(EXISTS (SELECT 1 FROM sessions WHERE sessions.id = epics.steerer AND sessions.state <> 'stopped')
+        AS INTEGER) AS steerer_heard
 FROM epics
 LEFT JOIN epic_revisions ON epic_revisions.epic = epics.id
 LEFT JOIN epic_seen ON epic_seen.epic = epics.id
@@ -664,14 +689,11 @@ WHERE id = sqlc.arg(id) AND phase = sqlc.arg(report_phase) AND report_phase <> s
 -- name: MoveEpicStoredBase :exec
 UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
 
--- name: SyncEpicStoredBase :exec
-UPDATE epics SET stored_base = ?, candidate = '', synced = ? WHERE id = ?;
-
--- name: SetEpicOriginRead :exec
-UPDATE epics
-SET origin_read_base = sqlc.arg(base), origin_read_commit = sqlc.arg(commit), origin_read_state = sqlc.arg(state),
-    origin_read_at = sqlc.arg(at)
-WHERE id = sqlc.arg(id);
+-- name: MoveEpicBase :execrows
+UPDATE epics SET base = sqlc.arg(to_base), stored_base = sqlc.arg(to_base)
+WHERE epics.id = sqlc.arg(id) AND epics.base = sqlc.arg(from_base) AND epics.stored_base = sqlc.arg(from_base)
+    AND epics.branch = '' AND epics.candidate = ''
+    AND NOT EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id);
 
 -- name: SetEpicCandidate :exec
 UPDATE epics SET candidate = ? WHERE id = ?;
@@ -748,30 +770,6 @@ ON CONFLICT (epic, part, position, attempt) DO NOTHING;
 
 -- name: ListEpicReleaseRuns :many
 SELECT * FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position;
-
--- name: InsertEpicReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind) VALUES (?, ?, 'epic')
-ON CONFLICT (repository) DO NOTHING;
-
--- name: GetEpicReleaseSlotHolder :one
-SELECT * FROM epic_release_slots WHERE repository = ?;
-
--- name: FreeEpicReleaseSlot :exec
-DELETE FROM epic_release_slots WHERE epic = ? AND holder_kind = 'epic';
-
--- name: HoldOutsideReleaseSlot :exec
-INSERT INTO epic_release_slots (repository, epic, holder_kind, label, deadline) VALUES (?, '', 'outside', ?, ?)
-ON CONFLICT (repository) DO UPDATE SET label = excluded.label, deadline = excluded.deadline
-WHERE epic_release_slots.holder_kind = 'outside' AND epic_release_slots.label = excluded.label;
-
--- name: GiveOutsideReleaseSlot :execrows
-DELETE FROM epic_release_slots WHERE repository = ? AND holder_kind = 'outside' AND label = ?;
-
--- name: FreeExpiredReleaseSlots :many
-DELETE FROM epic_release_slots WHERE holder_kind = 'outside' AND deadline <= ? RETURNING repository;
-
--- name: NextOutsideReleaseSlotDeadline :one
-SELECT deadline FROM epic_release_slots WHERE holder_kind = 'outside' ORDER BY deadline LIMIT 1;
 
 -- name: StartEpicRelease :exec
 UPDATE epics SET phase = 'releasing', phase_at = ? WHERE id = ? AND phase = 'clean';
@@ -1025,6 +1023,9 @@ DELETE FROM epic_task_files WHERE epic = ? AND task = ? AND path = ?;
 -- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
+-- name: DeleteEpicTaskRequirements :exec
+DELETE FROM epic_task_requirements WHERE epic = ? AND task = ?;
+
 -- name: InsertEpicTaskContribute :exec
 INSERT INTO epic_task_contributes (epic, task, position, requirement) VALUES (?, ?, ?, ?);
 
@@ -1068,6 +1069,12 @@ WHERE epic_tasks.epic = sqlc.arg(epic) AND epic_tasks.seq = sqlc.arg(seq) AND ep
     )
 );
 
+-- name: SetEpicTaskSplitFrom :exec
+UPDATE epic_tasks SET split_from = sqlc.arg(split_from) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: SetEpicTaskDependsOn :exec
+UPDATE epic_tasks SET depends_on = sqlc.arg(depends_on) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
 -- name: InsertEpicTaskReview :exec
 INSERT INTO epic_task_reviews (epic, task, generation, attempt, position, gate, step, verdict)
 VALUES (
@@ -1104,6 +1111,25 @@ WHERE epic_task_findings.epic = sqlc.arg(epic) AND epic_task_findings.task = sql
   AND epic_task_findings.generation = (
       SELECT tasks.generation FROM epic_tasks AS tasks
       WHERE tasks.epic = epic_task_findings.epic AND tasks.seq = epic_task_findings.task
+  );
+
+-- name: InsertEpicTaskTestRun :exec
+INSERT INTO epic_task_test_runs (epic, task, generation, attempt, review, position, command, revision)
+VALUES (
+    sqlc.arg(epic), sqlc.arg(task),
+    (SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = sqlc.arg(epic) AND tasks.seq = sqlc.arg(task)),
+    sqlc.arg(attempt), sqlc.arg(review), sqlc.arg(position), sqlc.arg(command), sqlc.arg(revision)
+);
+
+-- name: SetEpicTaskTestRunResult :execrows
+UPDATE epic_task_test_runs
+SET step = sqlc.arg(step), output = sqlc.arg(output)
+WHERE epic_task_test_runs.epic = sqlc.arg(epic) AND epic_task_test_runs.task = sqlc.arg(task)
+  AND epic_task_test_runs.attempt = sqlc.arg(attempt) AND epic_task_test_runs.review = sqlc.arg(review)
+  AND epic_task_test_runs.position = sqlc.arg(position) AND epic_task_test_runs.step = ''
+  AND epic_task_test_runs.generation = (
+      SELECT tasks.generation FROM epic_tasks AS tasks
+      WHERE tasks.epic = epic_task_test_runs.epic AND tasks.seq = epic_task_test_runs.task
   );
 
 -- name: MaxEpicQuestionSeq :one
@@ -1188,6 +1214,13 @@ WHERE findings.epic = ? AND findings.generation = (
 )
 ORDER BY findings.task, findings.attempt, findings.review, findings.position;
 
+-- name: ListEpicTaskTestRuns :many
+SELECT * FROM epic_task_test_runs AS runs
+WHERE runs.epic = ? AND runs.generation = (
+    SELECT tasks.generation FROM epic_tasks AS tasks WHERE tasks.epic = runs.epic AND tasks.seq = runs.task
+)
+ORDER BY runs.task, runs.attempt, runs.review, runs.position;
+
 -- name: InsertEpicTaskVersion :exec
 INSERT INTO epic_task_versions (
     epic, task, version, source, decision, step, reason, deliverable, files, test_changes, gate, evidence,
@@ -1259,6 +1292,32 @@ SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
 
 -- name: MarkEpicTellTold :execrows
 UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?;
+
+-- name: ListUndeliveredEpicTells :many
+SELECT epic_tells.epic, epics.title, epic_tells.seq, epic_tells.text, epic_tells.at, epic_tells.question
+FROM epic_tells JOIN epics ON epics.id = epic_tells.epic
+WHERE epic_tells.steerer_delivered = 0
+ORDER BY epic_tells.epic, epic_tells.seq;
+
+-- name: MarkEpicTellSteererDelivered :execrows
+UPDATE epic_tells SET steerer_delivered = 1 WHERE epic = ? AND seq = ?;
+
+-- name: InsertDeliveredEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 0, 1);
+
+-- name: LatestEpicStall :one
+SELECT * FROM epic_stalls WHERE epic = ? ORDER BY seq DESC LIMIT 1;
+
+-- name: InsertEpicStall :exec
+INSERT INTO epic_stalls (epic, seq, at, tasks, runs, actions, parked) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: CountEpicStallMark :one
+SELECT
+    CAST((SELECT COUNT(*) FROM epic_tasks WHERE epic_tasks.epic = sqlc.arg(epic)) AS INTEGER) AS tasks,
+    CAST((SELECT COUNT(*) + COALESCE(SUM(epic_node_runs.attempt), 0) FROM epic_node_runs
+        WHERE epic_node_runs.epic = sqlc.arg(epic)) AS INTEGER) AS runs,
+    CAST((SELECT COUNT(*) FROM planner_actions WHERE planner_actions.epic = sqlc.arg(epic))
+        + (SELECT COUNT(*) FROM epic_actions WHERE epic_actions.epic = sqlc.arg(epic)) AS INTEGER) AS actions;
 
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
@@ -1489,7 +1548,7 @@ UPDATE epic_node_runs SET revision = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
 
 -- name: GetPaneSession :one
-SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? ORDER BY id LIMIT 1;
+SELECT id FROM sessions WHERE kind = '' AND server = ? AND pane = ? AND host = ? ORDER BY id LIMIT 1;
 
 -- name: UpsertEpicSession :exec
 INSERT INTO epic_sessions (epic, session, call, at, creator) VALUES (?, ?, ?, ?, ?)
@@ -1552,9 +1611,9 @@ SELECT epic, at FROM epic_seen;
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
     epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
-    deliverable, files, remove_files, reviewer
+    deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;
@@ -1924,7 +1983,7 @@ UPDATE epic_tasks SET generation = generation + 1 WHERE epic = sqlc.arg(epic) AN
 SELECT CAST(COUNT(*) AS INTEGER) FROM contracts WHERE id = ?;
 
 -- name: InsertContract :exec
-INSERT INTO contracts (id, created) VALUES (?, ?);
+INSERT INTO contracts (id, created, staged) VALUES (?, ?, 1);
 
 -- name: InsertContractVersion :exec
 INSERT INTO contract_versions (contract, version, repository, title, care, body, decisions, open_decisions, words,
@@ -1998,6 +2057,129 @@ JOIN contract_versions AS opening ON opening.contract = states.contract AND open
 WHERE states.session <> opening.writer
 ORDER BY states.at, states.contract, states.seq;
 
+-- name: CountDesign :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?;
+
+-- name: InsertDesign :exec
+INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?);
+
+-- name: GetDesign :one
+SELECT * FROM designs WHERE id = ?;
+
+-- name: ListDesigns :many
+SELECT * FROM designs ORDER BY created, id;
+
+-- name: MaxDesignPosition :one
+SELECT CAST(COALESCE(MAX(position), 0) AS INTEGER) FROM design_contracts WHERE design = ?;
+
+-- name: InsertDesignContract :exec
+INSERT INTO design_contracts (contract, design, position, added) VALUES (?, ?, ?, ?);
+
+-- name: GetContractDesign :one
+SELECT design FROM design_contracts WHERE contract = ?;
+
+-- name: ListDesignContracts :many
+SELECT members.contract, members.position, newest.repository, newest.title,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = members.contract ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_contracts AS members
+JOIN contract_versions AS newest ON newest.contract = members.contract
+LEFT JOIN epics ON epics.id = members.contract
+WHERE members.design = ? AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = members.contract
+)
+ORDER BY members.position;
+
+-- name: ListDesignEdges :many
+SELECT * FROM design_edges WHERE design = ? ORDER BY created, contract, after;
+
+-- name: InsertDesignEdge :exec
+INSERT INTO design_edges (design, contract, after, created) VALUES (?, ?, ?, ?);
+
+-- name: ListContractPredecessors :many
+SELECT CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics ON epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after;
+
+-- name: ListPredecessorStates :many
+SELECT edges.after AS contract,
+       CAST(COALESCE((
+           SELECT newest.state FROM contract_states AS newest
+           WHERE newest.contract = edges.after ORDER BY newest.seq DESC LIMIT 1
+       ), '') AS TEXT) AS state,
+       CAST(COALESCE(after_epics.phase, '') AS TEXT) AS epic_phase
+FROM design_edges AS edges
+LEFT JOIN epics AS after_epics ON after_epics.id = edges.after
+WHERE edges.contract = ?
+ORDER BY edges.after;
+
+-- name: ListHeldEpics :many
+SELECT epics.id, epics.repository, epics.host,
+       CAST(COALESCE((
+           SELECT held.seq FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), 0) AS INTEGER) AS question,
+       CAST(COALESCE((
+           SELECT held.choice FROM epic_questions AS held
+           WHERE held.epic = epics.id AND held.label = 'held' ORDER BY held.seq DESC LIMIT 1
+       ), '') AS TEXT) AS answer
+FROM epics WHERE epics.phase = 'held' ORDER BY epics.created, epics.id;
+
+-- name: StartHeldEpic :execrows
+UPDATE epics SET base = sqlc.arg(base), stored_base = sqlc.arg(base), phase = 'accepted', phase_at = sqlc.arg(at)
+WHERE id = sqlc.arg(id) AND phase = 'held';
+
+-- name: GetLoneContract :one
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE contracts.id = ? AND NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+);
+
+-- name: ListLoneContracts :many
+SELECT contracts.id, contracts.created,
+       newest.repository, newest.title,
+       CAST(COALESCE((
+           SELECT opening.writer FROM contract_versions AS opening
+           WHERE opening.contract = contracts.id AND opening.version = 1
+       ), '') AS TEXT) AS conversation,
+       CAST((
+           SELECT newest_state.state FROM contract_states AS newest_state
+           WHERE newest_state.contract = contracts.id ORDER BY newest_state.seq DESC LIMIT 1
+       ) AS TEXT) AS state,
+       CAST(COALESCE(epics.id, '') AS TEXT) AS epic,
+       CAST(COALESCE(epics.phase, '') AS TEXT) AS epic_phase
+FROM contracts
+JOIN contract_versions AS newest ON newest.contract = contracts.id
+LEFT JOIN epics ON epics.id = contracts.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM design_contracts AS members WHERE members.contract = contracts.id
+) AND newest.version = (
+    SELECT MAX(versions.version) FROM contract_versions AS versions WHERE versions.contract = contracts.id
+)
+ORDER BY contracts.created, contracts.id;
+
 -- name: InsertIntegrateRound :exec
 INSERT INTO integrate_rounds (epic, path, attempt, task, round, step, verdict, head, explanation, outcome, failure, created)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -2025,3 +2207,233 @@ WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(att
 
 -- name: ListEpicIntegrateRounds :many
 SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
+
+-- name: InsertLLMAccount :exec
+INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetLLMAccount :one
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts WHERE id = ?;
+
+-- name: ListLLMAccounts :many
+SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id;
+
+-- name: ListLLMAccountIDs :many
+SELECT id FROM llm_accounts ORDER BY id;
+
+-- name: CountLLMAccount :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM llm_accounts WHERE id = ?;
+
+-- name: RenameLLMAccount :execrows
+UPDATE llm_accounts SET name = ? WHERE id = ?;
+
+-- name: DeleteLLMAccount :exec
+DELETE FROM llm_accounts WHERE id = ?;
+
+-- name: ListRouteContextsOfAccount :many
+SELECT id FROM route_contexts WHERE account = ? AND account <> '' ORDER BY id;
+
+-- name: DeleteRouteBindings :exec
+DELETE FROM route_bindings;
+
+-- name: DeleteRouteContexts :exec
+DELETE FROM route_contexts;
+
+-- name: DeleteRouteSeats :exec
+DELETE FROM route_seats;
+
+-- name: DeleteRouteRegistry :exec
+DELETE FROM route_registry;
+
+-- name: InsertRouteRegistry :exec
+INSERT INTO route_registry (id, default_context) VALUES (1, ?);
+
+-- name: GetRouteRegistry :one
+SELECT * FROM route_registry WHERE id = 1;
+
+-- name: InsertRouteSeat :exec
+INSERT INTO route_seats (id, auth_mode, upstream, model, api_key_env_file, aws_profile, aws_region, model_map_env_file,
+                         billing, speed, cache_ttl, insecure, strip_cache_control, strict_structured_output,
+                         max_input_tokens, strip_betas)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListRouteSeats :many
+SELECT * FROM route_seats ORDER BY id;
+
+-- name: InsertRouteContext :exec
+INSERT INTO route_contexts (id, default_seat, account, has_subagents, subagent_default_seat) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListRouteContexts :many
+SELECT * FROM route_contexts ORDER BY id;
+
+-- name: CountRouteContext :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM route_contexts WHERE id = ?;
+
+-- name: SetRouteContextAccount :exec
+UPDATE route_contexts SET account = ? WHERE id = ?;
+
+-- name: InsertRouteBinding :exec
+INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?);
+
+-- name: ListRouteBindings :many
+SELECT * FROM route_bindings ORDER BY context, scope, selector;
+
+-- name: ListRouteAccountTokens :many
+SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;
+
+-- name: ListLLMAccountTokens :many
+SELECT id, token FROM llm_accounts ORDER BY id;
+
+-- name: GetContractStaged :one
+SELECT staged FROM contracts WHERE id = ?;
+
+-- name: UpsertContractDraft :exec
+INSERT INTO contract_drafts (id, design, repository, title, body, decisions, words, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET design = excluded.design, repository = excluded.repository, title = excluded.title,
+    body = excluded.body, decisions = excluded.decisions, words = excluded.words, writer = excluded.writer,
+    updated = excluded.updated;
+
+-- name: GetContractDraft :one
+SELECT * FROM contract_drafts WHERE id = ?;
+
+-- name: ListDesignDrafts :many
+SELECT * FROM contract_drafts WHERE design = ? ORDER BY created, id;
+
+-- name: DeleteContractDraft :exec
+DELETE FROM contract_drafts WHERE id = ?;
+
+-- name: InsertDesignStep :exec
+INSERT INTO design_steps (step, design, kind, subject, repository, revision, delta, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignSteps :many
+SELECT * FROM design_steps WHERE design = ? ORDER BY created, step;
+
+-- name: ListRunningDesignSteps :many
+SELECT design_steps.* FROM design_steps
+JOIN steps ON steps.id = design_steps.step
+WHERE steps.end_value = '' AND CAST(COALESCE(
+    (SELECT newest.session FROM design_conversations AS newest WHERE newest.design = design_steps.design
+     ORDER BY newest.seq DESC LIMIT 1),
+    (SELECT designs.conversation FROM designs WHERE designs.id = design_steps.design),
+    (SELECT opening.writer FROM contract_versions AS opening
+     WHERE opening.contract = design_steps.design AND opening.version = 1 AND NOT EXISTS (
+         SELECT 1 FROM design_contracts AS members WHERE members.contract = opening.contract))
+) AS TEXT) = CAST(sqlc.arg(session) AS TEXT)
+ORDER BY design_steps.created, design_steps.step;
+
+-- name: InsertDesignQuestion :exec
+INSERT INTO design_questions (design, seq, contract, text, options, recommendation, asker, asked)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: NextDesignQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_questions WHERE design = ?;
+
+-- name: AnswerDesignQuestion :execrows
+UPDATE design_questions SET answer = sqlc.arg(answer), accepted = sqlc.arg(accepted), maker = sqlc.arg(maker),
+    quote = sqlc.arg(quote), maker_reason = sqlc.arg(maker_reason), delegation = sqlc.arg(delegation),
+    answerer = sqlc.arg(answerer), answered = sqlc.arg(answered)
+WHERE design = sqlc.arg(design) AND seq = sqlc.arg(seq) AND answered = 0;
+
+-- name: GetDesignQuestion :one
+SELECT * FROM design_questions WHERE design = ? AND seq = ?;
+
+-- name: ListDesignQuestions :many
+SELECT * FROM design_questions WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignDisposition :exec
+INSERT INTO design_dispositions (design, seq, item, disposition, reason, boundary, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: NextDesignDispositionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) + 1 AS INTEGER) FROM design_dispositions WHERE design = ?;
+
+-- name: ListDesignDispositions :many
+SELECT * FROM design_dispositions WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignClosureSkip :exec
+INSERT INTO design_closure_skips (design, reason, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetDesignClosureSkip :one
+SELECT * FROM design_closure_skips WHERE design = ?;
+
+-- name: InsertDesignApproach :exec
+INSERT INTO design_approaches (design, seq, name, shape, cost, wins, loses, reconsider, research, recommended, reason,
+                               session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignApproaches :many
+SELECT * FROM design_approaches WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignApproachChoice :exec
+INSERT INTO design_approach_choices (design, seq, approach, words, maker, quote, maker_reason, delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignApproachChoices :many
+SELECT * FROM design_approach_choices WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignDelegation :exec
+INSERT INTO design_delegations (design, seq, kinds, message, session, at) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignDelegations :many
+SELECT * FROM design_delegations WHERE design = ? ORDER BY seq;
+
+-- name: InsertDesignConversation :exec
+INSERT INTO design_conversations (design, seq, session, previous, at) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListDesignConversations :many
+SELECT * FROM design_conversations WHERE design = ? ORDER BY seq;
+
+-- name: NewestDesignConversation :one
+SELECT * FROM design_conversations WHERE design = ? ORDER BY seq DESC LIMIT 1;
+
+-- name: InsertDesignLogLine :exec
+INSERT INTO design_log (design, seq, at, maker, session, what, ids, words) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListDesignLog :many
+SELECT * FROM design_log WHERE design = ? ORDER BY seq;
+
+-- name: InsertContractStepRead :exec
+INSERT INTO design_step_reads (step, contract, version) VALUES (?, ?, ?);
+
+-- name: ListContractStepReads :many
+SELECT * FROM design_step_reads WHERE contract = ? ORDER BY step;
+
+-- name: GetContractWorking :one
+SELECT * FROM contract_working WHERE contract = ?;
+
+-- name: UpsertContractWorking :exec
+INSERT INTO contract_working (contract, version, body, decisions, writer, created, updated)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (contract) DO UPDATE SET version = excluded.version, body = excluded.body,
+    decisions = excluded.decisions, writer = excluded.writer, updated = excluded.updated;
+
+-- name: DeleteContractWorking :exec
+DELETE FROM contract_working WHERE contract = ?;
+
+-- name: InsertContractRowWrite :exec
+INSERT INTO contract_row_writes (contract, seq, version, row, action, depends, words, maker, quote, maker_reason,
+                                 delegation, session, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListContractRowWrites :many
+SELECT * FROM contract_row_writes WHERE contract = ? ORDER BY seq;
+
+-- name: InsertContractRefusal :exec
+INSERT INTO contract_refusals (contract, seq, version, field, text, session, at) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListContractRefusals :many
+SELECT * FROM contract_refusals WHERE contract = ? ORDER BY seq;
+
+-- name: InsertContractShown :exec
+INSERT INTO contract_shown (contract, version, row, at) VALUES (?, ?, ?, ?);
+
+-- name: ListContractShown :many
+SELECT * FROM contract_shown WHERE contract = ? ORDER BY version, row;
+
+-- name: SetContractStateMaker :exec
+UPDATE contract_states SET maker = sqlc.arg(maker), quote = sqlc.arg(quote), maker_reason = sqlc.arg(maker_reason),
+    delegation = sqlc.arg(delegation)
+WHERE contract = sqlc.arg(contract) AND seq = sqlc.arg(seq);

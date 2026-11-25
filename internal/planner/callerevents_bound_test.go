@@ -31,7 +31,7 @@ func longQuestion(label string) store.EpicQuestion {
 }
 
 // boundLastQ1 is the last line of a question or park body of question 1.
-const boundLastQ1 = "epic_get with part question and question Q1 reads it whole; epic_answer answers it."
+const boundLastQ1 = "epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner."
 
 // boundChoice is the line of choice c<i> of longQuestion as the bound tests expect it: its 1000 runes cut to 160.
 func boundChoice(i int) string {
@@ -133,7 +133,7 @@ func TestQuestionEventBodyCutFurtherOnRunesEpicByPart(t *testing.T) {
 	if !strings.HasPrefix(lines[1], "Q2 which-store: ") || !strings.HasSuffix(lines[1], "…") {
 		t.Fatalf("head line = %q, want the text cut to an ellipsis", lines[1])
 	}
-	if want := "epic_get with part question and question Q2 reads it whole; epic_answer answers it."; lines[3] != want {
+	if want := "epic_get with part question and question Q2 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner."; lines[3] != want {
 		t.Fatalf("last line = %q, want %q", lines[3], want)
 	}
 }

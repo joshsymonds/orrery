@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -81,7 +82,7 @@ func TestStepsStartNamedGateCarriesItsGrant(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	project, defs, err := pools.Load(t.Context(), linked, stepGetenv(f.environ))
+	project, defs, err := pools.Load(t.Context(), hostexec.NewLocal(), linked, stepGetenv(f.environ))
 	if err != nil {
 		t.Fatalf("pools.Load: %v", err)
 	}

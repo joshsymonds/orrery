@@ -205,6 +205,7 @@ func TestListJSON(t *testing.T) {
 	listSetOption(t, client, panesA[0], protocol.OptionTool, listExampleTool)
 	listSetOption(t, client, panesA[1], protocol.OptionState, string(protocol.StateWorking))
 	listSetOption(t, client, panesA[1], protocol.OptionChanged, "1700000200")
+	listSetOption(t, client, panesA[1], protocol.OptionHeld, "1700000150")
 
 	var buf bytes.Buffer
 	if err := cli.List(t.Context(), client, []string{"--json"}, &buf); err != nil {

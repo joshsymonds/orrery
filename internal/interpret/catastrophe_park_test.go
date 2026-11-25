@@ -11,10 +11,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// requireOwnerPark fails unless the test epic is parked as class with reason, its open questions are the one park question
+// requireQuestionPark fails unless the test epic is parked as class with reason, its open questions are the one park question
 // with reason, its untold tells are the one tell with reason, which carries that question, and no pending trigger is a
 // planner park trigger.
-func requireOwnerPark(t *testing.T, s *store.Store, class store.ParkClass, reason string) {
+func requireQuestionPark(t *testing.T, s *store.Store, class store.ParkClass, reason string) {
 	t.Helper()
 	ctx := context.Background()
 	epic := epicOf(t, s)
@@ -48,10 +48,10 @@ func requireOwnerPark(t *testing.T, s *store.Store, class store.ParkClass, reaso
 	}
 }
 
-// catastropheParkInterpretOpensOwnerQuestion checks that the interpreter's owner-class catastrophe parks, an integrate
+// catastropheParkInterpretOpensParkQuestion checks that the interpreter's question-class catastrophe parks, an integrate
 // batch whose epic branch moved or is checked out elsewhere, and a pinned workflow that does not load, each open the
-// owner's park question and tell and add no planner park trigger.
-func catastropheParkInterpretOpensOwnerQuestion(images *worldImages) func(t *testing.T) {
+// park question and its tell and add no planner park trigger.
+func catastropheParkInterpretOpensParkQuestion(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
 		t.Run("integrate branch moved", func(t *testing.T) {
@@ -60,7 +60,7 @@ func catastropheParkInterpretOpensOwnerQuestion(images *worldImages) func(t *tes
 			moved := w.commit(w.base, "e.go", "moved\n")
 			w.git("update-ref", integrateBranch, moved)
 			w.pass()
-			requireOwnerPark(t, w.s, store.ParkClassBranch,
+			requireQuestionPark(t, w.s, store.ParkClassBranch,
 				fmt.Sprintf("epic/epic-runner moved: at %s, not the stored base %s", moved, w.base))
 		})
 		t.Run("integrate branch checked out elsewhere", func(t *testing.T) {
@@ -69,7 +69,7 @@ func catastropheParkInterpretOpensOwnerQuestion(images *worldImages) func(t *tes
 			worktree := filepath.Join(t.TempDir(), "epic")
 			w.git("worktree", "add", "-q", worktree, nodeBranchName)
 			w.pass()
-			requireOwnerPark(t, w.s, store.ParkClassBranch,
+			requireQuestionPark(t, w.s, store.ParkClassBranch,
 				"epic/epic-runner is checked out in a worktree, so it was not moved")
 		})
 		t.Run("pinned workflow does not load", func(t *testing.T) {
@@ -79,7 +79,7 @@ func catastropheParkInterpretOpensOwnerQuestion(images *worldImages) func(t *tes
 			s := openRunStore(t)
 			createRunEpic(t, s, pinnedText(original, tampered, original.SHA256))
 			newRunner(s, &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}).Pass(context.Background())
-			requireOwnerPark(t, s, store.ParkClassOrchestrator,
+			requireQuestionPark(t, s, store.ParkClassOrchestrator,
 				"workflow epic: text sha256 "+sha256Hex(tampered)+" does not match the pinned "+original.SHA256)
 		})
 	}

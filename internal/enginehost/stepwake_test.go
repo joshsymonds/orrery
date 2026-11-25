@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"errors"
 	"slices"
 	"sync"
 	"testing"
@@ -64,46 +63,5 @@ func TestStepEndFlowWakeNamesItsEpic(t *testing.T) {
 	}
 	if got := wakes.all(); !slices.Equal(got, []string{stepWakeEpicB}) {
 		t.Fatalf("EpicWake calls after the unlabeled step's end = %q, want still [%s] once", got, stepWakeEpicB)
-	}
-}
-
-// TestStepCapFreeFlowWakeNamesRefusedEpic covers R1: with the step cap full, a start for epic C is refused and recorded.
-// The next free of a step slot hands C on, and a free that refused no epic hands on none.
-func TestStepCapFreeFlowWakeNamesRefusedEpic(t *testing.T) {
-	t.Parallel()
-	f := newRefusalFixture(t, 1)
-	var frees stepWakeLog[[]string]
-	f.manager.stepFreed = frees.record
-	repo := stepGitTestRepo(t)
-	running := stepStartReadOnly(repo, "HEAD")
-	running.Prompt = "HANG"
-	running.Epic = stepWakeEpicA
-	idA, err := refusalStart(t, f.steps, running)
-	if err != nil || idA == "" {
-		t.Fatalf("first Start = %q, %v; want a running step", idA, err)
-	}
-	refused := stepStartReadOnly(repo, "HEAD")
-	refused.Prompt = "HANG"
-	refused.Epic = stepWakeEpicC
-	if _, err = refusalStart(t, f.steps, refused); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Start of epic C with the step cap full: err = %v, want ErrCapReached", err)
-	}
-	if err = f.steps.Stop(t.Context(), idA); err != nil {
-		t.Fatalf("Stop of epic A's step: %v", err)
-	}
-	got := frees.all()
-	if len(got) != 1 || !slices.Equal(got[0], []string{stepWakeEpicC}) {
-		t.Fatalf("StepFreed calls after epic A's step ended = %q, want [[%s]]", got, stepWakeEpicC)
-	}
-	idC, err := refusalStart(t, f.steps, refused)
-	if err != nil {
-		t.Fatalf("Start of epic C after the free: %v", err)
-	}
-	if err = f.steps.Stop(t.Context(), idC); err != nil {
-		t.Fatalf("Stop of epic C's step: %v", err)
-	}
-	got = frees.all()
-	if len(got) != 2 || got[1] != nil {
-		t.Fatalf("StepFreed calls after epic C's step ended = %q, want the first [[%s]] then nil", got, stepWakeEpicC)
 	}
 }

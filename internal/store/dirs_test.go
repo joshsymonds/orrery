@@ -97,7 +97,7 @@ func TestDirsOmitsWorktreesPaneSessionsAndEmptyDirs(t *testing.T) {
 		stepWorkspaceOf("s1", "/ws/s1"),
 		stepWorkspaceOf("s2", ""),
 	)
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "idle"}},
 	}, time.Unix(engineNowAt().Unix()-100, 0)); err != nil {
 		t.Fatalf("SyncServer: %v", err)

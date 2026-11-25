@@ -28,6 +28,8 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -121,7 +123,7 @@ type StepClient interface {
 }
 
 // EpicStoreClient is the part of orreryd's Epics service serve uses: ListEpics and GetEpic, which the Epics service
-// merges with the gambit records. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
+// lists and gets epics from. It has no CreateEpic; the owner's epic commands go through Config.EpicCommands.
 type EpicStoreClient interface {
 	ListEpics(
 		context.Context,
@@ -159,12 +161,21 @@ type InputReporter func(input int64, view protocol.ViewKey)
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
 	Logins []string
+	// HostName is the controller's orrery name. Each pane call that names it is served by this controller's own panes,
+	// and each pane it lists names it as its host. Empty takes os.Hostname.
+	HostName string
+	// Hosts holds the agent of each hosts.toml host, in file order. A pane call that names one of them is forwarded to
+	// that agent. While Hosts is empty, a pane call that names no host is served by this controller's own panes.
+	Hosts []*node.Client
 	// Tmux runs the tmux commands behind the phone services.
 	Tmux *tmuxctl.Client
 	// Push holds the push subscriptions Push.Register and Push.Unregister write.
 	Push *push.Store
 	// HostStatus runs the host status command behind Host.Status, or is nil when serve has no command.
 	HostStatus *hoststatus.Runner
+	// LocalLoad reads the load of this controller's own host, which Host.Status answers as the controller's entry, or is
+	// nil for hostload.Local.
+	LocalLoad func() (node.Load, error)
 	// Sessions reads the store behind the Sessions and Events Connect APIs, the turn ends of Panes and the sessions
 	// of Epics.Get, or is nil when there is no store reader: Sessions and Events answer unavailable, Panes report no
 	// turn ends, and Epics.Get lists no sessions.
@@ -204,9 +215,8 @@ type Config struct {
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
 	Steps StepClient
-	// Records is the gambit record root the Epics service reads, or empty to list nothing.
-	Records string
-	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
+	// EpicStore is orreryd's Epics client, which List and Get answer the epics of and Contracts.Get reads each accepted
+	// contract's work from, or nil for no epics.
 	EpicStore EpicStoreClient
 	// EpicCommands is orreryd's Epics client, which Pause, Resume, Stop, Retry and Answer forward the owner's commands
 	// to, or nil, which answers unavailable.
@@ -214,8 +224,17 @@ type Config struct {
 	// ContractCommands is orreryd's Contracts client, which Accept, SetAside and Reopen forward the owner's commands
 	// to, or nil, which answers unavailable.
 	ContractCommands enginev1connect.ContractsClient
-	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
-	// reads artifacts from, or nil for no runs and no artifacts.
+	// StageCommands is orreryd's Stage client, which Designs.Answer and Designs.Continue forward to and Contracts.Keep,
+	// Strike and Shown forward to, or nil, which answers unavailable.
+	StageCommands enginev1connect.StageClient
+	// AccountCommands is orreryd's Accounts client, which Accounts.Add, Rename and Remove and Routes.Replace and
+	// SetContextAccount forward the owner's commands to, or nil, which answers unavailable.
+	AccountCommands enginev1connect.AccountsClient
+	// Ledger is the reader of the LLM ledger the Usage API answers from, or nil, which answers every Usage read
+	// unavailable.
+	Ledger *ledger.Reader
+	// Evidence is orreryd's Evidence client, which Epics.Get and Contracts.Get read each Requirement's runs from and
+	// Evidence.Artifact reads artifacts from, or nil for no runs and no artifacts.
 	Evidence EvidenceClient
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
@@ -245,7 +264,7 @@ type Config struct {
 // a Connect path must carry the HeaderClient header, and a POST there one of the Connect content types. Requests
 // that pass the guard reach the Connect services or, when cfg.Web is set, the page, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
-	allowed, err := checkConfig(cfg)
+	allowed, hostName, err := checkConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -271,17 +290,18 @@ func New(cfg Config) (http.Handler, error) {
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	changes := newChangeHub(cfg.Changes, cfg.NewTimer)
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, cfg.Home, now, cfg.Steps, changes, cfg.NewTimer, conversationKeepalive, sendTimeout,
-		cfg.Shutdown, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.Home, now, cfg.Steps, cfg.EpicStore, changes, cfg.NewTimer, conversationKeepalive,
+		sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, changes, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(
-		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
+		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HostName, cfg.Hosts, cfg.HandlerOptions...,
 	)
 	mux.Handle(controlPath, control)
-	epicsPath, evidencePath, contractsPath := registerEpicServices(mux, cfg, now)
+	epicsPath, evidencePath, contractsPath, designsPath := registerEpicServices(mux, cfg, now)
+	accountsPath, routesPath, usagePath := registerAccountServices(mux, cfg)
 	stepsPath, stepsService := newStepsHandler(
 		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
@@ -293,25 +313,29 @@ func New(cfg Config) (http.Handler, error) {
 	if paneSendErrs == nil {
 		paneSendErrs = os.Stderr
 	}
-	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
+	local := newPanesServer(
+		hostName, cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead,
 		cfg.PaneSends, paneSendErrs, now, changes, cfg.NewTimer, conversationKeepalive, sendTimeout, cfg.Shutdown,
-		cfg.HandlerOptions...,
-	)
+	).withHosts(cfg.Hosts)
+	panesPath, panesService := newPanesRouter(local, hostName, cfg.Hosts, cfg.HandlerOptions...)
 	mux.Handle(panesPath, panesService)
-	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.Web, cfg.HandlerOptions...)
+	hostPath, hostService := newHostHandler(
+		cfg.HostStatus, cfg.Web, hostName, cfg.LocalLoad, cfg.Hosts, cfg.HandlerOptions...,
+	)
 	mux.Handle(hostPath, hostService)
 	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
 	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)
 	mux.Handle(pushPath, pushService)
-	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now, cfg.HandlerOptions...)
+	pickerPath, pickerService := newPickerHandler(
+		cfg.Picker, tokens, cfg.Tmux, now, cfg.HostName, cfg.Hosts, cfg.LocalLoad, cfg.HandlerOptions...,
+	)
 	mux.Handle(pickerPath, pickerService)
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
-		hostPath, pushPath, pickerPath, presencePath, contractsPath,
+		hostPath, pushPath, pickerPath, presencePath, contractsPath, usagePath, designsPath, accountsPath, routesPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -326,22 +350,46 @@ func New(cfg Config) (http.Handler, error) {
 	}), nil
 }
 
-// registerEpicServices mounts the Epics service, the Evidence service and the Contracts service on mux, all over the
-// records, steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and returns
-// their paths. The Epics service also lists the sessions of cfg's store reader, and dates its records from now.
-func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string) {
+// registerEpicServices mounts the Epics service, the Evidence service, the Contracts service and the Designs service on
+// mux, all over the steps, epic store, epic commands, evidence client, contract commands and store reader of cfg, and
+// returns their paths. The Epics service also lists the sessions of cfg's store reader, and dates each listed epic's
+// archive rule from now. The Contracts service reads each accepted contract's work from cfg's epic store and evidence
+// client. The Contracts service and the Designs service forward their stage calls to cfg's stage commands.
+func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string, string, string) {
 	epicsPath, epicsService := newEpicsHandler(
-		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
+		cfg.Steps, cfg.EpicStore, cfg.EpicCommands, cfg.Evidence, cfg.Sessions, cfg.ControlTimeout, now,
 		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	contractsPath, contractsService := newContractsHandler(
-		cfg.Sessions, cfg.ContractCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+		cfg.Sessions, cfg.EpicStore, cfg.Evidence, cfg.ContractCommands, cfg.StageCommands, cfg.ControlTimeout,
+		rpcretry.SystemClock{}, cfg.HandlerOptions...,
 	)
 	mux.Handle(contractsPath, contractsService)
-	return epicsPath, evidencePath, contractsPath
+	designsPath, designsService := newDesignsHandler(
+		cfg.Sessions, cfg.StageCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(designsPath, designsService)
+	return epicsPath, evidencePath, contractsPath, designsPath
+}
+
+// registerAccountServices mounts the Accounts service and the Routes service on mux, reading the store reader of cfg and
+// forwarding their commands to cfg.AccountCommands, and the Usage service, reading cfg.Ledger and the store reader of
+// cfg, and returns their paths. Accounts and Routes time their retries on the system clock.
+func registerAccountServices(mux *http.ServeMux, cfg Config) (string, string, string) {
+	accountsPath, accountsService := newAccountsHandler(
+		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(accountsPath, accountsService)
+	routesPath, routesService := newRoutesHandler(
+		cfg.Sessions, cfg.AccountCommands, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
+	mux.Handle(routesPath, routesService)
+	usagePath, usageService := newUsageHandler(cfg.Ledger, cfg.Sessions, cfg.HandlerOptions...)
+	mux.Handle(usagePath, usageService)
+	return accountsPath, routesPath, usagePath
 }
 
 // registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by
@@ -383,31 +431,45 @@ func newPageHandler(web fs.FS) http.Handler {
 	})
 }
 
-// checkConfig refuses a Config New cannot serve, and returns its allowed logins as a set.
-func checkConfig(cfg Config) (map[string]struct{}, error) {
+// checkConfig refuses a Config New cannot serve. It returns its allowed logins as a set, and its controller's host
+// name: cfg.HostName, or os.Hostname when cfg names none.
+func checkConfig(cfg Config) (map[string]struct{}, string, error) {
 	if len(cfg.Logins) == 0 {
-		return nil, errors.New("server: no allowed logins configured")
+		return nil, "", errors.New("server: no allowed logins configured")
 	}
 	if cfg.Tmux == nil {
-		return nil, errors.New("server: no tmux client configured")
+		return nil, "", errors.New("server: no tmux client configured")
 	}
 	if cfg.Push == nil {
-		return nil, errors.New("server: no push store configured")
+		return nil, "", errors.New("server: no push store configured")
 	}
 	allowed := make(map[string]struct{}, len(cfg.Logins))
 	for _, login := range cfg.Logins {
 		if login == "" {
-			return nil, errors.New("server: empty allowed login")
+			return nil, "", errors.New("server: empty allowed login")
 		}
 		allowed[login] = struct{}{}
 	}
+	for _, agent := range cfg.Hosts {
+		if agent == nil {
+			return nil, "", errors.New("server: nil host agent configured")
+		}
+	}
 	if cfg.ConversationKeepalive < 0 {
-		return nil, fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
+		return nil, "", fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
 	}
 	if cfg.ControlTimeout < 0 {
-		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
+		return nil, "", fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
 	}
-	return allowed, nil
+	hostName := cfg.HostName
+	if hostName == "" {
+		name, err := os.Hostname()
+		if err != nil {
+			return nil, "", fmt.Errorf("server: host name: %w", err)
+		}
+		hostName = name
+	}
+	return allowed, hostName, nil
 }
 
 // listPanes returns the panes cli.List writes for tmux, each carrying the question_hash of its question, the
@@ -415,14 +477,15 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 // paneTurnEnd gives it. Working and waiting panes whose transcripts show an interruption after their turn started are
 // ended first, by endInterruptedTurns, so the listing shows them as done. newest keeps each transcript's newest time across
 // requests, and reader is the store the turn ends are read from once per listing. With no running server the listing
-// is empty. Any failure is a routeError with status 500.
+// is empty. Any failure is a routeError with status 500. Each pane names host as its host.
 func listPanes(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
+	host string,
 	newest *conversation.Newest,
 	reader *store.Reader,
 ) ([]listedPane, error) {
-	panes, err := listedPanes(ctx, tmux)
+	panes, err := listedPanes(ctx, tmux, host)
 	if err != nil {
 		return nil, internalError()
 	}
@@ -431,7 +494,7 @@ func listPanes(
 		return nil, internalError()
 	}
 	if ended {
-		panes, err = listedPanes(ctx, tmux)
+		panes, err = listedPanes(ctx, tmux, host)
 		if err != nil {
 			return nil, internalError()
 		}
@@ -465,14 +528,16 @@ type listedPane struct {
 	listed tmuxctl.Listed
 }
 
-// listedPanes returns the panes of one cli.Panes listing for tmux, each with the JSON object cli.List writes for it.
-func listedPanes(ctx context.Context, tmux *tmuxctl.Client) ([]listedPane, error) {
+// listedPanes returns the panes of one cli.Panes listing for tmux, each naming host as its host, with the JSON object
+// cli.List writes for it.
+func listedPanes(ctx context.Context, tmux *tmuxctl.Client, host string) ([]listedPane, error) {
 	listed, err := cli.Panes(ctx, tmux)
 	if err != nil {
 		return nil, fmt.Errorf("server: list panes: %w", err)
 	}
 	panes := make([]listedPane, 0, len(listed))
 	for _, entry := range listed {
+		entry.Host = host
 		var fields map[string]json.RawMessage
 		if fields, err = paneObject(entry.Pane); err != nil {
 			return nil, err
@@ -675,7 +740,7 @@ func conversationAnswer(
 		conv.Goal, err = goals.Goal(path)
 	}
 	if err == nil {
-		conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
+		conv.Waiting, err = queues.Waiting(path, protocol.Idle(pane.State, pane.Held))
 	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

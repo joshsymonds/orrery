@@ -7,19 +7,20 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// NoticeHistoryKey names what a notice in the history is about. Exactly one of its fields is set: Pane, Session, Epic,
-// Limit or Alert, as the notice's key is.
+// NoticeHistoryKey names what a notice in the history is about. Exactly one of Pane, Session, Epic, Limit and Alert is
+// set, as the notice's key is. Host is the orrery name of the pane's host, set with Pane and only with Pane.
 type NoticeHistoryKey struct {
 	Pane    string
 	Session string
 	Epic    string
 	Limit   string
 	Alert   string
+	Host    string
 }
 
-// NoticeHistoryRow is one notice the router delivered. Key names the notice's key. Time is the unix second the router
-// delivered it. Read reports whether a client has read it. ID is the row's id, set by the store, and ignored when a
-// row is recorded.
+// NoticeHistoryRow is one notice the router delivered. Key names the notice's key, host included. Time is the unix
+// second the router delivered it. Read reports whether a client has read it. ID is the row's id, set by the store, and
+// ignored when a row is recorded.
 type NoticeHistoryRow struct {
 	ID       int64
 	Key      NoticeHistoryKey
@@ -40,7 +41,8 @@ func (s *Store) RecordNoticeHistory(ctx context.Context, row NoticeHistoryRow) e
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		updated, err := queries.UpdateUnreadNoticeHistory(ctx, sqlcgen.UpdateUnreadNoticeHistoryParams{
 			State: row.State, Title: row.Title, Body: row.Body, Block: row.Block, BlockRef: row.BlockRef,
-			Time: row.Time, Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit, Alert: key.Alert,
+			Time: row.Time, Host: key.Host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit,
+			Alert: key.Alert,
 		})
 		if err != nil {
 			return fmt.Errorf("update unread notice history of %+v: %w", key, err)
@@ -49,6 +51,7 @@ func (s *Store) RecordNoticeHistory(ctx context.Context, row NoticeHistoryRow) e
 			return nil
 		}
 		err = queries.InsertNoticeHistory(ctx, sqlcgen.InsertNoticeHistoryParams{
+			Host:     key.Host,
 			Pane:     key.Pane,
 			Session:  key.Session,
 			Epic:     key.Epic,
@@ -74,12 +77,13 @@ func (s *Store) MarkNoticeHistoryRead(ctx context.Context, key NoticeHistoryKey,
 	var unread bool
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.MarkNoticeHistoryRead(ctx, sqlcgen.MarkNoticeHistoryReadParams{
-			Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit, Alert: key.Alert, Time: at,
+			Host: key.Host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit, Alert: key.Alert,
+			Time: at,
 		}); err != nil {
 			return fmt.Errorf("mark notice history of %+v read: %w", key, err)
 		}
 		count, err := queries.CountUnreadNoticeHistory(ctx, sqlcgen.CountUnreadNoticeHistoryParams{
-			Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit, Alert: key.Alert,
+			Host: key.Host, Pane: key.Pane, Session: key.Session, Epic: key.Epic, LimitKey: key.Limit, Alert: key.Alert,
 		})
 		if err != nil {
 			return fmt.Errorf("count unread notice history of %+v: %w", key, err)
@@ -106,7 +110,7 @@ func (s *Store) ReadAllNoticeHistory(ctx context.Context) error {
 // NoticeHistory returns the rows whose time is at or after since, newest first: by time descending, then by id
 // descending.
 func (s *Store) NoticeHistory(ctx context.Context, since int64) ([]NoticeHistoryRow, error) {
-	rows, err := sqlcgen.New(s.db).ListNoticeHistorySince(ctx, since)
+	rows, err := sqlcgen.New(s.read).ListNoticeHistorySince(ctx, since)
 	if err != nil {
 		return nil, fmt.Errorf("list notice history since %d: %w", since, err)
 	}
@@ -115,7 +119,12 @@ func (s *Store) NoticeHistory(ctx context.Context, since int64) ([]NoticeHistory
 		out = append(out, NoticeHistoryRow{
 			ID: row.ID,
 			Key: NoticeHistoryKey{
-				Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.LimitKey, Alert: row.Alert,
+				Host:    row.Host,
+				Pane:    row.Pane,
+				Session: row.Session,
+				Epic:    row.Epic,
+				Limit:   row.LimitKey,
+				Alert:   row.Alert,
 			},
 			State: row.State, Title: row.Title, Body: row.Body, Block: row.Block, BlockRef: row.BlockRef,
 			Time: row.Time, Read: row.Read,
@@ -124,17 +133,17 @@ func (s *Store) NoticeHistory(ctx context.Context, since int64) ([]NoticeHistory
 	return out, nil
 }
 
-// UnreadNoticeHistoryKeys returns each key that has an unread row, once, ordered by pane, session, epic, limit and
-// alert.
+// UnreadNoticeHistoryKeys returns each key that has an unread row, once, ordered by host, pane, session, epic, limit
+// and alert.
 func (s *Store) UnreadNoticeHistoryKeys(ctx context.Context) ([]NoticeHistoryKey, error) {
-	rows, err := sqlcgen.New(s.db).ListUnreadNoticeHistoryKeys(ctx)
+	rows, err := sqlcgen.New(s.read).ListUnreadNoticeHistoryKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unread notice history keys: %w", err)
 	}
 	out := make([]NoticeHistoryKey, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, NoticeHistoryKey{
-			Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.LimitKey, Alert: row.Alert,
+			Host: row.Host, Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.LimitKey, Alert: row.Alert,
 		})
 	}
 	return out, nil

@@ -11,8 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// releaseEpic and releaseOther are epics in releaseRepo, so they contend for its one slot. releaseFree is an epic in
-// releaseOtherRepo, whose slot the other two must not touch.
+// releaseEpic and releaseOther are epics in releaseRepo. releaseFree is an epic in releaseOtherRepo.
 const (
 	releaseEpic      = "orrery-8b9c0d1/epic-release"
 	releaseOther     = "orrery-8b9c0d1/epic-release-other"
@@ -56,18 +55,6 @@ func requirePhase(t *testing.T, s *store.Store, epic, phase string) {
 	}
 	if row.Phase != phase {
 		t.Errorf("phase of epic %s = %q, want %q", epic, row.Phase, phase)
-	}
-}
-
-// requireSlot fails unless the release slot of epic's repository is held by want, empty when it is free.
-func requireSlot(t *testing.T, s *store.Store, epic, want string) {
-	t.Helper()
-	flow, err := s.EpicFlow(context.Background(), epic)
-	if err != nil {
-		t.Fatalf("EpicFlow %s: %v", epic, err)
-	}
-	if flow.Slot != want {
-		t.Errorf("slot seen by epic %s = %q, want %q", epic, flow.Slot, want)
 	}
 }
 
@@ -115,135 +102,56 @@ func TestRecordReleaseStoresARunOnce(t *testing.T) {
 	requireReleaseRuns(t, s, releaseEpic, []store.ReleaseRun{first, other})
 }
 
-// TestTakeReleaseSlotHoldsForCleanAndReleasingEpics checks that a clean epic takes its repository's free slot and moves
-// to releasing in the same write, that another clean epic of the repository is handed the holder and stays clean, that
-// the holder's repeat changes nothing, and that an epic of another repository takes that repository's slot.
-func TestTakeReleaseSlotHoldsForCleanAndReleasingEpics(t *testing.T) {
+// TestStartReleaseMovesEachCleanEpicAtOnce checks that each clean epic moves to releasing in its own write, whichever
+// other epic of its repository already releases, and that a repeat of a start changes nothing.
+func TestStartReleaseMovesEachCleanEpicAtOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openReleaseStore(t,
 		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseClean),
-		releaseEpicIn(releaseFree, releaseOtherRepo, store.PhaseClean),
 	)
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
-	}
-	if holder != releaseEpic {
-		t.Errorf("TakeReleaseSlot of %s = %q, want %q", releaseEpic, holder, releaseEpic)
+	if err := s.StartRelease(ctx, releaseEpic, releaseRunAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", releaseEpic, err)
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseOther, err)
+	if err := s.StartRelease(ctx, releaseOther, releaseRunAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", releaseOther, err)
 	}
-	if holder != releaseEpic {
-		t.Errorf("TakeReleaseSlot of %s = %q, want the holder %q", releaseOther, holder, releaseEpic)
-	}
-	requirePhase(t, s, releaseOther, store.PhaseClean)
+	requirePhase(t, s, releaseOther, store.PhaseReleasing)
 
-	holder, err = s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
-	if err != nil {
-		t.Fatalf("repeat TakeReleaseSlot of %s: %v", releaseEpic, err)
-	}
-	if holder != releaseEpic {
-		t.Errorf("repeat TakeReleaseSlot of %s = %q, want %q", releaseEpic, holder, releaseEpic)
+	if err := s.StartRelease(ctx, releaseEpic, releaseRunAt()); err != nil {
+		t.Fatalf("repeat StartRelease of %s: %v", releaseEpic, err)
 	}
 	requirePhase(t, s, releaseEpic, store.PhaseReleasing)
-
-	holder, err = s.TakeReleaseSlot(ctx, releaseFree, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseFree, err)
-	}
-	if holder != releaseFree {
-		t.Errorf("TakeReleaseSlot of %s = %q, want %q", releaseFree, holder, releaseFree)
-	}
-	requireSlot(t, s, releaseOther, releaseEpic)
 }
 
-// TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange checks that a stopped epic is handed the holder while
-// another epic holds the repository's slot, and takes the slot once it is free, with its phase unchanged.
-func TestTakeReleaseSlotStoppedRetakesFreeSlotWithoutPhaseChange(t *testing.T) {
+// TestStartReleaseLeavesOtherPhasesAndRefusesAnUnknownEpic checks that StartRelease leaves an epic in any phase but
+// clean in its phase, including a releasing one, and that an id no epic has is an error matching ErrNoEpic.
+func TestStartReleaseLeavesOtherPhasesAndRefusesAnUnknownEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openReleaseStore(t,
-		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
+		releaseEpicIn(releaseEpic, releaseRepo, "accepted"),
 		releaseEpicIn(releaseOther, releaseRepo, store.PhaseStopped),
+		releaseEpicIn(releaseFree, releaseOtherRepo, store.PhaseReleasing),
 	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
-	}
 
-	holder, err := s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of stopped %s: %v", releaseOther, err)
-	}
-	if holder != releaseEpic {
-		t.Errorf("TakeReleaseSlot of stopped %s = %q, want the holder %q", releaseOther, holder, releaseEpic)
-	}
-
-	if err := s.FreeReleaseSlot(ctx, releaseEpic); err != nil {
-		t.Fatalf("FreeReleaseSlot of %s: %v", releaseEpic, err)
-	}
-	holder, err = s.TakeReleaseSlot(ctx, releaseOther, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of stopped %s after the free: %v", releaseOther, err)
-	}
-	if holder != releaseOther {
-		t.Errorf("TakeReleaseSlot of stopped %s = %q, want %q", releaseOther, holder, releaseOther)
-	}
-	requirePhase(t, s, releaseOther, store.PhaseStopped)
-	requireSlot(t, s, releaseEpic, releaseOther)
-}
-
-// TestTakeReleaseSlotTakesNothingElse checks that an epic in another phase takes no slot, and that an id no epic has
-// is an error matching ErrNoEpic.
-func TestTakeReleaseSlotTakesNothingElse(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _ := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, "accepted"))
-
-	holder, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt())
-	if err != nil {
-		t.Fatalf("TakeReleaseSlot of accepted %s: %v", releaseEpic, err)
-	}
-	if holder != "" {
-		t.Errorf("TakeReleaseSlot of accepted %s = %q, want no holder", releaseEpic, holder)
+	for _, epic := range []string{releaseEpic, releaseOther, releaseFree} {
+		if err := s.StartRelease(ctx, epic, releaseRunAt()); err != nil {
+			t.Fatalf("StartRelease of %s: %v", epic, err)
+		}
 	}
 	requirePhase(t, s, releaseEpic, "accepted")
-	requireSlot(t, s, releaseEpic, "")
+	requirePhase(t, s, releaseOther, store.PhaseStopped)
+	requirePhase(t, s, releaseFree, store.PhaseReleasing)
 
-	_, err = s.TakeReleaseSlot(ctx, "orrery-8b9c0d1/no-such-epic", releaseRunAt())
+	err := s.StartRelease(ctx, "orrery-8b9c0d1/no-such-epic", releaseRunAt())
 	if !errors.Is(err, store.ErrNoEpic) {
-		t.Errorf("TakeReleaseSlot of an unknown epic: err = %v, want ErrNoEpic", err)
+		t.Errorf("StartRelease of an unknown epic: err = %v, want ErrNoEpic", err)
 	}
-}
-
-// TestFreeReleaseSlotRemovesOnlyTheSlotItHolds checks that FreeReleaseSlot by an epic that holds no slot leaves the
-// slot its holder took as it is, and that the holder's FreeReleaseSlot frees it.
-func TestFreeReleaseSlotRemovesOnlyTheSlotItHolds(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, _ := openReleaseStore(t,
-		releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean),
-		releaseEpicIn(releaseOther, releaseRepo, store.PhaseClean),
-	)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
-	}
-
-	if err := s.FreeReleaseSlot(ctx, releaseOther); err != nil {
-		t.Fatalf("FreeReleaseSlot of %s: %v", releaseOther, err)
-	}
-	requireSlot(t, s, releaseEpic, releaseEpic)
-
-	if err := s.FreeReleaseSlot(ctx, releaseEpic); err != nil {
-		t.Fatalf("FreeReleaseSlot of %s: %v", releaseEpic, err)
-	}
-	requireSlot(t, s, releaseEpic, "")
 }
 
 // TestStopReleaseParksRunWithOneTellAndStops checks that StopRelease parks the running release run at its path and
@@ -253,8 +161,8 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean))
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
+	if err := s.StartRelease(ctx, releaseEpic, releaseRunAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", releaseEpic, err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}
 	if err := s.StartNodes(ctx, releaseEpic, []store.NodeRun{run}, nil, releaseRunAt()); err != nil {
@@ -294,10 +202,10 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	requirePhase(t, s, releaseEpic, store.PhaseStopped)
 }
 
-// TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps checks that EpicFlow returns the release runs of its epic ordered by
-// attempt, part and position, the holder of its repository's slot, and for its release node run the steps stored under
-// that run's attempt for each release step and for the judge, and no step of another attempt.
-func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
+// TestEpicFlowReadsReleaseRunsAndReleaseSteps checks that EpicFlow returns the release runs of its epic ordered by
+// attempt, part and position, and for its release node run the steps stored under that run's attempt for each release
+// step and for the judge, and no step of another attempt.
+func TestEpicFlowReadsReleaseRunsAndReleaseSteps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	row := releaseEpicIn(releaseEpic, releaseRepo, store.PhaseClean)
@@ -306,8 +214,8 @@ func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
 		{Step: "publish", Target: "registry", Undo: "yank"},
 	}
 	s, _ := openReleaseStore(t, row)
-	if _, err := s.TakeReleaseSlot(ctx, releaseEpic, releaseRunAt()); err != nil {
-		t.Fatalf("TakeReleaseSlot of %s: %v", releaseEpic, err)
+	if err := s.StartRelease(ctx, releaseEpic, releaseRunAt()); err != nil {
+		t.Fatalf("StartRelease of %s: %v", releaseEpic, err)
 	}
 
 	runs := []store.ReleaseRun{
@@ -329,7 +237,6 @@ func TestEpicFlowReadsReleaseRunsSlotAndReleaseSteps(t *testing.T) {
 	}
 	want := []store.ReleaseRun{runs[2], runs[3], runs[4], runs[0], runs[1]}
 	requireReleaseRuns(t, s, releaseEpic, want)
-	requireSlot(t, s, releaseEpic, releaseEpic)
 
 	steps := addReleaseSteps(t, s, releaseEpic)
 	flow, err := s.EpicFlow(ctx, releaseEpic)

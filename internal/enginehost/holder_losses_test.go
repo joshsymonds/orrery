@@ -68,7 +68,6 @@ func newLossManager(t *testing.T, s Store, writer *Writer, scope, stateDir strin
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Cap:         1,
 		Writer:      writer,
 		Now:         fixedClock,
 		Notifier:    &fakeSink{},

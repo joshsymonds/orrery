@@ -8,6 +8,7 @@ import type { Stories } from "./catalog/story";
 import { ConvoRow as ConvoRowView } from "./convorow";
 import { liveEpoch } from "./fixtures/clock";
 import { shippedSlices } from "./fixtures/slices";
+import type { HeldThing } from "./held";
 import { inboxColumn } from "./inboxframe";
 import { InboxRow } from "./inboxrow";
 import type { MenuEntry } from "./menu";
@@ -57,9 +58,21 @@ function row(line: Row): VNode {
   );
 }
 
-// convo draws the conversation with key, and what it steers under it, in the inbox column, with the cursor on no thing.
-function convo(key: string): VNode {
-  return inboxColumn(<ConvoRowView convo={convoOf(key)} now={now} cursorKey="" renderRow={row} onSelect={noop} />);
+// convo draws the conversation with key, and what it steers under it, in the inbox column, with the cursor on no thing and
+// held as the thing the desk holds open, if any.
+function convo(key: string, held: HeldThing | null = null): VNode {
+  return inboxColumn(
+    <ConvoRowView
+      convo={convoOf(key)}
+      now={now}
+      cursorKey=""
+      endedOpen={false}
+      onEnded={noop}
+      renderRow={row}
+      onSelect={noop}
+      held={held}
+    />,
+  );
 }
 
 export const ConvoRow: Stories = {
@@ -73,4 +86,7 @@ export const ConvoRow: Stories = {
   "steers-several": () => convo("pane:halyard:%22"),
   // wrote-contract is the tide conversation, which wrote the tide-alerts contract.
   "wrote-contract": () => convo("pane:halyard:%16"),
+  // held is the follow-ups conversation holding its orbit-labels epic open: its block is the tab, its row and the epic's row
+  // run their necks out to the inbox's edge, and the epic's row is in the open colour.
+  held: () => convo("pane:halyard:%22", { kind: "epic", key: "epic:orrery/orbit-labels", convo: "pane:halyard:%22" }),
 };

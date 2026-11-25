@@ -178,9 +178,7 @@ func wiringStateDir(t *testing.T) string {
 func evidenceWiringOptions(t *testing.T) options {
 	t.Helper()
 	return options{
-		socket:     filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap: defaultSessionCap,
-		stepCap:    defaultStepCap,
+		socket: filepath.Join(t.TempDir(), "orreryd.sock"),
 	}
 }
 

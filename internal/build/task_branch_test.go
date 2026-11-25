@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -67,7 +68,7 @@ func TestTaskBranchCommitsLeftOutOfRefMoveCheck(t *testing.T) {
 	dir := buildRepo(t)
 	base := buildHead(t, dir)
 	path := filepath.Join(buildWorktreeRoot(t), "implement")
-	if err := AddTaskWorktree(ctx, dir, testEpic, 1, path, base); err != nil {
+	if err := AddTaskWorktree(ctx, hostexec.NewLocal(), dir, testEpic, 1, path, base); err != nil {
 		t.Fatalf("AddTaskWorktree: %v", err)
 	}
 	moves := buildMoves(t, dir, nil, func() {
@@ -168,7 +169,7 @@ func TestTaskBranchNeverRebasedOrReset(t *testing.T) {
 	if got := buildRun(t, reopened, "rev-parse", "--symbolic-full-name", "HEAD"); got != third {
 		t.Fatalf("reopened worktree HEAD is attached to %s after the resume, want %s", got, third)
 	}
-	if held, err := isAncestor(ctx, f.repo, c2, third); err != nil || !held {
+	if held, err := isAncestor(ctx, hostexec.NewLocal(), f.repo, c2, third); err != nil || !held {
 		t.Errorf("%s does not hold %s after the resume: %v", third, c2, err)
 	}
 	requireTaskBranchAt(t, f.repo, 1, c1)
@@ -182,7 +183,7 @@ func TestTaskBranchNeverRebasedOrReset(t *testing.T) {
 	if got := buildRun(t, reopened, "rev-parse", "--symbolic-full-name", "HEAD"); got != fourth {
 		t.Fatalf("reopened worktree HEAD is attached to %s after the carry, want %s", got, fourth)
 	}
-	if held, err := isAncestor(ctx, f.repo, c3, fourth); err != nil || !held {
+	if held, err := isAncestor(ctx, hostexec.NewLocal(), f.repo, c3, fourth); err != nil || !held {
 		t.Errorf("%s does not hold %s after the carry: %v", fourth, c3, err)
 	}
 	requireTaskBranchAt(t, f.repo, 1, c1)
@@ -265,7 +266,7 @@ func requireNextBranch(t *testing.T, f *passFixture, workspace, commit, onto str
 	if parent := buildRun(t, f.repo, "rev-parse", second+"^1"); parent != onto {
 		t.Errorf("%s^1 = %s, want the new base %s", second, parent, onto)
 	}
-	if held, err := isAncestor(f.ctx, f.repo, commit, second); err != nil || !held {
+	if held, err := isAncestor(f.ctx, hostexec.NewLocal(), f.repo, commit, second); err != nil || !held {
 		t.Errorf("%s does not hold %s: %v", second, commit, err)
 	}
 	if got := buildRun(t, f.repo, "rev-parse", first); got != commit {

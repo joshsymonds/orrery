@@ -7,7 +7,6 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -97,6 +96,7 @@ class ProjectPageScreenTest {
         .setPane(0)
         .setCwd(cwd)
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState(state)
         .setSummary("Synthetic summary.")
         .setLabel("label-$id")
@@ -111,7 +111,7 @@ class ProjectPageScreenTest {
     private fun panesOf(vararg panes: PaneProto): PanesListResponse =
         PanesListResponse.newBuilder().addAllPanes(panes.toList()).build()
 
-    private fun headless(id: String, dir: String, state: String, changed: Long): HeadlessSession =
+    private fun headless(id: String, dir: String, state: String, changed: Long, ended: Boolean = false): HeadlessSession =
         HeadlessSession.newBuilder()
             .setId(id)
             .setDir(dir)
@@ -121,6 +121,7 @@ class ProjectPageScreenTest {
             .setSeen(0)
             .setSummary("Synthetic $state session.")
             .setNewestReply(changed)
+            .setEnded(ended)
             .build()
 
     private fun liveEpic(steering: String): Epic = Epic.newBuilder()
@@ -131,7 +132,6 @@ class ProjectPageScreenTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 
@@ -294,7 +294,7 @@ class ProjectPageScreenTest {
     }
 
     @Test
-    fun aStandInRowShowsItsWordsAndItsCardAndCountsAsAConversation() {
+    fun aContractOnItsOwnRowDrawsItsCardAloneAndIsNoConversation() {
         FakeOrreryServer().use { server ->
             serveDefaults(server)
             server.respond(PANES_LIST, panesOf())
@@ -307,9 +307,8 @@ class ProjectPageScreenTest {
             setPage(server, ALPHA_KEY)
             awaitNode(hasTestTag("card:contract:$CONTRACT_ID"))
 
-            composeRule.onNodeWithText("its conversation is not listed").assertExists()
-            composeRule.onNodeWithTag("project-age:standin:unlisted:$ALPHA_KEY").assertTextEquals("10m")
-            composeRule.onNodeWithText("1 conversation").assertExists()
+            composeRule.onNodeWithText("its conversation is not listed").assertDoesNotExist()
+            composeRule.onNodeWithText("0 conversations").assertExists()
         }
     }
 
@@ -340,7 +339,7 @@ class ProjectPageScreenTest {
             server.respond(PANES_LIST, panesOf(pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, ALPHA_SESSION)))
             server.respond(
                 LIST_HEADLESS,
-                ListHeadlessResponse.newBuilder().addSessions(headless(ENDED_SESSION, ALPHA, "stopped", NOW - 900)).build(),
+                ListHeadlessResponse.newBuilder().addSessions(headless(ENDED_SESSION, ALPHA, "stopped", NOW - 900, ended = true)).build(),
             )
             val state = PaneListState()
             setPage(server, ALPHA_KEY, state)

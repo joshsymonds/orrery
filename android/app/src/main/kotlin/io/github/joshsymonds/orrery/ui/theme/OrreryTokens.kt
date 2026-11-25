@@ -183,6 +183,11 @@ object OrreryTokens {
         val scrim: Float = 0.6f
     }
 
+    object Ground {
+        val open: Color = Color(0xFF524568)
+        val openHover: Color = Color(0xFF65547E)
+    }
+
     object Font {
         val mono: String = "\"Orrery Mono\", ui-monospace, \"JetBrains Mono\", Menlo, monospace"
         val inter: String = "\"Inter\", system-ui, sans-serif"
@@ -300,6 +305,7 @@ object OrreryTokens {
             val out: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
             val `in`: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
             val linear: Easing = CubicBezierEasing(0f, 0f, 1f, 1f)
+            val rise: Easing = CubicBezierEasing(0.3f, 0f, 0.1f, 1f)
         }
 
         object Move {
@@ -308,6 +314,12 @@ object OrreryTokens {
             val layout: Timing = Timing(280, Ease.out)
             val drill: Timing = Timing(320, Ease.out)
             val leave: Timing = Timing(200, Ease.`in`)
+            val rise: Timing = Timing(450, Ease.rise)
+            val fold: Timing = Timing(280, Ease.`in`)
+        }
+
+        object Delay {
+            val rise: Int = 120
         }
 
         object Loop {
@@ -320,12 +332,13 @@ object OrreryTokens {
         }
 
         object Reduced {
-            // motion.reduced: with reduced motion every move is one linear step of this length and every loop holds still
+            // motion.reduced: with reduced motion every move is one linear step of this length, every delay is also 0, and every loop holds still
             val millis: Int = 100
         }
 
         object Distance {
             val drill: Dp = 16.dp
+            val rise: Dp = 48.dp
         }
     }
 }

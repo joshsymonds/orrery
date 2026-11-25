@@ -3,16 +3,18 @@ package integration_test
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// TestOrrerydWebPushHonorsStopBackgroundTasks drives one orreryd with a session per pane, each ending its turn as its
-// background work leaves it. A subagent or workflow still running keeps the session's registry entry busy, so its pane
-// reads working and sends no Web Push. A shell task, a monitor task, or none leaves the entry idle once the turn ends,
-// so each pushes one done notification for its pane.
-func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
+// TestOrrerydWebPushHoldsBackgroundAgentTurnEnds drives one orreryd with a session per pane, each ending its turn as its
+// background work leaves it. A subagent or workflow still running keeps the session's registry entry busy after its
+// turn's end, so its pane reads working and held and sends no Web Push. A shell task, a monitor task, or none leaves
+// the entry idle once the turn ends, so each pushes one done notification for its pane.
+func TestOrrerydWebPushHoldsBackgroundAgentTurnEnds(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	cases := []struct {
@@ -38,6 +40,7 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
 
 	notifying := 0
+	ended := time.Unix(1700000000, 0)
 	for i, c := range cases {
 		session := startClaudeSession(t, client, dir, panes[i], dir)
 		session.submitPrompt(t)
@@ -45,7 +48,10 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 		if c.notify {
 			session.finishTurn(t, "Done.")
 			notifying++
+			continue
 		}
+		session.holdTurn(t, "The agent runs.", ended)
+		waitForOption(t, daemon, client, panes[i], protocol.OptionHeld, strconv.FormatInt(ended.Unix(), 10))
 	}
 
 	// A pane reads done once its entry's idle status is applied, and reads working otherwise. A Stop that notifies is
@@ -57,6 +63,9 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 			state = protocol.StateDone
 		}
 		waitForOption(t, daemon, client, panes[i], protocol.OptionState, string(state))
+		if c.notify {
+			waitForOption(t, daemon, client, panes[i], protocol.OptionHeld, "")
+		}
 	}
 	pushed := make(map[string][]string)
 	for range notifying {

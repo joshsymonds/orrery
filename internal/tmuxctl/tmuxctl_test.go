@@ -69,25 +69,17 @@ func startSession(t *testing.T, client *tmuxctl.Client, name, dir string) {
 	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir, testCommand)
 }
 
-// waitForExec polls pane until the pane's own process has exec'd want, and so runs it: its /proc comm is want. It has
-// no deadline of its own. The pane's foreground command, which tmux reports, is no such test: while the pane's shell
-// starts, tmux can report want and then the shell again before the exec, so a wait that saw want once could see the
-// shell next. An exec does not go back, and after it the pane's foreground command is want and stays so.
-func waitForExec(t *testing.T, client *tmuxctl.Client, pane, want string) {
+// waitForExec polls pane until the pane's own process has exec'd sleep, the command every test pane runs
+// (testCommand): its /proc comm is sleep. It has no deadline of its own. The pane's foreground command, which tmux
+// reports, is no such test: while the pane's shell starts, tmux can report sleep and then the shell again before the
+// exec, so a wait that saw sleep once could see the shell next. An exec does not go back, and after it the pane's
+// foreground command is sleep and stays so.
+func waitForExec(t *testing.T, client *tmuxctl.Client, pane string) {
 	t.Helper()
 	ticker := time.NewTicker(commandPollEach)
 	defer ticker.Stop()
-	for !paneExeced(t, client, pane, want) {
+	for !paneExeced(t, client, pane, "sleep") {
 		<-ticker.C
-	}
-}
-
-// waitForExecAll runs waitForExec for each pane in panes, in order, so the tests that wait on several panes share one
-// call site for waitForExec.
-func waitForExecAll(t *testing.T, client *tmuxctl.Client, panes []string, want string) {
-	t.Helper()
-	for _, pane := range panes {
-		waitForExec(t, client, pane, want)
 	}
 }
 
@@ -286,7 +278,9 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionClaudeSession, "example-claude-session")
 	setPaneOption(t, client, s1[0], protocol.OptionTool, exampleTool)
 
-	waitForExecAll(t, client, append(s1, s2...), "sleep")
+	for _, pane := range append(s1, s2...) {
+		waitForExec(t, client, pane)
+	}
 	s1Activity := sessionActivity(t, client, "s1")
 	s2Activity := sessionActivity(t, client, "s2")
 
@@ -367,7 +361,9 @@ func TestListCarriesOrreryOptions(t *testing.T) {
 	setPaneOption(t, client, panes[0], protocol.OptionID, "example-orrery-id")
 	setPaneOption(t, client, panes[0], protocol.OptionTranscript, "/example/transcript.jsonl")
 	setPaneOption(t, client, panes[0], protocol.OptionTurnStart, "1700000200")
-	waitForExecAll(t, client, panes, "sleep")
+	for _, pane := range panes {
+		waitForExec(t, client, pane)
+	}
 
 	listed, err := client.List(t.Context())
 	if err != nil {
@@ -461,7 +457,7 @@ func TestPaneCommandCanReadTheCommandBeforeTheShell(t *testing.T) {
 		t.Fatal("pane counts as running sleep while its process is bash")
 	}
 	releaseGate(t, gates[1])
-	waitForExec(t, client, pane, "sleep")
+	waitForExec(t, client, pane)
 	if got := currentCommand(t, client, pane); got != "sleep" {
 		t.Fatalf("pane command after the exec = %q, want sleep", got)
 	}
@@ -516,10 +512,11 @@ func TestWritePaneOptionsKeepsSemicolons(t *testing.T) {
 
 // TestWritePaneOptionsExpandsFormats writes one option with SetFormat and one with Set, both given the same format: the
 // SetFormat write stores what tmux expands it to, the pane's foreground command, and the Set write stores it as text.
-// The test waits for the pane's sleep to exec before the batch, so the command the batch reads is sleep.
+// The test waits for the pane's process to exec sleep before it writes, then reads the command in the same invocation as
+// the writes, so the command is the one the pane runs, not the shell it starts as.
 func TestWritePaneOptionsExpandsFormats(t *testing.T) {
 	client, pane := startPane(t)
-	waitForExec(t, client, pane, "sleep")
+	waitForExec(t, client, pane)
 	const format = "#{pane_current_command}"
 	writes := []tmuxctl.OptionWrite{
 		tmuxctl.SetFormat(protocol.OptionCommand, format),

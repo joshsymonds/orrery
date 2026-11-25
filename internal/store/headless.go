@@ -25,6 +25,8 @@ type HeadlessRow struct {
 	NewestReply int64
 	// RequestID is the request_id of the session's newest unrefused engine_request, or "" when there is none.
 	RequestID string
+	// Host is the orrery name of the host the session runs on, or "" when none is named.
+	Host string
 }
 
 // HeadlessSessions reads the headless engine sessions with an event at or after cutoff, in id order, each with its
@@ -32,12 +34,12 @@ type HeadlessRow struct {
 // on a connection it opens and closes. It returns an error that matches ErrUnavailable when the file is missing or
 // the database is busy. It never creates the file and never writes the database.
 func (r *Reader) HeadlessSessions(ctx context.Context, cutoff int64) ([]HeadlessRow, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	rows, err := readHeadlessSessions(ctx, db, cutoff)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
@@ -68,6 +70,7 @@ func readHeadlessSessions(ctx context.Context, db *sql.DB, cutoff int64) ([]Head
 			ID: row.ID, Dir: row.Dir, State: row.State, Changed: row.Changed, Seen: row.Seen,
 			Question: row.Question, Reason: row.Reason, Title: row.Title, Headline: row.Headline,
 			FirstPrompt: row.FirstPrompt, Reply: row.Reply, NewestReply: row.NewestReply, RequestID: row.RequestID,
+			Host: row.Host,
 		})
 	}
 	return headless, nil

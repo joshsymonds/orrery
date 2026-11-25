@@ -80,4 +80,176 @@ public interface ContractsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.ContractStateChange states = 3 [json_name = "states"];</code>
    */
   int getStatesCount();
+
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   * @return Whether the working field is set.
+   */
+  boolean hasWorking();
+  /**
+   * <pre>
+   * The contract's working copy: the body the stage is working on, with the decisions it asks and who wrote it.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractWorking working = 4 [json_name = "working"];</code>
+   * @return The working.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractWorking getWorking();
+
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal> 
+      getRefusalsList();
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractRefusal getRefusals(int index);
+  /**
+   * <pre>
+   * The refusals the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRefusal refusals = 5 [json_name = "refusals"];</code>
+   */
+  int getRefusalsCount();
+
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite> 
+      getRowsList();
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractRowWrite getRows(int index);
+  /**
+   * <pre>
+   * The row writes the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRowWrite rows = 6 [json_name = "rows"];</code>
+   */
+  int getRowsCount();
+
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft> 
+      getLeftList();
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractLeft getLeft(int index);
+  /**
+   * <pre>
+   * The left items the contract's stage recorded, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractLeft left = 7 [json_name = "left"];</code>
+   */
+  int getLeftCount();
+
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork> 
+      getWorkList();
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractRequirementWork getWork(int index);
+  /**
+   * <pre>
+   * The requirements' work the contract's stage recorded, one per requirement the work covers.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractRequirementWork work = 8 [json_name = "work"];</code>
+   */
+  int getWorkCount();
+
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown> 
+      getShownList();
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractShown getShown(int index);
+  /**
+   * <pre>
+   * The rows the owner was shown, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ContractShown shown = 9 [json_name = "shown"];</code>
+   */
+  int getShownCount();
+
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   * @return Whether the length field is set.
+   */
+  boolean hasLength();
+  /**
+   * <pre>
+   * The contract's length: the lines above its checks in the body the page draws, which is the working copy's when the
+   * contract has one and the newest version's otherwise. Unset when that body is not counted, as when the settings file
+   * does not read.
+   * </pre>
+   *
+   * <code>.orrery.v1.ContractLength length = 10 [json_name = "length"];</code>
+   * @return The length.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ContractLength getLength();
 }

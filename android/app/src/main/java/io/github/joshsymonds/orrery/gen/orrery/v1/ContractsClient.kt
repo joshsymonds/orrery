@@ -91,4 +91,51 @@ public class ContractsClient(
     ),
   )
 
+
+  /**
+   *  Keep forwards the owner's keeping of an addition to the named contract to orreryd and returns the contract as it
+   *  stands.
+   */
+  override suspend fun keep(request: ContractsKeepRequest, headers: Headers): ResponseMessage<ContractsKeepResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Contracts/Keep",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsKeepRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsKeepResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Strike forwards the owner's striking of an addition the named contract keeps to orreryd and returns the contract as
+   *  it stands, with the rows the striking removed.
+   */
+  override suspend fun strike(request: ContractsStrikeRequest, headers: Headers): ResponseMessage<ContractsStrikeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Contracts/Strike",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsStrikeRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsStrikeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Shown forwards the rows of a contract version the owner was shown to orreryd and returns the rows it marked.
+   */
+  override suspend fun shown(request: ContractsShownRequest, headers: Headers): ResponseMessage<ContractsShownResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Contracts/Shown",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsShownRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ContractsShownResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

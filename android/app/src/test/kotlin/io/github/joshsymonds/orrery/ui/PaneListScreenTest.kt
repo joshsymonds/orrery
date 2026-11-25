@@ -89,6 +89,7 @@ class PaneListScreenTest {
         .setPane(0)
         .setCwd(cwd)
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState(state)
         .setSummary(summary)
         .setLabel(label)

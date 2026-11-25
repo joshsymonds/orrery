@@ -9,10 +9,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// requireOwnerPark fails unless the epic of f is parked as class with reason, its open questions are the one park question
-// with reason, its untold tells are the one tell with reason, which carries that question, and no pending trigger is a
-// planner park trigger.
-func requireOwnerPark(t *testing.T, f *passFixture, class store.ParkClass, reason string) {
+// requireQuestionPark fails unless the epic of f is parked as class with reason, its open questions are the one park
+// question with reason, its untold tells are the one tell with reason, which carries that question, and no pending
+// trigger is a planner park trigger.
+func requireQuestionPark(t *testing.T, f *passFixture, class store.ParkClass, reason string) {
 	t.Helper()
 	epic := f.epic()
 	if epic.Parked != reason || epic.ParkClass != class {
@@ -41,10 +41,10 @@ func requireOwnerPark(t *testing.T, f *passFixture, class store.ParkClass, reaso
 	}
 }
 
-// TestCatastropheParkBuildOpensOwnerQuestionForBranchAndRefMove checks that the build runner's owner-class parks of a
-// catastrophe, an epic branch that already exists and a task that parks on an unexplained ref move, drive their park
+// TestCatastropheParkBuildOpensParkQuestionForBranchAndRefMove checks that the build runner's question-class parks of a
+// catastrophe, an epic branch that already exists and a task whose implementer moved main onto its commit, drive their park
 // through the pass and leave the owner the park's question and tell.
-func TestCatastropheParkBuildOpensOwnerQuestionForBranchAndRefMove(t *testing.T) {
+func TestCatastropheParkBuildOpensParkQuestionForBranchAndRefMove(t *testing.T) {
 	t.Parallel()
 	t.Run("epic branch exists", func(t *testing.T) {
 		t.Parallel()
@@ -52,16 +52,17 @@ func TestCatastropheParkBuildOpensOwnerQuestionForBranchAndRefMove(t *testing.T)
 		elsewhere := buildObject(t, f.repo, f.base)
 		buildRun(t, f.repo, "update-ref", BranchRef(passEpic), elsewhere)
 		f.pass()
-		requireOwnerPark(t, f, store.ParkClassBranch, "epic/epic exists")
+		requireQuestionPark(t, f, store.ParkClassBranch, "epic/epic exists")
 	})
-	t.Run("unexplained ref move", func(t *testing.T) {
+	t.Run("implementer moved main", func(t *testing.T) {
 		t.Parallel()
 		f := newImplementerFixture(t)
-		f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done"}`)
 		moved := buildObject(t, f.repo, f.base)
+		detachStep(t, f, moved)
+		f.setStep(passStep(StageImplement, 1, 0), "done", `{"summary":"done","commit":"`+moved+`"}`)
 		buildRun(t, f.repo, "update-ref", "refs/heads/main", moved)
 		f.pass()
-		requireOwnerPark(t, f, store.ParkClassRefMove,
+		requireQuestionPark(t, f, store.ParkClassRefMove,
 			fmt.Sprintf("T1 implementer moved refs/heads/main (%s to %s)", f.base, moved))
 	})
 }

@@ -1,7 +1,7 @@
 import { elapsed } from "./dockwords";
 import type { EpicBuildTask, EpicsGetResponse, EpicStep, EpicTaskReview, EvidenceRun } from "./gen/orrery/v1/epics_pb";
-import { durationText, type SliceState, type Tone } from "./phases";
-import { PLACES, type RecordTask, type RingPlace } from "./record";
+import { durationText, PLACES, type RingPlace, type SliceState, type Tone } from "./phases";
+import type { RecordTask } from "./record";
 
 // A task's five stage rows, as the record's stages read them: each row's state, its summary, its end (a passed row's
 // time or the now row's clock) and, on the now row, its tone. Times are unix seconds.

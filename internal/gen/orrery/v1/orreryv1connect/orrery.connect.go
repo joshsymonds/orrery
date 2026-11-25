@@ -112,6 +112,8 @@ const (
 	PickerAskProcedure = "/orrery.v1.Picker/Ask"
 	// PickerRunProcedure is the fully-qualified name of the Picker's Run RPC.
 	PickerRunProcedure = "/orrery.v1.Picker/Run"
+	// PickerProposeProcedure is the fully-qualified name of the Picker's Propose RPC.
+	PickerProposeProcedure = "/orrery.v1.Picker/Propose"
 	// PoolsStatusProcedure is the fully-qualified name of the Pools's Status RPC.
 	PoolsStatusProcedure = "/orrery.v1.Pools/Status"
 	// PoolsHoldProcedure is the fully-qualified name of the Pools's Hold RPC.
@@ -1272,6 +1274,8 @@ type PickerClient interface {
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
 	// Run runs the action a token names, once.
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+	// Propose returns ranked host and folder proposals for a prompt over the reachable hosts.
+	Propose(context.Context, *connect.Request[v1.ProposeRequest]) (*connect.Response[v1.ProposeResponse], error)
 }
 
 // NewPickerClient constructs a client for the orrery.v1.Picker service. By default, it uses the
@@ -1297,13 +1301,20 @@ func NewPickerClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(pickerMethods.ByName("Run")),
 			connect.WithClientOptions(opts...),
 		),
+		propose: connect.NewClient[v1.ProposeRequest, v1.ProposeResponse](
+			httpClient,
+			baseURL+PickerProposeProcedure,
+			connect.WithSchema(pickerMethods.ByName("Propose")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // pickerClient implements PickerClient.
 type pickerClient struct {
-	ask *connect.Client[v1.AskRequest, v1.AskResponse]
-	run *connect.Client[v1.RunRequest, v1.RunResponse]
+	ask     *connect.Client[v1.AskRequest, v1.AskResponse]
+	run     *connect.Client[v1.RunRequest, v1.RunResponse]
+	propose *connect.Client[v1.ProposeRequest, v1.ProposeResponse]
 }
 
 // Ask calls orrery.v1.Picker.Ask.
@@ -1316,12 +1327,19 @@ func (c *pickerClient) Run(ctx context.Context, req *connect.Request[v1.RunReque
 	return c.run.CallUnary(ctx, req)
 }
 
+// Propose calls orrery.v1.Picker.Propose.
+func (c *pickerClient) Propose(ctx context.Context, req *connect.Request[v1.ProposeRequest]) (*connect.Response[v1.ProposeResponse], error) {
+	return c.propose.CallUnary(ctx, req)
+}
+
 // PickerHandler is an implementation of the orrery.v1.Picker service.
 type PickerHandler interface {
 	// Ask returns the rows that match the text, each with a one-time token.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
 	// Run runs the action a token names, once.
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+	// Propose returns ranked host and folder proposals for a prompt over the reachable hosts.
+	Propose(context.Context, *connect.Request[v1.ProposeRequest]) (*connect.Response[v1.ProposeResponse], error)
 }
 
 // NewPickerHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -1343,12 +1361,20 @@ func NewPickerHandler(svc PickerHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(pickerMethods.ByName("Run")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pickerProposeHandler := connect.NewUnaryHandler(
+		PickerProposeProcedure,
+		svc.Propose,
+		connect.WithSchema(pickerMethods.ByName("Propose")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Picker/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PickerAskProcedure:
 			pickerAskHandler.ServeHTTP(w, r)
 		case PickerRunProcedure:
 			pickerRunHandler.ServeHTTP(w, r)
+		case PickerProposeProcedure:
+			pickerProposeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1364,6 +1390,10 @@ func (UnimplementedPickerHandler) Ask(context.Context, *connect.Request[v1.AskRe
 
 func (UnimplementedPickerHandler) Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Picker.Run is not implemented"))
+}
+
+func (UnimplementedPickerHandler) Propose(context.Context, *connect.Request[v1.ProposeRequest]) (*connect.Response[v1.ProposeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Picker.Propose is not implemented"))
 }
 
 // PoolsClient is a client for the orrery.v1.Pools service.

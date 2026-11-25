@@ -27,20 +27,22 @@ const removedPayload = "{}"
 
 // Fields holds the mirrored pane options. The empty string means the option is unset.
 type Fields struct {
-	State         string
-	Changed       string
-	Seen          string
-	Question      string
-	Summary       string
-	Label         string
-	Context       string
-	Tool          string
-	ClaudeSession string
-	Transcript    string
+	State         string `json:"state"`
+	Changed       string `json:"changed"`
+	Seen          string `json:"seen"`
+	Question      string `json:"question"`
+	Summary       string `json:"summary"`
+	Label         string `json:"label"`
+	Context       string `json:"context"`
+	Tool          string `json:"tool"`
+	ClaudeSession string `json:"claudeSession"`
+	Transcript    string `json:"transcript"`
 }
 
-// Pane is one tmux pane's snapshot. ID is the row id (the pane's @orrery_id) and Pane is the tmux pane id.
+// Pane is one tmux pane's snapshot. Host is the orrery name of the host the pane runs on, and ID is the row id (the
+// pane's @orrery_id) and Pane is the tmux pane id.
 type Pane struct {
+	Host   string
 	ID     string
 	Pane   string
 	Fields Fields
@@ -105,21 +107,22 @@ func (s *Store) SyncPane(ctx context.Context, server string, pane Pane, now time
 	})
 }
 
-// SyncServer syncs every pane of one tmux server, removes the server's rows whose id is absent from panes,
-// prunes events older than EventRetention, except the newest event, and removes each engine session that has
-// no event at or after the same cutoff, with its unfinished text. A live engine session, as SetEngineLive
-// reports, is kept with its text. The removal appends no event.
-func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now time.Time) error {
+// SyncServer syncs every pane of one tmux server under host, removes the rows of host on that server whose id is
+// absent from panes, prunes events older than EventRetention, except the newest event, and removes each engine session
+// that has no event at or after the same cutoff, with its unfinished text. A live engine session, as SetEngineLive
+// reports, is kept with its text. The removal appends no event. Rows of other hosts, and of other servers, are kept.
+func (s *Store) SyncServer(ctx context.Context, host, server string, panes []Pane, now time.Time) error {
 	live := s.engineLiveIDs()
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		present := make(map[string]bool, len(panes))
 		for _, pane := range panes {
+			pane.Host = host
 			if err := syncPane(ctx, queries, server, pane, now); err != nil {
 				return err
 			}
 			present[pane.ID] = true
 		}
-		rows, err := queries.ListServerSessions(ctx, server)
+		rows, err := queries.ListServerSessions(ctx, sqlcgen.ListServerSessionsParams{Host: host, Server: server})
 		if err != nil {
 			return fmt.Errorf("list sessions of server %q: %w", server, err)
 		}
@@ -187,7 +190,7 @@ func syncPane(ctx context.Context, queries *sqlcgen.Queries, server string, pane
 
 	if !exists {
 		if err = queries.InsertSession(ctx, sqlcgen.InsertSessionParams{
-			ID: pane.ID, Server: server, Pane: pane.Pane,
+			ID: pane.ID, Server: server, Pane: pane.Pane, Host: pane.Host,
 		}); err != nil {
 			return fmt.Errorf("insert session %s: %w", pane.ID, err)
 		}
@@ -324,9 +327,9 @@ func runWrite(
 type epicEventKey struct{}
 
 // withEpicEvent returns ctx marked for a statement that creates an epic or contract caller event: an epic question, an
-// epic phase, a stopped release, or a contract state an accept, a set aside or a reopen records. The write's writeConn
-// records the mark when such a statement runs and succeeds, so the write calls the hook once it commits. A helper passes
-// the marked context to its own statement only.
+// epic tell, an epic phase, a stopped release, or a contract state an accept, a set aside or a reopen records. The
+// write's writeConn records the mark when such a statement runs and succeeds, so the write calls the hook once it
+// commits. A helper passes the marked context to its own statement only.
 func withEpicEvent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, epicEventKey{}, true)
 }

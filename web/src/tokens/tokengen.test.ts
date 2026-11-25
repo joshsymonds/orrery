@@ -234,6 +234,26 @@ test("TokenGen: each move is a Timing of its duration in millis and an Easing fr
   }
 });
 
+test("TokenGen: each motion.delay is an Int of its millis in Motion.Delay and a --o-delay-<name> of its ms in web/src/tokens.css, 0ms in the reduced-motion block; each motion.distance is a Dp in Motion.Distance and a --o-distance-<name> in px", () => {
+  const motion = bodyOf(kotlin(), "object Motion {");
+  const css = read("web/src/tokens.css");
+  const reducedAt = css.indexOf("@media (prefers-reduced-motion: reduce)");
+  assert.notEqual(reducedAt, -1, "web/src/tokens.css has no reduced-motion block");
+  const normal = css.slice(0, reducedAt);
+  const reduced = css.slice(reducedAt);
+  const delays = members(bodyOf(motion, "object Delay {"));
+  for (const [name, ms] of Object.entries(tokens.motion.delay) as [string, number][]) {
+    assert.ok(delays.includes(`val ${name}: Int = ${ms}`), `${name} is not an Int of ${ms} in Motion.Delay`);
+    assert.ok(normal.includes(`--o-delay-${name}: ${ms}ms;`), `--o-delay-${name} is not ${ms}ms`);
+    assert.ok(reduced.includes(`--o-delay-${name}: 0ms;`), `--o-delay-${name} is not 0ms under reduced motion`);
+  }
+  const distances = members(bodyOf(motion, "object Distance {"));
+  for (const [name, px] of Object.entries(tokens.motion.distance) as [string, number][]) {
+    assert.ok(distances.includes(`val ${name}: Dp = ${px}.dp`), `${name} is not a Dp of ${px} in Motion.Distance`);
+    assert.ok(css.includes(`--o-distance-${name}: ${px}px;`), `--o-distance-${name} is not ${px}px`);
+  }
+});
+
 test("TokenGen: each role and series colour has a Fill at alpha.tintFill and a Line at alpha.tintLine, and Alpha holds both", () => {
   const kt = kotlin();
   const alpha = members(bodyOf(kt, "object Alpha {"));

@@ -111,7 +111,7 @@ func conversationOf(t *testing.T, history store.EngineHistory) []string {
 
 func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -133,7 +133,7 @@ func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 
 func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -156,7 +156,7 @@ func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 
 func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -193,7 +193,7 @@ func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 
 func TestAnswerRefusesUnknownRequest(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -211,7 +211,7 @@ func TestAnswerRefusesUnknownRequest(t *testing.T) {
 
 func TestPermitAllowAndDeny(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 2, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	allowID, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "PERMIT"})
 	if err != nil {
 		t.Fatalf("Start allow session: %v", err)
@@ -264,7 +264,7 @@ func TestPermitAllowAndDeny(t *testing.T) {
 
 func TestInterruptEndsTurnWithError(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -283,7 +283,7 @@ func TestInterruptEndsTurnWithError(t *testing.T) {
 
 func TestInterruptRefusesUnknownID(t *testing.T) {
 	t.Parallel()
-	m, _ := newTestManager(t, 1, fakeClaudePath(t))
+	m, _ := newTestManager(t, fakeClaudePath(t))
 	if err := m.Interrupt(t.Context(), unknownID); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("Interrupt of an unknown id error = %v, want ErrNoSession", err)
 	}
@@ -291,7 +291,7 @@ func TestInterruptRefusesUnknownID(t *testing.T) {
 
 func TestReplayRebuildsConversationInOrder(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -334,7 +334,7 @@ func stdinBefore(t *testing.T, dir, later string) bool {
 
 func TestSayWhileARequestIsOpenDeniesItFirst(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "PERMIT"})
 	if err != nil {
@@ -366,7 +366,7 @@ func TestSayWhileARequestIsOpenDeniesItFirst(t *testing.T) {
 
 func TestInterruptWhileARequestIsOpenDeniesIt(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "PERMIT"})
 	if err != nil {

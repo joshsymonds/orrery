@@ -45,9 +45,9 @@ type refusalFixture struct {
 	home      string
 }
 
-// newRefusalFixture returns a fixture whose manager allows stepCap live steps. The step loops are canceled and the
+// newRefusalFixture returns a fixture whose manager runs steps. The step loops are canceled and the
 // manager closed at cleanup.
-func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
+func newRefusalFixture(t *testing.T) *refusalFixture {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -62,7 +62,7 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	writeStepAgents(t, home)
 	manager := NewManager(Config{
 		Shell: sh, Claude: fakeClaudePath(t), Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
-		Cap: 2, StepCap: stepCap, Writer: writer, Now: fixedClock, Notifier: &fakeSink{}, Store: s,
+		Writer: writer, Now: fixedClock, Notifier: &fakeSink{}, Store: s,
 	})
 	t.Cleanup(manager.Close)
 	worktrees := t.TempDir()
@@ -130,30 +130,9 @@ func refusalCheck(t *testing.T, f *refusalFixture, id string, err error) {
 	}
 }
 
-func TestStepRefusedCapReachedStartsNothing(t *testing.T) {
-	t.Parallel()
-	f := newRefusalFixture(t, 1)
-	repo := stepGitTestRepo(t)
-	running := stepStartReadOnly(repo, "HEAD")
-	running.Prompt = "HANG"
-	firstID, err := refusalStart(t, f.steps, running)
-	if err != nil || firstID == "" {
-		t.Fatalf("first Start = %q, %v; want a running step", firstID, err)
-	}
-
-	id, err := refusalStart(t, f.steps, stepStartReadOnly(repo, "HEAD"))
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("second Start error = %v, want it to match %v", err, ErrCapReached)
-	}
-	refusalCheck(t, f, id, err)
-	if names := refusalWorktrees(t, f.worktrees); len(names) != 1 || names[0] != firstID {
-		t.Errorf("worktrees = %v, want only the running step's %s", names, firstID)
-	}
-}
-
 func TestStepRefusedBadAgentStartsNothing(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 2)
+	f := newRefusalFixture(t)
 	repo := stepGitTestRepo(t)
 	start := stepStartReadOnly(repo, "HEAD")
 	start.Agent = "-x"
@@ -170,7 +149,7 @@ func TestStepRefusedBadAgentStartsNothing(t *testing.T) {
 
 func TestStepRefusedUnresolvedAgentStartsNothing(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 2)
+	f := newRefusalFixture(t)
 	repo := stepGitTestRepo(t)
 	const agent = "no-such-agent-gate-probe"
 	start := stepStartReadOnly(repo, "HEAD")
@@ -222,7 +201,7 @@ func TestStepRefusedUnresolvedAgentStartsNothing(t *testing.T) {
 
 func TestStepRefusedAfterCloseStartsNothing(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 2)
+	f := newRefusalFixture(t)
 	f.manager.Close()
 	repo := stepGitTestRepo(t)
 

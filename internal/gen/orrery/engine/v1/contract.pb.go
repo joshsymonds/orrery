@@ -140,8 +140,10 @@ type ContractVersion struct {
 	ChangedRows []string `protobuf:"bytes,7,rep,name=changed_rows,json=changedRows,proto3" json:"changed_rows,omitempty"`
 	// The section names that differ from the version before; empty for version 1.
 	ChangedSections []string `protobuf:"bytes,8,rep,name=changed_sections,json=changedSections,proto3" json:"changed_sections,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The ids of the steps that read this version, oldest first.
+	ReadBy        []string `protobuf:"bytes,9,rep,name=read_by,json=readBy,proto3" json:"read_by,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ContractVersion) Reset() {
@@ -230,6 +232,13 @@ func (x *ContractVersion) GetChangedSections() []string {
 	return nil
 }
 
+func (x *ContractVersion) GetReadBy() []string {
+	if x != nil {
+		return x.ReadBy
+	}
+	return nil
+}
+
 // ContractStateChange is one change of a contract's state, recorded when the state moved.
 type ContractStateChange struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -244,7 +253,9 @@ type ContractStateChange struct {
 	// The words the change was made with.
 	Words string `protobuf:"bytes,5,opt,name=words,proto3" json:"words,omitempty"`
 	// When the change was made, in unix seconds.
-	Time          int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	Time int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	// Who made the change and the evidence it rests on; empty when the change was made by none.
+	Maker         *StageMaker `protobuf:"bytes,7,opt,name=maker,proto3" json:"maker,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -321,6 +332,323 @@ func (x *ContractStateChange) GetTime() int64 {
 	return 0
 }
 
+func (x *ContractStateChange) GetMaker() *StageMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
+// ContractWorking is the working copy of a contract a design holds, before it is proposed.
+type ContractWorking struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The number of the working copy's version.
+	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The contract body of the working copy.
+	Contract *EpicContract `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The decisions of the working copy.
+	Decisions []*ContractDecision `protobuf:"bytes,3,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The sessions row id of the writer of the working copy's last write.
+	Writer string `protobuf:"bytes,4,opt,name=writer,proto3" json:"writer,omitempty"`
+	// When the working copy was last written, in unix seconds.
+	Updated int64 `protobuf:"varint,5,opt,name=updated,proto3" json:"updated,omitempty"`
+	// The F, R, P and decision ids that differ from the version before.
+	ChangedRows   []string `protobuf:"bytes,6,rep,name=changed_rows,json=changedRows,proto3" json:"changed_rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractWorking) Reset() {
+	*x = ContractWorking{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractWorking) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractWorking) ProtoMessage() {}
+
+func (x *ContractWorking) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractWorking.ProtoReflect.Descriptor instead.
+func (*ContractWorking) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ContractWorking) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractWorking) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ContractWorking) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *ContractWorking) GetWriter() string {
+	if x != nil {
+		return x.Writer
+	}
+	return ""
+}
+
+func (x *ContractWorking) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+func (x *ContractWorking) GetChangedRows() []string {
+	if x != nil {
+		return x.ChangedRows
+	}
+	return nil
+}
+
+// ContractRefusal is a refusal of a write to a contract a design's stage made, with the field it refused.
+type ContractRefusal struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The refusal's seq, counted from 1 within its contract.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The number of the contract version the refused write was made against.
+	Version int64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	// The field the write was refused for.
+	Field string `protobuf:"bytes,3,opt,name=field,proto3" json:"field,omitempty"`
+	// Why the write was refused.
+	Text string `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
+	// The sessions row id of the session whose write was refused.
+	Session string `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
+	// When the write was refused, in unix seconds.
+	Time          int64 `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractRefusal) Reset() {
+	*x = ContractRefusal{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractRefusal) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractRefusal) ProtoMessage() {}
+
+func (x *ContractRefusal) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractRefusal.ProtoReflect.Descriptor instead.
+func (*ContractRefusal) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ContractRefusal) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *ContractRefusal) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractRefusal) GetField() string {
+	if x != nil {
+		return x.Field
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *ContractRefusal) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+// ContractLeft is a row a contract's stage left open, with what it was left for.
+type ContractLeft struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The kind of the item left open.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The id of the thing left open.
+	Ref string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	// The text of the item left open.
+	Text          string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractLeft) Reset() {
+	*x = ContractLeft{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractLeft) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractLeft) ProtoMessage() {}
+
+func (x *ContractLeft) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractLeft.ProtoReflect.Descriptor instead.
+func (*ContractLeft) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ContractLeft) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ContractLeft) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *ContractLeft) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// ContractShown is a row of a contract version the owner was shown.
+type ContractShown struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The number of the contract version the owner was shown.
+	Version int64 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	// The F, R or P row the owner was shown.
+	Row string `protobuf:"bytes,2,opt,name=row,proto3" json:"row,omitempty"`
+	// When the row was shown, in unix seconds.
+	Time          int64 `protobuf:"varint,3,opt,name=time,proto3" json:"time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractShown) Reset() {
+	*x = ContractShown{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractShown) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractShown) ProtoMessage() {}
+
+func (x *ContractShown) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractShown.ProtoReflect.Descriptor instead.
+func (*ContractShown) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ContractShown) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *ContractShown) GetRow() string {
+	if x != nil {
+		return x.Row
+	}
+	return ""
+}
+
+func (x *ContractShown) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
 // StoredContract is a contract as orreryd keeps it, with its current state and, when read in full, its history.
 type StoredContract struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -347,14 +675,24 @@ type StoredContract struct {
 	// Every version, oldest first; empty in a listing.
 	Versions []*ContractVersion `protobuf:"bytes,11,rep,name=versions,proto3" json:"versions,omitempty"`
 	// Every state change, oldest first; empty in a listing.
-	States        []*ContractStateChange `protobuf:"bytes,12,rep,name=states,proto3" json:"states,omitempty"`
+	States []*ContractStateChange `protobuf:"bytes,12,rep,name=states,proto3" json:"states,omitempty"`
+	// The contract's working copy, unset when the design holds none.
+	Working *ContractWorking `protobuf:"bytes,13,opt,name=working,proto3" json:"working,omitempty"`
+	// Every refusal of a write to the contract, oldest first; empty in a listing.
+	Refusals []*ContractRefusal `protobuf:"bytes,14,rep,name=refusals,proto3" json:"refusals,omitempty"`
+	// The stage's row writes to the contract, oldest first; empty in a listing.
+	Rows []*StageRowWrite `protobuf:"bytes,15,rep,name=rows,proto3" json:"rows,omitempty"`
+	// The rows the contract's stage left open, empty in a listing.
+	Left []*ContractLeft `protobuf:"bytes,16,rep,name=left,proto3" json:"left,omitempty"`
+	// The rows of the contract versions the owner was shown, oldest first; empty in a listing.
+	Shown         []*ContractShown `protobuf:"bytes,17,rep,name=shown,proto3" json:"shown,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StoredContract) Reset() {
 	*x = StoredContract{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[3]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +704,7 @@ func (x *StoredContract) String() string {
 func (*StoredContract) ProtoMessage() {}
 
 func (x *StoredContract) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[3]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +717,7 @@ func (x *StoredContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoredContract.ProtoReflect.Descriptor instead.
 func (*StoredContract) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{3}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StoredContract) GetId() string {
@@ -466,6 +804,41 @@ func (x *StoredContract) GetStates() []*ContractStateChange {
 	return nil
 }
 
+func (x *StoredContract) GetWorking() *ContractWorking {
+	if x != nil {
+		return x.Working
+	}
+	return nil
+}
+
+func (x *StoredContract) GetRefusals() []*ContractRefusal {
+	if x != nil {
+		return x.Refusals
+	}
+	return nil
+}
+
+func (x *StoredContract) GetRows() []*StageRowWrite {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+func (x *StoredContract) GetLeft() []*ContractLeft {
+	if x != nil {
+		return x.Left
+	}
+	return nil
+}
+
+func (x *StoredContract) GetShown() []*ContractShown {
+	if x != nil {
+		return x.Shown
+	}
+	return nil
+}
+
 // ProposeContractRequest asks for a new contract with its first version.
 type ProposeContractRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -476,14 +849,16 @@ type ProposeContractRequest struct {
 	// The decisions of the first version.
 	Decisions []*ContractDecision `protobuf:"bytes,3,rep,name=decisions,proto3" json:"decisions,omitempty"`
 	// The words the writer gives with the version.
-	Words         string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	Words string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	// The design the contract joins, empty for none.
+	Design        string `protobuf:"bytes,5,opt,name=design,proto3" json:"design,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProposeContractRequest) Reset() {
 	*x = ProposeContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[4]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +870,7 @@ func (x *ProposeContractRequest) String() string {
 func (*ProposeContractRequest) ProtoMessage() {}
 
 func (x *ProposeContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[4]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +883,7 @@ func (x *ProposeContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeContractRequest.ProtoReflect.Descriptor instead.
 func (*ProposeContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{4}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ProposeContractRequest) GetId() string {
@@ -539,18 +914,27 @@ func (x *ProposeContractRequest) GetWords() string {
 	return ""
 }
 
+func (x *ProposeContractRequest) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
 // ProposeContractResponse carries the contract stored by ProposeContract.
 type ProposeContractResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored contract.
-	Contract      *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The warnings the contract's checks gave the version; empty when none.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProposeContractResponse) Reset() {
 	*x = ProposeContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[5]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -562,7 +946,7 @@ func (x *ProposeContractResponse) String() string {
 func (*ProposeContractResponse) ProtoMessage() {}
 
 func (x *ProposeContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[5]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -575,12 +959,19 @@ func (x *ProposeContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposeContractResponse.ProtoReflect.Descriptor instead.
 func (*ProposeContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{5}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ProposeContractResponse) GetContract() *StoredContract {
 	if x != nil {
 		return x.Contract
+	}
+	return nil
+}
+
+func (x *ProposeContractResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -602,7 +993,7 @@ type ReviseContractRequest struct {
 
 func (x *ReviseContractRequest) Reset() {
 	*x = ReviseContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[6]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -614,7 +1005,7 @@ func (x *ReviseContractRequest) String() string {
 func (*ReviseContractRequest) ProtoMessage() {}
 
 func (x *ReviseContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[6]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -627,7 +1018,7 @@ func (x *ReviseContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReviseContractRequest.ProtoReflect.Descriptor instead.
 func (*ReviseContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{6}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReviseContractRequest) GetId() string {
@@ -662,14 +1053,16 @@ func (x *ReviseContractRequest) GetWords() string {
 type ReviseContractResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The stored contract.
-	Contract      *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	Contract *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The warnings the contract's checks gave the version; empty when none.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReviseContractResponse) Reset() {
 	*x = ReviseContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[7]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -681,7 +1074,7 @@ func (x *ReviseContractResponse) String() string {
 func (*ReviseContractResponse) ProtoMessage() {}
 
 func (x *ReviseContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[7]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -694,12 +1087,19 @@ func (x *ReviseContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReviseContractResponse.ProtoReflect.Descriptor instead.
 func (*ReviseContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{7}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ReviseContractResponse) GetContract() *StoredContract {
 	if x != nil {
 		return x.Contract
+	}
+	return nil
+}
+
+func (x *ReviseContractResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
 	}
 	return nil
 }
@@ -710,14 +1110,16 @@ type AcceptContractRequest struct {
 	// The id of the contract to accept.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The words the owner accepts the contract with.
-	Words         string `protobuf:"bytes,2,opt,name=words,proto3" json:"words,omitempty"`
+	Words string `protobuf:"bytes,2,opt,name=words,proto3" json:"words,omitempty"`
+	// Who accepts the contract and the evidence it rests on; empty when none is given.
+	Maker         *StageMaker `protobuf:"bytes,3,opt,name=maker,proto3" json:"maker,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AcceptContractRequest) Reset() {
 	*x = AcceptContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -729,7 +1131,7 @@ func (x *AcceptContractRequest) String() string {
 func (*AcceptContractRequest) ProtoMessage() {}
 
 func (x *AcceptContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[8]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -742,7 +1144,7 @@ func (x *AcceptContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptContractRequest.ProtoReflect.Descriptor instead.
 func (*AcceptContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{8}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AcceptContractRequest) GetId() string {
@@ -759,6 +1161,13 @@ func (x *AcceptContractRequest) GetWords() string {
 	return ""
 }
 
+func (x *AcceptContractRequest) GetMaker() *StageMaker {
+	if x != nil {
+		return x.Maker
+	}
+	return nil
+}
+
 // AcceptContractResponse carries the contract stored by AcceptContract.
 type AcceptContractResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -770,7 +1179,7 @@ type AcceptContractResponse struct {
 
 func (x *AcceptContractResponse) Reset() {
 	*x = AcceptContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -782,7 +1191,7 @@ func (x *AcceptContractResponse) String() string {
 func (*AcceptContractResponse) ProtoMessage() {}
 
 func (x *AcceptContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -795,7 +1204,7 @@ func (x *AcceptContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptContractResponse.ProtoReflect.Descriptor instead.
 func (*AcceptContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{9}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *AcceptContractResponse) GetContract() *StoredContract {
@@ -818,7 +1227,7 @@ type SetAsideContractRequest struct {
 
 func (x *SetAsideContractRequest) Reset() {
 	*x = SetAsideContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -830,7 +1239,7 @@ func (x *SetAsideContractRequest) String() string {
 func (*SetAsideContractRequest) ProtoMessage() {}
 
 func (x *SetAsideContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[10]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -843,7 +1252,7 @@ func (x *SetAsideContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAsideContractRequest.ProtoReflect.Descriptor instead.
 func (*SetAsideContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{10}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SetAsideContractRequest) GetId() string {
@@ -871,7 +1280,7 @@ type SetAsideContractResponse struct {
 
 func (x *SetAsideContractResponse) Reset() {
 	*x = SetAsideContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -883,7 +1292,7 @@ func (x *SetAsideContractResponse) String() string {
 func (*SetAsideContractResponse) ProtoMessage() {}
 
 func (x *SetAsideContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[11]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -896,7 +1305,7 @@ func (x *SetAsideContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAsideContractResponse.ProtoReflect.Descriptor instead.
 func (*SetAsideContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{11}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SetAsideContractResponse) GetContract() *StoredContract {
@@ -919,7 +1328,7 @@ type ReopenContractRequest struct {
 
 func (x *ReopenContractRequest) Reset() {
 	*x = ReopenContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -931,7 +1340,7 @@ func (x *ReopenContractRequest) String() string {
 func (*ReopenContractRequest) ProtoMessage() {}
 
 func (x *ReopenContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[12]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -944,7 +1353,7 @@ func (x *ReopenContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReopenContractRequest.ProtoReflect.Descriptor instead.
 func (*ReopenContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{12}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ReopenContractRequest) GetId() string {
@@ -972,7 +1381,7 @@ type ReopenContractResponse struct {
 
 func (x *ReopenContractResponse) Reset() {
 	*x = ReopenContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -984,7 +1393,7 @@ func (x *ReopenContractResponse) String() string {
 func (*ReopenContractResponse) ProtoMessage() {}
 
 func (x *ReopenContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[13]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -997,7 +1406,7 @@ func (x *ReopenContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReopenContractResponse.ProtoReflect.Descriptor instead.
 func (*ReopenContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{13}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ReopenContractResponse) GetContract() *StoredContract {
@@ -1018,7 +1427,7 @@ type GetContractRequest struct {
 
 func (x *GetContractRequest) Reset() {
 	*x = GetContractRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1030,7 +1439,7 @@ func (x *GetContractRequest) String() string {
 func (*GetContractRequest) ProtoMessage() {}
 
 func (x *GetContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[14]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1043,7 +1452,7 @@ func (x *GetContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContractRequest.ProtoReflect.Descriptor instead.
 func (*GetContractRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{14}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetContractRequest) GetId() string {
@@ -1064,7 +1473,7 @@ type GetContractResponse struct {
 
 func (x *GetContractResponse) Reset() {
 	*x = GetContractResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1076,7 +1485,7 @@ func (x *GetContractResponse) String() string {
 func (*GetContractResponse) ProtoMessage() {}
 
 func (x *GetContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[15]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1089,7 +1498,7 @@ func (x *GetContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContractResponse.ProtoReflect.Descriptor instead.
 func (*GetContractResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{15}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *GetContractResponse) GetContract() *StoredContract {
@@ -1108,7 +1517,7 @@ type ListContractsRequest struct {
 
 func (x *ListContractsRequest) Reset() {
 	*x = ListContractsRequest{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1120,7 +1529,7 @@ func (x *ListContractsRequest) String() string {
 func (*ListContractsRequest) ProtoMessage() {}
 
 func (x *ListContractsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[16]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1133,7 +1542,7 @@ func (x *ListContractsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContractsRequest.ProtoReflect.Descriptor instead.
 func (*ListContractsRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{16}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{20}
 }
 
 // ListContractsResponse carries the summary of every stored contract.
@@ -1147,7 +1556,7 @@ type ListContractsResponse struct {
 
 func (x *ListContractsResponse) Reset() {
 	*x = ListContractsResponse{}
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1159,7 +1568,7 @@ func (x *ListContractsResponse) String() string {
 func (*ListContractsResponse) ProtoMessage() {}
 
 func (x *ListContractsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_contract_proto_msgTypes[17]
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1172,7 +1581,7 @@ func (x *ListContractsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContractsResponse.ProtoReflect.Descriptor instead.
 func (*ListContractsResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{17}
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListContractsResponse) GetContracts() []*StoredContract {
@@ -1182,11 +1591,359 @@ func (x *ListContractsResponse) GetContracts() []*StoredContract {
 	return nil
 }
 
+// ContractDraft is a contract stored as a draft: its body and decisions as its last write gave them. A draft has no
+// versions and no state changes.
+type ContractDraft struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The draft's id, the id the contract takes when it is proposed.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The design the draft joins, empty for none.
+	Design string `protobuf:"bytes,2,opt,name=design,proto3" json:"design,omitempty"`
+	// The contract body of the draft.
+	Contract *EpicContract `protobuf:"bytes,3,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The decisions of the draft.
+	Decisions []*ContractDecision `protobuf:"bytes,4,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The words the writer gave with the draft's last write.
+	Words string `protobuf:"bytes,5,opt,name=words,proto3" json:"words,omitempty"`
+	// The sessions row id of the writer of the draft's last write.
+	Writer string `protobuf:"bytes,6,opt,name=writer,proto3" json:"writer,omitempty"`
+	// When the draft was first stored, in unix seconds.
+	Created int64 `protobuf:"varint,7,opt,name=created,proto3" json:"created,omitempty"`
+	// When the draft was last written, in unix seconds.
+	Updated       int64 `protobuf:"varint,8,opt,name=updated,proto3" json:"updated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContractDraft) Reset() {
+	*x = ContractDraft{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContractDraft) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContractDraft) ProtoMessage() {}
+
+func (x *ContractDraft) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContractDraft.ProtoReflect.Descriptor instead.
+func (*ContractDraft) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ContractDraft) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ContractDraft) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *ContractDraft) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetWriter() string {
+	if x != nil {
+		return x.Writer
+	}
+	return ""
+}
+
+func (x *ContractDraft) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+func (x *ContractDraft) GetUpdated() int64 {
+	if x != nil {
+		return x.Updated
+	}
+	return 0
+}
+
+// DraftContractRequest asks for a contract's draft to be stored, or the draft stored under its id to be replaced.
+type DraftContractRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The id the draft takes, the id the contract takes when it is proposed.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The contract body of the draft.
+	Contract *EpicContract `protobuf:"bytes,2,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The decisions of the draft.
+	Decisions []*ContractDecision `protobuf:"bytes,3,rep,name=decisions,proto3" json:"decisions,omitempty"`
+	// The words the writer gives with the draft.
+	Words string `protobuf:"bytes,4,opt,name=words,proto3" json:"words,omitempty"`
+	// The design the draft joins, empty for none.
+	Design        string `protobuf:"bytes,5,opt,name=design,proto3" json:"design,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DraftContractRequest) Reset() {
+	*x = DraftContractRequest{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DraftContractRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DraftContractRequest) ProtoMessage() {}
+
+func (x *DraftContractRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DraftContractRequest.ProtoReflect.Descriptor instead.
+func (*DraftContractRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *DraftContractRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DraftContractRequest) GetContract() *EpicContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *DraftContractRequest) GetDecisions() []*ContractDecision {
+	if x != nil {
+		return x.Decisions
+	}
+	return nil
+}
+
+func (x *DraftContractRequest) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+func (x *DraftContractRequest) GetDesign() string {
+	if x != nil {
+		return x.Design
+	}
+	return ""
+}
+
+// DraftContractResponse carries the draft stored by DraftContract.
+type DraftContractResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The stored draft.
+	Draft         *ContractDraft `protobuf:"bytes,1,opt,name=draft,proto3" json:"draft,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DraftContractResponse) Reset() {
+	*x = DraftContractResponse{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DraftContractResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DraftContractResponse) ProtoMessage() {}
+
+func (x *DraftContractResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DraftContractResponse.ProtoReflect.Descriptor instead.
+func (*DraftContractResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *DraftContractResponse) GetDraft() *ContractDraft {
+	if x != nil {
+		return x.Draft
+	}
+	return nil
+}
+
+// ProposeWorkingRequest asks for a design's working copy of a contract to be proposed as a new contract.
+type ProposeWorkingRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The id the new contract takes.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The words the writer gives with the proposal.
+	Words         string `protobuf:"bytes,2,opt,name=words,proto3" json:"words,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProposeWorkingRequest) Reset() {
+	*x = ProposeWorkingRequest{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProposeWorkingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProposeWorkingRequest) ProtoMessage() {}
+
+func (x *ProposeWorkingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProposeWorkingRequest.ProtoReflect.Descriptor instead.
+func (*ProposeWorkingRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ProposeWorkingRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ProposeWorkingRequest) GetWords() string {
+	if x != nil {
+		return x.Words
+	}
+	return ""
+}
+
+// ProposeWorkingResponse carries the contract stored by ProposeWorking and its warnings.
+type ProposeWorkingResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The stored contract.
+	Contract *StoredContract `protobuf:"bytes,1,opt,name=contract,proto3" json:"contract,omitempty"`
+	// The warnings the contract's checks gave the proposal; empty when none.
+	Warnings      []string `protobuf:"bytes,2,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProposeWorkingResponse) Reset() {
+	*x = ProposeWorkingResponse{}
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProposeWorkingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProposeWorkingResponse) ProtoMessage() {}
+
+func (x *ProposeWorkingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_contract_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProposeWorkingResponse.ProtoReflect.Descriptor instead.
+func (*ProposeWorkingResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_contract_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ProposeWorkingResponse) GetContract() *StoredContract {
+	if x != nil {
+		return x.Contract
+	}
+	return nil
+}
+
+func (x *ProposeWorkingResponse) GetWarnings() []string {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 var File_orrery_engine_v1_contract_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\n" +
-	"\x1forrery/engine/v1/contract.proto\x12\x10orrery.engine.v1\x1a\x1borrery/engine/v1/epic.proto\"\xc2\x01\n" +
+	"\x1forrery/engine/v1/contract.proto\x12\x10orrery.engine.v1\x1a\x1borrery/engine/v1/epic.proto\x1a\x1correry/engine/v1/stage.proto\"\xc2\x01\n" +
 	"\x10ContractDecision\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bquestion\x18\x02 \x01(\tR\bquestion\x12\x18\n" +
@@ -1194,7 +1951,7 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\x0erecommendation\x18\x04 \x01(\tR\x0erecommendation\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x12\x10\n" +
 	"\x03row\x18\x06 \x01(\tR\x03row\x12\x16\n" +
-	"\x06answer\x18\a \x01(\tR\x06answer\"\xb9\x02\n" +
+	"\x06answer\x18\a \x01(\tR\x06answer\"\xd2\x02\n" +
 	"\x0fContractVersion\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12:\n" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
@@ -1203,14 +1960,38 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\x06writer\x18\x05 \x01(\tR\x06writer\x12\x12\n" +
 	"\x04time\x18\x06 \x01(\x03R\x04time\x12!\n" +
 	"\fchanged_rows\x18\a \x03(\tR\vchangedRows\x12)\n" +
-	"\x10changed_sections\x18\b \x03(\tR\x0fchangedSections\"\x99\x01\n" +
+	"\x10changed_sections\x18\b \x03(\tR\x0fchangedSections\x12\x17\n" +
+	"\aread_by\x18\t \x03(\tR\x06readBy\"\xcd\x01\n" +
 	"\x13ContractStateChange\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x0e\n" +
 	"\x02by\x18\x03 \x01(\tR\x02by\x12\x18\n" +
 	"\asession\x18\x04 \x01(\tR\asession\x12\x14\n" +
 	"\x05words\x18\x05 \x01(\tR\x05words\x12\x12\n" +
-	"\x04time\x18\x06 \x01(\x03R\x04time\"\x97\x03\n" +
+	"\x04time\x18\x06 \x01(\x03R\x04time\x122\n" +
+	"\x05maker\x18\a \x01(\v2\x1c.orrery.engine.v1.StageMakerR\x05maker\"\xfe\x01\n" +
+	"\x0fContractWorking\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\x12:\n" +
+	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
+	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x16\n" +
+	"\x06writer\x18\x04 \x01(\tR\x06writer\x12\x18\n" +
+	"\aupdated\x18\x05 \x01(\x03R\aupdated\x12!\n" +
+	"\fchanged_rows\x18\x06 \x03(\tR\vchangedRows\"\x95\x01\n" +
+	"\x0fContractRefusal\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x14\n" +
+	"\x05field\x18\x03 \x01(\tR\x05field\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\x12\x18\n" +
+	"\asession\x18\x05 \x01(\tR\asession\x12\x12\n" +
+	"\x04time\x18\x06 \x01(\x03R\x04time\"H\n" +
+	"\fContractLeft\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"O\n" +
+	"\rContractShown\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x10\n" +
+	"\x03row\x18\x02 \x01(\tR\x03row\x12\x12\n" +
+	"\x04time\x18\x03 \x01(\x03R\x04time\"\xb3\x05\n" +
 	"\x0eStoredContract\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -1226,24 +2007,33 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\achanged\x18\n" +
 	" \x01(\x03R\achanged\x12=\n" +
 	"\bversions\x18\v \x03(\v2!.orrery.engine.v1.ContractVersionR\bversions\x12=\n" +
-	"\x06states\x18\f \x03(\v2%.orrery.engine.v1.ContractStateChangeR\x06states\"\xbc\x01\n" +
+	"\x06states\x18\f \x03(\v2%.orrery.engine.v1.ContractStateChangeR\x06states\x12;\n" +
+	"\aworking\x18\r \x01(\v2!.orrery.engine.v1.ContractWorkingR\aworking\x12=\n" +
+	"\brefusals\x18\x0e \x03(\v2!.orrery.engine.v1.ContractRefusalR\brefusals\x123\n" +
+	"\x04rows\x18\x0f \x03(\v2\x1f.orrery.engine.v1.StageRowWriteR\x04rows\x122\n" +
+	"\x04left\x18\x10 \x03(\v2\x1e.orrery.engine.v1.ContractLeftR\x04left\x125\n" +
+	"\x05shown\x18\x11 \x03(\v2\x1f.orrery.engine.v1.ContractShownR\x05shown\"\xd4\x01\n" +
 	"\x16ProposeContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
 	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
-	"\x05words\x18\x04 \x01(\tR\x05words\"W\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\x12\x16\n" +
+	"\x06design\x18\x05 \x01(\tR\x06design\"s\n" +
 	"\x17ProposeContractResponse\x12<\n" +
-	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"\xbb\x01\n" +
+	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\xbb\x01\n" +
 	"\x15ReviseContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
 	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
-	"\x05words\x18\x04 \x01(\tR\x05words\"V\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\"r\n" +
 	"\x16ReviseContractResponse\x12<\n" +
-	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"=\n" +
+	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"q\n" +
 	"\x15AcceptContractRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
-	"\x05words\x18\x02 \x01(\tR\x05words\"V\n" +
+	"\x05words\x18\x02 \x01(\tR\x05words\x122\n" +
+	"\x05maker\x18\x03 \x01(\v2\x1c.orrery.engine.v1.StageMakerR\x05maker\"V\n" +
 	"\x16AcceptContractResponse\x12<\n" +
 	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"?\n" +
 	"\x17SetAsideContractRequest\x12\x0e\n" +
@@ -1262,7 +2052,30 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\"\x16\n" +
 	"\x14ListContractsRequest\"W\n" +
 	"\x15ListContractsResponse\x12>\n" +
-	"\tcontracts\x18\x01 \x03(\v2 .orrery.engine.v1.StoredContractR\tcontracts2\xcb\x05\n" +
+	"\tcontracts\x18\x01 \x03(\v2 .orrery.engine.v1.StoredContractR\tcontracts\"\x97\x02\n" +
+	"\rContractDraft\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06design\x18\x02 \x01(\tR\x06design\x12:\n" +
+	"\bcontract\x18\x03 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
+	"\tdecisions\x18\x04 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
+	"\x05words\x18\x05 \x01(\tR\x05words\x12\x16\n" +
+	"\x06writer\x18\x06 \x01(\tR\x06writer\x12\x18\n" +
+	"\acreated\x18\a \x01(\x03R\acreated\x12\x18\n" +
+	"\aupdated\x18\b \x01(\x03R\aupdated\"\xd2\x01\n" +
+	"\x14DraftContractRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
+	"\bcontract\x18\x02 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12@\n" +
+	"\tdecisions\x18\x03 \x03(\v2\".orrery.engine.v1.ContractDecisionR\tdecisions\x12\x14\n" +
+	"\x05words\x18\x04 \x01(\tR\x05words\x12\x16\n" +
+	"\x06design\x18\x05 \x01(\tR\x06design\"N\n" +
+	"\x15DraftContractResponse\x125\n" +
+	"\x05draft\x18\x01 \x01(\v2\x1f.orrery.engine.v1.ContractDraftR\x05draft\"=\n" +
+	"\x15ProposeWorkingRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05words\x18\x02 \x01(\tR\x05words\"r\n" +
+	"\x16ProposeWorkingResponse\x12<\n" +
+	"\bcontract\x18\x01 \x01(\v2 .orrery.engine.v1.StoredContractR\bcontract\x12\x1a\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings2\x92\a\n" +
 	"\tContracts\x12f\n" +
 	"\x0fProposeContract\x12(.orrery.engine.v1.ProposeContractRequest\x1a).orrery.engine.v1.ProposeContractResponse\x12c\n" +
 	"\x0eReviseContract\x12'.orrery.engine.v1.ReviseContractRequest\x1a(.orrery.engine.v1.ReviseContractResponse\x12c\n" +
@@ -1270,7 +2083,9 @@ const file_orrery_engine_v1_contract_proto_rawDesc = "" +
 	"\x10SetAsideContract\x12).orrery.engine.v1.SetAsideContractRequest\x1a*.orrery.engine.v1.SetAsideContractResponse\x12c\n" +
 	"\x0eReopenContract\x12'.orrery.engine.v1.ReopenContractRequest\x1a(.orrery.engine.v1.ReopenContractResponse\x12Z\n" +
 	"\vGetContract\x12$.orrery.engine.v1.GetContractRequest\x1a%.orrery.engine.v1.GetContractResponse\x12`\n" +
-	"\rListContracts\x12&.orrery.engine.v1.ListContractsRequest\x1a'.orrery.engine.v1.ListContractsResponseB\xcd\x01\n" +
+	"\rListContracts\x12&.orrery.engine.v1.ListContractsRequest\x1a'.orrery.engine.v1.ListContractsResponse\x12`\n" +
+	"\rDraftContract\x12&.orrery.engine.v1.DraftContractRequest\x1a'.orrery.engine.v1.DraftContractResponse\x12c\n" +
+	"\x0eProposeWorking\x12'.orrery.engine.v1.ProposeWorkingRequest\x1a(.orrery.engine.v1.ProposeWorkingResponseB\xcd\x01\n" +
 	"\x14com.orrery.engine.v1B\rContractProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -1285,63 +2100,93 @@ func file_orrery_engine_v1_contract_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_contract_proto_rawDescData
 }
 
-var file_orrery_engine_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_orrery_engine_v1_contract_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_orrery_engine_v1_contract_proto_goTypes = []any{
 	(*ContractDecision)(nil),         // 0: orrery.engine.v1.ContractDecision
 	(*ContractVersion)(nil),          // 1: orrery.engine.v1.ContractVersion
 	(*ContractStateChange)(nil),      // 2: orrery.engine.v1.ContractStateChange
-	(*StoredContract)(nil),           // 3: orrery.engine.v1.StoredContract
-	(*ProposeContractRequest)(nil),   // 4: orrery.engine.v1.ProposeContractRequest
-	(*ProposeContractResponse)(nil),  // 5: orrery.engine.v1.ProposeContractResponse
-	(*ReviseContractRequest)(nil),    // 6: orrery.engine.v1.ReviseContractRequest
-	(*ReviseContractResponse)(nil),   // 7: orrery.engine.v1.ReviseContractResponse
-	(*AcceptContractRequest)(nil),    // 8: orrery.engine.v1.AcceptContractRequest
-	(*AcceptContractResponse)(nil),   // 9: orrery.engine.v1.AcceptContractResponse
-	(*SetAsideContractRequest)(nil),  // 10: orrery.engine.v1.SetAsideContractRequest
-	(*SetAsideContractResponse)(nil), // 11: orrery.engine.v1.SetAsideContractResponse
-	(*ReopenContractRequest)(nil),    // 12: orrery.engine.v1.ReopenContractRequest
-	(*ReopenContractResponse)(nil),   // 13: orrery.engine.v1.ReopenContractResponse
-	(*GetContractRequest)(nil),       // 14: orrery.engine.v1.GetContractRequest
-	(*GetContractResponse)(nil),      // 15: orrery.engine.v1.GetContractResponse
-	(*ListContractsRequest)(nil),     // 16: orrery.engine.v1.ListContractsRequest
-	(*ListContractsResponse)(nil),    // 17: orrery.engine.v1.ListContractsResponse
-	(*EpicContract)(nil),             // 18: orrery.engine.v1.EpicContract
+	(*ContractWorking)(nil),          // 3: orrery.engine.v1.ContractWorking
+	(*ContractRefusal)(nil),          // 4: orrery.engine.v1.ContractRefusal
+	(*ContractLeft)(nil),             // 5: orrery.engine.v1.ContractLeft
+	(*ContractShown)(nil),            // 6: orrery.engine.v1.ContractShown
+	(*StoredContract)(nil),           // 7: orrery.engine.v1.StoredContract
+	(*ProposeContractRequest)(nil),   // 8: orrery.engine.v1.ProposeContractRequest
+	(*ProposeContractResponse)(nil),  // 9: orrery.engine.v1.ProposeContractResponse
+	(*ReviseContractRequest)(nil),    // 10: orrery.engine.v1.ReviseContractRequest
+	(*ReviseContractResponse)(nil),   // 11: orrery.engine.v1.ReviseContractResponse
+	(*AcceptContractRequest)(nil),    // 12: orrery.engine.v1.AcceptContractRequest
+	(*AcceptContractResponse)(nil),   // 13: orrery.engine.v1.AcceptContractResponse
+	(*SetAsideContractRequest)(nil),  // 14: orrery.engine.v1.SetAsideContractRequest
+	(*SetAsideContractResponse)(nil), // 15: orrery.engine.v1.SetAsideContractResponse
+	(*ReopenContractRequest)(nil),    // 16: orrery.engine.v1.ReopenContractRequest
+	(*ReopenContractResponse)(nil),   // 17: orrery.engine.v1.ReopenContractResponse
+	(*GetContractRequest)(nil),       // 18: orrery.engine.v1.GetContractRequest
+	(*GetContractResponse)(nil),      // 19: orrery.engine.v1.GetContractResponse
+	(*ListContractsRequest)(nil),     // 20: orrery.engine.v1.ListContractsRequest
+	(*ListContractsResponse)(nil),    // 21: orrery.engine.v1.ListContractsResponse
+	(*ContractDraft)(nil),            // 22: orrery.engine.v1.ContractDraft
+	(*DraftContractRequest)(nil),     // 23: orrery.engine.v1.DraftContractRequest
+	(*DraftContractResponse)(nil),    // 24: orrery.engine.v1.DraftContractResponse
+	(*ProposeWorkingRequest)(nil),    // 25: orrery.engine.v1.ProposeWorkingRequest
+	(*ProposeWorkingResponse)(nil),   // 26: orrery.engine.v1.ProposeWorkingResponse
+	(*EpicContract)(nil),             // 27: orrery.engine.v1.EpicContract
+	(*StageMaker)(nil),               // 28: orrery.engine.v1.StageMaker
+	(*StageRowWrite)(nil),            // 29: orrery.engine.v1.StageRowWrite
 }
 var file_orrery_engine_v1_contract_proto_depIdxs = []int32{
-	18, // 0: orrery.engine.v1.ContractVersion.contract:type_name -> orrery.engine.v1.EpicContract
+	27, // 0: orrery.engine.v1.ContractVersion.contract:type_name -> orrery.engine.v1.EpicContract
 	0,  // 1: orrery.engine.v1.ContractVersion.decisions:type_name -> orrery.engine.v1.ContractDecision
-	1,  // 2: orrery.engine.v1.StoredContract.versions:type_name -> orrery.engine.v1.ContractVersion
-	2,  // 3: orrery.engine.v1.StoredContract.states:type_name -> orrery.engine.v1.ContractStateChange
-	18, // 4: orrery.engine.v1.ProposeContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
-	0,  // 5: orrery.engine.v1.ProposeContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
-	3,  // 6: orrery.engine.v1.ProposeContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	18, // 7: orrery.engine.v1.ReviseContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
-	0,  // 8: orrery.engine.v1.ReviseContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
-	3,  // 9: orrery.engine.v1.ReviseContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	3,  // 10: orrery.engine.v1.AcceptContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	3,  // 11: orrery.engine.v1.SetAsideContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	3,  // 12: orrery.engine.v1.ReopenContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	3,  // 13: orrery.engine.v1.GetContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
-	3,  // 14: orrery.engine.v1.ListContractsResponse.contracts:type_name -> orrery.engine.v1.StoredContract
-	4,  // 15: orrery.engine.v1.Contracts.ProposeContract:input_type -> orrery.engine.v1.ProposeContractRequest
-	6,  // 16: orrery.engine.v1.Contracts.ReviseContract:input_type -> orrery.engine.v1.ReviseContractRequest
-	8,  // 17: orrery.engine.v1.Contracts.AcceptContract:input_type -> orrery.engine.v1.AcceptContractRequest
-	10, // 18: orrery.engine.v1.Contracts.SetAsideContract:input_type -> orrery.engine.v1.SetAsideContractRequest
-	12, // 19: orrery.engine.v1.Contracts.ReopenContract:input_type -> orrery.engine.v1.ReopenContractRequest
-	14, // 20: orrery.engine.v1.Contracts.GetContract:input_type -> orrery.engine.v1.GetContractRequest
-	16, // 21: orrery.engine.v1.Contracts.ListContracts:input_type -> orrery.engine.v1.ListContractsRequest
-	5,  // 22: orrery.engine.v1.Contracts.ProposeContract:output_type -> orrery.engine.v1.ProposeContractResponse
-	7,  // 23: orrery.engine.v1.Contracts.ReviseContract:output_type -> orrery.engine.v1.ReviseContractResponse
-	9,  // 24: orrery.engine.v1.Contracts.AcceptContract:output_type -> orrery.engine.v1.AcceptContractResponse
-	11, // 25: orrery.engine.v1.Contracts.SetAsideContract:output_type -> orrery.engine.v1.SetAsideContractResponse
-	13, // 26: orrery.engine.v1.Contracts.ReopenContract:output_type -> orrery.engine.v1.ReopenContractResponse
-	15, // 27: orrery.engine.v1.Contracts.GetContract:output_type -> orrery.engine.v1.GetContractResponse
-	17, // 28: orrery.engine.v1.Contracts.ListContracts:output_type -> orrery.engine.v1.ListContractsResponse
-	22, // [22:29] is the sub-list for method output_type
-	15, // [15:22] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	28, // 2: orrery.engine.v1.ContractStateChange.maker:type_name -> orrery.engine.v1.StageMaker
+	27, // 3: orrery.engine.v1.ContractWorking.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 4: orrery.engine.v1.ContractWorking.decisions:type_name -> orrery.engine.v1.ContractDecision
+	1,  // 5: orrery.engine.v1.StoredContract.versions:type_name -> orrery.engine.v1.ContractVersion
+	2,  // 6: orrery.engine.v1.StoredContract.states:type_name -> orrery.engine.v1.ContractStateChange
+	3,  // 7: orrery.engine.v1.StoredContract.working:type_name -> orrery.engine.v1.ContractWorking
+	4,  // 8: orrery.engine.v1.StoredContract.refusals:type_name -> orrery.engine.v1.ContractRefusal
+	29, // 9: orrery.engine.v1.StoredContract.rows:type_name -> orrery.engine.v1.StageRowWrite
+	5,  // 10: orrery.engine.v1.StoredContract.left:type_name -> orrery.engine.v1.ContractLeft
+	6,  // 11: orrery.engine.v1.StoredContract.shown:type_name -> orrery.engine.v1.ContractShown
+	27, // 12: orrery.engine.v1.ProposeContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 13: orrery.engine.v1.ProposeContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
+	7,  // 14: orrery.engine.v1.ProposeContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	27, // 15: orrery.engine.v1.ReviseContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 16: orrery.engine.v1.ReviseContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
+	7,  // 17: orrery.engine.v1.ReviseContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	28, // 18: orrery.engine.v1.AcceptContractRequest.maker:type_name -> orrery.engine.v1.StageMaker
+	7,  // 19: orrery.engine.v1.AcceptContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	7,  // 20: orrery.engine.v1.SetAsideContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	7,  // 21: orrery.engine.v1.ReopenContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	7,  // 22: orrery.engine.v1.GetContractResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	7,  // 23: orrery.engine.v1.ListContractsResponse.contracts:type_name -> orrery.engine.v1.StoredContract
+	27, // 24: orrery.engine.v1.ContractDraft.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 25: orrery.engine.v1.ContractDraft.decisions:type_name -> orrery.engine.v1.ContractDecision
+	27, // 26: orrery.engine.v1.DraftContractRequest.contract:type_name -> orrery.engine.v1.EpicContract
+	0,  // 27: orrery.engine.v1.DraftContractRequest.decisions:type_name -> orrery.engine.v1.ContractDecision
+	22, // 28: orrery.engine.v1.DraftContractResponse.draft:type_name -> orrery.engine.v1.ContractDraft
+	7,  // 29: orrery.engine.v1.ProposeWorkingResponse.contract:type_name -> orrery.engine.v1.StoredContract
+	8,  // 30: orrery.engine.v1.Contracts.ProposeContract:input_type -> orrery.engine.v1.ProposeContractRequest
+	10, // 31: orrery.engine.v1.Contracts.ReviseContract:input_type -> orrery.engine.v1.ReviseContractRequest
+	12, // 32: orrery.engine.v1.Contracts.AcceptContract:input_type -> orrery.engine.v1.AcceptContractRequest
+	14, // 33: orrery.engine.v1.Contracts.SetAsideContract:input_type -> orrery.engine.v1.SetAsideContractRequest
+	16, // 34: orrery.engine.v1.Contracts.ReopenContract:input_type -> orrery.engine.v1.ReopenContractRequest
+	18, // 35: orrery.engine.v1.Contracts.GetContract:input_type -> orrery.engine.v1.GetContractRequest
+	20, // 36: orrery.engine.v1.Contracts.ListContracts:input_type -> orrery.engine.v1.ListContractsRequest
+	23, // 37: orrery.engine.v1.Contracts.DraftContract:input_type -> orrery.engine.v1.DraftContractRequest
+	25, // 38: orrery.engine.v1.Contracts.ProposeWorking:input_type -> orrery.engine.v1.ProposeWorkingRequest
+	9,  // 39: orrery.engine.v1.Contracts.ProposeContract:output_type -> orrery.engine.v1.ProposeContractResponse
+	11, // 40: orrery.engine.v1.Contracts.ReviseContract:output_type -> orrery.engine.v1.ReviseContractResponse
+	13, // 41: orrery.engine.v1.Contracts.AcceptContract:output_type -> orrery.engine.v1.AcceptContractResponse
+	15, // 42: orrery.engine.v1.Contracts.SetAsideContract:output_type -> orrery.engine.v1.SetAsideContractResponse
+	17, // 43: orrery.engine.v1.Contracts.ReopenContract:output_type -> orrery.engine.v1.ReopenContractResponse
+	19, // 44: orrery.engine.v1.Contracts.GetContract:output_type -> orrery.engine.v1.GetContractResponse
+	21, // 45: orrery.engine.v1.Contracts.ListContracts:output_type -> orrery.engine.v1.ListContractsResponse
+	24, // 46: orrery.engine.v1.Contracts.DraftContract:output_type -> orrery.engine.v1.DraftContractResponse
+	26, // 47: orrery.engine.v1.Contracts.ProposeWorking:output_type -> orrery.engine.v1.ProposeWorkingResponse
+	39, // [39:48] is the sub-list for method output_type
+	30, // [30:39] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_contract_proto_init() }
@@ -1350,13 +2195,14 @@ func file_orrery_engine_v1_contract_proto_init() {
 		return
 	}
 	file_orrery_engine_v1_epic_proto_init()
+	file_orrery_engine_v1_stage_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_contract_proto_rawDesc), len(file_orrery_engine_v1_contract_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

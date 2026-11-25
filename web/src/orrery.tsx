@@ -2,8 +2,8 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { CENTRE, RING_RADII, VIEW, cellPath, point, sector, sliceGap, sliceSpan, sliceStart } from "./orbits";
-import type { Phase } from "./phases";
-import { PLACES, type RecordTask, phaseOfPlace } from "./record";
+import { type Phase, PLACES } from "./phases";
+import { type RecordTask, phaseOfPlace } from "./record";
 
 // The requirement rim lies between radius ARC_INNER and ARC_OUTER, outside the rings. epicline.tsx draws its mini chart's
 // rim between the same radii.

@@ -100,14 +100,19 @@ function cssText(head) {
   }
   put('scrim', `color-mix(in srgb, var(--o-palette-crust) ${pct(tokens.alpha.scrim)}, transparent)`);
 
+  // A ground is its tint at its alpha mixed over its surface, so a component names the ground and never the mix.
+  group('ground: a tint at its alpha over its surface, drawn behind a thing');
+  for (const [name, g] of Object.entries(tokens.ground)) put(`ground-${name}`, `color-mix(in srgb, ${cssRef(g.tint)} ${pct(g.alpha)}, ${cssRef(g.over)})`);
+
   group('layers, low to high');
   for (const [name, z] of Object.entries(tokens.z)) put(`z-${name}`, z);
 
   group('motion');
   for (const [name, m] of Object.entries(tokens.motion.move)) put(`move-${name}`, `${m.ms}ms ${bezier(m.ease)}`);
+  for (const [name, ms] of Object.entries(tokens.motion.delay)) put(`delay-${name}`, `${ms}ms`);
   for (const [name, l] of Object.entries(tokens.motion.loop)) put(`loop-${name}`, `${l.ms}ms`);
   put('pulse-low', tokens.motion.loop.pulse.to);
-  put('distance-drill', `${tokens.motion.distance.drill}px`);
+  for (const [name, px] of Object.entries(tokens.motion.distance)) put(`distance-${name}`, `${px}px`);
 
   const reduced = tokens.motion.reduced.ms;
   return [
@@ -119,6 +124,7 @@ function cssText(head) {
     '@media (prefers-reduced-motion: reduce) {',
     '  :root {',
     ...Object.keys(tokens.motion.move).map((name) => `    --o-move-${name}: ${reduced}ms linear;`),
+    ...Object.keys(tokens.motion.delay).map((name) => `    --o-delay-${name}: 0ms;`),
     '  }',
     '}',
     '',
@@ -147,6 +153,13 @@ const colour = (value) => {
   const hex = resolve(value);
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`tokens.json: ${value} is not a #rrggbb colour`);
   return `Color(0xFF${hex.slice(1).toUpperCase()})`;
+};
+// A ground is the colour the stylesheet mixes: each channel of its tint at its alpha, over its surface's, in sRGB.
+const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const mixed = (g) => {
+  const a = resolve(g.alpha);
+  const over = channels(resolve(g.over));
+  return '#' + channels(resolve(g.tint)).map((c, i) => Math.round(a * c + (1 - a) * over[i]).toString(16).padStart(2, '0')).join('');
 };
 const float = (n) => `${n}f`;
 const dp = (n) => (n < 0 ? `(${n}).dp` : `${n}.dp`);
@@ -189,6 +202,7 @@ function kotlinText() {
   ]);
   const ease = Object.entries(m.ease).map(([k, pts]) => `val ${name(k)}: Easing = CubicBezierEasing(${pts.map(float).join(', ')})`);
   const move = Object.entries(m.move).map(([k, mv]) => `val ${name(k)}: Timing = Timing(${mv.ms}, ${easeRef(mv.ease)})`);
+  const delay = Object.entries(m.delay).map(([k, ms]) => `val ${name(k)}: Int = ${ms}`);
   const loop = Object.entries(m.loop).flatMap(([k, l]) => [
     `val ${name(k)}: Int = ${l.ms}`,
     ...Object.entries(l).filter(([f]) => f !== 'ms').map(([f, v]) => `val ${name(k)}${cap(f)}: Float = ${float(v)}`),
@@ -217,6 +231,7 @@ function kotlinText() {
       ]),
     ]),
     block('object Alpha', floats(tokens.alpha)),
+    block('object Ground', Object.entries(tokens.ground).map(([k, g]) => `val ${name(k)}: Color = ${colour(mixed(g))}`)),
     block('object Font', [
       `val mono: String = ${JSON.stringify(tokens.font.mono)}`,
       `val inter: String = ${JSON.stringify(tokens.font.inter)}`,
@@ -233,6 +248,7 @@ function kotlinText() {
       ['class Timing(val millis: Int, val easing: Easing)'],
       block('object Ease', ease),
       block('object Move', move),
+      block('object Delay', delay),
       block('object Loop', loop),
       block('object Reduced', [note(`motion.reduced: ${m.reduced.note}`), `val millis: Int = ${m.reduced.ms}`]),
       block('object Distance', lengths(m.distance)),

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -61,14 +62,14 @@ func gradleEnviron(t *testing.T, stateDir string, daemonless bool) []string {
 	if !daemonless {
 		return environ
 	}
-	environ, err := GradleEnviron(environ, stateDir, "")
+	environ, err := GradleEnviron(t.Context(), hostexec.NewLocal(), environ, stateDir, "")
 	if err != nil {
 		t.Fatalf("GradleEnviron: %v", err)
 	}
 	return environ
 }
 
-// newGradleManager returns a manager with two slots whose sessions run their holders under the test's fake scope with
+// newGradleManager returns a manager whose sessions run their holders under the test's fake scope with
 // state dir root, in environ.
 func newGradleManager(t *testing.T, root string, environ []string) (*Manager, string) {
 	t.Helper()
@@ -83,7 +84,6 @@ func newGradleManager(t *testing.T, root string, environ []string) (*Manager, st
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     environ,
-		Cap:         2,
 		Writer:      writer,
 		Now:         fixedClock,
 		Store:       s,
@@ -158,7 +158,8 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 		}
 	}
 	environ, err := GradleEnviron(
-		[]string{"HOME=/synthetic/home", "GRADLE_USER_HOME=" + user, "KEEP=1"}, stateDir, user,
+		t.Context(), hostexec.NewLocal(), []string{"HOME=/synthetic/home", "GRADLE_USER_HOME=" + user, "KEEP=1"},
+		stateDir, user,
 	)
 	if err != nil {
 		t.Fatalf("GradleEnviron: %v", err)
@@ -171,7 +172,10 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gradle.properties: %v", err)
 	}
-	if string(props) != "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\n" {
+	const wantProps = "org.gradle.daemon=false\n" +
+		"kotlin.compiler.execution.strategy=in-process\n" +
+		"org.gradle.workers.max=8\n"
+	if string(props) != wantProps {
 		t.Fatalf("gradle.properties = %q", props)
 	}
 	entries, err := os.ReadDir(home)
@@ -192,7 +196,9 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 		}
 	}
 	// A second start keeps the links and rewrites the properties.
-	if _, err = GradleEnviron([]string{"GRADLE_USER_HOME=" + user}, stateDir, user); err != nil {
+	if _, err = GradleEnviron(
+		t.Context(), hostexec.NewLocal(), []string{"GRADLE_USER_HOME=" + user}, stateDir, user,
+	); err != nil {
 		t.Fatalf("GradleEnviron again: %v", err)
 	}
 }

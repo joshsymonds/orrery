@@ -144,10 +144,11 @@ func (a amendSteps) Status(_ context.Context, id string) (store.StepRow, error) 
 	return row, nil
 }
 
-// TestAmendEvidenceRPCIsTheOwnersAlone amends R1 with a new conclusion from the step of the epic's running turn, from an
-// implementer step labeled with the epic, from a step of another epic and from no session. The two steps of the epic are
-// refused and store nothing, since the planner amends through its action; the other two are the owner's and are stored.
-func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
+// TestAmendEvidenceRPCRefusesStepsOfTheEpic amends R1 with a new conclusion from the step of the epic's running turn, from
+// an implementer step labeled with the epic, from a step of another epic and from no session. The two steps of the epic
+// are refused and store nothing, since the planner amends through its action; the other two are the owner's and are
+// stored.
+func TestAmendEvidenceRPCRefusesStepsOfTheEpic(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
@@ -178,8 +179,8 @@ func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
 	for _, session := range []string{"step-1", "step-impl"} {
 		_, err = amend(session)
 		wantConnectError(t, err, connect.CodeFailedPrecondition, "step "+session+" of epic "+epicServiceID+
-			" may not amend its evidence; the planner amends through its amend_evidence action, and the owner "+
-			"through this call")
+			" may not amend its evidence; the planner amends through its amend_evidence action, and the owner and "+
+			"the conversation that steers the epic through this call")
 	}
 	if amendments := getEpicOK(t, client).GetAmendments(); len(amendments) != 0 {
 		t.Fatalf("amendments after the steps' calls = %v, want none", amendments)

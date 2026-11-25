@@ -173,7 +173,7 @@ func startAmendment(
 	if err != nil {
 		return EvidenceAmendment{}, err
 	}
-	if endedPhase(head.Phase) {
+	if EndedPhase(head.Phase) {
 		return EvidenceAmendment{}, RefusalError(fmt.Sprintf(
 			"epic %s is %s, an ended phase, and takes no evidence amendment", epic, head.Phase))
 	}
@@ -231,12 +231,12 @@ func epicRequirement(ctx context.Context, queries *sqlcgen.Queries, epic, id str
 
 // amendmentRefusal returns why start may not amend requirement of epic, or "" when it may: a Requirement dropped as
 // already met at the base, an item evidence.Check refuses, with each of its lines, an item the Requirement already holds,
-// whatever empty lists it gives as null or [], an amendment by anyone but the owner that changes the conclusion or the
-// kind, which only the owner may change, a Requirement with an amendment that is checking or capturing, and an amendment
-// that keeps the conclusion and kind while evidence work of the epic is under way. A non-owner that changed the kind could
-// drop what the kind checks, such as the reproduction of a test item. An amendment that keeps them applies in the write
-// that stores it, so it is refused rather than deferred while that work runs: its new item would leave the stored runs of
-// the work stale.
+// whatever empty lists it gives as null or [], an amendment by the planner or orreryd that changes the conclusion or the
+// kind, which only the owner and the conversation that steers the epic may change, a Requirement with an amendment that is
+// checking or capturing, and an amendment that keeps the conclusion and kind while evidence work of the epic is under way.
+// A planner or orreryd amendment that changed the kind could drop what the kind checks, such as the reproduction of a test
+// item. An amendment that keeps them applies in the write that stores it, so it is refused rather than deferred while that
+// work runs: its new item would leave the stored runs of the work stale.
 func amendmentRefusal(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, requirement EpicRequirement, start amendStart,
 ) (string, error) {
@@ -251,13 +251,13 @@ func amendmentRefusal(
 	if evidence.Current(listsAsNull(requirement.Item), listsAsNull(start.Item)) {
 		return fmt.Sprintf("%s already holds this item", id), nil
 	}
-	if start.amender != AmenderOwner && start.Item.Conclusion != requirement.Item.Conclusion {
+	if !mayAmendClaim(start.amender) && start.Item.Conclusion != requirement.Item.Conclusion {
 		return fmt.Sprintf(
 			"the %s may not change the conclusion of %s; only the owner amends a conclusion",
 			start.amender, id,
 		), nil
 	}
-	if start.amender != AmenderOwner && start.Item.Kind != requirement.Item.Kind {
+	if !mayAmendClaim(start.amender) && start.Item.Kind != requirement.Item.Kind {
 		return fmt.Sprintf("the %s may not change the kind of %s; only the owner amends a kind", start.amender, id), nil
 	}
 	open, err := queries.CountOpenRequirementAmendments(ctx, sqlcgen.CountOpenRequirementAmendmentsParams{
@@ -281,6 +281,13 @@ func amendmentRefusal(
 			"integrate, sync or release run under way to end", id), nil
 	}
 	return "", nil
+}
+
+// mayAmendClaim reports whether an amendment by amender may change the conclusion or kind of a Requirement: the owner's,
+// and a conversation's, since only the conversation that steers the epic can make one (see controlMaker). The planner's
+// and orreryd's may not.
+func mayAmendClaim(amender string) bool {
+	return amender == AmenderOwner || amender == AmenderConversation
 }
 
 // claimChanged reports whether item changes what the Requirement claims, its conclusion or its kind, from prior, the item
@@ -364,7 +371,7 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 
 // OpenAmendments returns the amendments of every epic that are checking or capturing, ordered by epic, then seq.
 func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenEpicAmendments(ctx)
+	rows, err := sqlcgen.New(s.read).ListOpenEpicAmendments(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open amendments: %w", err)
 	}

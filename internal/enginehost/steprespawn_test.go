@@ -18,7 +18,7 @@ import (
 // Its store is at the returned path.
 func newStepIdleManager(t *testing.T, sink NoticeSink) (*Manager, string, *idleClock) {
 	t.Helper()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, fakeClaudePath(t), sink)
 	clock := newIdleClock()
 	m.now = clock.now
 	return m, path, clock
@@ -97,7 +97,7 @@ func TestInlineAgentStepStartsAndRespawnsWithAgentsFlags(t *testing.T) {
 
 func TestStepWithMalformedAgentsIsRefusedWithNothingStored(t *testing.T) {
 	t.Parallel()
-	m, _ := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, _ := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	// Each Agents value is refused although the step's agent, reviewer, resolves from its file, so only the refusal of
 	// the JSON keeps the start from running.
 	for _, agents := range []string{`not json`, `["reviewer"]`, `{"reviewer":"not an object"}`, `null`} {
@@ -230,7 +230,7 @@ func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 
 func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	obs := &stepObserver{}
 	step := testStep(stepA, dir)
@@ -286,7 +286,7 @@ func TestSayToIdleStoppedStepStillRefuses(t *testing.T) {
 
 func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
 	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
+	m, path := newStepManager(t, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -308,36 +308,10 @@ func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
 	}
 }
 
-func TestRespawnWithStepCapFullGetsErrCapReached(t *testing.T) {
-	t.Parallel()
-	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
-	dir := t.TempDir()
-	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
-		t.Fatalf("StartStep: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 1")
-	})
-	if err := m.Stop(t.Context(), stepA); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-	if err := m.StartStep(t.Context(), testStep(stepB, t.TempDir())); err != nil {
-		t.Fatalf("StartStep of the other step: %v", err)
-	}
-
-	again := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
-	if err := m.Continue(t.Context(), stepA, again); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Continue with the step cap full: err = %v, want ErrCapReached", err)
-	}
-	if args := fakeArgs(t, dir); len(args) != 1 {
-		t.Fatalf("fake claude starts = %q, want only the first", args)
-	}
-}
-
 func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)

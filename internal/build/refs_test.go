@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // TestMain points git at no global or system config for the whole package, so the owner's git config never applies
@@ -67,7 +69,7 @@ func buildObject(t *testing.T, dir, parent string) string {
 // buildSnapshot runs Snapshot on repo and fails the test on error.
 func buildSnapshot(t *testing.T, repo string, exclude []string) string {
 	t.Helper()
-	snap, err := Snapshot(context.Background(), repo, exclude)
+	snap, err := Snapshot(context.Background(), hostexec.NewLocal(), repo, exclude)
 	if err != nil {
 		t.Fatalf("Snapshot %s: %v", repo, err)
 	}

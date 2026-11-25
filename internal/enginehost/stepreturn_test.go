@@ -86,11 +86,11 @@ func waitReturns(t *testing.T, eng engine, o *stepObserver, n int) {
 	waitUntil(t, eng, fmt.Sprintf("%d turn ends handed to the observer", n), func() bool { return o.returned() >= n })
 }
 
-// newHandOffManager returns a step manager with the given step cap and a clock set by hand. Its store is at the returned
+// newHandOffManager returns a step manager with a clock set by hand. Its store is at the returned
 // path.
-func newHandOffManager(t *testing.T, stepCap int, sink NoticeSink) (*Manager, string, *idleClock) {
+func newHandOffManager(t *testing.T, sink NoticeSink) (*Manager, string, *idleClock) {
 	t.Helper()
-	m, path := newStepManager(t, stepCap, fakeClaudePath(t), sink)
+	m, path := newStepManager(t, fakeClaudePath(t), sink)
 	clock := newIdleClock()
 	m.now = clock.now
 	return m, path, clock
@@ -98,7 +98,7 @@ func newHandOffManager(t *testing.T, stepCap int, sink NoticeSink) (*Manager, st
 
 func TestStepHandsFirstTurnToObserver(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -117,7 +117,7 @@ func TestStepHandsFirstTurnToObserver(t *testing.T) {
 
 func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -158,7 +158,7 @@ func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 // agent is listed: it is not handed to the observer, and the turn after the agent's end is.
 func TestStepBackgroundAgentTurnIsNotHandedOffUntilItEnds(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "BGAGENT", Agent: "reviewer", Observer: obs,
@@ -196,7 +196,7 @@ func TestStepBackgroundAgentTurnIsNotHandedOffUntilItEnds(t *testing.T) {
 // is still listed, and that returns done, is handed to the observer before the agent ends.
 func TestStepDoneReturnWhileBackgroundAgentIsListedIsHanded(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "BGAGENT", Agent: "reviewer", Observer: obs,
@@ -229,7 +229,7 @@ func TestStepDoneReturnWhileBackgroundAgentIsListedIsHanded(t *testing.T) {
 // background agents are listed is not handed to the observer.
 func TestStepNotDoneReturnWhileBackgroundAgentsAreListedIsNotHanded(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "BGSELF", Agent: "reviewer", Observer: obs,
@@ -254,7 +254,7 @@ func TestStepNotDoneReturnWhileBackgroundAgentsAreListedIsNotHanded(t *testing.T
 func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path, clock := newHandOffManager(t, 2, sink)
+	m, path, clock := newHandOffManager(t, sink)
 	held := &stepObserver{}
 	dirA, dirB := t.TempDir(), t.TempDir()
 	if err := m.StartStep(t.Context(), StepSession{
@@ -290,7 +290,7 @@ func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
 
 func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 	t.Parallel()
-	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, path, _ := newHandOffManager(t, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
 		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
@@ -325,7 +325,7 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path, _ := newHandOffManager(t, 1, sink)
+	m, path, _ := newHandOffManager(t, sink)
 	obs := &stepObserver{}
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), StepSession{
@@ -361,7 +361,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
-	m, path, _ := newHandOffManager(t, 1, sink)
+	m, path, _ := newHandOffManager(t, sink)
 	obs := &stepObserver{release: make(chan struct{})}
 	// Registered after newHandOffManager's Close, so it runs first and frees the pump that Exited blocks.
 	t.Cleanup(func() { close(obs.release) })
@@ -405,7 +405,7 @@ func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 
 func TestStepStopAndCloseCallNoExited(t *testing.T) {
 	t.Parallel()
-	m, _, _ := newHandOffManager(t, 2, &fakeSink{})
+	m, _, _ := newHandOffManager(t, &fakeSink{})
 	stopped := &stepObserver{}
 	closed := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{

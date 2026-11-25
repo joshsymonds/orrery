@@ -165,7 +165,7 @@ class TaskBandTest {
         assertTrue("chips are not in task order: $lefts", lefts.zipWithNext().all { (before, after) -> before < after })
     }
 
-    // The epic's tasks: a integrated, b dispatched at its implement stage, c planned, d dispatched at its green stage.
+    // The epic's tasks as serve places them: a integrated, b running at implement, c planned, d running at green.
     private fun detail(questions: List<EpicQuestionRow> = emptyList()): EpicDetail = EpicDetail(
         epic = EpicRow(
             id = "example-repo/$EPIC",
@@ -176,17 +176,13 @@ class TaskBandTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
-            source = "orreryd",
         ),
-        tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         buildTasks = listOf(
-            buildTask(DONE_TASK, status = "done"),
-            buildTask(CURRENT_TASK, stage = "implement"),
-            buildTask(PLANNED_TASK, status = "planned"),
-            buildTask(CHECKING_TASK, stage = "green"),
+            buildTask(DONE_TASK, place = "integrated", tone = "ok"),
+            buildTask(CURRENT_TASK, place = "implement", tone = "run"),
+            buildTask(PLANNED_TASK, place = "planned", tone = "plan"),
+            buildTask(CHECKING_TASK, place = "green", tone = "run"),
         ),
         questions = questions,
     )
@@ -194,14 +190,15 @@ class TaskBandTest {
     private fun question(): EpicQuestionRow =
         EpicQuestionRow(id = "q1", text = "synthetic question", turn = 0L, asked = 0L)
 
-    private fun buildTask(id: String, status: String = "dispatched", stage: String = ""): EpicBuildTaskRow =
-        EpicBuildTaskRow(
+    private fun buildTask(id: String, place: String, tone: String): EpicBuildTaskRow = EpicBuildTaskRow(
         id = id,
         title = "Parser $id",
-        status = status,
-        stage = stage,
+        status = if (place == "integrated") "done" else "open",
+        stage = "",
         red = null,
         green = null,
         requirements = listOf("R1"),
+        place = place,
+        tone = tone,
     )
 }

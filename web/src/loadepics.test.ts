@@ -28,7 +28,7 @@ const heldContract = create(ContractSchema, { id: "repo-a/held-contract", reposi
 const listed = [liveAlpha, foldedBeta, liveGamma];
 
 function detailOf(epic: typeof liveAlpha) {
-  return { epic, tasks: [], steps: [] };
+  return { epic, steps: [] };
 }
 
 interface Answer {
@@ -158,7 +158,7 @@ test("an empty List: no epics, no details, no error, and no Get is asked", async
   assert.equal(result.error, "");
 });
 
-test("the live Gets are in flight at once: the first Get waits until the second has started", { timeout: 2000 }, async () => {
+test("the live Gets are in flight at once: the first Get waits until the second has started", async () => {
   let secondGetStarted: () => void = () => {};
   const secondStarted = new Promise<void>((resolve) => {
     secondGetStarted = resolve;
@@ -186,7 +186,7 @@ test("the live Gets are in flight at once: the first Get waits until the second 
   assert.deepEqual([...result.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
 });
 
-test("Epics.List and Contracts.List are in flight at once: the List waits until the other has started", { timeout: 2000 }, async () => {
+test("Epics.List and Contracts.List are in flight at once: the List waits until the other has started", async () => {
   let contractsStarted: () => void = () => {};
   const started = new Promise<void>((resolve) => {
     contractsStarted = resolve;
@@ -372,4 +372,23 @@ test("ChangedEpicsOnly: a failed Get keeps the previous detail", async () => {
   );
   assert.deepEqual(idsOf(calls, getPath), [liveAlpha.id]);
   assert.equal(retried.details.get(liveAlpha.id)?.epic?.runningSteps[0]?.task, "review");
+});
+
+// A synthetic design of two contracts, as Epics.List carries it.
+const designOne = { id: "repo-a/design-one", title: "Design one", conversation: "sess-a", created: "10", contracts: [] };
+
+test("DesignTree loadEpics returns Epics.List's designs, and none when the list fails", async () => {
+  const calls: Call[] = [];
+  const clients = clientsFor(fakeEpics({ status: 200, body: { epics: [], designs: [designOne] } }, {}, calls));
+
+  const returned = await loadEpics(clients, new Map(), changedOnly);
+
+  assert.deepEqual(
+    returned.designs.map((design) => design.id),
+    [designOne.id],
+  );
+
+  const failed = await loadEpics(clientsFor(fakeEpics(serverError, {}, [])), new Map(), changedOnly);
+
+  assert.deepEqual(failed.designs, []);
 });

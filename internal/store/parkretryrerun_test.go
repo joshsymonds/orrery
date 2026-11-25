@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// The integrate run a refs move parks in the tests of this file, and the reason the move parks it with.
+// The integrate run a branch park parks in the tests of this file, and the reason it parks with.
 const (
 	parkRetryRunPath = "plan/S1/integrate"
-	parkRetryRunPark = "workflow node plan/S1/integrate moved main (aaa to bbb)"
+	parkRetryRunPark = "epic/epic moved: at bbb, not the stored base aaa"
 )
 
-// refMoveRunParked starts the integrate run at parkRetryRunPath of a new claimEpic and parks it when its refs check finds
-// a move, as the ref guard does. The park opens the epic's park question, which names the run.
-func refMoveRunParked(t *testing.T, s *Store) {
+// branchRunParked starts the integrate run at parkRetryRunPath of a new claimEpic and parks it as a branch park, as the
+// integrate node does when the epic's branch moved. The park opens the epic's park question, which names the run.
+func branchRunParked(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
 	createEpic(t, s, fullEpic(claimEpic))
@@ -22,8 +22,10 @@ func refMoveRunParked(t *testing.T, s *Store) {
 	if err := s.StartNodes(ctx, claimEpic, runs, nil, claimedAt()); err != nil {
 		t.Fatalf("StartNodes: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, claimEpic, parkRetryRunPath, 1, parkRetryRunPark, nil, claimedAt()); err != nil {
-		t.Fatalf("CheckNodeRefs: %v", err)
+	if err := s.ParkNode(
+		ctx, claimEpic, parkRetryRunPath, 1, "failed", parkRetryRunPark, ParkClassBranch, parkRetryRunPark, claimedAt(),
+	); err != nil {
+		t.Fatalf("ParkNode: %v", err)
 	}
 }
 
@@ -43,12 +45,12 @@ func runAtPath(t *testing.T, s *Store, path string) NodeRun {
 	return NodeRun{}
 }
 
-// TestParkRetryRerunAnswerRetryRerunsTheParkedRunOfItsQuestion checks that answering retry to the park question of a refs
-// move reruns the parked run the question names, at its next attempt, and ends the epic's park.
+// TestParkRetryRerunAnswerRetryRerunsTheParkedRunOfItsQuestion checks that answering retry to the park question of a
+// branch park reruns the parked run the question names, at its next attempt, and ends the epic's park.
 func TestParkRetryRerunAnswerRetryRerunsTheParkedRunOfItsQuestion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
-	refMoveRunParked(t, s)
+	branchRunParked(t, s)
 
 	if _, err := s.AnswerQuestion(
 		context.Background(),
@@ -78,7 +80,7 @@ func TestParkRetryRerunLeavesAnotherParkedRunOfTheSameNodeParked(t *testing.T) {
 	ctx := context.Background()
 	const other = "plan/S2/integrate"
 	s := openEpicStore(t)
-	refMoveRunParked(t, s)
+	branchRunParked(t, s)
 	runs := []NodeRun{{Path: other, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 1}}
 	if err := s.StartNodes(ctx, claimEpic, runs, nil, claimedAt()); err != nil {
 		t.Fatalf("StartNodes of %s: %v", other, err)
@@ -104,7 +106,7 @@ func TestParkRetryRerunLeavesAnotherParkedRunOfTheSameNodeParked(t *testing.T) {
 func TestParkRetryRerunOtherAnswerRerunsNothing(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
-	refMoveRunParked(t, s)
+	branchRunParked(t, s)
 
 	if _, err := s.AnswerQuestion(
 		context.Background(), claimEpic, "D3", "Keep the run parked", 1, ChoiceOther, Maker{},
@@ -124,7 +126,7 @@ func TestParkRetryRerunOtherAnswerRerunsNothing(t *testing.T) {
 func TestParkRetryRerunRetryEpicRerunsTheParkedRunOfItsOpenQuestion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
-	refMoveRunParked(t, s)
+	branchRunParked(t, s)
 
 	if err := s.RetryEpic(
 		context.Background(),

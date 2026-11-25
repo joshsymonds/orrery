@@ -208,60 +208,6 @@ func TestDuePassResumesPastDueStepOnceAtResetPlusGrace(t *testing.T) {
 	}
 }
 
-// TestDuePassKeepsStepRowDueWhileStepCapIsFull covers R1: a pass the step cap refuses leaves the row due and resumes
-// nothing, and the next pass resumes the step once its slot frees.
-func TestDuePassKeepsStepRowDueWhileStepCapIsFull(t *testing.T) {
-	t.Parallel()
-	rig := newStepsRig(t, nil)
-	repo := stepGitTestRepo(t)
-	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
-	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
-	dir := filepath.Join(rig.worktrees, id)
-	pid := fakePID(t, dir)
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"step limited",
-		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
-	)
-	requireGone(t, pid)
-	waitStepSlotsFree(t, rig)
-	writeResumeNext(t, dir)
-	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
-	at := time.Unix(probeResetUnix, 0).Add(dueGrace)
-	pass := newDuePass(rig.store, rig.steps, &at)
-
-	pass.Pass(t.Context())
-	if got := dueResumesOf(t, rig, id); len(got) != 1 {
-		t.Fatalf("due rows with the step cap full = %+v, want the row still due", got)
-	}
-	if row := stepRowOf(t, rig.steps, id); !row.LoopLimited || row.End != "" {
-		t.Fatalf("limited %t, end %q with the step cap full, want limited and open", row.LoopLimited, row.End)
-	}
-	if got := resumePromptEventsOf(t, rig, id); len(got) != 0 {
-		t.Fatalf("resume prompts with the step cap full = %d, want none", len(got))
-	}
-
-	if err := rig.steps.Stop(t.Context(), holder); err != nil {
-		t.Fatalf("Stop of the step holding the slot: %v", err)
-	}
-	pass.Pass(t.Context())
-	if got := dueResumesOf(t, rig, id); len(got) != 0 {
-		t.Fatalf("due rows once the slot frees = %+v, want none", got)
-	}
-	requireResumedStart(t, dir)
-	releaseResumedTurn(t, dir)
-	waitUntil(
-		t,
-		engineOf(rig.manager, rig.steps),
-		"resumed step done",
-		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
-	)
-	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
-		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
-	}
-}
-
 // TestDuePassResumesPastDueStepAfterRestart covers R1: a fresh pass after a restart resumes a step whose reset passed
 // while orreryd was down, and logs no error.
 func TestDuePassResumesPastDueStepAfterRestart(t *testing.T) {
@@ -439,7 +385,7 @@ func TestDuePassLeavesEpicRowDueWhenItsWriteFails(t *testing.T) {
 }
 
 // TestDuePassSettlesStepRowByResumeError covers R1: the outcome of a step row follows the error AutoResume returns. A
-// refusal by the step cap or the gate, and any other error, leave the row due. A step that is not limited, has ended, or
+// refusal by the gate, and any other error, leave the row due. A step that is not limited, has ended, or
 // has no row closes it with no resume.
 func TestDuePassSettlesStepRowByResumeError(t *testing.T) {
 	t.Parallel()
@@ -448,7 +394,6 @@ func TestDuePassSettlesStepRowByResumeError(t *testing.T) {
 		err    error
 		closed bool
 	}{
-		{name: "cap refusal", err: fmt.Errorf("continue step: %w", ErrCapReached), closed: false},
 		{name: "gating", err: ErrStepGating, closed: false},
 		{name: "other error", err: errors.New("synthetic continue failure"), closed: false},
 		{name: "not limited", err: ErrStepNotLimited, closed: true},

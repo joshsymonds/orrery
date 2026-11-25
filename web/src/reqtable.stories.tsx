@@ -5,7 +5,8 @@ import type { Stories } from "./catalog/story";
 import type { LoadArtifact } from "./evidence";
 import { gets } from "./fixtures/epics";
 import { createFixtureTransport } from "./fixtures/transport";
-import { provenOf, wedgesOf } from "./phases";
+import { provenOf } from "./phases";
+import { recordTasksOf } from "./record";
 import * as reqtable from "./reqtable";
 
 const clients = createFixtureTransport().clients;
@@ -26,7 +27,7 @@ const rota = detailOf("lighthouse/rota-export");
 const rotaRequirements = rota.requirements;
 // rotaProven is the rota epic's proven requirement ids, as the epic page gives its table.
 const rotaProven: ReadonlySet<string> = new Set(
-  rotaRequirements.map((requirement) => requirement.id).filter((id) => provenOf(id, wedgesOf(rota), rotaRequirements)),
+  rotaRequirements.map((requirement) => requirement.id).filter((id) => provenOf(id, recordTasksOf(rota), rotaRequirements)),
 );
 
 export const RequirementTable: Stories = {

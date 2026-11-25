@@ -12,10 +12,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// The kind names the integrate rules read node runs by.
+// The kind names the integrate rules read node runs by. kindLegacySync is the kind of a sync run an earlier orreryd
+// stored: one that ended passed still checked its revision as an integrate run does (integrated).
 const (
-	kindEvidence  = "evidence"
-	kindIntegrate = "integrate"
+	kindEvidence   = "evidence"
+	kindIntegrate  = "integrate"
+	kindLegacySync = "sync"
 )
 
 // taskIntegratorRounds is how many rounds the task integrator of one conflicting task runs: the first, and one more for
@@ -306,12 +308,12 @@ func gateCheck(run store.NodeRun, i int, gate string, checks []store.NodeCheck) 
 	case chainLost:
 		return store.NodeCheck{}, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("%s %s: Done gate %s lost at a restart twice", walkName(run), run.Path, gate),
+			Output: fmt.Sprintf("%s %s: Done gate %s lost at a restart twice", kindIntegrate, run.Path, gate),
 		}, false
 	case chainEnvironment:
 		return store.NodeCheck{}, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("%s %s: %s", walkName(run), run.Path, environmentPark("Done gate "+gate)),
+			Output: fmt.Sprintf("%s %s: %s", kindIntegrate, run.Path, environmentPark("Done gate "+gate)),
 		}, false
 	case chainEnded:
 		return check, Action{}, true
@@ -356,12 +358,12 @@ func captures(run store.NodeRun, rows Rows) (map[string]store.EvidenceRun, Actio
 	case len(lost) > 0:
 		return nil, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("%s %s: capture %s lost at a restart twice", walkName(run), run.Path, lost[0]),
+			Output: fmt.Sprintf("%s %s: capture %s lost at a restart twice", kindIntegrate, run.Path, lost[0]),
 		}, false
 	case len(environment) > 0:
 		return nil, Action{
 			Kind:   ActPark,
-			Output: fmt.Sprintf("%s %s: %s", walkName(run), run.Path, environmentPark("capture "+environment[0])),
+			Output: fmt.Sprintf("%s %s: %s", kindIntegrate, run.Path, environmentPark("capture "+environment[0])),
 		}, false
 	}
 	return captured, Action{}, true
@@ -395,7 +397,7 @@ func reproductions(run store.NodeRun, rows Rows) (Action, bool) {
 		return Action{
 			Kind: ActPark,
 			Output: fmt.Sprintf(
-				"%s %s: reproduction %s lost at a restart twice", walkName(run), run.Path, lost[0],
+				"%s %s: reproduction %s lost at a restart twice", kindIntegrate, run.Path, lost[0],
 			),
 		}, false
 	}
@@ -494,10 +496,16 @@ func outputOf(lines, leftOut []string) string {
 	return strings.Join(append(slices.Clone(lines), leftOut...), "\n")
 }
 
-// GreenAt returns the Requirements whose capture passed in an integrate or sync run that ended passed at revision, at
-// the run's attempt. A rerun stands for the capture it reran. A passed run also holds a judgeless capture, which only
-// the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement whose evidence amendment
-// ran its green run at revision is green there too when that run passed (see amendedGreen).
+// integrated reports whether run checks a revision for the epic's stored base: an integrate run, or a legacy sync run,
+// which checked its merge of origin's main the same way.
+func integrated(run store.NodeRun) bool {
+	return run.Kind == kindIntegrate || run.Kind == kindLegacySync
+}
+
+// GreenAt returns the Requirements whose capture passed in an integrate or legacy sync run that ended passed at
+// revision, at the run's attempt. A rerun stands for the capture it reran. A passed run also holds a judgeless capture,
+// which only the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement whose evidence
+// amendment ran its green run at revision is green there too when that run passed (see amendedGreen).
 func GreenAt(rows Rows, revision string) map[string]bool {
 	green := make(map[string]bool)
 	for _, run := range rows.Runs {
@@ -577,8 +585,8 @@ func Unbuilt(rows Rows) []string {
 
 // Disagreement returns the line that names test-item Requirement id when its judged red disagrees with its reproduction
 // at the epic's base: the judge found red fails, yet the reproduction with the candidate's tests exited 0 and did not
-// time out. It reads the reproductions of the integrate and sync runs that ended passed at the stored base. It returns
-// "" for any other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited
+// time out. It reads the reproductions of the integrate and legacy sync runs that ended passed at the stored base. It
+// returns "" for any other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited
 // non-zero.
 func Disagreement(rows Rows, id string) string {
 	if !slices.ContainsFunc(rows.Epic.Requirements, func(requirement store.EpicRequirement) bool {
@@ -606,11 +614,11 @@ func Disagreement(rows Rows, id string) string {
 	)
 }
 
-// baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or sync run which
-// ended passed at the stored base decides on, and then the reproduction the amendment of id ran at the stored base,
-// when it ran one there. A run with no reproduction of id contributes none. When the item of id is an amendment's,
-// neither does a run whose capture of id is stale, since its reproduction ran the capture of an item the Requirement no
-// longer holds. A rerun stands for the reproduction it reran.
+// baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or legacy sync run
+// which ended passed at the stored base decides on, and then the reproduction the amendment of id ran at the stored
+// base, when it ran one there. A run with no reproduction of id contributes none. When the item of id is an
+// amendment's, neither does a run whose capture of id is stale, since its reproduction ran the capture of an item the
+// Requirement no longer holds. A rerun stands for the reproduction it reran.
 func baseReproductions(rows Rows, id string) []store.NodeCheck {
 	amended, isAmended := amendment(rows, id)
 	var checks []store.NodeCheck

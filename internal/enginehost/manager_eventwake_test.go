@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"errors"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -23,7 +22,7 @@ func countingWake(m *Manager) *atomic.Int32 {
 // once more when Say returns nil.
 func TestStepEndPushManagerWakeOwnerSayClearsQuiet(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	wakes := countingWake(m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
@@ -82,18 +81,15 @@ func TestStepEndPushManagerWakeResumeStoppedSession(t *testing.T) {
 	}
 }
 
-// TestStepEndPushManagerWakeStopFreesSlotUnderFullCap fills the cap of one with a session and checks a second start is
-// refused. Stopping the session frees its slot, and the hook is called for the freed slot before the stop returns.
-func TestStepEndPushManagerWakeStopFreesSlotUnderFullCap(t *testing.T) {
+// TestStepEndPushManagerWakeStopEndsProcess starts a session and stops it. The stop ends the session's process, and the
+// hook is called for that end before the stop returns.
+func TestStepEndPushManagerWakeStopEndsProcess(t *testing.T) {
 	t.Parallel()
-	m, _ := newTestManager(t, 1, fakeClaudePath(t))
+	m, _ := newTestManager(t, fakeClaudePath(t))
 	wakes := countingWake(m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
-	}
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "again"}); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Start under the full cap error = %v, want ErrCapReached", err)
 	}
 
 	before := wakes.Load()
@@ -101,7 +97,7 @@ func TestStepEndPushManagerWakeStopFreesSlotUnderFullCap(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 	if wakes.Load() == before {
-		t.Fatal("EventWake not called when the stop freed the session slot under the full cap")
+		t.Fatal("EventWake not called when the stop ended the session's process")
 	}
 }
 
@@ -109,7 +105,7 @@ func TestStepEndPushManagerWakeStopFreesSlotUnderFullCap(t *testing.T) {
 // closes the session's only open request, and the hook is called for it.
 func TestStepEndPushManagerWakeAnsweredRequestCloses(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	wakes := countingWake(m)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {

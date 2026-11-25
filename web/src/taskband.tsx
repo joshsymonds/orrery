@@ -7,7 +7,8 @@ import { phaseOfPlace, recordTasksOf } from "./record";
 import { blockerPillOf, statePillOf } from "./recordwords";
 
 // EpicPin is the epic's one line, drawn first under a task's title row: the epic's slug, its state word with its time, and
-// its tasks done. While the epic asks, its blocker follows in the attention tone. Pressing the line opens the epic.
+// its tasks done. While the epic asks the owner, its blocker follows in the attention tone; a park or question its
+// steerer holds follows in the quiet tone. Pressing the line opens the epic.
 export function EpicPin({
   detail,
   now,

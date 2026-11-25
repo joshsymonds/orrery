@@ -58,10 +58,20 @@ function line(row: Row): VNode {
   );
 }
 
-// convoRows draws each conversation of convos as the inbox draws it: its row, with what it steers hung under it.
+// convoRows draws each conversation of convos as the inbox draws it: its row, with what it steers hung under it, and its
+// ended epics folded under it, shut.
 function convoRows(convos: readonly Convo[]): VNode[] {
   return convos.map((convo) => (
-    <ConvoRowView key={convo.key} convo={convo} now={now} cursorKey="" renderRow={line} onSelect={noop} />
+    <ConvoRowView
+      key={convo.key}
+      convo={convo}
+      now={now}
+      cursorKey=""
+      endedOpen={false}
+      onEnded={noop}
+      renderRow={line}
+      onSelect={noop}
+    />
   ));
 }
 

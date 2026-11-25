@@ -89,4 +89,26 @@ public interface StartRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getIdBytes();
+
+  /**
+   * <pre>
+   * The orrery name of the host the session starts on, a host hosts.toml names or the controller's own. Empty is the
+   * controller's.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the session starts on, a host hosts.toml names or the controller's own. Empty is the
+   * controller's.
+   * </pre>
+   *
+   * <code>string host = 5 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

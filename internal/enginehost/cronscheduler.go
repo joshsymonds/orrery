@@ -205,7 +205,7 @@ func (s *CronScheduler) stopTimer() {
 // cronWaiting reports whether err is a delivery error that means the session cannot take the fire now.
 func cronWaiting(err error) bool {
 	return errors.Is(err, ErrSessionBusy) || errors.Is(err, ErrCallerQuiet) || errors.Is(err, ErrCallerFailed) ||
-		errors.Is(err, ErrCallerStopped) || errors.Is(err, ErrCapReached)
+		errors.Is(err, ErrCallerStopped)
 }
 
 // soonerOf returns the earlier of held and next. The zero time means no time, so a zero argument yields the other.

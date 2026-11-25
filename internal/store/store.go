@@ -20,20 +20,35 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
-	"modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// freshSchema is the database the embedded migrations make from an empty file: each schema object in the order the
+// migrations left it, the rows they insert, and goose's record of every migration applied. schema.sql is generated from
+// the migrations (`just generate`), and TestStoreFreshSchemaMatchesMigrations fails when it no longer matches them.
+//
+//go:embed schema.sql
+var freshSchema string
+
 // ErrTooNew reports a database whose recorded migration version is above the newest migration embedded in
 // this binary. Open returns it without migrating the database.
 var ErrTooNew = errors.New("store schema is newer than this binary")
 
+// readConns is how many connections the store's read pool opens at most. Reads run on that pool, so a read waits for
+// one of these connections and never for the writer.
+const readConns = 4
+
 // Store is an open orrery SQLite store.
 type Store struct {
+	// db is the writer: the one connection every write runs on, in turn (writeDB).
 	db        *pool
 	connector *trackedConnector
+	// read is the read pool every read runs on. Its connections open the file read-only, so a read sees each committed
+	// write and never waits for the writer's lock.
+	read          *pool
+	readConnector *trackedConnector
 
 	liveMu     sync.Mutex
 	engineLive func() []string
@@ -75,9 +90,9 @@ func (s *Store) engineLiveIDs() []string {
 }
 
 // OnCallerEvent sets fn as the hook that a store write creating an epic or contract caller event calls. Such a write
-// inserts an epic question, sets an epic's phase, stops a release, or records an accept, a set aside or a reopen of a
-// contract, and it calls the hook once, synchronously, right after it commits. A write that rolls back or fails to
-// commit calls nothing. A nil fn clears the hook. It is safe to call while writes run.
+// inserts an epic question, adds a tell, sets an epic's phase, stops a release, or records an accept, a set aside or a
+// reopen of a contract, and it calls the hook once, synchronously, right after it commits. A write that rolls back or
+// fails to commit calls nothing. A nil fn clears the hook. It is safe to call while writes run.
 func (s *Store) OnCallerEvent(fn func()) {
 	if fn == nil {
 		s.callerEvent.Store(nil)
@@ -190,9 +205,9 @@ const (
 // BusyTimeout is how long a store write waits for SQLite's write lock while another connection holds it, before it
 // fails with SQLITE_BUSY. The other writer of orreryd's store is Litestream, which takes the write lock for its
 // checkpoints. Over a large store those holds outlast 200 ms often enough to fail writes, and Litestream recommends a
-// 5 s busy timeout for the processes that share its database. The store's one connection runs every store call in
-// turn, so the calls behind a write wait out Litestream's hold whatever the timeout is: the timeout decides only
-// whether the write at the front fails.
+// 5 s busy timeout for the processes that share its database. Writes run on the store's one writer in turn, so the
+// writes behind one wait out Litestream's hold whatever the timeout is: the timeout decides only whether the write at
+// the front fails. Reads run on the read pool, so a write queued on the writer does not hold them up.
 const BusyTimeout = 5 * time.Second
 
 // Option changes how Open opens the store.
@@ -210,11 +225,20 @@ type openConfig struct {
 	closeWaiting func()
 	// callClock is the clock store calls are timed on. It is for tests, and time.Now otherwise.
 	callClock func() time.Time
+	// migrationsOnly makes an empty database through the migrations, one at a time, in place of freshSchema. It is for
+	// the test that checks freshSchema against the migrations, and false otherwise.
+	migrationsOnly bool
+}
+
+// withMigrationsOnly makes Open build an empty database through the migrations rather than from freshSchema.
+func withMigrationsOnly() Option {
+	return func(c *openConfig) { c.migrationsOnly = true }
 }
 
 // WithLogger sets the logger the store warns on for each call that takes longer than 100 ms, from the call until the
-// store's one connection is free again. The warning names the call's queries and splits its time into the wait for the
-// connection and the run on it. Without WithLogger the warnings are discarded.
+// connection it runs on is free again: the writer's for a write, one of the read pool's for a read. The warning names
+// the call's queries and splits its time into the wait for the connection and the run on it. Without WithLogger the
+// warnings are discarded.
 func WithLogger(logger *slog.Logger) Option {
 	return func(c *openConfig) { c.logger = logger }
 }
@@ -237,7 +261,7 @@ func WithBusyTimeout(d time.Duration) Option {
 	return func(c *openConfig) { c.busyTimeout = d }
 }
 
-// WithSynchronous sets the connection's synchronous mode in place of SQLite's default, FULL. It is for tests: OFF
+// WithSynchronous sets the connection's synchronous mode in place of the store's default, FULL. It is for tests: OFF
 // skips the fsync each commit and checkpoint costs, which a test's throwaway store does not need. orreryd never
 // passes it, because restart and re-adoption rely on committed rows surviving an OS crash or power loss.
 func WithSynchronous(mode Synchronous) Option {
@@ -245,8 +269,12 @@ func WithSynchronous(mode Synchronous) Option {
 }
 
 // Open creates the store's directory (0700) and file (0600) when absent, opens the database in WAL mode with a
-// BusyTimeout busy timeout, and applies the embedded migrations. It returns ErrTooNew, without migrating, when the
-// database records a newer migration than this binary embeds. A file it cannot use is left untouched.
+// BusyTimeout busy timeout, and applies the embedded migrations. A database that holds no schema object yet is made from
+// freshSchema in one transaction, which is the database the migrations would make, so the migrations then find each of
+// themselves applied: applying the migrations one at a time reparses the schema at each change. Its writer is the one
+// connection writes run on, and its read pool opens the file read-only, with the same busy timeout, for every read. It
+// returns ErrTooNew, without migrating, when the database records a newer migration than this binary embeds. A file it
+// cannot use is left untouched.
 func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	cfg := openConfig{busyTimeout: BusyTimeout}
 	for _, opt := range opts {
@@ -256,8 +284,11 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 		return nil, fmt.Errorf("open store: negative busy timeout %v", cfg.busyTimeout)
 	}
 	query := "_busy_timeout=" + strconv.FormatInt(cfg.busyTimeout.Milliseconds(), 10) + "&_journal_mode=WAL"
+	// The driver sets synchronous NORMAL when the DSN names none, so the default, FULL, is named here.
+	if cfg.synchronous == "" {
+		cfg.synchronous = SynchronousFull
+	}
 	switch cfg.synchronous {
-	case "":
 	case SynchronousOff, SynchronousNormal, SynchronousFull:
 		query += "&_synchronous=" + string(cfg.synchronous)
 	default:
@@ -277,13 +308,15 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	}
 
 	dsn := (&url.URL{Scheme: "file", Path: clean, RawQuery: query}).String()
-	inner, err := sqlite.NewConnector(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open store: %w", err)
-	}
+	inner := newConnector(dsn)
+	readInner := newConnector(readOnlyDSNBusy(clean, cfg.busyTimeout.Milliseconds()))
 	connector := &trackedConnector{inner: inner, gate: cfg.connectGate, waiting: cfg.closeWaiting}
 	db := sql.OpenDB(connector)
 	db.SetMaxOpenConns(1)
+	readConnector := &trackedConnector{inner: readInner, readPool: true}
+	readDB := sql.OpenDB(readConnector)
+	readDB.SetMaxOpenConns(readConns)
+	readDB.SetMaxIdleConns(readConns)
 	slow := &slowCalls{now: cfg.callClock, logger: cfg.logger, counted: cfg.slowCounted}
 	if slow.now == nil {
 		slow.now = time.Now
@@ -291,7 +324,17 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 	if slow.logger == nil {
 		slow.logger = slog.New(slog.DiscardHandler)
 	}
-	opened := &Store{db: &pool{DB: db, slow: slow}, connector: connector}
+	opened := &Store{
+		db:            &pool{DB: db, slow: slow},
+		connector:     connector,
+		read:          &pool{DB: readDB, slow: slow},
+		readConnector: readConnector,
+	}
+	if !cfg.migrationsOnly {
+		if err = opened.makeFresh(ctx); err != nil {
+			return nil, errors.Join(err, opened.Close())
+		}
+	}
 	if err = opened.migrate(ctx); err != nil {
 		return nil, errors.Join(err, opened.Close())
 	}
@@ -301,23 +344,54 @@ func Open(ctx context.Context, path string, opts ...Option) (*Store, error) {
 
 // Close closes the store and returns once every connection it opened is closed, so the database's files are settled
 // when it returns. database/sql opens a connection on its own goroutine when one is discarded, an interrupted one for
-// instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections
-// first, then closes the pool, then waits for the connections still open, which close as their calls return them. It
-// returns an error matching ErrEpicWriteOutsideWrite, naming the tables, when a row was written on one of the store's
-// connections outside a store write to a table that names an epic or that no store write had touched (epicMoves), since
-// such a write may have moved no epic's revision.
+// instance, while another call waits for it, and DB.Close does not wait for that open. Close refuses new connections on
+// both pools first, then closes the read pool and waits for its connections, then closes the writer and waits for its
+// connection, which stays the store's last one, so its close removes the -wal and -shm files. A connection still open
+// closes as its call returns it. It returns an error matching ErrEpicWriteOutsideWrite, naming the tables, when a row
+// was written on one of the store's connections outside a store write to a table that names an epic or that no store
+// write had touched (epicMoves), since such a write may have moved no epic's revision.
 func (s *Store) Close() error {
 	outside := s.outsideWrites()
+	s.readConnector.beginClose()
 	s.connector.beginClose()
+	readErr := s.read.Close()
+	s.readConnector.wait()
 	err := s.db.Close()
 	s.connector.wait()
+	if readErr != nil {
+		readErr = fmt.Errorf("close store reads: %w", readErr)
+	}
 	if err != nil {
 		err = fmt.Errorf("close store: %w", err)
 	}
+	err = errors.Join(readErr, err)
 	if outside != "" {
 		err = errors.Join(err, fmt.Errorf("%w: %s", ErrEpicWriteOutsideWrite, outside))
 	}
 	return err
+}
+
+// makeFresh makes the database from freshSchema, in one transaction, when it holds no schema object, and does nothing
+// otherwise.
+func (s *Store) makeFresh(ctx context.Context) error {
+	var objects int
+	if err := s.db.DB.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil {
+		return fmt.Errorf("read store schema: %w", err)
+	}
+	if objects > 0 {
+		return nil
+	}
+	tx, err := s.db.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin fresh store schema: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, freshSchema); err != nil {
+		return errors.Join(fmt.Errorf("make fresh store schema: %w", err), tx.Rollback())
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit fresh store schema: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) migrate(ctx context.Context) error {

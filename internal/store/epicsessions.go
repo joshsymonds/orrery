@@ -11,8 +11,9 @@ import (
 )
 
 // EpicCaller names the session that made a call of an epic. A non-empty Session names the sessions row with that id.
-// Otherwise the caller is a tmux pane, and Server and Pane name its row.
-type EpicCaller struct{ Session, Server, Pane string }
+// Otherwise the caller is a tmux pane, and Server and Pane name its row under Host, the orrery name of the host the
+// pane is on. A pane caller with an empty Host names only rows stored with an empty host.
+type EpicCaller struct{ Session, Server, Pane, Host string }
 
 // epicCreateCall is the call that creates an epic. The session that makes it is the epic's creator.
 const epicCreateCall = "epic_create"
@@ -61,7 +62,9 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 		}
 		return row.ID, nil
 	}
-	id, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
+	id, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{
+		Server: caller.Server, Pane: caller.Pane, Host: caller.Host,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -74,7 +77,7 @@ func resolveEpicCaller(ctx context.Context, queries *sqlcgen.Queries, caller Epi
 // CallerSession returns the id of the sessions row caller names, and true. It returns "" and false, and no error,
 // when no row matches caller. It reads the store without writing it.
 func (s *Store) CallerSession(ctx context.Context, caller EpicCaller) (string, bool, error) {
-	session, err := resolveEpicCaller(ctx, sqlcgen.New(s.db), caller)
+	session, err := resolveEpicCaller(ctx, sqlcgen.New(s.read), caller)
 	if err != nil {
 		return "", false, err
 	}
@@ -117,10 +120,12 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 	if caller == (EpicCaller{}) {
 		return owner, nil
 	}
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	id := caller.Session
 	if id == "" {
-		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{Server: caller.Server, Pane: caller.Pane})
+		pane, err := queries.GetPaneSession(ctx, sqlcgen.GetPaneSessionParams{
+			Server: caller.Server, Pane: caller.Pane, Host: caller.Host,
+		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return owner, nil
 		}
@@ -151,7 +156,7 @@ func (s *Store) CallerMaker(ctx context.Context, caller EpicCaller) (Maker, erro
 // EpicSteerer returns the sessions row of the session that steers epic, and true. It returns false, and no error, when
 // epic has no steerer or when the steerer's sessions row is gone.
 func (s *Store) EpicSteerer(ctx context.Context, epic string) (CallerSession, bool, error) {
-	row, err := sqlcgen.New(s.db).GetEpicSteerer(ctx, epic)
+	row, err := sqlcgen.New(s.read).GetEpicSteerer(ctx, epic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CallerSession{}, false, nil
 	}
@@ -184,12 +189,12 @@ type EpicSessionRow struct {
 // returns an error that matches ErrUnavailable when the file is missing or the database is busy. It never creates the
 // file and never writes the database.
 func (r *Reader) EpicSessions(ctx context.Context, epic string) ([]EpicSessionRow, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	rows, err := readEpicSessions(ctx, db, epic)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {

@@ -209,6 +209,8 @@ run_here() {
         prefix=(/tmp/claude-1000/heavy)
     fi
     echo "gate-remote: running $(printf '%q ' "$@")here ($reason; $(load_line))" >&2
+    # The gates that run here take turns at Android builds (scripts/android-lock.sh).
+    export ORRERY_ANDROID_LOCK="${ORRERY_ANDROID_LOCK:-$runtime/orrery-android-build.lock}"
     local status=0
     started="$(date +%s)"
     "${prefix[@]}" "$@" || status=$?

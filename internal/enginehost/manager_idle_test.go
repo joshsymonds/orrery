@@ -29,11 +29,11 @@ func (c *idleClock) now() time.Time { return time.Unix(0, c.nanos.Load()) }
 // advance moves the clock forward by d.
 func (c *idleClock) advance(d time.Duration) { c.nanos.Add(int64(d)) }
 
-// newIdleManager returns a manager with the given cap whose clock is set by hand, and the idle timeout left at its
+// newIdleManager returns a manager whose clock is set by hand, and the idle timeout left at its
 // default. Its store is at the returned path.
-func newIdleManager(t *testing.T, limit int) (*Manager, string, *idleClock) {
+func newIdleManager(t *testing.T) (*Manager, string, *idleClock) {
 	t.Helper()
-	m, path := newTestManager(t, limit, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	clock := newIdleClock()
 	m.now = clock.now
 	return m, path, clock
@@ -64,7 +64,7 @@ func requireRunning(t *testing.T, m *Manager, id string, pid int) {
 
 func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -104,7 +104,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 
 func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 2)
+	m, path, clock := newIdleManager(t)
 	askDir, hangDir := t.TempDir(), t.TempDir()
 	askID, err := m.Start(t.Context(), StartRequest{Dir: askDir, Prompt: "ASK"})
 	if err != nil {
@@ -129,34 +129,9 @@ func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 	requireRunning(t, m, hangID, hangPID)
 }
 
-func TestIdleStopFreesSlotForStart(t *testing.T) {
-	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
-	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); !errors.Is(err, ErrCapReached) {
-		t.Fatalf("Start at the cap: err = %v, want ErrCapReached", err)
-	}
-
-	clock.advance(10 * time.Minute)
-	m.checkIdle(t.Context())
-	next, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start after the idle stop: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, next, "the reply of the next session", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
-	})
-}
-
 func TestRunIdleReturnsWhenContextEnds(t *testing.T) {
 	t.Parallel()
-	m, _, _ := newIdleManager(t, 1)
+	m, _, _ := newIdleManager(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	returned := make(chan struct{})
 	go func() {

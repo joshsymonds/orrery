@@ -10,7 +10,7 @@ import (
 // ToldLimits returns each usage limit that has a told name, mapped to its told names sorted. A limit with no told name
 // is absent from the map.
 func (s *Store) ToldLimits(ctx context.Context) (map[string][]string, error) {
-	rows, err := sqlcgen.New(s.db).ListToldLimitSteps(ctx)
+	rows, err := sqlcgen.New(s.read).ListToldLimitSteps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list told limit names: %w", err)
 	}

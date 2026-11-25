@@ -260,6 +260,12 @@ func TestContractRecordReviseAppendsVersion(t *testing.T) {
 		t.Errorf("ReviseContract reply = %v, want %v", revised, want)
 	}
 
+	// The revision leaves the additions neither kept nor struck, which GetContract lists as what is left.
+	want.Left = []*v1.ContractLeft{
+		{Kind: store.LeftAddition, Ref: "A1", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A2", Text: "addition neither kept nor struck"},
+		{Kind: store.LeftAddition, Ref: "A3", Text: "addition neither kept nor struck"},
+	}
 	got, err := server.contracts.GetContract(t.Context(), connect.NewRequest(&v1.GetContractRequest{Id: epicServiceID}))
 	if err != nil {
 		t.Fatalf("GetContract: %v", err)
@@ -320,6 +326,9 @@ func TestContractRecordStateChangesReadBackInOrder(t *testing.T) {
 		t.Fatalf("AcceptContract from the pane: %v", err)
 	}
 
+	// The owner's accept is made through serve's call, so orreryd stores it with maker owner_serve.
+	ownerAccept := wantStateChange("accepted", 2, "owner", "", contractTestAcceptWords, 4)
+	ownerAccept.Maker = &v1.StageMaker{Kind: "owner_serve"}
 	want := &v1.StoredContract{
 		Id:            epicServiceID,
 		Repository:    proposed.GetRepository(),
@@ -348,7 +357,7 @@ func TestContractRecordStateChangesReadBackInOrder(t *testing.T) {
 			wantStateChange("proposed", 1, "session", contractTestHeadless, contractTestWords, 0),
 			wantStateChange("set_aside", 1, "session", contractTestHeadless, contractTestSetAsideWords, 1),
 			wantStateChange("proposed", 1, "session", contractTestPane, contractTestReopenWords, 2),
-			wantStateChange("accepted", 2, "owner", "", contractTestAcceptWords, 4),
+			ownerAccept,
 			wantStateChange("set_aside", 2, "session", contractTestHeadless, contractTestSetAsideWords, 5),
 			wantStateChange("proposed", 2, "session", contractTestPane, contractTestReopenWords, 6),
 			wantStateChange("accepted", 2, "session", contractTestPane, contractTestAcceptWords, 7),

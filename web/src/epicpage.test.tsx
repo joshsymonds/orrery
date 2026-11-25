@@ -22,8 +22,8 @@ type Props = Parameters<typeof EpicPage>[0];
 // now is the clock the page measures its times against, in unix seconds.
 const now = 10_000;
 
-// liveEpic is a live epic with no outcome, named demo-epic. It is a record epic.
-const liveEpic = { id: "e1", slug: "demo-epic", repository: "demo-repo", outcome: "", live: true };
+// liveEpic is a live epic accepted in its phase, named demo-epic.
+const liveEpic = { id: "e1", slug: "demo-epic", repository: "demo-repo", outcome: "accepted", live: true };
 
 // orrerydEpic is a live orreryd epic in accepted: its outcome is its phase. Each test names the phase it changes.
 const orrerydEpic = { ...liveEpic, source: "orreryd", outcome: "accepted" };
@@ -56,13 +56,13 @@ const greenRun = {
 // contract is an orreryd epic's contract, accepted at zero so its words carry no time.
 const contract = { title: "Show the accepted contract", care: "high", accepted: 0n };
 
-// build is a live build: task t1 is running its implementing step and names R1, and task t2 is planned and names R2.
-// Each test spreads it and names the fields it changes.
+// build is a live build: task t1 is running its implementing step and names R1, and task t2 is planned and names R2,
+// each where the server stands it. Each test spreads it and names the fields it changes.
 const build = {
   epic: liveEpic,
   buildTasks: [
-    { id: "t1", title: "Login", status: "dispatched", requirements: ["R1"] },
-    { id: "t2", title: "Logout", status: "", requirements: ["R2"] },
+    { id: "t1", title: "Login", status: "dispatched", requirements: ["R1"], place: "implement", tone: "run" },
+    { id: "t2", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
   ],
   steps: [
     {
@@ -232,7 +232,7 @@ test("EpicRecord: an orreryd epic draws its sections in order, and none it has n
   await withPage(
     detail({
       ...build,
-      epic: { ...orrerydEpic, problem: "state.json: unexpected end of input" },
+      epic: orrerydEpic,
       summary: "Ship the demo",
       contract,
       nodes: [{ path: "build", node: "build", kind: "build", state: "running", round: 1n }],
@@ -242,7 +242,6 @@ test("EpicRecord: an orreryd epic draws its sections in order, and none it has n
     (container) => {
       assert.deepEqual(labelsOf(container, ".epic-page"), [
         "title-row",
-        "problem error",
         "summary",
         "track",
         "now",
@@ -293,35 +292,13 @@ test("AskAnswer: the blocker's question is the page's Ask, aged from the page's 
   );
 });
 
-test("EpicRecord: a record epic draws only its Now and its Tasks", async () => {
-  await withPage(
-    detail({
-      ...build,
-      summary: "Ship the demo",
-      contract,
-      requirements: [{ id: "R1", text: "A user signs in", runs: [greenRun] }],
-      report: { outcome: "released", shipped: ["R1"], notShipped: [], why: "" },
-    }),
-    (container) => {
-      assert.deepEqual(labelsOf(container, ".epic-page"), ["title-row", "now", "tasks"]);
-    },
-    { history },
-  );
-});
-
-test("EpicRecord: no problem line draws when the epic's problem is empty", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, problem: "" } }), (container) => {
-    assert.equal(has(container, ".problem"), false);
-  });
-});
-
 test("EpicRecord: the Tasks head counts the integrated tasks, and the chart and the table draw each task", async () => {
   await withPage(
     detail({
       ...build,
       buildTasks: [
-        { id: "t1", title: "Login", status: "done", requirements: ["R1"] },
-        { id: "t2", title: "Logout", status: "", requirements: ["R2"] },
+        { id: "t1", title: "Login", status: "done", requirements: ["R1"], place: "integrated", tone: "ok" },
+        { id: "t2", title: "Logout", status: "", requirements: ["R2"], place: "planned", tone: "plan" },
       ],
     }),
     (container) => {
@@ -400,7 +377,7 @@ test("EpicRecord: a building page's Now draws its step rows, one for each runnin
   });
 });
 
-test("EpicRecord: a record epic's page draws its running steps' rows", async () => {
+test("EpicRecord: the epic page draws its running steps' rows", async () => {
   await withPage(detail({ ...build }), (container) => {
     assert.deepEqual(textsOf(container, ".now .tbl.steps .tr .doing"), ["writing the login"]);
   });
@@ -488,12 +465,6 @@ test("EpicCommands: the Steered from door draws whenever the epic names its stee
   );
 });
 
-test("EpicCommands: the problem line reads the epic's problem", async () => {
-  await withPage(detail({ ...build, epic: { ...orrerydEpic, problem: "state.json: unexpected end of input" } }), (container) => {
-    assert.equal(textOf(container, ".problem"), "state.json: unexpected end of input");
-  });
-});
-
 test("EpicWords: a page whose runs and history carry 40-character revisions shows no revision in its text", async () => {
   await withPage(
     detail({
@@ -567,7 +538,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
   );
 });
 
-test("EpicRecord: a running step's task draws one running cell in each stage: turn, checks, gate, judge and a read-only step", async () => {
+test("EpicRecord: a running task draws one running cell, whatever stage its running step is in: turn, checks, gate, judge or a read-only step", async () => {
   const stages = [
     { phase: "turn", stage: { stage: "turn" } },
     { phase: "checks", stage: { stage: "checks" } },
@@ -594,7 +565,7 @@ test("EpicAsk: an open question draws its Ask in Now, under the sentence", async
   await withPage(
     detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
     (container) => {
-      assert.deepEqual(labelsOf(container, ".now"), ["sec", "now-sentence", "ask", "tbl steps"]);
+      assert.deepEqual(labelsOf(container, "section.now"), ["sec", "now-sentence", "ask", "tbl steps"]);
       assert.equal(textOf(container, ".now .ask .q"), "Which branch?");
       assert.equal(textOf(container, ".now-sentence"), "One task is being worked on, and one waits on you.");
     },
@@ -1177,8 +1148,8 @@ const endedWithOpen = detail({
   epic: { ...orrerydEpic, outcome: "ended_with_gaps", live: false, path: pathOf },
   report: { outcome: "ended_with_gaps", shipped: ["R1"], notShipped: ["R2"], why: "" },
   buildTasks: [
-    { id: "t1", title: "Login", status: "done", requirements: ["R1"] },
-    { id: "t2", title: "Logout", status: "done", requirements: ["R2"] },
+    { id: "t1", title: "Login", status: "done", requirements: ["R1"], place: "integrated", tone: "ok" },
+    { id: "t2", title: "Logout", status: "done", requirements: ["R2"], place: "integrated", tone: "ok" },
   ],
   requirements: [
     { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },

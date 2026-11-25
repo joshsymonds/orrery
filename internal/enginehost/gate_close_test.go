@@ -70,6 +70,7 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:     gateTestHost(),
 			Argv:     []string{"/bin/sh", "-c", gateHeldScript},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
@@ -117,6 +118,7 @@ func TestGateScopedCloseWhileQueuedLaunchesNothing(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:     gateTestHost(),
 			Argv:     []string{"/bin/sh", "-c", `touch "$MARKER"`},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,
@@ -159,6 +161,7 @@ func TestGateCloseWithoutScopeStopsGate(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{
+			Host:     gateTestHost(),
 			Argv:     []string{"/bin/sh", "-c", `sleep 60 & echo "$$ $!" > "$PIDS"; sleep 60`},
 			Dir:      t.TempDir(),
 			Limit:    time.Minute,

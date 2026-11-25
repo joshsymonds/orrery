@@ -21,7 +21,7 @@ func prunedLog(t *testing.T, path string) (*store.Store, time.Time) {
 	seedEvents(t, s, 3)
 	later := time.Unix(eventAt, 0).Add(store.EventRetention + time.Hour)
 	pane := store.Pane{ID: eventPane, Pane: "%1", Fields: store.Fields{State: "state-3"}}
-	if err := s.SyncServer(t.Context(), "-L a", []store.Pane{pane}, later); err != nil {
+	if err := s.SyncServer(t.Context(), "", "-L a", []store.Pane{pane}, later); err != nil {
 		t.Fatalf("SyncServer after retention: %v", err)
 	}
 	return s, later

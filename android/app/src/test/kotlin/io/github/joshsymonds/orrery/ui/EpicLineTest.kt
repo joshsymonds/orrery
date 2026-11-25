@@ -5,7 +5,6 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import org.junit.Assert.assertEquals
@@ -24,7 +23,6 @@ class EpicLineTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = phaseAt,
     )
 
@@ -55,10 +53,8 @@ class EpicLineTest {
         runs = runs.toList(),
     )
 
-    private fun task(status: String) = EpicTaskRow(effort = 1, slug = "task", subject = "", status = status)
-
-    private fun buildTask(id: String, status: String) = EpicBuildTaskRow(
-        id = id,
+    private fun task(status: String) = EpicBuildTaskRow(
+        id = "task",
         title = "",
         status = status,
         stage = "",
@@ -66,19 +62,32 @@ class EpicLineTest {
         green = null,
     )
 
+    // A build task at the place serve computed for it, done once integrated and open before.
+    private fun buildTask(id: String, place: String) = EpicBuildTaskRow(
+        id = id,
+        title = "",
+        status = if (place == "integrated") "done" else "open",
+        stage = "",
+        red = null,
+        green = null,
+        place = place,
+        tone = when (place) {
+            "integrated" -> "ok"
+            "planned" -> "plan"
+            else -> "run"
+        },
+    )
+
     private fun question(asked: Long) = EpicQuestionRow(id = "Q1", text = "Which branch?", turn = 1L, asked = asked)
 
     private fun detail(
         epic: EpicRow = epic(),
-        tasks: List<EpicTaskRow> = emptyList(),
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
         requirements: List<EpicRequirementRow> = emptyList(),
         questions: List<EpicQuestionRow> = emptyList(),
         parked: String = "",
     ): EpicDetail = EpicDetail(
         epic = epic,
-        tasks = tasks,
-        slices = emptyList(),
         steps = emptyList<StepRow>(),
         requirements = requirements,
         buildTasks = buildTasks,
@@ -94,14 +103,14 @@ class EpicLineTest {
                 requirement("R2", run("red", true), run("green", true)),
                 requirement("R3", run("red", true)),
             ),
-            tasks = listOf(task("done")),
+            buildTasks = listOf(task("done")),
         )
         assertEquals("2 of 3 proven", epicLineOf(d, now).count)
     }
 
     @Test
     fun aCountWithNoRequirementsIsTheDoneTasksIntegratedOnesIncluded() {
-        val d = detail(tasks = listOf(task("done"), task("Integrated"), task("gated"), task("open")))
+        val d = detail(buildTasks = listOf(task("done"), task("Integrated"), task("gated"), task("open")))
         assertEquals("2 of 4 tasks done", epicLineOf(d, now).count)
     }
 
@@ -110,13 +119,13 @@ class EpicLineTest {
         val d = detail(
             epic = epic(phaseAt = now - 2_940L),
             buildTasks = listOf(
-                buildTask("T1", "done"),
-                buildTask("T2", "done"),
-                buildTask("T3", "open"),
-                buildTask("T4", "open"),
-                buildTask("T5", "open"),
-                buildTask("T6", "open"),
-                buildTask("T7", "open"),
+                buildTask("T1", "integrated"),
+                buildTask("T2", "integrated"),
+                buildTask("T3", "implement"),
+                buildTask("T4", "implement"),
+                buildTask("T5", "implement"),
+                buildTask("T6", "implement"),
+                buildTask("T7", "implement"),
             ),
         )
         assertEquals("building · 49 min · 2 of 7 units integrated", epicLineOf(d, now).state)
@@ -132,7 +141,7 @@ class EpicLineTest {
     fun aStateWithNoStateWordIsTheUnitsAlone() {
         val d = detail(
             epic = epic(live = false),
-            buildTasks = listOf(buildTask("T1", "done"), buildTask("T2", "open")),
+            buildTasks = listOf(buildTask("T1", "integrated"), buildTask("T2", "implement")),
         )
         assertEquals("1 of 2 units integrated", epicLineOf(d, now).state)
     }

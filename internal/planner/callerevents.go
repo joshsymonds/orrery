@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -15,10 +16,13 @@ import (
 type EpicCallerStore interface {
 	ActionEvents(ctx context.Context) ([]store.ActionEvent, error)
 	ContractEvents(ctx context.Context) ([]store.ContractEvent, error)
+	DesignEvents(ctx context.Context) ([]store.DesignEvent, error)
 	Attention(ctx context.Context) ([]store.EpicAttention, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EpicSteerer(ctx context.Context, epic string) (store.CallerSession, bool, error)
 	CallerEventMarked(ctx context.Context, event, session string) (bool, error)
+	UndeliveredTells(ctx context.Context) ([]store.SteererTell, error)
+	MarkTellDelivered(ctx context.Context, epic string, seq int64) error
 }
 
 // EpicCallerEventsConfig configures an EpicCallerEvents. Store lists the epics, their actions and their marks, and Sender
@@ -30,7 +34,9 @@ type EpicCallerEventsConfig struct {
 
 // EpicCallerEvents tells the session that steers each epic, once, of each move and owner action on it, and when the epic
 // parks, asks a question, releases or ends. It tells the conversation that made each contract, once, of each change
-// another made to the contract's state: an accept, a set aside or a reopen.
+// another made to the contract's state: an accept, a set aside or a reopen. It tells the working conversation of each
+// design, once, of each line of the design's log that the owner made through serve. It tells the session that steers
+// each epic, once, of each tell the epic makes that the steerer has not been sent, in seq order.
 type EpicCallerEvents struct {
 	store  EpicCallerStore
 	sender *enginehost.CallerSender
@@ -42,9 +48,11 @@ func NewEpicCallerEvents(cfg EpicCallerEventsConfig) *EpicCallerEvents {
 }
 
 // Pass sends the action events that Store.ActionEvents lists, each to its recipient, then the contract events that
-// Store.ContractEvents lists, each to the conversation that made its contract, then the events of each epic that
-// Store.Attention lists to its steerer. An epic with no steerer sends nothing. It returns the errors of the reads and
-// sends that failed, joined. A failure does not stop the pass: it goes on to the next event.
+// Store.ContractEvents lists, each to the conversation that made its contract, then the design events that
+// Store.DesignEvents lists, each to its design's working conversation, then the events of each epic that Store.Attention
+// lists to its steerer, then the tells that Store.UndeliveredTells lists to the steerer of their epic (see sendTells).
+// An epic with no steerer sends nothing. It returns the errors of the reads and sends that failed, joined. A failure
+// does not stop the pass: it goes on to the next event.
 func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	var errs []error
 	actions, err := e.store.ActionEvents(ctx)
@@ -61,12 +69,27 @@ func (e *EpicCallerEvents) Pass(ctx context.Context) error {
 	for _, event := range contracts {
 		errs = append(errs, e.sendContract(ctx, event))
 	}
+	designs, err := e.store.DesignEvents(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("read design events for caller events: %w", err))
+	}
+	for _, event := range designs {
+		errs = append(errs, e.sendDesign(ctx, event))
+	}
 	entries, err := e.store.Attention(ctx)
 	if err != nil {
 		return errors.Join(append(errs, fmt.Errorf("read attention for caller events: %w", err))...)
 	}
 	for _, entry := range entries {
 		errs = append(errs, e.attend(ctx, entry))
+	}
+	tells, err := e.store.UndeliveredTells(ctx)
+	if err != nil {
+		return errors.Join(append(errs, fmt.Errorf("read undelivered tells for caller events: %w", err))...)
+	}
+	epics, byEpic := groupTells(tells)
+	for _, epic := range epics {
+		errs = append(errs, e.sendTells(ctx, epic, byEpic[epic]))
 	}
 	return errors.Join(errs...)
 }
@@ -96,6 +119,33 @@ func (e *EpicCallerEvents) sendContract(ctx context.Context, event store.Contrac
 			event.ID, event.Contract, event.Recipient.ID, err)
 	}
 	return nil
+}
+
+// sendDesign sends one design event to its recipient, the design's working conversation. DesignEvents lists only the
+// events no mark holds under their recipient, and the CallerSender marks each one it finishes, so a sent event is not
+// sent again. The block's design attribute names the design.
+func (e *EpicCallerEvents) sendDesign(ctx context.Context, event store.DesignEvent) error {
+	attrs := []store.EventAttr{{Name: "design", Value: event.Line.Design}}
+	text := store.CallerEventBlock(store.CallerKindDesign, event.ID, attrs, designBody(event.Line))
+	if _, err := e.sender.Send(ctx, event.Recipient, event.ID, text); err != nil {
+		return fmt.Errorf("send design event %s of design %s to session %s: %w",
+			event.ID, event.Line.Design, event.Recipient.ID, err)
+	}
+	return nil
+}
+
+// designBody returns the body of a design event. Its first line names the design, what the owner did, and the ids the
+// line touched when it touched any. Its words follow, cut to decisionTextRunes, when the line gave any.
+func designBody(line store.DesignLogLine) string {
+	first := fmt.Sprintf("Design %s: the owner %s", line.Design, line.What)
+	if len(line.IDs) > 0 {
+		first += ", ids " + strings.Join(line.IDs, ", ")
+	}
+	lines := []string{first + "."}
+	if line.Words != "" {
+		lines = append(lines, "words: "+cutRunes(line.Words, decisionTextRunes))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // contractBody returns the body of a contract event. Its first line names the contract, its title, who made the change
@@ -247,6 +297,87 @@ func (e *EpicCallerEvents) send(
 	return nil
 }
 
+// stoppedSessionState is the state a stopped session's sessions row has, as internal/store/attention.go:18 names it.
+const stoppedSessionState = "stopped"
+
+// groupTells groups tells by epic. It returns the epics in the order their first tell comes in, and each epic's tells
+// in the order they come in, which is seq order.
+func groupTells(tells []store.SteererTell) ([]string, map[string][]store.SteererTell) {
+	var epics []string
+	byEpic := make(map[string][]store.SteererTell)
+	for _, tell := range tells {
+		if _, seen := byEpic[tell.Epic]; !seen {
+			epics = append(epics, tell.Epic)
+		}
+		byEpic[tell.Epic] = append(byEpic[tell.Epic], tell)
+	}
+	return epics, byEpic
+}
+
+// sendTells sends the undelivered tells of epic, in seq order, to its steerer. It returns the error of the steerer read
+// or of a send or mark that failed. An epic with no steerer, or whose steerer's sessions row is stopped, sends nothing,
+// so its tells stay undelivered for a later steerer. A send that is held or fails ends the epic's tells for this pass,
+// so no tell goes out after a later one.
+func (e *EpicCallerEvents) sendTells(ctx context.Context, epic string, tells []store.SteererTell) error {
+	steerer, ok, err := e.store.EpicSteerer(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read steerer of epic %s: %w", epic, err)
+	}
+	if !ok || steerer.State == stoppedSessionState {
+		return nil
+	}
+	for _, tell := range tells {
+		delivered, tellErr := e.deliverTell(ctx, epic, steerer, tell)
+		if tellErr != nil || !delivered {
+			return tellErr
+		}
+	}
+	return nil
+}
+
+// deliverTell delivers tell of epic to steerer, and reports whether the tell is delivered. A tell with a question, and
+// a silent move tell, is marked delivered and not sent: its question or park reaches the steerer as its own event. A
+// tell whose event the steerer's mark already holds is marked without a send, which covers a crash between a send and
+// its mark. Any other tell is sent, and is marked once the send finishes. It reports false when the send is held.
+func (e *EpicCallerEvents) deliverTell(
+	ctx context.Context, epic string, steerer store.CallerSession, tell store.SteererTell,
+) (bool, error) {
+	if tell.Question != 0 || store.SilentMoveTell(tell.Text, false) {
+		return true, e.markTell(ctx, epic, tell.Seq)
+	}
+	event := store.EpicTellEvent(epic, tell.Seq)
+	marked, err := e.store.CallerEventMarked(ctx, event, steerer.ID)
+	if err != nil {
+		return false, fmt.Errorf("read caller event mark of %s: %w", event, err)
+	}
+	if !marked {
+		finished, sendErr := e.sender.Send(ctx, steerer, event, tellText(epic, tell))
+		if sendErr != nil {
+			return false, fmt.Errorf("send tell %d of epic %s to caller %s: %w", tell.Seq, epic, steerer.ID, sendErr)
+		}
+		if !finished {
+			return false, nil
+		}
+	}
+	return true, e.markTell(ctx, epic, tell.Seq)
+}
+
+// markTell records that the steerer of epic has been sent, or need not be sent, its tell seq.
+func (e *EpicCallerEvents) markTell(ctx context.Context, epic string, seq int64) error {
+	if err := e.store.MarkTellDelivered(ctx, epic, seq); err != nil {
+		return fmt.Errorf("mark tell %d of epic %s delivered: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// tellText returns the block of tell of epic: the tell's event, with the attributes epic and seq, and a body that names
+// the epic and its title and carries the tell's text, cut to decisionTextRunes.
+func tellText(epic string, tell store.SteererTell) string {
+	attrs := []store.EventAttr{{Name: "epic", Value: epic}, {Name: "seq", Value: strconv.FormatInt(tell.Seq, 10)}}
+	body := fmt.Sprintf("Epic %s (%s) tells: %s", epic, tell.Title, cutRunes(tell.Text, decisionTextRunes))
+	return store.CallerEventBlock(store.CallerKindTell, store.EpicTellEvent(epic, tell.Seq), attrs, body)
+}
+
 // The byte budget of a question or park event body, the rune limits of the texts it cuts, and the ellipsis a cut text
 // ends with.
 const (
@@ -276,8 +407,11 @@ type eventLayout struct {
 // boundedEventBody), and both say that epic_get with part question reads the question whole and that epic_answer
 // answers it.
 func questionEventOf(entry store.EpicAttention, question store.EpicQuestion) (string, string) {
-	last := fmt.Sprintf("epic_get with part question and question Q%d reads it whole; epic_answer answers it.",
-		question.Seq)
+	last := fmt.Sprintf(
+		"epic_get with part question and question Q%d reads it whole; epic_answer answers it, "+
+			"and epic_escalate takes it to the owner.",
+		question.Seq,
+	)
 	if question.Label == store.ParkLabel {
 		return store.CallerKindPark, boundedEventBody(parkLayout(entry, question, last))
 	}

@@ -72,7 +72,8 @@ public interface EpicBuildTaskOrBuilder extends
 
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -81,7 +82,8 @@ public interface EpicBuildTaskOrBuilder extends
   java.lang.String getStage();
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -194,4 +196,62 @@ public interface EpicBuildTaskOrBuilder extends
    * <code>repeated .orrery.v1.EpicTaskReview reviews = 8 [json_name = "reviews"];</code>
    */
   int getReviewsCount();
+
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @return The place.
+   */
+  java.lang.String getPlace();
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @return The bytes for place.
+   */
+  com.google.protobuf.ByteString
+      getPlaceBytes();
+
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @return The tone.
+   */
+  java.lang.String getTone();
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @return The bytes for tone.
+   */
+  com.google.protobuf.ByteString
+      getToneBytes();
 }

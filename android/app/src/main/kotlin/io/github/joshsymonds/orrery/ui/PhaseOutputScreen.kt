@@ -182,8 +182,8 @@ internal fun PhaseOutputBody(
         }
         return
     }
-    val steps = detail.steps.filter { it.task == task }
-    val running = steps.lastOrNull()?.takeIf { it.end == "" }
+    val steps = detail.steps.filter { it.task in record.labels }
+    val running = steps.lastOrNull { it.end == "" }
     val stages = stagesOf(detail, task, now)
     val defaultOpen = stages.firstOrNull { it.open }?.place
     var opened by remember(task) { mutableStateOf<OpenedStage?>(null) }

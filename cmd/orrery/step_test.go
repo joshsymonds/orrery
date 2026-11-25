@@ -218,7 +218,6 @@ func TestStepResumeRefusedExitsOne(t *testing.T) {
 		reason string
 	}{
 		{"step not limited", connect.CodeFailedPrecondition, "step is not limited"},
-		{"step cap full", connect.CodeResourceExhausted, "session cap reached"},
 		{"no such step", connect.CodeNotFound, "no step"},
 	}
 	for _, tc := range cases {

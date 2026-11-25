@@ -6,15 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
-// mainRef always parks a move, headRef names the move of the primary checkout's HEAD, and refs under refsOrreryPrefix
-// belong to the orchestrator and never appear in a snapshot. Neither do refs under taskBranchesPrefix, the task
-// branches the implementers commit to: those commits are the implementers' work, not ref moves.
+// mainRef is main, whose move parks when the step made it, headRef names the move of the primary checkout's HEAD, and
+// refs under refsOrreryPrefix belong to the orchestrator and never appear in a snapshot. Neither do refs under
+// taskBranchesPrefix, the task branches the implementers commit to: those commits are the implementers' work, not ref
+// moves.
 const (
 	mainRef            = "refs/heads/main"
 	headRef            = "HEAD"
@@ -25,8 +27,8 @@ const (
 )
 
 // RefMove is one change Compare found between two snapshots. From is "" for a ref that was added and To is "" for
-// one that was removed. Parks marks a move that stops the step: a move of refs/heads/main, of the branch the primary
-// checkout had checked out before, or of HEAD. originTells clears Parks from the moves of main and HEAD it tells.
+// one that was removed. Parks marks a move that stops the step when the step made it (see ScopeMoves): a move of
+// refs/heads/main, of the branch the primary checkout had checked out before, or of HEAD.
 type RefMove struct {
 	Ref, From, To string
 	Parks         bool
@@ -44,28 +46,28 @@ type snapshot struct {
 	Refs map[string]string `json:"refs"`
 }
 
-// Snapshot returns the JSON of repo's refs and of its primary checkout's HEAD, which is the parent of repo's common
-// git directory. It leaves out refs under refs/orrery/, refs under refs/heads/orrery/ (the task branches), and each ref
-// named in exclude. It writes nothing to the repository.
-func Snapshot(ctx context.Context, repo string, exclude []string) (string, error) {
-	common, err := runGit(ctx, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+// Snapshot returns the JSON of repo's refs on host and of its primary checkout's HEAD, which is the parent of repo's
+// common git directory. It leaves out refs under refs/orrery/, refs under refs/heads/orrery/ (the task branches), and
+// each ref named in exclude. It writes nothing to the repository.
+func Snapshot(ctx context.Context, host hostexec.Host, repo string, exclude []string) (string, error) {
+	common, err := runGit(ctx, host, repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if err != nil {
 		return "", fmt.Errorf("find primary checkout: %w", err)
 	}
 	primary := filepath.Dir(common)
-	branch, err := runGit(ctx, primary, "symbolic-ref", "-q", "HEAD")
+	branch, err := runGit(ctx, host, primary, "symbolic-ref", "-q", "HEAD")
 	if err != nil {
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != symbolicRefDetached {
+		var gitErr *hostexec.GitError
+		if !errors.As(err, &gitErr) || gitErr.ExitCode != symbolicRefDetached {
 			return "", fmt.Errorf("read HEAD branch: %w", err)
 		}
 		branch = ""
 	}
-	commit, err := runGit(ctx, primary, "rev-parse", "--verify", "HEAD")
+	commit, err := runGit(ctx, host, primary, "rev-parse", "--verify", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("read HEAD commit: %w", err)
 	}
-	listing, err := runGit(ctx, repo, "for-each-ref", "--format=%(refname) %(objectname)")
+	listing, err := runGit(ctx, host, repo, "for-each-ref", "--format=%(refname) %(objectname)")
 	if err != nil {
 		return "", fmt.Errorf("list refs: %w", err)
 	}
@@ -92,8 +94,9 @@ func Snapshot(ctx context.Context, repo string, exclude []string) (string, error
 }
 
 // Compare returns the moves from the before snapshot to the after snapshot: one for each ref added, removed or
-// changed, in ref name order, then one HEAD move when the primary checkout's branch or commit changed. A move parks
-// when it moves refs/heads/main, the branch the primary checkout had checked out in before, or HEAD.
+// changed, in ref name order, then one HEAD move when the primary checkout's branch or commit changed. A move of
+// refs/heads/main, of the branch the primary checkout had checked out before, or of HEAD is marked Parks; whether it
+// parks is ScopeMoves' to decide, by who made it.
 func Compare(before, after string) ([]RefMove, error) {
 	prev, err := decodeSnapshot(before)
 	if err != nil {
@@ -121,23 +124,28 @@ func Compare(before, after string) ([]RefMove, error) {
 	return moves, nil
 }
 
-// ScopeMoves returns the moves of those Compare found that a step is blamed for, in their order. A move that parks is
-// kept, and so is one of the epic's own refs: its epic branch or a ref under refs/orrery/<epic slug>/. Any other move with
-// a new target is kept only when that target holds one of the commits the implementer made between base and head. Those
-// commits are read only when a move needs them. A check node makes no commits, so it passes "" for base and head.
-func ScopeMoves(ctx context.Context, repo, epic string, moves []RefMove, base, head string) ([]RefMove, error) {
+// ScopeMoves returns the moves of those Compare found that the step made, in their order. Another worktree or the
+// primary checkout moving a ref is no concern of the epic's, so a move is kept only when it is the step's: a move of one
+// of the epic's own refs, its epic branch or a ref under refs/orrery/<epic slug>/, or a move whose new target holds one
+// of the commits the implementer made between base and head. That holds for main, for the primary checkout's branch and
+// for HEAD as for any other ref; a kept move of one of those keeps its Parks. Every other move is dropped, and so is a
+// move that removes its ref, which has no target to hold a commit. Those commits are read only when a move needs them.
+// A check node makes no commits, so it passes "" for base and head, and only the epic's own refs are kept for it.
+func ScopeMoves(
+	ctx context.Context, host hostexec.Host, repo, epic string, moves []RefMove, base, head string,
+) ([]RefMove, error) {
 	var steps []string
 	if head != "" && slices.ContainsFunc(moves, func(move RefMove) bool { return judgedByCommits(move, epic) }) {
 		var err error
-		if steps, err = stepCommits(ctx, repo, base, head); err != nil {
+		if steps, err = stepCommits(ctx, host, repo, base, head); err != nil {
 			return nil, fmt.Errorf("read implementer commits: %w", err)
 		}
 	}
 	var kept []RefMove
 	for _, move := range moves {
-		keep := move.Parks || isEpicRef(move.Ref, epic)
+		keep := isEpicRef(move.Ref, epic)
 		if judgedByCommits(move, epic) {
-			holds, err := containsAny(ctx, repo, move.To, steps)
+			holds, err := containsAny(ctx, host, repo, moveTarget(move), steps)
 			if err != nil {
 				return nil, fmt.Errorf("check ref %s against implementer commits: %w", move.Ref, err)
 			}
@@ -150,10 +158,20 @@ func ScopeMoves(ctx context.Context, repo, epic string, moves []RefMove, base, h
 	return kept, nil
 }
 
-// judgedByCommits reports whether ScopeMoves keeps move by the commits its new target holds: a move that neither parks
-// nor is the epic's own, and that has a new target. A move that removes its ref has no target to hold a commit.
+// judgedByCommits reports whether ScopeMoves keeps move by the commits its new target holds: a move that is not the
+// epic's own and that has a new target.
 func judgedByCommits(move RefMove, epic string) bool {
-	return !move.Parks && move.To != "" && !isEpicRef(move.Ref, epic)
+	return moveTarget(move) != "" && !isEpicRef(move.Ref, epic)
+}
+
+// moveTarget returns the commit a move moves its ref to: the primary checkout's commit after a move of HEAD, and the new
+// target of any other ref. It is "" for a ref the move removes.
+func moveTarget(move RefMove) string {
+	if move.Ref == headRef {
+		_, commit, _ := strings.Cut(move.To, " ")
+		return commit
+	}
+	return move.To
 }
 
 // isEpicRef reports whether ref is the branch of epic or one of its refs under refs/orrery/<epic slug>/.
@@ -161,53 +179,11 @@ func isEpicRef(ref, epic string) bool {
 	return ref == BranchRef(epic) || strings.HasPrefix(ref, refsOrreryPrefix+Slug(epic)+"/")
 }
 
-// originTells returns moves with each parking move that is a fast-forward onto origin's main unparked. Such a move is a
-// move of refs/heads/main, or of HEAD within one branch, to a commit that origin reaches and that contains none of the
-// step's commits. Every other move keeps its Parks.
-func originTells(ctx context.Context, repo string, moves []RefMove, origin string, steps []string) ([]RefMove, error) {
-	told := slices.Clone(moves)
-	for i, move := range told {
-		commit, ok := originTarget(move)
-		if !move.Parks || !ok {
-			continue
-		}
-		onOrigin, err := isAncestor(ctx, repo, commit, origin)
-		if err != nil {
-			return nil, err
-		}
-		if !onOrigin {
-			continue
-		}
-		contains, err := containsAny(ctx, repo, commit, steps)
-		if err != nil {
-			return nil, err
-		}
-		if !contains {
-			told[i].Parks = false
-		}
-	}
-	return told, nil
-}
-
-// originTarget returns the commit a move of refs/heads/main or of HEAD moves to, and false for any other move. A move
-// that creates or removes main moves to no commit, and a HEAD move that switches branch, or detaches, is not within one
-// branch.
-func originTarget(move RefMove) (string, bool) {
-	switch move.Ref {
-	case mainRef:
-		return move.To, move.From != "" && move.To != ""
-	case headRef:
-		fromBranch, _, _ := strings.Cut(move.From, " ")
-		toBranch, commit, _ := strings.Cut(move.To, " ")
-		return commit, fromBranch == toBranch && commit != ""
-	}
-	return "", false
-}
-
-// containsAny reports whether commit contains any of commits in repo, that is, whether one of them is reachable from it.
-func containsAny(ctx context.Context, repo, commit string, commits []string) (bool, error) {
+// containsAny reports whether commit contains any of commits in repo on host, that is, whether one of them is reachable
+// from it.
+func containsAny(ctx context.Context, host hostexec.Host, repo, commit string, commits []string) (bool, error) {
 	for _, c := range commits {
-		ok, err := isAncestor(ctx, repo, c, commit)
+		ok, err := isAncestor(ctx, host, repo, c, commit)
 		if err != nil || ok {
 			return ok, err
 		}
