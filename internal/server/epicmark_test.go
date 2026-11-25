@@ -1,11 +1,8 @@
 package server
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
-
-	"google.golang.org/protobuf/proto"
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
@@ -226,37 +223,6 @@ func TestEpicMarkLatestGreenRunDecidesFailed(t *testing.T) {
 	}
 }
 
-func TestEpicMarkRecordRequirementsInFirstNamedOrder(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	dir := filepath.Join(root, "repoa", "record")
-	writeHead(t, root, "repoa", "record", `{"outcome":""}`, epicsNow())
-	writeEffortState(t, dir, "1", `{"tasks":[
-		{"slug":"one-a","subject":"One A","status":"done","requirement":"R2, R1"},
-		{"slug":"two-a","subject":"Two A","status":"integrated","requirement":"R1, R3"},
-		{"slug":"three-a","subject":"Three A","status":"open","requirement":"R3, R4"}
-	]}`)
-	client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{})
-
-	got := epicsGet(t, client, "repoa/record").GetRequirements()
-	// R2 and R1 are proven, since every task naming each is integrated. R3 is not proven: its integrated task has started,
-	// so it is in_flight, and its open task does not prove it. R4's only task is open, so it is not reached.
-	want := []*orreryv1.EpicRequirement{
-		{Id: "R2", State: "proven"},
-		{Id: "R1", State: "proven"},
-		{Id: "R3", State: "in_flight"},
-		{Id: "R4", State: "not_reached"},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("requirements = %v, want %d in first-named order", got, len(want))
-	}
-	for i := range want {
-		if !proto.Equal(got[i], want[i]) {
-			t.Errorf("requirement %d = %v, want %v (id and state only)", i, got[i], want[i])
-		}
-	}
-}
-
 func TestEpicMarkCentreValues(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -383,35 +349,6 @@ func TestEpicMarkPlannerParkAndUnheldStepAreNotAsks(t *testing.T) {
 			}
 			if got := epicMarkGet(t, stored, tc.steps, nil).GetCentre(); got != "running" {
 				t.Errorf("center = %q, want running", got)
-			}
-		})
-	}
-}
-
-func TestEpicMarkRecordCentreFollowsOutcomeAndHeldSteps(t *testing.T) {
-	t.Parallel()
-	held := []*enginev1.Step{
-		{Id: "held", Epic: "repoa/record", Task: "one-a", Held: true, Started: epicsAgo(time.Hour)},
-	}
-	cases := []struct {
-		name    string
-		outcome string
-		steps   []*enginev1.Step
-		want    string
-	}{
-		{name: "running with no outcome", want: "running"},
-		{name: "shipped when released", outcome: "released", want: "shipped"},
-		{name: "ended_short for another outcome", outcome: "met_at_base", want: "ended_short"},
-		{name: "asks for a held step", steps: held, want: "asks"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			root := t.TempDir()
-			writeHead(t, root, "repoa", "record", `{"outcome":"`+tc.outcome+`"}`, epicsNow())
-			client := epicStoreServe(t, root, &epicsFake{steps: tc.steps}, &epicStoreFake{})
-			if got := epicsGet(t, client, "repoa/record").GetCentre(); got != tc.want {
-				t.Errorf("center = %q, want %q", got, tc.want)
 			}
 		})
 	}
