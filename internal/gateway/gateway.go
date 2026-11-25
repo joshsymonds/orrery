@@ -44,8 +44,8 @@ type RoutesReader interface {
 	RoutesSnapshot(ctx context.Context) (store.RoutesSnapshot, error)
 }
 
-// Recorder records each request the gateway serves: Start when the request arrives and Finish when it completes.
-// *ledger.Ledger satisfies it.
+// Recorder records each request the gateway sends to a seat: Start before the seat serves it, and Finish once its
+// answer has been served. *ledger.Ledger satisfies it.
 type Recorder interface {
 	// Start records the start of a request and returns the id the request is known by.
 	Start(ctx context.Context, start ledger.Start) (int64, error)

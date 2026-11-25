@@ -120,24 +120,30 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Hook points for the later steps. A pinned account's token is the credential send applies, beside the caller's.
-	// The ledger record is started before the seat is served and finished after its relay, through g.ledger.
+	// A request that reaches its seat is recorded in the ledger: its row is started before the seat serves it, and
+	// finished once the answer is served, whether that answer came from upstream or is the gateway's own refusal. The
+	// seat answers through capture, which keeps the answer so that its usage can be read.
+	ledgerCtx := context.WithoutCancel(r.Context())
+	rec := g.startRecord(ledgerCtx, r.Header, body, res, pin)
+	capture := &answerCapture{ResponseWriter: w}
+	defer g.finishRecord(ledgerCtx, rec, capture)
+
 	switch res.Seat.AuthMode {
 	case llmroutes.AuthForward:
 		// The seat's rewrites apply to the body before it is forwarded, so that the upstream receives the rewritten
 		// request.
 		rewritten, failure := rewriteBody(body, res.Seat)
 		if failure != nil {
-			g.abort(r.Context(), w, failure.status, failure.errType, failure.message, failure.err)
+			g.abort(r.Context(), capture, failure.status, failure.errType, failure.message, failure.err)
 			return
 		}
-		g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, pin, rewritten)
+		g.forward(capture, r, res.Seat, res.Context.Account, snap.Tokens, pin, rewritten)
 	case llmroutes.AuthInject:
-		g.inject(w, r, res.Seat, body)
+		g.inject(capture, r, res.Seat, body)
 	case llmroutes.AuthSigV4:
-		g.bedrock(w, r, res.Seat, body)
+		g.bedrock(capture, r, res.Seat, body)
 	default:
-		g.abort(r.Context(), w, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
+		g.abort(r.Context(), capture, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
 			fmt.Errorf("%w: seat %q authenticates with %s", errNotImplemented, res.SeatID, res.Seat.AuthMode))
 	}
 }
