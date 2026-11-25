@@ -22,16 +22,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicUsageSession
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.util.Locale
-
-/** The height of a row's bar, in dp. */
-private val BAR_HEIGHT: Dp = 6.dp
 
 /**
  * The Usage section of an epic: its header's label and sums, then one row per session of [sessions], its rows and sums
@@ -142,14 +137,14 @@ private fun UsageRowLine(row: EpicUsageRow, largest: Long, narrow: Boolean) {
 private fun UsageBar(fraction: Float, modifier: Modifier) {
     Box(
         modifier = modifier
-            .height(BAR_HEIGHT)
+            .height(OrreryTokens.Size.meterBarHeight)
             .testTag("epic-usage-bar")
             .background(OrreryTokens.Surface.raised),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth(fraction)
-                .height(BAR_HEIGHT)
+                .height(OrreryTokens.Size.meterBarHeight)
                 .testTag("epic-usage-bar-fill")
                 .background(OrreryTokens.Role.primary),
         )
