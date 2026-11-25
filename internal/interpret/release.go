@@ -252,7 +252,8 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 // verifyCandidate checks that origin's current main is in candidate head, the candidate that the release run act names
 // reuses from an earlier attempt, before the run's first step starts from it. It returns true when origin's main is in
 // it. When it is not, the candidate is marked stale at act's attempt, so the run prepares a new candidate, and it returns
-// false. A check that cannot be made stops the release with its error, and returns false.
+// false. A check that cannot be made, once a transient transport failure of git has been retried (remoteOutput), stops
+// the release with its error, and returns false.
 func (r *Runner) verifyCandidate(
 	ctx context.Context, epic store.EpicRow, act Action, head string, at time.Time,
 ) (bool, error) {
@@ -260,7 +261,7 @@ func (r *Runner) verifyCandidate(
 	if err != nil {
 		return false, fmt.Errorf("check candidate %s of epic %s: %w", head, epic.ID, err)
 	}
-	contained, err := candidateContainsOrigin(ctx, host, epic, head)
+	contained, err := r.candidateContainsOrigin(ctx, host, epic, head)
 	if err != nil {
 		reason := fmt.Sprintf("candidate %s could not be checked against origin's main: %v", head, err)
 		if stopErr := r.store.StopRelease(ctx, epic.ID, act.Path, act.Run.Attempt, reason, at); stopErr != nil {

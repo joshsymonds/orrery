@@ -56,11 +56,11 @@ func checkMigrations(
 
 // batchMigrationsOf returns how the batch of the integrate run run, composed on base, checks its tasks' migrations: the
 // directory of goose migrations the project file at base declares (enginehost.ReadProjectMigrations), and origin's
-// commit, fetched from origin's default branch into the run's own origin ref (fetchOrigin) for at most
-// batchOriginLimit. The declaration is read at base, so a repository that declares no migrations never reads origin,
-// and its check has no directory. A read of origin that fails checks nothing: the batch composes without the check,
-// the reason is recorded as Unread and logged, and the release checks the candidate against origin again. A
-// declaration that does not parse is an error.
+// commit, fetched from origin's default branch into the run's own origin ref (fetchOrigin, which retries a transient
+// transport failure of git) for at most batchOriginLimit. The declaration is read at base, so a repository that
+// declares no migrations never reads origin, and its check has no directory. A read of origin that fails checks
+// nothing: the batch composes without the check, the reason is recorded as Unread and logged, and the release checks
+// the candidate against origin again. A declaration that does not parse is an error.
 func (r *Runner) batchMigrationsOf(
 	ctx context.Context, host hostexec.Host, epic store.EpicRow, run store.NodeRun, base string,
 ) (batchMigrations, error) {
@@ -74,7 +74,7 @@ func (r *Runner) batchMigrationsOf(
 	readCtx, cancel := context.WithTimeout(ctx, batchOriginLimit)
 	defer cancel()
 	ref := fmt.Sprintf("refs/orrery/%s/integrate/%s-%d-origin", build.Slug(epic.ID), run.ID, run.Attempt)
-	_, origin, err := fetchOrigin(readCtx, host, epic, ref)
+	_, origin, err := r.fetchOrigin(readCtx, host, epic, ref)
 	if err != nil {
 		r.logger.WarnContext(ctx, "batch migrations not checked: origin's main was not read", "epic", epic.ID,
 			"node", run.Path, "err", err)

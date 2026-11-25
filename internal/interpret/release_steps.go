@@ -314,7 +314,7 @@ func removeReleaseWorktree(ctx context.Context, host hostexec.Host, epic store.E
 func (r *Runner) staleFirstStep(
 	ctx context.Context, host hostexec.Host, epic store.EpicRow, act Action, start, reason string, at time.Time,
 ) (string, bool, error) {
-	contained, failure := originHeld(ctx, host, epic, start)
+	contained, failure := r.originHeld(ctx, host, epic, start)
 	switch {
 	case failure != "":
 		return reason + "; origin's main could not be checked against the step's start: " + failure, false, nil
@@ -330,8 +330,10 @@ func (r *Runner) staleFirstStep(
 
 // originHeld reports whether origin's current main is in start (candidateContainsOrigin), or why that could not be
 // checked, which is "" when it could.
-func originHeld(ctx context.Context, host hostexec.Host, epic store.EpicRow, start string) (bool, string) {
-	contained, err := candidateContainsOrigin(ctx, host, epic, start)
+func (r *Runner) originHeld(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, start string,
+) (bool, string) {
+	contained, err := r.candidateContainsOrigin(ctx, host, epic, start)
 	if err != nil {
 		return false, err.Error()
 	}

@@ -23,6 +23,67 @@ const releaseRemote = "origin"
 // a transport it started that outlives it cannot hold its output open.
 const remoteKillGrace = 2 * time.Second
 
+// remoteTries is how many times a git command that reads origin is run while it fails with a transient transport
+// failure (transientGit): the first run and three retries.
+const remoteTries = 4
+
+// remoteBackoff is how long the first retry of a git command that reads origin waits after a transient transport
+// failure. Each later retry waits twice as long as the one before it.
+const remoteBackoff = time.Second
+
+// transientGitFailures returns the texts, lowercased, of git's transport failures that a later run can clear: a
+// protocol stream or pack cut short, a connection dropped, reset or timed out, and a name lookup that failed for now.
+func transientGitFailures() []string {
+	return []string{
+		"expected flush",
+		"early eof",
+		"the remote end hung up unexpectedly",
+		"rpc failed",
+		"connection reset",
+		"connection timed out",
+		"operation timed out",
+		"connection closed by",
+		"unexpected disconnect",
+		"broken pipe",
+		"invalid index-pack output",
+		"temporary failure in name resolution",
+		"http/2 stream",
+		"tls connection was non-properly terminated",
+	}
+}
+
+// lastingGitFailures returns the texts, lowercased, of git's failures that no later run clears: a credential or host
+// key refused, and a remote or ref that does not exist. A failure that names one is never transient, whatever else it
+// names.
+func lastingGitFailures() []string {
+	return []string{
+		"permission denied",
+		"authentication failed",
+		"could not read username",
+		"host key verification failed",
+		"repository not found",
+		"does not appear to be a git repository",
+		"couldn't find remote ref",
+	}
+}
+
+// transientGit reports whether err, the failure of a git command that reads origin, is a transient transport failure
+// that a later run can clear: its text names one of transientGitFailures and none of lastingGitFailures, ignoring case.
+func transientGit(err error) bool {
+	text := strings.ToLower(err.Error())
+	for _, lasting := range lastingGitFailures() {
+		if strings.Contains(text, lasting) {
+			return false
+		}
+	}
+	for _, transient := range transientGitFailures() {
+		if strings.Contains(text, transient) {
+			return true
+		}
+	}
+	return false
+}
+
 // The exit statuses that answer a question rather than fail. merge-base --is-ancestor exits notAncestor for a commit
 // that is not an ancestor, merge-tree --write-tree exits mergeConflict when the merge conflicts, with the conflicted
 // paths on its stdout.
@@ -85,7 +146,7 @@ func (r *Runner) decideRelease(ctx context.Context, epic store.EpicRow) (kinds.R
 	if !ok {
 		return kinds.ReleaseResult{}, fmt.Errorf("epic %s has no branch", epic.ID)
 	}
-	branch, origin, err := fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
+	branch, origin, err := r.fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
@@ -142,12 +203,14 @@ func releaseMigrations(ctx context.Context, host hostexec.Host, repo, tip, origi
 // fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the
 // commit the ref names. The default branch is the one origin's HEAD names (lsRemoteHead). A release fetches into its
 // origin ref.
-func fetchOrigin(ctx context.Context, host hostexec.Host, epic store.EpicRow, ref string) (string, string, error) {
-	branch, _, err := lsRemoteHead(ctx, host, epic.Repository)
+func (r *Runner) fetchOrigin(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, ref string,
+) (string, string, error) {
+	branch, _, err := r.lsRemoteHead(ctx, host, epic.Repository)
 	if err != nil {
 		return "", "", err
 	}
-	commit, err := fetchBranch(ctx, host, epic, branch, ref)
+	commit, err := r.fetchBranch(ctx, host, epic, branch, ref)
 	if err != nil {
 		return "", "", err
 	}
@@ -156,8 +219,8 @@ func fetchOrigin(ctx context.Context, host hostexec.Host, epic store.EpicRow, re
 
 // lsRemoteHead reads origin of repo on host with git ls-remote --symref origin HEAD (remoteOutput), and returns origin's
 // default branch, the one its HEAD names, and the commit its HEAD names. It fetches nothing.
-func lsRemoteHead(ctx context.Context, host hostexec.Host, repo string) (string, string, error) {
-	listing, err := remoteOutput(ctx, host, repo, "ls-remote", "--symref", releaseRemote, "HEAD")
+func (r *Runner) lsRemoteHead(ctx context.Context, host hostexec.Host, repo string) (string, string, error) {
+	listing, err := r.remoteOutput(ctx, host, repo, "ls-remote", "--symref", releaseRemote, "HEAD")
 	if err != nil {
 		return "", "", err
 	}
@@ -174,9 +237,11 @@ func lsRemoteHead(ctx context.Context, host hostexec.Host, repo string) (string,
 
 // fetchBranch fetches branch of origin into ref of epic's repository on host (remoteOutput), and returns the commit the
 // ref names.
-func fetchBranch(ctx context.Context, host hostexec.Host, epic store.EpicRow, branch, ref string) (string, error) {
+func (r *Runner) fetchBranch(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, branch, ref string,
+) (string, error) {
 	fetchSpec := "+" + branch + ":" + ref
-	if _, err := remoteOutput(
+	if _, err := r.remoteOutput(
 		ctx,
 		host,
 		epic.Repository,
@@ -199,24 +264,49 @@ func fetchBranch(ctx context.Context, host hostexec.Host, epic store.EpicRow, br
 // remoteOutput runs git in dir on host as gitOutput does, for a command that reads origin. The run is a Remote one: git
 // never prompts for a username or password, so it fails where it would wait on a prompt, and it runs in a process group
 // of its own, which ctx's end kills whole, so the transport git started is stopped with it. It is waited for at most
-// remoteKillGrace after that.
-func remoteOutput(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
-	out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args, Remote: true, WaitDelay: remoteKillGrace})
-	if err != nil {
-		return "", fmt.Errorf("%w", err)
+// remoteKillGrace after that. A run that fails with a transient transport failure (transientGit) is run again, after
+// remoteBackoff and then twice as long before each later retry, until it has been run remoteTries times, so a dropped
+// connection does not stop the release that reads origin. The waits are on the Runner's afterFunc. Any other failure is
+// returned at once. The last transient failure is returned with how many times the command ran, as is a transient one
+// once ctx has ended.
+func (r *Runner) remoteOutput(ctx context.Context, host hostexec.Host, dir string, args ...string) (string, error) {
+	wait := remoteBackoff
+	for run := 1; ; run++ {
+		out, err := host.Git(ctx, hostexec.GitCall{Dir: dir, Args: args, Remote: true, WaitDelay: remoteKillGrace})
+		if err == nil {
+			return string(out), nil
+		}
+		if !transientGit(err) {
+			return "", fmt.Errorf("%w", err)
+		}
+		if run == remoteTries || !r.waitFor(ctx, wait) {
+			return "", fmt.Errorf("%w (run %d times)", err, run)
+		}
+		wait *= 2
 	}
-	return string(out), nil
+}
+
+// waitFor waits d on the Runner's afterFunc, and reports whether d passed before ctx ended.
+func (r *Runner) waitFor(ctx context.Context, d time.Duration) bool {
+	passed := make(chan struct{})
+	r.afterFunc(d, func() { close(passed) })
+	select {
+	case <-passed:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // candidateContainsOrigin reports whether origin's current main is in candidate, which is to say an ancestor of it or the
 // commit itself. It fetches origin first, as a prepare does, so the answer is for origin as it is now.
-func candidateContainsOrigin(
+func (r *Runner) candidateContainsOrigin(
 	ctx context.Context,
 	host hostexec.Host,
 	epic store.EpicRow,
 	candidate string,
 ) (bool, error) {
-	_, origin, err := fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
+	_, origin, err := r.fetchOrigin(ctx, host, epic, releaseRef(epic, "origin"))
 	if err != nil {
 		return false, err
 	}
