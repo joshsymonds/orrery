@@ -26,8 +26,8 @@ func accountRegistry(injectUpstream string) llmroutes.Registry {
 				Model: "example-model", APIKeyEnvFile: exampleBravoKeyEnv,
 			},
 			{
-				ID: "charlie", AuthMode: llmroutes.AuthSigV4, Model: bedrockModel,
-				AWSProfile: bedrockProfile, AWSRegion: bedrockRegion,
+				ID: "charlie", AuthMode: llmroutes.AuthSigV4,
+				AWSProfile: bedrockProfile, AWSRegion: bedrockRegion, ModelMapEnvFile: bedrockMapEnv,
 			},
 		},
 		Contexts: []llmroutes.Context{{
@@ -44,6 +44,7 @@ func newAccountGateway(t *testing.T, injectUpstream, bedrockEndpoint string, log
 	t.Helper()
 
 	env := seatEnv(t)
+	env[bedrockMapEnv] = writeModelsFile(t, `{"model-two":"`+bedrockModel+`"}`)
 	gw, err := gateway.New(gateway.Config{
 		Routes: fakeRoutes{snapshot: store.RoutesSnapshot{
 			Routes: accountRegistry(injectUpstream),

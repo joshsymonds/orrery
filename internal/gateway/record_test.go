@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -851,4 +852,58 @@ func TestGatewayLedgerLongAnswerIsServedWhole(t *testing.T) {
 		t.Errorf("caller got %d bytes; want the whole %d-byte answer", rec.Body.Len(), len(long))
 	}
 	requireOneStartAndFinish(t, recorder)
+}
+
+// compressingAnswer answers as ledgerAnswer does with body, compressed with gzip whenever the request's Accept-Encoding
+// allows gzip, as Anthropic compresses an answer for a client that accepts it.
+func compressingAnswer(t *testing.T, body string) http.HandlerFunc {
+	t.Helper()
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			if _, err := io.WriteString(w, body); err != nil {
+				t.Errorf("write the fake Anthropic's answer: %v", err)
+			}
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		zw := gzip.NewWriter(w)
+		if _, err := io.WriteString(zw, body); err != nil {
+			t.Errorf("compress the fake Anthropic's answer: %v", err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Errorf("finish the fake Anthropic's compressed answer: %v", err)
+		}
+	}
+}
+
+// TestGatewayLedgerReadsUsageWhenTheCallerAcceptsCompression sends a request whose caller accepts gzip, deflate and
+// br, as Claude Code's does, to an upstream that compresses whenever it may. The gateway asks the upstream for an
+// uncompressed answer, so the ledger reads the answer's model and usage, and the caller gets the answer as sent.
+func TestGatewayLedgerReadsUsageWhenTheCallerAcceptsCompression(t *testing.T) {
+	t.Parallel()
+
+	recorder := &recordingLedger{}
+	fake := newFakeAnthropic(t, compressingAnswer(t, ledgerUsageAnswer))
+	gw := newLedgerGateway(t, ledgerRoutes(nil), fake.url(), recorder, newLedgerClock(), discardLogger())
+
+	req := newProxyRequest(t, http.MethodPost, "/v1/messages", ledgerBody(t, ledgerRequested, ""))
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	rec := httptest.NewRecorder()
+	gw.ServeHTTP(rec, req)
+
+	if got := onlyRequest(t, fake).header.Get("Accept-Encoding"); got != "identity" {
+		t.Errorf("upstream Accept-Encoding = %q; want identity", got)
+	}
+	if rec.Body.String() != ledgerUsageAnswer || rec.Header().Get("Content-Encoding") != "" {
+		t.Errorf("caller got %q encoded %q; want the answer uncompressed", rec.Body.String(),
+			rec.Header().Get("Content-Encoding"))
+	}
+	_, finished := requireOneStartAndFinish(t, recorder)
+	if finished.finish.ResolvedModel != ledgerModel || finished.finish.InputTokens != 1000 ||
+		finished.finish.OutputTokens != 500 {
+		t.Errorf("Finish model %q input %d output %d; want %q, 1000 and 500", finished.finish.ResolvedModel,
+			finished.finish.InputTokens, finished.finish.OutputTokens, ledgerModel)
+	}
 }

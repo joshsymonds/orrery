@@ -270,8 +270,11 @@ func (g *Gateway) send(
 	req.Method = r.Method
 	req.URL = &target
 
+	// The answer is asked for uncompressed, whatever the caller accepts, because the ledger reads its model and usage
+	// from the bytes the caller is sent, and a compressed answer names neither.
 	copyHeader(req.Header, r.Header,
-		droppedHeaders(r.Header, headerContentLength, patchbayKeyHeader, accountPinHeader))
+		droppedHeaders(r.Header, headerContentLength, headerAcceptEncoding, patchbayKeyHeader, accountPinHeader))
+	req.Header.Set(headerAcceptEncoding, encodingIdentity)
 	stripBetaHeader(req.Header, seat.StripBetas)
 	if bearer != "" {
 		applyAuth(req.Header, bearer)

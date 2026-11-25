@@ -24,8 +24,12 @@ import (
 )
 
 // The Bedrock tests serve invented seats, credentials and models. bedrockProfile is the AWS profile the sigv4 seat
-// signs with, and bedrockRegion the region it signs in. bedrockModel is the Bedrock model the seat sends to.
+// signs with, and bedrockRegion the region it signs in. bedrockModel is the Bedrock model the seat's model map sends
+// caller-model to, and bedrockMapEnv the variable that names the map's file.
 const (
+	bedrockMapEnv     = "EXAMPLE_MODEL_MAP"
+	bedrockModelMap   = `{"caller-model":"example.model-v1:0","seat-model":"example.seat-model-v2:0","unset-model":""}`
+	bedrockSeatTarget = "example.seat-model-v2:0"
 	bedrockProfile    = "example-profile"
 	bedrockRegion     = "example-region-1"
 	bedrockModel      = "example.model-v1:0"
@@ -69,23 +73,44 @@ func bedrockNoCredentials(context.Context, string) (awssig.Credentials, error) {
 	return awssig.Credentials{}, errors.New("example credential export failure")
 }
 
-// bedrockRegistry is the route registry the Bedrock tests serve. Its default context sends every request through the
-// sigv4 seat bedrock, which sends to bedrockModel in bedrockRegion, signing as bedrockProfile.
-func bedrockRegistry() llmroutes.Registry {
-	return llmroutes.Registry{
-		DefaultContext: "main",
-		Seats: []llmroutes.Seat{{
-			ID: "bedrock", AuthMode: llmroutes.AuthSigV4, Model: bedrockModel,
-			AWSProfile: bedrockProfile, AWSRegion: bedrockRegion,
-			StripBetas: []string{"example-stripped-beta"},
-		}},
-		Contexts: []llmroutes.Context{{ID: "main", DefaultSeat: "bedrock"}},
+// bedrockSeat is the sigv4 seat the Bedrock tests serve. It names no model of its own, so a request's model is looked
+// up in the model map bedrockMapEnv names, and it sends to bedrockRegion, signing as bedrockProfile.
+func bedrockSeat() llmroutes.Seat {
+	return llmroutes.Seat{
+		ID: "bedrock", AuthMode: llmroutes.AuthSigV4,
+		AWSProfile: bedrockProfile, AWSRegion: bedrockRegion, ModelMapEnvFile: bedrockMapEnv,
+		StripBetas: []string{"example-stripped-beta"},
 	}
 }
 
-// newBedrockGateway returns a loaded Gateway serving bedrockRegistry. Its Bedrock endpoint is endpoint with the region
-// appended, so a request shows which region the gateway sent it to, and it signs with creds at bedrockNow. Its log is
-// written to logger.
+// bedrockRegistry is the route registry the Bedrock tests serve. Its default context sends every request through
+// seat.
+func bedrockRegistry(seat llmroutes.Seat) llmroutes.Registry {
+	return llmroutes.Registry{
+		DefaultContext: "main",
+		Seats:          []llmroutes.Seat{seat},
+		Contexts:       []llmroutes.Context{{ID: "main", DefaultSeat: seat.ID}},
+	}
+}
+
+// bedrockMapGetenv is a Getenv under which bedrockMapEnv names a file holding bedrockModelMap.
+func bedrockMapGetenv(t *testing.T) func(string) string {
+	t.Helper()
+
+	path := writeModelsFile(t, bedrockModelMap)
+
+	return func(name string) string {
+		if name == bedrockMapEnv {
+			return path
+		}
+
+		return ""
+	}
+}
+
+// newBedrockGateway returns a loaded Gateway serving bedrockSeat, whose model map is bedrockModelMap. Its Bedrock
+// endpoint is endpoint with the region appended, so a request shows which region the gateway sent it to, and it signs
+// with creds at bedrockNow. Its log is written to logger.
 func newBedrockGateway(
 	t *testing.T,
 	endpoint string,
@@ -94,8 +119,23 @@ func newBedrockGateway(
 ) *gateway.Gateway {
 	t.Helper()
 
+	return newBedrockGatewayFor(t, endpoint, creds, logger, bedrockSeat(), bedrockMapGetenv(t))
+}
+
+// newBedrockGatewayFor is newBedrockGateway serving seat, with getenv as its Getenv.
+func newBedrockGatewayFor(
+	t *testing.T,
+	endpoint string,
+	creds func(context.Context, string) (awssig.Credentials, error),
+	logger *slog.Logger,
+	seat llmroutes.Seat,
+	getenv func(string) string,
+) *gateway.Gateway {
+	t.Helper()
+
 	gw, err := gateway.New(gateway.Config{
-		Routes:            fakeRoutes{snapshot: store.RoutesSnapshot{Routes: bedrockRegistry()}},
+		Routes:            fakeRoutes{snapshot: store.RoutesSnapshot{Routes: bedrockRegistry(seat)}},
+		Getenv:            getenv,
 		Ledger:            fakeRecorder{},
 		Clock:             bedrockClock{},
 		AnthropicUpstream: endpoint,
@@ -434,6 +474,20 @@ func TestGatewayRoutesSigV4BedrockRefusesRequests(t *testing.T) {
 			body:   `{"model":"caller-model","anthropic_beta":5,"messages":[]}`,
 			status: http.StatusBadRequest, errType: "invalid_request_error",
 		},
+		{
+			name: "no model", path: "/v1/messages", body: `{"max_tokens":16,"messages":[]}`,
+			status: http.StatusBadRequest, errType: "invalid_request_error",
+		},
+		{
+			name: "model the map has no entry for", path: "/v1/messages",
+			body:   `{"model":"other-model","max_tokens":16,"messages":[]}`,
+			status: http.StatusBadRequest, errType: "invalid_request_error",
+		},
+		{
+			name: "model the map sends nowhere", path: "/v1/messages",
+			body:   `{"model":"unset-model","max_tokens":16,"messages":[]}`,
+			status: http.StatusBadRequest, errType: "invalid_request_error",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -453,6 +507,51 @@ func TestGatewayRoutesSigV4BedrockRefusesRequests(t *testing.T) {
 			requireNoUpstream(t, fake)
 		})
 	}
+}
+
+// TestGatewayRoutesSigV4BedrockSendsTheSeatModel serves a sigv4 seat that names a model of its own. The seat's model,
+// not the one the request names, is looked up in the map, and the request is sent to the Bedrock model it maps to.
+func TestGatewayRoutesSigV4BedrockSendsTheSeatModel(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
+	seat := bedrockSeat()
+	seat.Model = "seat-model"
+	gw := newBedrockGatewayFor(t, fake.url(), bedrockCredentials, discardLogger(), seat, bedrockMapGetenv(t))
+
+	rec := postAsCaller(t, gw, "/v1/messages", bedrockCallerBody, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 for a sigv4 seat that answers", rec.Code)
+	}
+
+	want := "/" + bedrockRegion + "/model/" + bedrockSeatTarget + bedrockInvokePath
+	if got := onlyRequest(t, fake); got.path != want {
+		t.Errorf("upstream got %s; want the seat model's Bedrock target %s", got.path, want)
+	}
+}
+
+// TestGatewayRoutesSigV4BedrockRefusesAnUnreadableModelMap serves a sigv4 seat whose map variable is unset. The
+// request is refused as the gateway's own error, with the fixed message, and nothing is sent to Bedrock.
+func TestGatewayRoutesSigV4BedrockRefusesAnUnreadableModelMap(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
+	gw := newBedrockGatewayFor(t, fake.url(), bedrockCredentials, discardLogger(), bedrockSeat(),
+		func(string) string { return "" })
+
+	rec := postAsCaller(t, gw, "/v1/messages", bedrockCallerBody, nil)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500 for a model map that cannot be read", rec.Code)
+	}
+	if got := errorTypeOf(t, rec.Body.Bytes()); got != "api_error" {
+		t.Errorf("error type = %q; want api_error", got)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "the seat's model map cannot be read") ||
+		strings.Contains(body, bedrockMapEnv) {
+		t.Errorf("body = %s; want the fixed message, naming no variable", body)
+	}
+	requireNoUpstream(t, fake)
 }
 
 func TestGatewayRoutesSigV4BedrockRefusesWithoutCredentials(t *testing.T) {

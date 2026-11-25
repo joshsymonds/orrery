@@ -69,7 +69,9 @@ const (
 	msgCountTokens            = "gateway: count_tokens is not supported for Bedrock seats"
 	msgBedrockPath            = "gateway: a Bedrock seat relays only the messages path"
 	msgBedrockBody            = "gateway: a Bedrock seat needs a JSON object body"
-	msgSeatModelUnset         = "gateway: the seat names no model to send to Bedrock"
+	msgBedrockNoModel         = "gateway: the request names no model to map to a Bedrock model"
+	msgModelMapUnusable       = "gateway: the seat's model map cannot be read"
+	msgBedrockModelUnmapped   = "gateway: the model is not available on this Bedrock seat"
 	msgBetaInvalid            = "gateway: anthropic_beta must be an array of strings"
 	msgCredentialsUnavailable = "gateway: the seat's AWS credentials are unavailable"
 	msgBedrockSign            = "gateway: the Bedrock request could not be signed"
@@ -90,7 +92,7 @@ type eventTypeProbe struct {
 }
 
 // bedrock serves a request that resolves to a sigv4 seat. The request is translated into the Bedrock invocation of the
-// seat's model, signed with the seat's AWS profile and sent to the Bedrock runtime of the seat's region. A streamed
+// model bedrockTarget maps it to, signed with the seat's AWS profile and sent to the Bedrock runtime of the seat's region. A streamed
 // answer is translated back into Anthropic's SSE; any other answer is relayed as it arrived.
 func (g *Gateway) bedrock(w http.ResponseWriter, r *http.Request, seat llmroutes.Seat, body []byte) {
 	ctx := r.Context()
@@ -113,9 +115,9 @@ func (g *Gateway) bedrock(w http.ResponseWriter, r *http.Request, seat llmroutes
 		return
 	}
 
-	if seat.Model == "" {
-		g.abort(ctx, w, http.StatusInternalServerError, errorTypeAPI, msgSeatModelUnset,
-			fmt.Errorf("gateway: sigv4 seat %q names no model", seat.ID))
+	target, failure := g.bedrockTarget(seat, document)
+	if failure != nil {
+		g.abort(ctx, w, failure.status, failure.errType, failure.message, failure.err)
 		return
 	}
 
@@ -135,22 +137,63 @@ func (g *Gateway) bedrock(w http.ResponseWriter, r *http.Request, seat llmroutes
 		return
 	}
 
-	g.bedrockExchange(w, r, seat, streamed, payload)
+	g.bedrockExchange(w, r, seat, target, streamed, payload)
 }
 
-// bedrockExchange signs the translated payload with the seat's AWS credentials, sends it to the seat's Bedrock runtime
-// and answers the caller with what came back. The request is built from the caller's headers without the caller's own
+// bedrockTarget is the Bedrock model a request on a sigv4 seat is sent to: the seat's model when it names one, and
+// otherwise the model the request names, looked up in the seat's model map. The map is read per request, so the
+// answer follows the file as it stands now. A request that names no model, or one the map has no entry for, is the
+// caller's error; a map that cannot be read is the gateway's.
+func (g *Gateway) bedrockTarget(seat llmroutes.Seat, document map[string]json.RawMessage) (string, *rewriteFailure) {
+	model := seat.Model
+	if model == "" {
+		if raw, found := document[fieldModel]; found {
+			if named, ok := decodeString(raw); ok {
+				model = named
+			}
+		}
+	}
+	if model == "" {
+		return "", &rewriteFailure{
+			status: http.StatusBadRequest, errType: errorTypeInvalidRequest, message: msgBedrockNoModel,
+			err: fmt.Errorf("gateway: a request on sigv4 seat %q names no model to map", seat.ID),
+		}
+	}
+
+	mapping, err := g.readModelMap(seat.ModelMapEnvFile)
+	if err != nil {
+		return "", &rewriteFailure{
+			status: http.StatusInternalServerError, errType: errorTypeAPI, message: msgModelMapUnusable,
+			err: fmt.Errorf("gateway: sigv4 seat %q: %w", seat.ID, err),
+		}
+	}
+
+	target := mapping[model]
+	if target == "" {
+		return "", &rewriteFailure{
+			status: http.StatusBadRequest, errType: errorTypeInvalidRequest, message: msgBedrockModelUnmapped,
+			err: fmt.Errorf("gateway: model %q has no entry in the model map of sigv4 seat %q", model, seat.ID),
+		}
+	}
+
+	return target, nil
+}
+
+// bedrockExchange signs the translated payload with the seat's AWS credentials, sends it to target, the Bedrock model
+// in the seat's Bedrock runtime, and answers the caller with what came back. The request is built from the caller's headers without the caller's own
 // credentials and the caller key, so neither reaches Bedrock.
 func (g *Gateway) bedrockExchange(
 	w http.ResponseWriter,
 	r *http.Request,
 	seat llmroutes.Seat,
+	target string,
 	streamed bool,
 	payload []byte,
 ) {
 	ctx := r.Context()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bedrockURL(seat, streamed), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.bedrockURL(seat.AWSRegion, target, streamed),
+		bytes.NewReader(payload))
 	if err != nil {
 		g.abort(ctx, w, http.StatusInternalServerError, errorTypeAPI, msgRequestBuild,
 			fmt.Errorf("gateway: build bedrock request: %w", err))
@@ -201,16 +244,16 @@ func (g *Gateway) bedrockExchange(
 	g.relay(ctx, w, resp)
 }
 
-// bedrockURL is the Bedrock invocation of the seat's model, streamed or not, at the Bedrock runtime the seat's region
+// bedrockURL is the Bedrock invocation of target, a Bedrock model id, streamed or not, at the Bedrock runtime region
 // resolves to. The model id is escaped as one path segment, since a Bedrock model id carries colons.
-func (g *Gateway) bedrockURL(seat llmroutes.Seat, streamed bool) string {
+func (g *Gateway) bedrockURL(region, target string, streamed bool) string {
 	suffix := invokeSuffix
 	if streamed {
 		suffix = invokeStreamSuffix
 	}
 
-	return strings.TrimSuffix(g.bedrockBase(seat.AWSRegion), "/") +
-		invokePrefix + awssig.EscapePathSegment(seat.Model) + suffix
+	return strings.TrimSuffix(g.bedrockBase(region), "/") +
+		invokePrefix + awssig.EscapePathSegment(target) + suffix
 }
 
 // bedrockBase is the base URL of the Bedrock runtime in region: the answer of the Config's BedrockEndpoint, or the AWS

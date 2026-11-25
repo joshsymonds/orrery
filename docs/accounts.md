@@ -82,7 +82,7 @@ A field a mode does not take must be empty, `false` or `0` when a registry is re
 What the fields mean:
 
 - **upstream**: the URL a seat's requests are sent to.
-- **model**: the model the seat sends for. On an inject seat it is the model the request is rewritten to, and it is required on an inject seat that is a subagent destination.
+- **model**: the model the seat sends for. On an inject seat it is the model the request is rewritten to, and it is required on an inject seat that is a subagent destination. On a sigv4 seat it is the model looked up in the model map in place of the one the request names.
 - **cache_ttl**: the prompt-cache lifetime a forward seat asks for, `1h` or empty.
 - **max_input_tokens**: the largest input the seat sends, in tokens. `0` when none is set. Never negative.
 - **strict_structured_output**: `true` when a forward seat enforces strict structured output.
@@ -93,7 +93,7 @@ What the fields mean:
 - **strip_cache_control**: `true` removes the cache-control markers from an inject seat's requests.
 - **aws_profile**: the AWS profile a sigv4 seat signs with. Required on sigv4. Lowercase letters, digits, dashes, dots and underscores only. An example is `example-profile`.
 - **aws_region**: the AWS region a sigv4 seat signs for. Required on sigv4. Lowercase letters, digits and dashes only.
-- **model_map_env_file**: the env file that maps a sigv4 seat's model names. Required on sigv4.
+- **model_map_env_file**: the name of the environment variable whose value is the path of a JSON file mapping the model ids a caller may name to Bedrock model ids. Required on sigv4. A sigv4 seat sends a request to the Bedrock model the map gives for the seat's model, or for the request's model when the seat names none; a request with no model, or a model the map has no entry for, is refused (`gateway.Gateway.bedrockTarget`).
 - **strip_betas**: the anthropic-beta flags a sigv4 seat removes from its requests. A JSON array in the store, `[]` when it removes none.
 
 Examples, with invented hosts and names:
