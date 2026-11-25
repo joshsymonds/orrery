@@ -225,6 +225,10 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .uv .bar { justify-self: stretch; height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
 .uv .bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
 .urs { display: flex; align-items: center; justify-content: flex-end; color: var(--o-ink-3); white-space: nowrap; }
+.urs.stale { color: var(--o-ink-2); }
+.limg { display: inline-grid; place-items: center; flex: none; width: var(--o-space-12); height: var(--o-space-12); }
+.limg .glyph { width: var(--o-space-12); height: var(--o-space-12); }
+.urow .note { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; color: var(--o-ink-3); white-space: nowrap; }
 
 .blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
 .blank .t-body { color: var(--o-ink-2); }
