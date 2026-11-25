@@ -162,6 +162,11 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicSession as UsageEpicSessionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicTotalsRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSessionTotal as UsageSessionTotalProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSessionTotalsRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
@@ -988,6 +993,30 @@ data class EpicDetail(
     val supersededBy: String = "",
 )
 
+/**
+ * The requests and tokens one session made for one [model] and [agentType], empty when the session has no agent type.
+ * [billedNanoUsd] and [listNanoUsd] are costs in nano US dollars. Each list cost of a kind is null where the proto field
+ * is unset, which means the ledger does not know that kind's cost.
+ */
+data class UsageTotal(
+    val model: String,
+    val agentType: String,
+    val requests: Long,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val cacheReadTokens: Long,
+    val cacheWriteTokens: Long,
+    val billedNanoUsd: Long,
+    val listNanoUsd: Long,
+    val listInputNanoUsd: Long?,
+    val listOutputNanoUsd: Long?,
+    val listCacheReadNanoUsd: Long?,
+    val listCacheWriteNanoUsd: Long?,
+)
+
+/** One session of an epic and its [totals]. [shared] is true for the epic's steerer, whose spend is not in the epic's total. */
+data class EpicUsageSession(val session: String, val shared: Boolean, val totals: List<UsageTotal>)
+
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
     data object Landed : StepCallResult
@@ -1095,6 +1124,7 @@ class OrreryClient(
         val pools = PoolsClient(protocol)
         val accounts = AccountsClient(protocol)
         val routes = RoutesClient(protocol)
+        val usage = UsageClient(protocol)
     }
 
     /**
@@ -1480,6 +1510,23 @@ class OrreryClient(
     fun freeMember(member: String) {
         val request = PoolsFreeRequest.newBuilder().setMember(member).build()
         call(write = true) { standard.pools.free(request, CLIENT_HEADERS) }
+    }
+
+    /** The totals of each model and agent type [session] made, read on its own. A failed read throws, as [llmAccounts] does. */
+    fun sessionUsage(session: String): List<UsageTotal> {
+        val request = UsageSessionTotalsRequest.newBuilder().setSession(session).build()
+        val response = call(write = false) { standard.usage.sessionTotals(request, CLIENT_HEADERS) }
+        return response.totalsList.map { it.toUsageTotal() }
+    }
+
+    /**
+     * The sessions of [epic], its steps and its steerer marked shared, each with its totals, in one ledger read. A failed
+     * read throws, as [llmAccounts] does.
+     */
+    fun epicUsage(epic: String): List<EpicUsageSession> {
+        val request = UsageEpicTotalsRequest.newBuilder().setEpic(epic).build()
+        val response = call(write = false) { standard.usage.epicTotals(request, CLIENT_HEADERS) }
+        return response.sessionsList.map { it.toEpicUsageSession() }
     }
 
     /** The LLM accounts the server stores, then the route registry. A failed read throws, as [pools] does. */
@@ -2386,6 +2433,26 @@ class OrreryClient(
 
     private fun AccountProto.toLlmAccount(): LlmAccount =
         LlmAccount(id = id, name = name, provider = provider, plan = plan, fingerprint = fingerprint, created = created)
+
+    private fun UsageSessionTotalProto.toUsageTotal(): UsageTotal =
+        UsageTotal(
+            model = model,
+            agentType = agentType,
+            requests = requests,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            cacheReadTokens = cacheReadTokens,
+            cacheWriteTokens = cacheWriteTokens,
+            billedNanoUsd = billedCostNanoUsd,
+            listNanoUsd = listCostNanoUsd,
+            listInputNanoUsd = if (hasListInputNanoUsd()) listInputNanoUsd else null,
+            listOutputNanoUsd = if (hasListOutputNanoUsd()) listOutputNanoUsd else null,
+            listCacheReadNanoUsd = if (hasListCacheReadNanoUsd()) listCacheReadNanoUsd else null,
+            listCacheWriteNanoUsd = if (hasListCacheWriteNanoUsd()) listCacheWriteNanoUsd else null,
+        )
+
+    private fun UsageEpicSessionProto.toEpicUsageSession(): EpicUsageSession =
+        EpicUsageSession(session = session, shared = shared, totals = totalsList.map { it.toUsageTotal() })
 
     private fun RouteRegistryProto.toLlmRoutes(): LlmRoutes =
         LlmRoutes(
