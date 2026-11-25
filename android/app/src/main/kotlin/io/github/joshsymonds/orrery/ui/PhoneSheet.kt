@@ -66,6 +66,9 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
+import io.github.joshsymonds.orrery.ui.theme.foldFadeSpec
+import io.github.joshsymonds.orrery.ui.theme.riseFadeSpec
+import io.github.joshsymonds.orrery.ui.theme.riseSpec
 import io.github.joshsymonds.orrery.ui.theme.spec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -153,8 +156,8 @@ internal data class SheetPose(val scaleY: Float, val offsetY: Dp, val alpha: Flo
         /** Where round 8's sheet rests on touch: full height, in its place, and fully opaque. */
         val REST = SheetPose(1f, 0.dp, 1f)
 
-        /** Where round 8's sheet folds when it leaves: half height, lifted by one drill distance, and transparent. */
-        val FOLDED = SheetPose(0.5f, -OrreryTokens.Motion.Distance.drill, 0f)
+        /** Where round 8's sheet folds when it leaves: 0.15 of its height, lifted by one rise distance, and transparent. */
+        val FOLDED = SheetPose(0.15f, -OrreryTokens.Motion.Distance.rise, 0f)
     }
 }
 
@@ -197,13 +200,15 @@ private val HEAD_INSET: Dp = OrreryTokens.Space.twelve + OrreryTokens.Space.two
  * the name, and the close control at its right end, over the state line when the head has one. The [body] of the subject
  * fills the rest of the sheet. The close control and the back gesture call [onClose] while the sheet is open.
  *
- * [view] is what the sheet is open on, null while it is closed. Opening unfolds the sheet down from the band, from
- * [SheetPose.FOLDED] to [SheetPose.REST] over [Move.DRILL], and fades the band and the bracket in over [Move.STATE].
- * Closing folds it back into the band over [Move.LEAVE] and fades them out, and the sheet leaves the composition only once
- * that is done. A switch of subject keeps the sheet and its band at rest: the old body fades out over [Move.LEAVE] and the
- * new one in over [Move.STATE], where it stands. With [animated] false, which is the system's animator duration scale at
- * 0, each of these is a plain swap to the state after. [onDrawn] is told whether the sheet is drawn, which stays true while a
- * close folds it away, so a host can keep what the sheet covers out of the composition until it has gone.
+ * [view] is what the sheet is open on, null while it is closed. Opening holds the sheet at [SheetPose.FOLDED] for
+ * [OrreryTokens.Motion.Delay.rise], then unfolds it to [SheetPose.REST] over [Move.RISE], its opacity solid 30% of the way
+ * through, and fades the band and the bracket in over [Move.STATE]. Closing folds the sheet back into the band over
+ * [Move.FOLD], its opacity solid until 70% of the way through, and fades the band and the bracket out over [Move.LEAVE];
+ * the sheet leaves the composition only once the fold is done. A switch of subject keeps the sheet and its band at rest:
+ * the old body fades out over [Move.LEAVE] and the new one in over [Move.STATE], where it stands. With [animated] false,
+ * which is the system's animator duration scale at 0, each of these is a plain swap to the state after. [onDrawn] is told
+ * whether the sheet is drawn, which stays true while a close folds it away, so a host can keep what the sheet covers out of
+ * the composition until it has gone.
  */
 @Composable
 internal fun PhoneSheet(
@@ -219,10 +224,11 @@ internal fun PhoneSheet(
     // The view the sheet was last open on, which it draws while a close folds it away.
     val hold = remember { SheetHold() }
     if (view != null) hold.view = view
-    // The unfold runs from folded (0) to rest (1), and the fade of the band and the bracket with it. Both start folded,
-    // so the first open unfolds.
+    // The unfold runs from folded (0) to rest (1), and the fade of the band and the bracket with it. The sheet's opacity
+    // runs on its own clock, the sheet's alpha, which the pose carries. All start folded, so the first open unfolds.
     val unfoldAnim = remember { Animatable(0f) }
     val fadeAnim = remember { Animatable(0f) }
+    val alphaAnim = remember { Animatable(0f) }
     // Whether the sheet is drawn: a close keeps it until it has folded away.
     var present by remember { mutableStateOf(open) }
     BackHandler(enabled = open, onBack = onClose)
@@ -231,11 +237,13 @@ internal fun PhoneSheet(
         if (open) {
             present = true
             launch { fadeAnim.animateTo(1f, Move.STATE.spec(animated)) }
-            unfoldAnim.animateTo(1f, Move.DRILL.spec(animated))
+            launch { alphaAnim.animateTo(1f, riseFadeSpec()) }
+            unfoldAnim.animateTo(1f, riseSpec(animated))
         } else if (present) {
             coroutineScope {
                 launch { fadeAnim.animateTo(0f, Move.LEAVE.spec(animated)) }
-                unfoldAnim.animateTo(0f, Move.LEAVE.spec(animated))
+                launch { alphaAnim.animateTo(0f, foldFadeSpec()) }
+                unfoldAnim.animateTo(0f, Move.FOLD.spec(animated))
             }
             present = false
         }
@@ -249,7 +257,8 @@ internal fun PhoneSheet(
     // Read here, so each frame of the motion draws the values the sheet is at; with animations off, the target itself.
     val progress = if (animated) unfoldAnim.value else if (open) 1f else 0f
     val fading = if (animated) fadeAnim.value else if (open) 1f else 0f
-    val pose = poseAt(progress)
+    val opacity = if (animated) alphaAnim.value else if (open) 1f else 0f
+    val pose = poseAt(progress, opacity)
     val head = shown.head
     val upClick: (() -> Unit)? = shown.up?.let { link -> { onUp(link) } }
     Column(modifier = modifier) {
@@ -378,14 +387,15 @@ private class SheetHold {
     var view: SheetView? = null
 }
 
-// The pose the sheet is at [progress] along its unfold: folded at 0, at rest at 1, and between the two as it moves.
-private fun poseAt(progress: Float): SheetPose {
+// The pose the sheet is at [progress] along its unfold, at [opacity]: folded at 0, at rest at 1, and between the two as it
+// moves. The opacity is the sheet's own, which follows the clock and not the unfold's progress.
+private fun poseAt(progress: Float, opacity: Float): SheetPose {
     val folded = SheetPose.FOLDED
     val rest = SheetPose.REST
     return SheetPose(
         scaleY = folded.scaleY + (rest.scaleY - folded.scaleY) * progress,
         offsetY = folded.offsetY + (rest.offsetY - folded.offsetY) * progress,
-        alpha = folded.alpha + (rest.alpha - folded.alpha) * progress,
+        alpha = opacity,
     )
 }
 
