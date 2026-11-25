@@ -419,3 +419,41 @@ func parkChainCallsDownAndUp() migrationCheck {
 		},
 	}
 }
+
+// TestParkChainOwnerRetryRerunsTheRunOfANodeParkSentLater checks that a node park sent to the owner after its park, by the
+// planner's park_recurs or by an action refused before the call, opens a question that names the parked run: the
+// owner's retry answer reruns the run at its next attempt, as the answer to a question opened with the park does.
+func TestParkChainOwnerRetryRerunsTheRunOfANodeParkSentLater(t *testing.T) {
+	t.Parallel()
+	cases := map[string]EpicActionInput{
+		"recurs call":          {Kind: ActionParkRecurs, Reason: "the verdict is missing a third time"},
+		"action before a call": retryCheck("the check runs a third time"),
+	}
+	for name, sending := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := openEpicStore(t)
+			createEpic(t, s, fullEpic(claimEpic))
+			startCheckRun(t, s)
+			parkCheckRun(t, s, 1, "no verdict at attempt 1")
+			answerPark(t, s, retryCheck("the verdict file was missing"))
+			parkCheckRun(t, s, 2, "no verdict at attempt 2")
+			answerPark(t, s, retryCheck("the verdict file is written now"))
+			parkCheckRun(t, s, 3, "no verdict at attempt 3")
+			answerPark(t, s, sending)
+
+			questions := questionsOf(t, s)
+			if len(questions) != 1 || closeRow(t, s, claimEpic).ParkClass != ParkClassRetryBound {
+				t.Fatalf("questions = %+v, want the one owner question of the retry-bound park", questions)
+			}
+			if _, err := s.AnswerQuestion(
+				context.Background(), claimEpic, "D-retry", "", questions[0].Seq, ChoiceRetry, Maker{}, closeAt(),
+			); err != nil {
+				t.Fatalf("AnswerQuestion retry: %v", err)
+			}
+			if run := runAtPath(t, s, retryBoundCheck); run.State != NodeRunning || run.Attempt != 4 {
+				t.Errorf("check run after the owner's retry = %+v, want running at attempt 4", run)
+			}
+		})
+	}
+}

@@ -90,8 +90,9 @@ func (s *Store) ParkNode(
 }
 
 // parkNodeRun parks the running run at path of epic at attempt with outcome and output, and parks epic with reason as
-// class, in the caller's write. When the park opens a park question, as a question class does and a planner park at the
-// bound of its chain does, the question names the run.
+// class, in the caller's write. A question class's park question names the run. A planner park's row has the run's path
+// as its subject, so the question boundPark opens when it sends the park to the owner, in this write or a later one,
+// names the run.
 func parkNodeRun(
 	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, outcome, output string,
 	class ParkClass, reason string, at time.Time,
@@ -101,7 +102,7 @@ func parkNodeRun(
 		return err
 	}
 	question, err := parkEpicQuestion(ctx, queries, epic, class, path, reason, at)
-	if err != nil || question == 0 {
+	if err != nil || question == 0 || !class.OpensQuestion() {
 		return err
 	}
 	return insertParkQuestionRun(ctx, queries, epic, question, path)

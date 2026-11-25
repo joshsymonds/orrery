@@ -248,7 +248,9 @@ func streakNote(streak int) string {
 // boundPark stores park as the retry_bound park of epic in the caller's write, and stores held, the seq of the park's
 // row, as the owner's. It opens the park question a question park opens, whose text is boundQuestionText: park, then
 // note when it is not empty, then the reasons of the parks of chain before held, then each action taken or refused on
-// chain. The question's text is also added as a tell. boundPark returns the seq of the question.
+// chain. A node park's question names the run its row's subject is, so a retry of the question reruns that run, as a
+// question park of a run does (parkNodeRun). The question's text is also added as a tell. boundPark returns the seq of
+// the question.
 func boundPark(
 	ctx context.Context, queries *sqlcgen.Queries, epic, park string, chain, held int64, note string, at time.Time,
 ) (int64, error) {
@@ -266,9 +268,13 @@ func boundPark(
 		return 0, fmt.Errorf("list parks of chain %d of epic %s: %w", chain, epic, err)
 	}
 	var earlier []string
+	var row sqlcgen.EpicPark
 	for _, stored := range parks {
 		if stored.Seq < held {
 			earlier = append(earlier, stored.Reason)
+		}
+		if stored.Seq == held {
+			row = stored
 		}
 	}
 	actions, err := chainActions(ctx, queries, epic, chain)
@@ -284,6 +290,11 @@ func boundPark(
 		parkQuestion(text, head.Phase == phaseMetAtBase))
 	if err != nil {
 		return 0, err
+	}
+	if row.Class == string(ParkClassNode) && row.Subject != "" {
+		if linkErr := insertParkQuestionRun(ctx, queries, epic, question, row.Subject); linkErr != nil {
+			return 0, linkErr
+		}
 	}
 	err = insertQuestionTell(ctx, queries, epic, text, question, at)
 	if err != nil {
