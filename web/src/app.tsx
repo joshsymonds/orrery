@@ -3520,15 +3520,17 @@ const leavingNeckSelector = '[data-held][data-move="leave"]:not(.convo-block[dat
 const columnMarkSelector = ".read[data-move]";
 const columnFadeSelector = ".read[data-move] > .reader, .read[data-move] > .send, .read[data-move] .convo-head .crumbs";
 
-// animating says whether an element under root that matches selector runs an animation now. An element with no Web Animations
-// runs none.
+// animating says whether an element under root that matches selector runs an animation now, on the element itself or on its
+// ::before or ::after, where a neck draws back. An element's own getAnimations leaves out its pseudo-elements, so the animations
+// are read from the document, each by the element it is on. A document with no Web Animations runs none.
 function animating(root: HTMLElement | null, selector: string): boolean {
-  if (root === null) {
+  if (root === null || typeof root.ownerDocument.getAnimations !== "function") {
     return false;
   }
-  return [...root.querySelectorAll<HTMLElement>(selector)].some(
-    (element) => typeof element.getAnimations === "function" && element.getAnimations().length > 0,
-  );
+  return root.ownerDocument.getAnimations().some((animation) => {
+    const target = (animation.effect as KeyframeEffect | null)?.target ?? null;
+    return target !== null && root.contains(target) && target.matches(selector);
+  });
 }
 
 // heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it, or ends it while the row

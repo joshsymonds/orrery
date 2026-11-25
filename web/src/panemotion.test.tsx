@@ -144,13 +144,15 @@ function draw(container: HTMLElement, clients: Clients, setup: Setup): Promise<v
   });
 }
 
-// runsMoves makes an element that carries a data-move run an animation, as the browser runs the one style.css draws for it. The
-// window runs no CSS animation, so a leaving card or tab stays mounted until the animationend a check dispatches ends it.
+// runsMoves makes each element that carries a data-move run the animation style.css draws for it. The document lists those
+// animations, each by the element it is on: a card, the tab and the chat column on their own element, and a neck on its ::before
+// or ::after. As in the browser, an element's own getAnimations leaves its pseudo-elements out, so a neck's draw-back is seen
+// only through the document. The window runs no CSS animation, so a leaving card or tab stays mounted until the animationend a
+// check dispatches ends it.
 function runsMoves(window: Dom): void {
-  const prototype = window.Element.prototype as unknown as { getAnimations: (this: Element) => unknown[] };
-  prototype.getAnimations = function getAnimations(this: Element): unknown[] {
-    return this.hasAttribute("data-move") ? [{}] : [];
-  };
+  const doc = window.document as unknown as { getAnimations: () => unknown[] };
+  doc.getAnimations = () =>
+    [...window.document.querySelectorAll("[data-move]")].map((element) => ({ effect: { target: element } }));
 }
 
 // reduceMotion makes the window match reduced motion, and leaves every other query to the window. App reads the query at mount.
