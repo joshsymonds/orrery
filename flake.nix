@@ -91,6 +91,17 @@
             postCheck = ''
               go test ./internal/webui
             '';
+            # The build records the commit it was built from, one line with the full commit id, or an empty file for a
+            # tree with no commit, such as a dirty one. A release's update step reads it beside a running unit's exe
+            # (releasestep.BuildCommitFile) to check that the unit runs a build that holds the released commit.
+            postInstall =
+              let
+                commit = if self ? rev then self.rev + "\n" else "";
+              in
+              ''
+                mkdir -p "$out/share/orrery"
+                printf '%s' ${pkgs.lib.escapeShellArg commit} > "$out/share/orrery/commit"
+              '';
           };
         }
       );
