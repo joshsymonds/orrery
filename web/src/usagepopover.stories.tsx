@@ -1,19 +1,22 @@
 // The stories of the usage popover: the accounts drawn at reading size over invented accounts, contexts and limit readings,
 // one story for each state a row takes, and the popover's spend foot over the fixture's invented accounts, contexts,
 // readings and seven days of seat spend, drawn with that spend and without it, as the popover draws before a Spend read
-// lands. Every story draws against a fixed clock, and changes nothing.
+// lands. The Use stories draw a row offering Use, a question asked in a row, and the words a refused move leaves in it.
+// Every story draws against a fixed clock, and changes nothing.
 
 import { create } from "@bufbuild/protobuf";
 
+import { nothingChanged } from "./accountswrite";
 import type { Stories } from "./catalog/story";
 import { accounts, registry } from "./fixtures/accounts";
 import { at } from "./fixtures/clock";
+import { createFixtureTransport } from "./fixtures/transport";
 import { usageReadings, usageSpend } from "./fixtures/usage";
 import { type Account, AccountSchema, RouteContextSchema, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
 import { UsageReadingSchema } from "./gen/orrery/v1/usage_pb";
 import { noUsage, type UsageData } from "./usagedata";
-import { bandRows, spendTotals } from "./usagemodel";
-import { UsagePopover as Popover } from "./usagepopover";
+import { bandRows, movingContexts, spendTotals } from "./usagemodel";
+import { endWords, type UseCalls, type UseState, UsagePopover as Popover } from "./usagepopover";
 
 const noop = () => undefined;
 
@@ -95,6 +98,39 @@ const fixtureRows = bandRows({ ...noUsage, accounts, registry, readings: usageRe
 // spend is the fixture's seven days of seat spend, totalled as the popover's foot totals it.
 const spend = spendTotals(usageSpend, registry);
 
+// fixtureRoutes is the fixture's routes client. The Use stories draw with it, and no story presses a move, so no call reaches it.
+const fixtureRoutes = createFixtureTransport().clients.routes;
+
+// useCalls are the Use calls a story draws with: the fixture's routes, over the registry given, and no press does anything.
+function useCalls(registryHeld: UseCalls["registry"]): UseCalls {
+  return { routes: fixtureRoutes, registry: registryHeld, onDone: noop, onRead: noop };
+}
+
+// asking is the question Use asks in max-2's row over shared: personal and tiltyard, both on max-1, move to max-2.
+const asking: UseState = {
+  kind: "asking",
+  account: "max-2",
+  plan: movingContexts(shared.registry, "max-2"),
+  moving: false,
+};
+
+// refused is the words a move to max-2 leaves in its row when the call for personal is refused and nothing moved.
+const refused: UseState = {
+  kind: "words",
+  account: "max-2",
+  words: endWords(
+    {
+      kind: "partial",
+      reason: `context: unknown id ${nothingChanged}`,
+      moved: [],
+      notMoved: movingContexts(shared.registry, "max-2"),
+    },
+    false,
+    "max-2",
+    shared.accounts,
+  ),
+};
+
 export const UsagePopover: Stories = {
   ok: () => <Popover rows={bandRows(shared, now)} now={now} onAccounts={noop} onClose={noop} />,
   "warn-and-crit": () => <Popover rows={bandRows(warm, now)} now={now} onAccounts={noop} onClose={noop} />,
@@ -102,4 +138,27 @@ export const UsagePopover: Stories = {
   "no-reading": () => <Popover rows={bandRows(bare, now)} now={now} onAccounts={noop} onClose={noop} />,
   "with-spend": () => <Popover rows={fixtureRows} now={fixtureNow} spend={spend} onAccounts={noop} onClose={noop} />,
   "before-spend": () => <Popover rows={fixtureRows} now={fixtureNow} spend={null} onAccounts={noop} onClose={noop} />,
+  use: () => (
+    <Popover rows={bandRows(shared, now)} now={now} use={useCalls(shared.registry)} onAccounts={noop} onClose={noop} />
+  ),
+  asking: () => (
+    <Popover
+      rows={bandRows(shared, now)}
+      now={now}
+      use={useCalls(shared.registry)}
+      initialUse={asking}
+      onAccounts={noop}
+      onClose={noop}
+    />
+  ),
+  refused: () => (
+    <Popover
+      rows={bandRows(shared, now)}
+      now={now}
+      use={useCalls(shared.registry)}
+      initialUse={refused}
+      onAccounts={noop}
+      onClose={noop}
+    />
+  ),
 };
