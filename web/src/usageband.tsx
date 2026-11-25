@@ -82,7 +82,7 @@ function windowCell(draw: WindowDraw | null, hue: (typeof windowHues)[number]): 
 // the table, a line totals the seven days' spend: what the seats billed, and what they list at. The line is not drawn
 // while spend is null, which it is until a Spend read lands. A press on the band is onOpen; the gear opens the accounts
 // and routes page through onAccounts. popover, when given, is the usage popover, which lies beside the band at its top
-// right.
+// right, or under 760px is a sheet over the page.
 export function UsageBand({
   rows,
   now,
