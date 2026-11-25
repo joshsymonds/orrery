@@ -27,7 +27,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.Lifecycle
@@ -35,6 +37,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.EpicUsageSession
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepCallResult
@@ -76,9 +79,10 @@ class EpicOpening(val section: String)
 /**
  * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. The
  * summary carries the contract and steered doors; the track, Now (its sentence, what asks, and its running steps), what
- * just happened, the tasks (chart then table), the requirements, the review, the release and the report follow. The
- * title shows the state and the blocker pills, with no commands. A command is in the foot's More sheet, and Stop asks
- * first; the sheet also steers a live orreryd epic from another conversation, and the foot is the ended bar while its
+ * just happened, the tasks (chart then table), the requirements, the review, the release and the report follow, then the
+ * Usage section, read when the epic loads and again as its ended steps grow. The title shows the state and the blocker
+ * pills, with no commands. A command is in the foot's More sheet, and Stop asks first; the sheet also steers a live
+ * orreryd epic from another conversation, and the foot is the ended bar while its
  * steering has ended. A command that did not land shows one line under the title until a command lands. [onTalk] is
  * given the steering session's id when Talk or the steered door is tapped, and [onSteered] each steering the foot
  * settles on. [listState] is the list's state, so the caller keeps its scroll; [openAt] scrolls it to its section when
@@ -177,6 +181,23 @@ fun EpicScreen(
 
     val current = load
     val detail = (current as? EpicLoad.Loaded)?.detail
+    // The Usage section's read. It is made once the epic has loaded, and again each time the count of its ended steps grows;
+    // a reload that ends no step reads nothing. A failed read, or one that answers no session, draws no section.
+    val usageRead = remember(client, epicId) { UsageRead() }
+    val endedSteps = detail?.epic?.endedSteps
+    LaunchedEffect(client, epicId, endedSteps) {
+        val ended = endedSteps ?: return@LaunchedEffect
+        val last = usageRead.endedAt
+        if (last != null && ended <= last) return@LaunchedEffect
+        usageRead.sessions = try {
+            withContext(Dispatchers.IO) { client.epicUsage(epicId) }
+        } catch (error: IOException) {
+            emptyList()
+        }
+        usageRead.endedAt = ended
+    }
+    // A window under the phone breakpoint is the phone, whose usage rows have no bar.
+    val narrow = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } < OrreryTokens.Layout.breakpointPhone
     // The ending this screen marks seen, 0 for none. A reload that still shows the same unseen ending keeps the same key,
     // so it does not start the dwell again.
     val unseenEnding = detail?.epic?.unseenEndingAt() ?: 0L
@@ -258,6 +279,8 @@ fun EpicScreen(
                 onReleaseAnyway = { sendGaps { client.releaseEpic(epicId, emptyList()) } },
                 onClose = { kind, by -> sendGaps { client.closeEpic(epicId, kind, by) } },
                 reportOpened = reportOpened,
+                usage = usageRead.sessions,
+                narrow = narrow,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -366,6 +389,15 @@ private class NowActions(
     val stop: () -> Unit,
 )
 
+/**
+ * The Usage section's read of one epic: the sessions its latest answer named, empty for none, and the count of ended steps
+ * that read was made for, null before the first read.
+ */
+private class UsageRead {
+    var sessions by mutableStateOf<List<EpicUsageSession>>(emptyList())
+    var endedAt: Int? = null
+}
+
 /** The body of a loaded epic: one list, each section one item, drawn only when the epic reaches it. */
 @Composable
 private fun EpicBody(
@@ -387,6 +419,8 @@ private fun EpicBody(
     onReleaseAnyway: () -> Unit,
     onClose: (kind: String, by: String) -> Unit,
     reportOpened: MutableState<Boolean>,
+    usage: List<EpicUsageSession>,
+    narrow: Boolean,
     modifier: Modifier,
 ) {
     val detail = loaded.detail
@@ -406,6 +440,7 @@ private fun EpicBody(
         "review".takeIf { review != null },
         "release".takeIf { release != null },
         "report".takeIf { report != null },
+        "usage".takeIf { usage.isNotEmpty() },
     )
     // The list opens at openAt's section. With none, an epic whose Report is drawn opens at it, on the first load only.
     LaunchedEffect(openAt) {
@@ -488,6 +523,16 @@ private fun EpicBody(
                         onClose = onClose,
                     )
                 }
+            }
+        }
+        if (usage.isNotEmpty()) {
+            section("usage") {
+                EpicUsageSection(
+                    sessions = usage,
+                    steps = detail.steps,
+                    requirements = detail.requirements,
+                    narrow = narrow,
+                )
             }
         }
     }
