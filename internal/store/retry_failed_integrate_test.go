@@ -304,3 +304,49 @@ func TestRetryFailedIntegrateRerunsALateWalkStartedAfterTheSettleWalk(t *testing
 		t.Errorf("settle run state %q attempt %d, want it left ended at attempt 1", run.State, run.Attempt)
 	}
 }
+
+// TestRetryFailedIntegrateNamedByItsPathReruns checks that RetryNode naming a failed integrate run by its path, as a
+// failed node's trigger names it, reruns it as naming its node does: the run starts at its next attempt keeping its
+// revision and result, and the epic is unparked.
+func TestRetryFailedIntegrateNamedByItsPathReruns(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	failIntegrateRun(t, s, retryLatestBatch, "id-s2", "rev-1", "lint failed")
+	parkIntegrateEpic(t, s)
+
+	if err := s.RetryNode(
+		ctx,
+		integrateEpic,
+		retryLatestBatch,
+		Maker{By: MakerOwner},
+		time.Unix(1700000000, 0),
+	); err != nil {
+		t.Fatalf("RetryNode of failed integrate run %s by its path: %v", retryLatestBatch, err)
+	}
+	requireIntegrateRun(t, s, retryLatestBatch, NodeRun{
+		Path: retryLatestBatch, ID: "id-s2", Node: "integrate", Kind: "integrate", Attempt: 2,
+		Revision: "rev-1", Refs: "refs-1", Result: retryComposed,
+		State: NodeRunning, Started: integrateStartedAt(),
+	})
+	requireParkOfIntegrateEpic(t, s, "")
+}
+
+// TestRetryFailedIntegrateNamedByASupersededPathIsRefused checks that RetryNode naming an earlier failed integrate run by
+// its path, when a later run of its node failed after it, is a RefusalError naming the later run, and changes nothing.
+func TestRetryFailedIntegrateNamedByASupersededPathIsRefused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	failIntegrateRun(t, s, retryEarlierBatch, "id-s1", "rev-earlier", "earlier red")
+	failIntegrateRun(t, s, retryLatestBatch, "id-s2", "rev-1", "lint failed")
+	parkIntegrateEpic(t, s)
+
+	requireRefusal(
+		t,
+		s.RetryNode(ctx, integrateEpic, retryEarlierBatch, Maker{By: MakerOwner}, time.Unix(1700000000, 0)),
+		"integrate run "+retryEarlierBatch+" of epic "+integrateEpic+" is superseded by "+retryLatestBatch+
+			" of its node integrate",
+	)
+	requireParkOfIntegrateEpic(t, s, retryParkReason)
+}

@@ -171,11 +171,12 @@ const (
 )
 
 // RetryNode reruns node of epic under its next attempt and unparks epic, in one write. node names either a run, by the
-// path a park reason gives it, or a node, by its id. A parked run whose path is node turns running on its own.
-// Otherwise each parked run of node turns running with its outcome, output, revision, refs, refs checked, result and
-// end cleared. When node has no parked run and its latest integrate run ended failed, that run turns running with its
-// outcome, output, refs checked and end cleared, keeping its revision and result, so its work decides again on the same
-// candidate. The latest integrate run is the one in the newest settle walk of the plan (latestIntegrateRun). The park
+// path a park reason or a failed node's trigger gives it, or a node, by its id. A parked run whose path is node turns
+// running on its own. Otherwise each parked run of node turns running with its outcome, output, revision, refs, refs
+// checked, result and end cleared. When node has no parked run and its latest integrate run ended failed, that run
+// turns running with its outcome, output, refs checked and end cleared, keeping its revision and result, so its work
+// decides again on the same candidate. An integrate run named by its path is that run: it is rerun when it is its
+// node's latest and ended failed, and an earlier one is refused, naming the latest. The latest integrate run is the one in the newest settle walk of the plan (latestIntegrateRun). The park
 // ends as RetryEpic ends it, and each open park question of epic is answered retry. A node with nothing to rerun is a
 // RefusalError, and so is an epic parked for good, which changes nothing. So is the release node, which only
 // ReleaseEpic resumes: retried here, it would run while the phase stays stopped and wait for good. The write appends one
@@ -191,8 +192,8 @@ func (s *Store) RetryNode(ctx context.Context, epic, node string, maker Maker, a
 }
 
 // rerunNodeIn reruns node of epic in the caller's write, as RetryNode does. The parked run whose path is node is rerun
-// alone when there is one. Otherwise node is a node id, and its parked runs, or its latest failed integrate run, are
-// rerun.
+// alone when there is one. An integrate run whose path is node is rerun when it is its node's latest failed run.
+// Otherwise node is a node id, and its parked runs, or its latest failed integrate run, are rerun.
 func rerunNodeIn(ctx context.Context, queries *sqlcgen.Queries, epic, node string) error {
 	runs, err := readNodeRuns(ctx, queries, epic)
 	if err != nil {
@@ -211,11 +212,16 @@ func rerunNodeIn(ctx context.Context, queries *sqlcgen.Queries, epic, node strin
 	if rerun {
 		return unparkRetried(ctx, queries, epic)
 	}
+	if i := slices.IndexFunc(runs, func(run NodeRun) bool {
+		return run.Path == node && run.Kind == integrateKind
+	}); i >= 0 {
+		return retryFailedIntegrate(ctx, queries, epic, runs[i].Node, runs[i].Path, runs)
+	}
 	parked, err := retryParkedNode(ctx, queries, epic, node)
 	if err != nil || parked {
 		return err
 	}
-	return retryFailedIntegrate(ctx, queries, epic, node, runs)
+	return retryFailedIntegrate(ctx, queries, epic, node, "", runs)
 }
 
 // retryNode turns the parked run of node in epic running at its next attempt, answers each open park question of epic
@@ -247,8 +253,11 @@ func retryParkedNode(ctx context.Context, queries *sqlcgen.Queries, epic, node s
 
 // retryFailedIntegrate reruns the latest integrate run of node in epic when it ended failed, and unparks epic, in the
 // caller's write. Any other run of node is a RefusalError, so an integrate run that is running or passed, or an earlier
-// failed run that a later run of node superseded, changes nothing.
-func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, node string, runs []NodeRun) error {
+// failed run that a later run of node superseded, changes nothing. path, when not empty, is the run the caller named:
+// a latest run at another path refuses it, naming the latest, since the named run was superseded.
+func retryFailedIntegrate(
+	ctx context.Context, queries *sqlcgen.Queries, epic, node, path string, runs []NodeRun,
+) error {
 	stored, err := queries.ListEpicIntegrateRunPaths(
 		ctx,
 		sqlcgen.ListEpicIntegrateRunPathsParams{Epic: epic, Node: node},
@@ -257,8 +266,16 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 		return fmt.Errorf("list integrate runs of node %s of epic %s: %w", node, epic, err)
 	}
 	run, ok := latestIntegrateRun(runs, stored)
+	if ok && path != "" && run.Path != path {
+		return RefusalError(fmt.Sprintf(
+			"integrate run %s of epic %s is superseded by %s of its node %s", path, epic, run.Path, node))
+	}
+	named := node
+	if path != "" {
+		named = path
+	}
 	if !ok || run.State != NodeEnded || run.Outcome != nodeFailedOutcome {
-		return notParkedRefusal(epic, node)
+		return notParkedRefusal(epic, named)
 	}
 	rerun, err := queries.RetryFailedEpicIntegrateRun(ctx, sqlcgen.RetryFailedEpicIntegrateRunParams{
 		Epic: epic, Path: run.Path,
@@ -267,7 +284,7 @@ func retryFailedIntegrate(ctx context.Context, queries *sqlcgen.Queries, epic, n
 		return fmt.Errorf("retry integrate run %s of epic %s: %w", run.Path, epic, err)
 	}
 	if rerun == 0 {
-		return notParkedRefusal(epic, node)
+		return notParkedRefusal(epic, named)
 	}
 	return unparkRetried(ctx, queries, epic)
 }
