@@ -1,6 +1,6 @@
-// The stories of the collapsed inbox's usage tile and its popover: the account in use drawn as two rings, 7d outside and 5h
-// inside, one story for each level the rings take, and the popover that opens beside the rail. The accounts, contexts and
-// readings are invented, and every story draws against the one fixed clock below.
+// The stories of the collapsed inbox's usage tile: the account in use drawn as two rings, 7d outside and 5h inside, one
+// story for each level the rings take. The accounts, contexts and readings are invented, and every story draws against the
+// one fixed clock below.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -9,7 +9,6 @@ import { AccountSchema, type Account, RouteContextSchema, RouteRegistrySchema } 
 import { UsageReadingSchema } from "./gen/orrery/v1/usage_pb";
 import type { UsageData } from "./usagedata";
 import { type BandRow, bandRows, firstInUse } from "./usagemodel";
-import { UsagePopover as Popover } from "./usagepopover";
 import { UsageRailTile as Tile } from "./usagerail";
 
 const noop = () => undefined;
@@ -108,11 +107,4 @@ export const UsageRailTile: Stories = {
   "warn-and-crit": () => <Tile row={max2} onOpen={noop} />,
   limited: () => <Tile row={max3} onOpen={noop} />,
   "no-reading": () => <Tile row={bare} onOpen={noop} />,
-};
-
-export const UsagePopover: Stories = {
-  ok: () => <Popover row={max1} now={now} />,
-  "warn-and-crit": () => <Popover row={max2} now={now} />,
-  limited: () => <Popover row={max3} now={now} />,
-  "no-reading": () => <Popover row={bare} now={now} />,
 };
