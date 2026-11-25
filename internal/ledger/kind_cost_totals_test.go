@@ -66,7 +66,12 @@ func writeKindRequest(t *testing.T, l *Ledger, claude, agentType, model string, 
 // kindsText renders the four per-kind list costs of total, in input, output, cache-read and cache-write order. A kind
 // the total leaves unknown reads NULL.
 func kindsText(total SessionTotal) string {
-	costs := []*int64{total.ListInputNanoUSD, total.ListOutputNanoUSD, total.ListCacheReadNanoUSD, total.ListCacheWriteNanoUSD}
+	costs := []*int64{
+		total.ListInputNanoUSD,
+		total.ListOutputNanoUSD,
+		total.ListCacheReadNanoUSD,
+		total.ListCacheWriteNanoUSD,
+	}
 	parts := make([]string, len(costs))
 	for i, cost := range costs {
 		parts[i] = "NULL"
@@ -95,12 +100,12 @@ func requireKindTotal(t *testing.T, totals []SessionTotal, want kindTotal) {
 	t.Fatalf("no total for %s/%s", want.model, want.agentType)
 }
 
-// sessionKindTotals returns the totals r reads for claude, and fails the test on error.
-func sessionKindTotals(t *testing.T, r *Reader, claude string) []SessionTotal {
+// sessionKindTotals returns the totals r reads for kindClaude, and fails the test on error.
+func sessionKindTotals(t *testing.T, r *Reader) []SessionTotal {
 	t.Helper()
-	totals, err := r.SessionTotals(t.Context(), claude)
+	totals, err := r.SessionTotals(t.Context(), kindClaude)
 	if err != nil {
-		t.Fatalf("SessionTotals(%s): %v", claude, err)
+		t.Fatalf("SessionTotals(%s): %v", kindClaude, err)
 	}
 	return totals
 }
@@ -136,21 +141,21 @@ func TestLedgerKindCostTotals(t *testing.T) {
 	reader := NewReader(path)
 
 	t.Run("each kind sums per total by model and agent type", func(t *testing.T) {
-		totals := sessionKindTotals(t, reader, kindClaude)
+		totals := sessionKindTotals(t, reader)
 		requireKindTotal(t, totals, kindTotal{kindModelA, kindAgentX, 2, 110, "11 22 33 44"})
 		requireKindTotal(t, totals, kindTotal{kindModelA, kindAgentY, 1, 26, "5 6 7 8"})
 		requireKindTotal(t, totals, kindTotal{kindModelB, kindAgentX, 1, 1000, "100 200 300 400"})
 	})
 	t.Run("a total whose request has no kind cost reads each kind NULL", func(t *testing.T) {
-		totals := sessionKindTotals(t, reader, kindClaude)
+		totals := sessionKindTotals(t, reader)
 		requireKindTotal(t, totals, kindTotal{kindModelC, kindAgentX, 1, 50, "NULL NULL NULL NULL"})
 	})
 	t.Run("a mixed total reads each kind NULL", func(t *testing.T) {
-		totals := sessionKindTotals(t, reader, kindClaude)
+		totals := sessionKindTotals(t, reader)
 		requireKindTotal(t, totals, kindTotal{kindModelB, kindAgentY, 2, 550, "NULL NULL NULL NULL"})
 	})
 	t.Run("totals come in model then agent type order, and the in-flight request is not counted", func(t *testing.T) {
-		totals := sessionKindTotals(t, reader, kindClaude)
+		totals := sessionKindTotals(t, reader)
 		want := [][2]string{
 			{kindModelA, kindAgentX}, {kindModelA, kindAgentY}, {kindModelB, kindAgentX},
 			{kindModelB, kindAgentY}, {kindModelC, kindAgentX},

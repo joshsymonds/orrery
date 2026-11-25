@@ -70,9 +70,19 @@ func scanSessionTotals(rows *sql.Rows) ([]SessionTotal, error) {
 	for rows.Next() {
 		var total SessionTotal
 		if err := rows.Scan(
-			&total.Model, &total.AgentType, &total.Requests, &total.InputTokens, &total.OutputTokens,
-			&total.CacheReadTokens, &total.CacheWriteTokens, &total.BilledCostNanoUSD, &total.ListCostNanoUSD,
-			&total.ListInputNanoUSD, &total.ListOutputNanoUSD, &total.ListCacheReadNanoUSD, &total.ListCacheWriteNanoUSD,
+			&total.Model,
+			&total.AgentType,
+			&total.Requests,
+			&total.InputTokens,
+			&total.OutputTokens,
+			&total.CacheReadTokens,
+			&total.CacheWriteTokens,
+			&total.BilledCostNanoUSD,
+			&total.ListCostNanoUSD,
+			&total.ListInputNanoUSD,
+			&total.ListOutputNanoUSD,
+			&total.ListCacheReadNanoUSD,
+			&total.ListCacheWriteNanoUSD,
 		); err != nil {
 			return nil, fmt.Errorf("scan session total: %w", err)
 		}

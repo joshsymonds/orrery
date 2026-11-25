@@ -92,9 +92,20 @@ func scanEpicTotals(rows *sql.Rows) (map[string][]SessionTotal, error) {
 		var claudeSession string
 		var total SessionTotal
 		if err := rows.Scan(
-			&claudeSession, &total.Model, &total.AgentType, &total.Requests, &total.InputTokens, &total.OutputTokens,
-			&total.CacheReadTokens, &total.CacheWriteTokens, &total.BilledCostNanoUSD, &total.ListCostNanoUSD,
-			&total.ListInputNanoUSD, &total.ListOutputNanoUSD, &total.ListCacheReadNanoUSD, &total.ListCacheWriteNanoUSD,
+			&claudeSession,
+			&total.Model,
+			&total.AgentType,
+			&total.Requests,
+			&total.InputTokens,
+			&total.OutputTokens,
+			&total.CacheReadTokens,
+			&total.CacheWriteTokens,
+			&total.BilledCostNanoUSD,
+			&total.ListCostNanoUSD,
+			&total.ListInputNanoUSD,
+			&total.ListOutputNanoUSD,
+			&total.ListCacheReadNanoUSD,
+			&total.ListCacheWriteNanoUSD,
 		); err != nil {
 			return nil, fmt.Errorf("scan epic total: %w", err)
 		}
