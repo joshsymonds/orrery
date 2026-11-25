@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { type JSX, render } from "preact";
 
 import { sessionTotals, subscriptionTotals, unsummedTotals } from "./fixtures/usage";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { UsagePanel } from "./usagepanel";
 
 // Each subtest's name reads the panel's figures in words. The panel is drawn from the fixtures in ./fixtures/usage, and
@@ -74,7 +74,7 @@ test("SessionUsagePanel", async (t) => {
 
   await t.test("with dollars known, the kind legend reads each kind's tokens and dollars, and the bar weighs by dollars", () =>
     withDom(<UsagePanel totals={sessionTotals} />, (container) => {
-      assert.equal(container.querySelector(".usage-legend.tokens-only"), null, "the legend is drawn tokens alone");
+      assertNone(container.querySelector(".usage-legend.tokens-only"), "the legend is drawn tokens alone");
       const legend = [...container.querySelectorAll(".usage-legend .usage-kind")].map(cellsOf);
       assert.deepEqual(legend, [
         ["", "input", "1.5M", "$0.45"],
@@ -119,7 +119,7 @@ test("SessionUsagePanel", async (t) => {
       assert.equal(textOf(container, "h2"), "Usage");
     });
     await withDom(<UsagePanel totals={sessionTotals} headless />, (container) => {
-      assert.equal(container.querySelector("h2"), null, "headless draws a head");
+      assertNone(container.querySelector("h2"), "headless draws a head");
     });
   });
 });
