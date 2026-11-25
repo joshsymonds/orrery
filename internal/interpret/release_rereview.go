@@ -262,8 +262,9 @@ func (r *Runner) settleReviews(
 // epicChangeMoved returns why the epic's own change may have moved in the round of the release integrator that made
 // merge with its done return ret, read on host, and "" when it is unchanged: the round renumbered the tip's migrations,
 // which changes the epic's files; git's merge conflicted, and a conflicted path is one the epic's own change touched;
-// or a path the merge changes outside git's merge (ret's other_changes) is one the epic's own change, from the merge
-// base of the tip and origin's commit to the tip, touched. With earlierReviews' own floor, a tip that is the one the
+// origin's change from the merge base of the tip and origin's commit touched a path the epic's own change, from that
+// merge base to the tip, touched, which git merges cleanly when the hunks are apart; or a path the merge changes
+// outside git's merge (ret's other_changes) is one the epic's own change touched. With earlierReviews' own floor, a tip that is the one the
 // reviewed candidate was made from, this is the floor that decides whether any earlier verdict may be carried.
 func epicChangeMoved(
 	ctx context.Context, host hostexec.Host, merge integratorMerge, ret integratorReturn,
@@ -281,6 +282,21 @@ func epicChangeMoved(
 	touched, err := changedPaths(ctx, host, merge.repo, strings.TrimSpace(base), merge.tip)
 	if err != nil {
 		return "", err
+	}
+	// A file both sides changed merges cleanly when their hunks are apart, so git names no conflict, yet the code the
+	// epic's change sits in has moved under it.
+	moved, err := changedPaths(ctx, host, merge.repo, strings.TrimSpace(base), merge.origin)
+	if err != nil {
+		return "", err
+	}
+	var both []string
+	for _, path := range moved {
+		if slices.Contains(touched, path) {
+			both = append(both, path)
+		}
+	}
+	if len(both) > 0 {
+		return "origin's main also changed " + listPaths(both) + ", which the epic's own change touched", nil
 	}
 	var hit []string
 	for _, change := range ret.OtherChanges {

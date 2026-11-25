@@ -447,3 +447,44 @@ func TestReleaseIntegratorReadoptCheckKeepsTheEarlierReviews(t *testing.T) {
 		}
 	}
 }
+
+// TestEpicChangeMovedWhenOriginChangedAFileTheEpicTouched: the epic changes the first line of a file the base holds and
+// origin's main its last, so git merges them without conflict, yet the code the epic's change sits in has moved. The
+// verdict is not carried, whatever other_changes says. Origin changing only a file the epic did not touch moves
+// nothing.
+func TestEpicChangeMovedWhenOriginChangedAFileTheEpicTouched(t *testing.T) {
+	t.Parallel()
+	repo, _ := nodeRepo(t)
+	nodeWrite(t, repo, "shared.txt", "one\ntwo\nthree\nfour\nfive\nsix\n")
+	nodeGit(t, repo, "add", "shared.txt")
+	nodeGit(t, repo, "commit", "-q", "-m", "base")
+	base := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	nodeGit(t, repo, "checkout", "-q", "-b", "epic", base)
+	nodeWrite(t, repo, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\nsix\n")
+	nodeGit(t, repo, "commit", "-q", "-am", "epic edits the first line")
+	tip := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	nodeGit(t, repo, "checkout", "-q", "-b", "origin-shared", base)
+	nodeWrite(t, repo, "shared.txt", "one\ntwo\nthree\nfour\nfive\nSIX\n")
+	nodeGit(t, repo, "commit", "-q", "-am", "origin edits the last line")
+	shared := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	nodeGit(t, repo, "checkout", "-q", "-b", "origin-apart", base)
+	nodeWrite(t, repo, "apart.txt", "origin's own file\n")
+	nodeGit(t, repo, "add", "apart.txt")
+	nodeGit(t, repo, "commit", "-q", "-m", "origin adds a file of its own")
+	apart := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	host := hostexec.NewLocal()
+	why, err := epicChangeMoved(t.Context(), host, integratorMerge{repo: repo, tip: tip, origin: shared},
+		integratorReturn{})
+	if want := "origin's main also changed shared.txt, which the epic's own change touched"; err != nil || why != want {
+		t.Errorf("epicChangeMoved(origin edits shared.txt) = %q, %v, want %q", why, err, want)
+	}
+	why, err = epicChangeMoved(t.Context(), host, integratorMerge{repo: repo, tip: tip, origin: apart},
+		integratorReturn{})
+	if err != nil || why != "" {
+		t.Errorf("epicChangeMoved(origin adds apart.txt) = %q, %v, want nothing moved", why, err)
+	}
+}
