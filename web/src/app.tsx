@@ -85,6 +85,9 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
+import { UsageBand } from "./usageband";
+import { noUsage, type UsageData } from "./usagedata";
+import { bandRows } from "./usagemodel";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 
@@ -276,6 +279,7 @@ export function App({
   address,
   onAddress,
   headStore,
+  usage = noUsage,
 }: {
   rows: Row[];
   // Whether the rows and the epics have each answered their first load. Until both have, the inbox says loading.
@@ -297,6 +301,8 @@ export function App({
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
   headStore?: HeadStore;
+  // usage is the usage the page holds: the band under the inbox head draws it once it has answered with an account.
+  usage?: UsageData;
 }) {
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -1699,6 +1705,13 @@ export function App({
     setOpenedDesign(null);
     setAccountsOpen(true);
   });
+
+  // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
+  // accounts and routes page. A press on the band opens nothing yet, since the usage popover is not drawn.
+  const usageBand =
+    usage.answered && usage.accounts.length > 0 ? (
+      <UsageBand rows={bandRows(usage, now)} now={now} onOpen={() => undefined} onAccounts={openAccounts} />
+    ) : undefined;
 
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
   // item key, as openEpic does, and shuts the page. A key the tree draws no entry of opens nothing, as the tree's own press
@@ -3266,6 +3279,7 @@ export function App({
             onAccounts={openAccounts}
             moving={markedLines}
             notes={notes}
+            band={usageBand}
           />
         </div>
         {shownProject !== null && !noticesPage && projectSection(shownProject)}

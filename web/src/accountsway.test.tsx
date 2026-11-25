@@ -234,8 +234,8 @@ test("AccountsWebWay: loading #/accounts directly, through start, draws the acco
     assert.equal(root.querySelector(".accounts-read h2")?.textContent, "Accounts and routes");
     assert.deepEqual(
       fake.calls.map((call) => call.method).sort(),
-      ["Accounts.List", "Routes.Get"],
-      "the page reads the accounts and the routes",
+      ["Accounts.List", "Accounts.List", "Routes.Get", "Routes.Get"],
+      "the page reads the accounts and the routes, and the usage band reads them again",
     );
   } finally {
     await teardown();

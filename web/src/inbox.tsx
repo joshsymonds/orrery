@@ -46,6 +46,8 @@ export interface InboxProps {
   moving?: ReadonlySet<string>;
   // notes are the page's error lines, drawn above the rows, under the chips and the search field, as round 6 draws them.
   notes?: ComponentChildren;
+  // band is the usage band, drawn right under the head, as round 8 draws it. The inbox draws it only when given.
+  band?: ComponentChildren;
 }
 
 // Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search, the bell and New;
@@ -81,6 +83,7 @@ export function Inbox({
   onAccounts,
   moving,
   notes,
+  band,
 }: InboxProps): JSX.Element {
   // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
   // Android's home.
@@ -115,6 +118,7 @@ export function Inbox({
           </button>
         </span>
       </header>
+      {band}
       {showChips && (
         <div class="inbox-attn">
           {counts.waiting > 0 && (
