@@ -338,14 +338,17 @@ func TestGathererPromptHoldsBriefsEarlierCapturesRunnersAndRules(t *testing.T) {
 		"  ended captures at " + base + ":\n    none\n",
 		"local: always available, with no prefix.",
 		"fake: argv prefix [\"/bin/sh\",\"runner.sh\"]; note: Echoes a line, then runs the argv it is given.",
-		"Run one capture per distinct command at a commit, and attach it to every brief it shows.",
+		"Run one capture per distinct command at a commit, with a --brief for every brief it shows.",
+		"When the capture ends, orrery attaches it to each of those briefs still open, so do not wait for it",
+		"Finish as soon as every brief has a capture started or attached,",
 		"Run the narrowest command that shows each conclusion.",
 		"Run a heavy command on the runner whose note favors it.",
 		"An earlier capture at a brief's commit may be attached to that brief when it shows the conclusion",
 		"Commands, run from your shell:",
 		"  orrery evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- " +
 			"ARGV...: runs ARGV at SHA under the runner",
-		"  orrery evidence attach CAPTURE RUN...: attaches a capture to the briefs it answers",
+		"  orrery evidence attach CAPTURE RUN...: attaches an ended capture, such as an earlier one at a brief's " +
+			"commit, to the briefs it answers",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)

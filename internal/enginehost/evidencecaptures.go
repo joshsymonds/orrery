@@ -70,13 +70,18 @@ type CaptureStore interface {
 	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
+// CaptureBriefs settles the briefs an ended capture was started for. *Evidence satisfies it.
+type CaptureBriefs interface {
+	Settle(ctx context.Context, capture store.Capture) error
+}
+
 // CaptureSteps reads the status of the step that asks for a capture. *Steps satisfies it.
 type CaptureSteps interface {
 	Status(ctx context.Context, id string) (store.StepRow, error)
 }
 
-// CapturesConfig configures Captures. Store records the captures, Steps reads the step that asks for one, and Deliver
-// tells the asking step of an ended capture that it ended. Pools, Environ, GateStateDir and GateScope run each command as a
+// CapturesConfig configures Captures. Store records the captures, Steps reads the step that asks for one, Briefs settles
+// the briefs of an ended capture, and Deliver then tells the asking step that it ended. A nil Briefs settles none. Pools, Environ, GateStateDir and GateScope run each command as a
 // capture does, and StateDir holds the capture worktrees. Hosts resolves the host each epic is stored on to the Host its
 // captures' git, worktrees and artifact reads run on, and a nil Hosts is hostexec.LocalHosts. NewTimer arms a timer that sends on its channel once, after a
 // duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. A nil Now is time.Now, and a nil Logger
@@ -84,6 +89,7 @@ type CaptureSteps interface {
 type CapturesConfig struct {
 	Store        CaptureStore
 	Steps        CaptureSteps
+	Briefs       CaptureBriefs
 	Deliver      func(context.Context, DeliverRequest) error
 	Hosts        hostexec.Hosts
 	Pools        PoolCommands
@@ -102,6 +108,7 @@ type CapturesConfig struct {
 type Captures struct {
 	store    CaptureStore
 	steps    CaptureSteps
+	briefs   CaptureBriefs
 	deliver  func(context.Context, DeliverRequest) error
 	captures evidenceCapture
 	hosts    hostexec.Hosts
@@ -140,6 +147,7 @@ func NewCaptures(cfg CapturesConfig) *Captures {
 	return &Captures{
 		store:   cfg.Store,
 		steps:   cfg.Steps,
+		briefs:  cfg.Briefs,
 		deliver: cfg.Deliver,
 		captures: evidenceCapture{
 			pools:        cfg.Pools,
@@ -488,10 +496,24 @@ func endedCapture(capture store.Capture, end store.EvidenceCapture) store.Captur
 	return capture
 }
 
-// deliverEnd tells the step that asked for capture that it ended, in one block, and marks the capture delivered once the block is
-// delivered or the step has ended. A step that is busy or running its gate is tried again every captureDeliverRetry, until ctx
+// deliverEnd settles the briefs of capture, then tells the step that asked for it that it ended, in one block, and marks the
+// capture delivered once the block is delivered or the step has ended. Briefs that cannot be settled leave the capture
+// undelivered, for a restart's Resume to settle and deliver. A step that is busy or running its gate is tried again every captureDeliverRetry, until ctx
 // ends. Any other failure is logged, and the capture is left undelivered for a restart's Resume to deliver.
 func (c *Captures) deliverEnd(ctx context.Context, capture store.Capture) {
+	if c.briefs != nil {
+		if err := c.briefs.Settle(ctx, capture); err != nil {
+			c.logger.ErrorContext(
+				ctx,
+				"capture briefs unsettled, left for a restart",
+				"capture",
+				capture.ID,
+				"err",
+				err,
+			)
+			return
+		}
+	}
 	text, err := c.block(capture)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "capture end unread, left for a restart", "capture", capture.ID, "err", err)

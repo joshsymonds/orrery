@@ -166,7 +166,7 @@ subcommands:
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
   evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- ARGV...
                                                 as an epic's evidence gatherer, run ARGV at SHA as a capture of
-                                                the briefs; print its id, and its end arrives as an event
+                                                the briefs; print its id, and attach it to them when it ends
   evidence attach CAPTURE RUN...                as an epic's evidence gatherer, attach a capture to its briefs
   holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
                                                 run PATH as one session's held child and serve its holder socket

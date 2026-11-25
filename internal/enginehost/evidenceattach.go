@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -44,6 +45,30 @@ func (e *Evidence) Attach(ctx context.Context, caller, capture string, briefs []
 		return nil, judgeErr
 	}
 	return attached, nil
+}
+
+// Settle settles the briefs that the ended capture was started for (see store.SettleCaptureBriefs), so a capture reaches
+// its briefs whether or not the step that asked for it still runs. Each run the capture is attached to is judged in the
+// background, and the gatherers are woken for the capture's epic when a brief went back to waiting. Settling a capture
+// again moves nothing.
+func (e *Evidence) Settle(ctx context.Context, capture store.Capture) error {
+	defer e.calls.enter()()
+	if e.briefs == nil {
+		return fmt.Errorf("settle capture %s: no briefs store: %w", capture.ID, errors.ErrUnsupported)
+	}
+	moved, err := e.briefs.SettleCaptureBriefs(ctx, capture.ID, e.now())
+	if err != nil {
+		return fmt.Errorf("settle briefs of capture %s: %w", capture.ID, err)
+	}
+	if judgeErr := e.judgeAttached(ctx, capture.Repository, moved); judgeErr != nil {
+		return judgeErr
+	}
+	if e.gatherers != nil && slices.ContainsFunc(moved, func(run store.EvidenceRun) bool {
+		return run.State == store.RunWaiting
+	}) {
+		e.gatherers.Wake(ctx, capture.Epic)
+	}
+	return nil
 }
 
 // attachRuns returns the stored runs briefs names, in the order given. It refuses a brief that names no stored run, a brief

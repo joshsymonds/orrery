@@ -1511,12 +1511,31 @@ SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' AND source = 'ca
 -- name: TakeEvidenceBrief :execrows
 UPDATE evidence_runs SET gatherer = ?, state = 'gathering' WHERE id = ? AND state = 'waiting';
 
--- name: ListEvidenceBriefsOfGatherer :many
-SELECT * FROM evidence_runs WHERE gatherer = ? AND state = 'gathering' ORDER BY created, id;
+-- name: ListUnansweredBriefsOfGatherer :many
+SELECT * FROM evidence_runs
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running')
+ORDER BY created, id;
 
--- name: ReleaseEvidenceBriefs :exec
+-- name: ReleaseUnansweredBriefs :exec
 UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
-WHERE gatherer = ? AND state = 'gathering';
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running');
+
+-- name: ListOpenBriefsOfCapture :many
+SELECT * FROM evidence_runs
+WHERE id IN (SELECT b.run FROM evidence_capture_briefs b WHERE b.capture = ?) AND state IN ('waiting', 'gathering')
+ORDER BY created, id;
+
+-- name: CountRunningCapturesOfBrief :one
+SELECT COUNT(*) FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+WHERE b.run = ? AND c.state = 'running';
+
+-- name: ReleaseEvidenceBrief :execrows
+UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
+WHERE id = ? AND state = 'gathering';
 
 -- name: StartEvidenceGatherer :one
 INSERT INTO evidence_gatherers (epic, seq, step, started)

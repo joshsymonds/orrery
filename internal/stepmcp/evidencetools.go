@@ -52,10 +52,12 @@ type evidenceAttachArgs struct {
 	Briefs  []string `json:"briefs"  jsonschema:"the ids of the evidence runs to attach the capture to; at least one"`
 }
 
-// CaptureNext is the next of evidence_capture's result, and the line `orrery evidence capture` prints after the id: what the caller does with the started capture. Its end arrives
-// as an event, so the caller does not poll.
-const CaptureNext = "The capture runs in the background. Its end arrives in this conversation as an orrery-event, " +
-	"so do not poll for it."
+// CaptureNext is the next of evidence_capture's result, and the line `orrery evidence capture` prints after the id: what
+// the caller does with the started capture. orreryd attaches it to its briefs when it ends, and its end arrives as an
+// event, so the caller neither waits nor polls.
+const CaptureNext = "The capture runs in the background, and orrery attaches it to each of its briefs still open when " +
+	"it ends, so do not wait for it or attach it. Its end arrives in this conversation as an orrery-event; do not " +
+	"poll for it."
 
 // evidenceTools returns the evidence tools, each calling evidence.
 func evidenceTools(evidence enginev1connect.EvidenceClient) ([]Tool, error) {

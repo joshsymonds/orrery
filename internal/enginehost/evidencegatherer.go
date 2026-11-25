@@ -575,7 +575,7 @@ func briefBlock(run store.EvidenceRun, captures []store.Capture) []string {
 
 // gathererPrompt returns the prompt of the gatherer of epic. It says what the gatherer is for, lists the runners a
 // capture can run under, with local first, names the orrery commands that capture and attach evidence, which the
-// gatherer runs from its shell, since a step has no orrery MCP tools, and states the rules it gathers by. blocks are the
+// gatherer runs from its shell, and says that a capture reaches its briefs when it ends, so the gatherer does not wait for it, since a step has no orrery MCP tools, and states the rules it gathers by. blocks are the
 // briefs, each as briefBlock gives it.
 func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) string {
 	lines := make([]string, 0, 3+2*len(blocks)+len(runners)+12)
@@ -606,20 +606,22 @@ func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) strin
 		"Commands, run from your shell:",
 		"  orrery evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- "+
 			"ARGV...: runs ARGV at SHA under the runner (local when --runner is left out), as a capture of each brief "+
-			"RUN it answers, and keeps each file listed. It prints the capture's id. Its end arrives in this "+
-			"conversation as an orrery-event; do not poll for it.",
-		"  orrery evidence attach CAPTURE RUN...: attaches a capture to the briefs it answers, and prints each run it "+
-			"moved.",
+			"RUN it answers, and keeps each file listed. It prints the capture's id. When the capture ends, orrery "+
+			"attaches it to each of those briefs still open, so do not wait for it or attach it yourself.",
+		"  orrery evidence attach CAPTURE RUN...: attaches an ended capture, such as an earlier one at a brief's "+
+			"commit, to the briefs it answers, and prints each run it moved.",
 		"  orrery evidence get RUN [NAME]: writes an evidence run's kept file NAME, or its log, to stdout.",
 		"",
 		"Rules:",
-		"  Run one capture per distinct command at a commit, and attach it to every brief it shows.",
+		"  Run one capture per distinct command at a commit, with a --brief for every brief it shows.",
 		"  Run the narrowest command that shows each conclusion.",
 		"  Run a heavy command on the runner whose note favors it.",
 		"  An earlier capture at a brief's commit may be attached to that brief when it shows the conclusion; "+
 			"judge that yourself.",
 		"",
-		"Finish with status done and a note: what you attached, and the reason any brief is left without a capture.",
+		"Finish as soon as every brief has a capture started or attached, with status done and a note: what you "+
+			"started or attached, and the reason any brief is left without a capture. A capture that captures "+
+			"nothing brings its brief back to a gatherer.",
 	)
 	return strings.Join(lines, "\n")
 }

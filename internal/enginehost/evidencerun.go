@@ -60,10 +60,11 @@ type EvidenceSteps interface {
 	Subscribe(ctx context.Context, ids []string) (*StepSubscription, error)
 }
 
-// EvidenceBriefs is the set of brief operations that Attach and the judge read and write evidence runs with.
+// EvidenceBriefs is the set of brief operations that Attach, Settle and the judge read and write evidence runs with.
 // *store.Store satisfies it.
 type EvidenceBriefs interface {
 	AttachCapture(ctx context.Context, capture string, runs []string, at time.Time) ([]store.EvidenceRun, error)
+	SettleCaptureBriefs(ctx context.Context, capture string, at time.Time) ([]store.EvidenceRun, error)
 	Capture(ctx context.Context, id string) (store.Capture, error)
 	OpenBriefs(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	RunningEvidenceGatherer(ctx context.Context, epic string) (store.EvidenceGatherer, bool, error)

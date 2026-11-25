@@ -346,3 +346,89 @@ func TestEvidenceAttachExitEnvironmentCaptureEndsNotCapturedWithoutAJudge(t *tes
 	}
 	evidenceAttachWantNoJudge(t, ev, steps, briefs[0], capture, store.NotCapturedEnvironment)
 }
+
+// TestEvidenceCaptureEndAttachesItselfToItsBriefs has the running gatherer capture for two briefs, under Captures that settle
+// through the Evidence. No one attaches the capture: its end attaches it to both briefs, each keeps its marker and is judged
+// once, and the gatherer is still told the capture ended.
+func TestEvidenceCaptureEndAttachesItselfToItsBriefs(t *testing.T) {
+	t.Parallel()
+	repo, base := captureTestRepo(t)
+	st := epicTestStore(t)
+	briefs := evidenceAttachSeed(t, st, repo, base, 2)
+	evidenceAttachGather(t, st)
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds(), evidenceRunHolds()}}
+	ev := evidenceAttachNew(t, st, steps)
+	rig := captureTestNewRig(t, captureTestStore{Store: st, gatherer: captureTestGatherer}, "")
+	rig.stateDir = evidenceRunStateDir(ev)
+	rig.steps[captureTestGatherer] = store.StepRow{ID: captureTestGatherer}
+	rig.briefs = ev
+	capture := evidenceAttachGathererCapture(t, rig, rig.captures(t), base, briefs)
+
+	for _, id := range briefs {
+		run := evidenceRunSettled(t, engineOf(ev), st, id)
+		if run.Capture != capture.ID || run.Verdict != "holds" {
+			t.Fatalf("run %s = capture %q verdict %q, want capture %q holds", id, run.Capture, run.Verdict, capture.ID)
+		}
+		if len(run.Artifacts) != 1 || run.Artifacts[0].Path != "marker" || run.Artifacts[0].State != "kept" {
+			t.Fatalf("run %s artifacts = %+v, want the marker kept", id, run.Artifacts)
+		}
+	}
+	if n := steps.startCount(); n != 2 {
+		t.Fatalf("%d judge steps started, want one for each brief", n)
+	}
+	delivered := rig.deliveries.requests()
+	if len(delivered) != 1 || delivered[0].ID != captureTestGatherer ||
+		delivered[0].PromptID != captureEventPrefix+capture.ID {
+		t.Fatalf("deliveries = %+v, want the capture's end told once to the gatherer", delivered)
+	}
+}
+
+// TestEvidenceSettleAttachesACaptureWhoseGathererEnded starts a capture for a brief, ends the gatherer while it runs, then
+// ends the capture and settles it. The brief, kept gathering for the capture, takes it and is judged.
+func TestEvidenceSettleAttachesACaptureWhoseGathererEnded(t *testing.T) {
+	t.Parallel()
+	repo, base := captureTestRepo(t)
+	st := epicTestStore(t)
+	briefs := evidenceAttachSeed(t, st, repo, base, 1)
+	evidenceAttachGather(t, st)
+	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
+	ev := evidenceAttachNew(t, st, steps)
+	if err := st.AddCapture(t.Context(), store.Capture{
+		ID: evidenceAttachRecordedID, Epic: captureTestEpic, Repository: repo, Step: captureTestGatherer,
+		Role: captureRoleGatherer, Runner: localRunnerName, Commit: base, Argv: evidenceAttachCat(), Briefs: briefs,
+		Limit: 60, Created: time.Unix(1700000000, 0),
+	}); err != nil {
+		t.Fatalf("AddCapture: %v", err)
+	}
+	released, err := st.EndEvidenceGatherer(t.Context(), captureTestEpic, captureTestGatherer, "returned",
+		time.Unix(1700000001, 0))
+	if err != nil || len(released) != 0 {
+		t.Fatalf(
+			"EndEvidenceGatherer = %d released, %v; want the brief kept for its running capture",
+			len(released),
+			err,
+		)
+	}
+	if err = st.RecordCaptureEnd(t.Context(), evidenceAttachRecordedID, store.EvidenceCapture{
+		At: time.Unix(1700000002, 0),
+	}); err != nil {
+		t.Fatalf("RecordCaptureEnd: %v", err)
+	}
+	capture, err := st.Capture(t.Context(), evidenceAttachRecordedID)
+	if err != nil {
+		t.Fatalf("Capture: %v", err)
+	}
+
+	if err = ev.Settle(t.Context(), capture); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+
+	run := evidenceRunSettled(t, engineOf(ev), st, briefs[0])
+	if run.Capture != evidenceAttachRecordedID || run.Verdict != "holds" {
+		t.Fatalf("run %s = capture %q verdict %q, want capture %q holds",
+			briefs[0], run.Capture, run.Verdict, evidenceAttachRecordedID)
+	}
+	if n := steps.startCount(); n != 1 {
+		t.Fatalf("%d judge steps started, want one", n)
+	}
+}

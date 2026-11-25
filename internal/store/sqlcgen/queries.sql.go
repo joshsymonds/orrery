@@ -672,6 +672,18 @@ func (q *Queries) CountRouteContext(ctx context.Context, id string) (int64, erro
 	return column_1, err
 }
 
+const countRunningCapturesOfBrief = `-- name: CountRunningCapturesOfBrief :one
+SELECT COUNT(*) FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+WHERE b.run = ? AND c.state = 'running'
+`
+
+func (q *Queries) CountRunningCapturesOfBrief(ctx context.Context, run string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningCapturesOfBrief, run)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRunningEpicNodeRun = `-- name: CountRunningEpicNodeRun :one
 SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ? AND state = 'running'
 `
@@ -9911,61 +9923,6 @@ func (q *Queries) ListEvidenceArtifacts(ctx context.Context, run string) ([]Evid
 	return items, nil
 }
 
-const listEvidenceBriefsOfGatherer = `-- name: ListEvidenceBriefsOfGatherer :many
-SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes, capture, gatherer, gatherers FROM evidence_runs WHERE gatherer = ? AND state = 'gathering' ORDER BY created, id
-`
-
-func (q *Queries) ListEvidenceBriefsOfGatherer(ctx context.Context, gatherer string) ([]EvidenceRun, error) {
-	rows, err := q.db.QueryContext(ctx, listEvidenceBriefsOfGatherer, gatherer)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []EvidenceRun
-	for rows.Next() {
-		var i EvidenceRun
-		if err := rows.Scan(
-			&i.ID,
-			&i.Epic,
-			&i.Item,
-			&i.Revision,
-			&i.Phase,
-			&i.Source,
-			&i.State,
-			&i.Spec,
-			&i.GrantID,
-			&i.Holder,
-			&i.Exit,
-			&i.TimedOut,
-			&i.NotCaptured,
-			&i.LogHash,
-			&i.LogBytes,
-			&i.JudgeStep,
-			&i.Judges,
-			&i.Verdict,
-			&i.JudgeReason,
-			&i.Passed,
-			&i.Created,
-			&i.Ended,
-			&i.StderrHash,
-			&i.StderrBytes,
-			&i.Capture,
-			&i.Gatherer,
-			&i.Gatherers,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listEvidenceCaptureBriefs = `-- name: ListEvidenceCaptureBriefs :many
 SELECT run FROM evidence_capture_briefs WHERE capture = ? ORDER BY run
 `
@@ -10996,6 +10953,63 @@ func (q *Queries) ListNoticeHistorySince(ctx context.Context, time int64) ([]Not
 			&i.Time,
 			&i.Read,
 			&i.Host,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenBriefsOfCapture = `-- name: ListOpenBriefsOfCapture :many
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes, capture, gatherer, gatherers FROM evidence_runs
+WHERE id IN (SELECT b.run FROM evidence_capture_briefs b WHERE b.capture = ?) AND state IN ('waiting', 'gathering')
+ORDER BY created, id
+`
+
+func (q *Queries) ListOpenBriefsOfCapture(ctx context.Context, capture string) ([]EvidenceRun, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenBriefsOfCapture, capture)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvidenceRun
+	for rows.Next() {
+		var i EvidenceRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Item,
+			&i.Revision,
+			&i.Phase,
+			&i.Source,
+			&i.State,
+			&i.Spec,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotCaptured,
+			&i.LogHash,
+			&i.LogBytes,
+			&i.JudgeStep,
+			&i.Judges,
+			&i.Verdict,
+			&i.JudgeReason,
+			&i.Passed,
+			&i.Created,
+			&i.Ended,
+			&i.StderrHash,
+			&i.StderrBytes,
+			&i.Capture,
+			&i.Gatherer,
+			&i.Gatherers,
 		); err != nil {
 			return nil, err
 		}
@@ -13087,6 +13101,65 @@ func (q *Queries) ListToldLimitSteps(ctx context.Context) ([]ToldLimitStep, erro
 	return items, nil
 }
 
+const listUnansweredBriefsOfGatherer = `-- name: ListUnansweredBriefsOfGatherer :many
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended, stderr_hash, stderr_bytes, capture, gatherer, gatherers FROM evidence_runs
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running')
+ORDER BY created, id
+`
+
+func (q *Queries) ListUnansweredBriefsOfGatherer(ctx context.Context, gatherer string) ([]EvidenceRun, error) {
+	rows, err := q.db.QueryContext(ctx, listUnansweredBriefsOfGatherer, gatherer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvidenceRun
+	for rows.Next() {
+		var i EvidenceRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Item,
+			&i.Revision,
+			&i.Phase,
+			&i.Source,
+			&i.State,
+			&i.Spec,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotCaptured,
+			&i.LogHash,
+			&i.LogBytes,
+			&i.JudgeStep,
+			&i.Judges,
+			&i.Verdict,
+			&i.JudgeReason,
+			&i.Passed,
+			&i.Created,
+			&i.Ended,
+			&i.StderrHash,
+			&i.StderrBytes,
+			&i.Capture,
+			&i.Gatherer,
+			&i.Gatherers,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUndeliveredEpicTells = `-- name: ListUndeliveredEpicTells :many
 SELECT epic_tells.epic, epics.title, epic_tells.seq, epic_tells.text, epic_tells.at, epic_tells.question
 FROM epic_tells JOIN epics ON epics.id = epic_tells.epic
@@ -14200,13 +14273,28 @@ func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTrigge
 	return err
 }
 
-const releaseEvidenceBriefs = `-- name: ReleaseEvidenceBriefs :exec
+const releaseEvidenceBrief = `-- name: ReleaseEvidenceBrief :execrows
 UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
-WHERE gatherer = ? AND state = 'gathering'
+WHERE id = ? AND state = 'gathering'
 `
 
-func (q *Queries) ReleaseEvidenceBriefs(ctx context.Context, gatherer string) error {
-	_, err := q.db.ExecContext(ctx, releaseEvidenceBriefs, gatherer)
+func (q *Queries) ReleaseEvidenceBrief(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseEvidenceBrief, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const releaseUnansweredBriefs = `-- name: ReleaseUnansweredBriefs :exec
+UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running')
+`
+
+func (q *Queries) ReleaseUnansweredBriefs(ctx context.Context, gatherer string) error {
+	_, err := q.db.ExecContext(ctx, releaseUnansweredBriefs, gatherer)
 	return err
 }
 

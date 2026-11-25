@@ -121,8 +121,10 @@ func (f *captureTestTimers) armed() []time.Duration {
 }
 
 // captureTestRig is what a capture test's Captures is built over. A restart builds another Captures over the same rig.
+// briefs, when set, settles the briefs of each ended capture.
 type captureTestRig struct {
 	st         captureTestStore
+	briefs     CaptureBriefs
 	steps      captureTestSteps
 	deliveries *captureTestDeliveries
 	timers     *captureTestTimers
@@ -155,8 +157,15 @@ func captureTestNewRig(t *testing.T, st captureTestStore, scope string) captureT
 func (r captureTestRig) captures(t *testing.T) *Captures {
 	t.Helper()
 	cfg := CapturesConfig{
-		Store: r.st, Steps: r.steps, Deliver: r.deliveries.deliver, Pools: r.pools, Environ: r.environ,
-		StateDir: r.stateDir, GateStateDir: r.gateRoot, GateScope: r.scope,
+		Store:        r.st,
+		Steps:        r.steps,
+		Briefs:       r.briefs,
+		Deliver:      r.deliveries.deliver,
+		Pools:        r.pools,
+		Environ:      r.environ,
+		StateDir:     r.stateDir,
+		GateStateDir: r.gateRoot,
+		GateScope:    r.scope,
 	}
 	if r.timers != nil {
 		cfg.NewTimer = r.timers.newTimer
