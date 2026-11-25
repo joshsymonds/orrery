@@ -102,11 +102,16 @@ func reviewedChange(base, revision string) string {
 }
 
 // releaseReviewPrompt renders the prompt of a release review step: the epic, the promise its release makes, each release
-// step with its target and undo, its Must Not Ship entries, and the change from base to revision.
+// step with its target, its undo and the kind it runs as when it names one, its Must Not Ship entries, and the epic's
+// own change from base, where the candidate revision meets origin's main, to revision (releasedChange).
 func releaseReviewPrompt(epic store.EpicRow, base, revision string) string {
 	steps := make([]string, len(epic.ReleaseSteps))
 	for i, step := range epic.ReleaseSteps {
-		steps[i] = fmt.Sprintf("%s (target %s, undo %s)", step.Step, step.Target, step.Undo)
+		steps[i] = fmt.Sprintf("%s (target %s, undo %s", step.Step, step.Target, step.Undo)
+		if step.Kind != "" {
+			steps[i] += ", run as code: " + step.Kind
+		}
+		steps[i] += ")"
 	}
 	return strings.Join(slices.Concat(
 		[]string{
@@ -118,8 +123,19 @@ func releaseReviewPrompt(epic store.EpicRow, base, revision string) string {
 		epicStageBullets(steps),
 		[]string{"Must Not Ship:"},
 		epicStageBullets(epic.Exclusions),
-		[]string{reviewedChange(base, revision)},
+		[]string{releasedChange(base, revision)},
 	), "\n")
+}
+
+// releasedChange states the epic's own change a release reviewer reads: from base, the commit where the candidate
+// revision meets origin's main, to revision, which the worktree is checked out at. It is the change the release lands on
+// origin's main, and holds none of the changes origin's main made on its own since the epic's base.
+func releasedChange(base, revision string) string {
+	return fmt.Sprintf(
+		"The change under review is the epic's own change as the release lands it on origin's main: %s..%s, from %s, "+
+			"where the candidate meets origin's main, to the candidate. It holds none of origin's own changes since the "+
+			"epic began. This worktree is checked out at %s. Inspect it with `git diff %s %s`.",
+		base, revision, base, revision, base, revision)
 }
 
 // epicStageReviewPrompt renders the prompt of an epic-stage review step: the epic and every Requirement it declares,

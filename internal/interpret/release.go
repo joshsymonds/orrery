@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -97,16 +98,24 @@ func releaseReviewOf(act Action, at time.Time) (store.ReleaseRun, error) {
 	}, nil
 }
 
-// startReleaseReview starts the release reviewer act names, read-only at the candidate act names, over the change from the
-// epic's base. A reviewer or start refused for good records the review failed at once, and the release stops at it on
-// its next decision.
+// startReleaseReview starts the release reviewer act names, read-only at the candidate act names, over the epic's own
+// change: from where the candidate meets origin's main (releaseReviewBase) to the candidate. A reviewer or start refused
+// for good records the review failed at once, and the release stops at it on its next decision.
 func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	run, err := releaseReviewOf(act, at)
 	if err != nil {
 		return err
 	}
 	id := act.IDs[0]
-	start, err := r.reviewers.Start(ctx, epic, run.Step, epic.Base, run.Head, nil, nil)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	base, err := releaseReviewBase(ctx, host, epic, run.Head)
+	if err != nil {
+		return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)
+	}
+	start, err := r.reviewers.Start(ctx, epic, run.Step, base, run.Head, nil, nil)
 	if err != nil {
 		if !refusedForGood(err) {
 			return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)
@@ -124,6 +133,19 @@ func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act
 		return r.failReleaseReview(ctx, epic, run, err)
 	}
 	return nil
+}
+
+// releaseReviewBase returns the commit the release reviewers' change starts from: the merge base of candidate and the
+// commit of origin's main the release last fetched into its origin ref. Once the release integrator has merged origin's
+// main into the epic's branch, that is origin's commit the merge took in, so the change from it to the candidate is the
+// epic's own delta as it lands on main, without the changes origin's main made since the epic's base. A candidate that is
+// the epic's branch tip, which already held origin's main, starts from that commit of origin's the same way.
+func releaseReviewBase(ctx context.Context, host hostexec.Host, epic store.EpicRow, candidate string) (string, error) {
+	out, err := gitOutput(ctx, host, epic.Repository, "merge-base", candidate, releaseRef(epic, "origin"))
+	if err != nil {
+		return "", fmt.Errorf("merge base of candidate %s and origin's main: %w", candidate, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // failReleaseReview records run, a release review that never started, as failed with the reason it did not start.

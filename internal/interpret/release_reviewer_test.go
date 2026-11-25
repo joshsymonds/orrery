@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -100,11 +102,13 @@ func (w *releaseWorld) reviewID() string {
 }
 
 // TestReleaseReviewerStartsOnceBeforeStepOne: the release reviewer starts read-only once at the candidate, before the
-// first release step, and a later pass that finds its step running starts nothing and runs no step.
+// first release step, over the change from origin's main, where the candidate meets it, to the candidate. A later pass
+// that finds its step running starts nothing and runs no step.
 func TestReleaseReviewerStartsOnceBeforeStepOne(t *testing.T) {
 	t.Parallel()
 	w := newReleaseWorld(t, &recordingEnding{})
 	mergeRemote(t, w.repo)
+	originMain := nodeGit(t, w.repo, "rev-parse", "main")
 	nodeEpicBranch(t, w.repo, "epic.txt")
 	reviewer := &releaseReviewers{}
 	w.runner.reviewers = reviewer
@@ -116,9 +120,9 @@ func TestReleaseReviewerStartsOnceBeforeStepOne(t *testing.T) {
 	if len(reviewer.calls) != 1 {
 		t.Fatalf("reviewer starts = %+v, want the release reviewer started once", reviewer.calls)
 	}
-	if call := reviewer.calls[0]; call.name != releaseReviewerName || call.base != runBase ||
+	if call := reviewer.calls[0]; call.name != releaseReviewerName || call.base != originMain ||
 		call.revision != candidate {
-		t.Errorf("reviewer start = %+v, want %s over %s..%s", call, releaseReviewerName, runBase, candidate)
+		t.Errorf("reviewer start = %+v, want %s over %s..%s", call, releaseReviewerName, originMain, candidate)
 	}
 	if len(w.fakes.steps.calls) != 1 {
 		t.Fatalf("step starts = %+v, want only the release reviewer's step started", w.fakes.steps.calls)
@@ -391,7 +395,8 @@ func TestReleaseReviewerDisabledLeavesStepOneUngated(t *testing.T) {
 }
 
 // TestReleaseReviewerStartPromptNamesDestination: the release reviewer's prompt names the promise its release makes, each
-// release step with its target and undo, the Must Not Ship entries, and the change from the epic's base to the candidate.
+// release step with its target and undo, and the kind it runs as when it names one, the Must Not Ship entries, and the
+// epic's own change from where the candidate meets origin's main to the candidate.
 func TestReleaseReviewerStartPromptNamesDestination(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{
@@ -399,6 +404,10 @@ func TestReleaseReviewerStartPromptNamesDestination(t *testing.T) {
 		ReleaseSteps: []store.EpicReleaseStep{
 			{Step: "tag the release", Target: "main", Undo: "none"},
 			{Step: "publish the tag", Target: "origin", Undo: "delete the tag on origin"},
+			{
+				Step: "push main", Target: "origin's main", Undo: "push a revert", Kind: releasestep.KindPushMain,
+				Params: releasestep.Params{Branch: "main"},
+			},
 		},
 		ReleaseThen: "The tag is on main.",
 		Exclusions:  []string{"no new dependency"},
@@ -415,9 +424,12 @@ func TestReleaseReviewerStartPromptNamesDestination(t *testing.T) {
 		"Release steps:",
 		"- tag the release (target main, undo none)",
 		"- publish the tag (target origin, undo delete the tag on origin)",
+		"- push main (target origin's main, undo push a revert, run as code: push-main)",
 		"Must Not Ship:",
 		"- no new dependency",
-		"The change under review is base111..cand333; this worktree is checked out at cand333. " +
+		"The change under review is the epic's own change as the release lands it on origin's main: " +
+			"base111..cand333, from base111, where the candidate meets origin's main, to the candidate. It holds " +
+			"none of origin's own changes since the epic began. This worktree is checked out at cand333. " +
 			"Inspect it with `git diff base111 cand333`.",
 	}, "\n")
 	if got.Prompt != want {
@@ -427,4 +439,43 @@ func TestReleaseReviewerStartPromptNamesDestination(t *testing.T) {
 		t.Errorf("ReadOnly, Revision, Workspace, Epic = %t, %q, %q, %q; want true, cand333, %q, %q",
 			got.ReadOnly, got.Revision, got.Workspace, got.Epic, epic.Repository, epic.ID)
 	}
+}
+
+// TestReleaseReviewBaseIsWhereTheCandidateMeetsOrigin: once the release integrator has merged origin's main into the
+// epic's branch, the release reviewers' change starts at origin's commit the merge took in, not at the epic's base, so
+// the change from it to the candidate holds only the epic's own files and none of the files origin's main changed since
+// the epic began.
+func TestReleaseReviewBaseIsWhereTheCandidateMeetsOrigin(t *testing.T) {
+	t.Parallel()
+	repo := mergeRepo(t)
+	origin := mergeRemote(t, repo)
+	tip := nodeEpicBranch(t, repo, "epic.txt")
+	moved := mergeOriginCommit(t, origin, "origin.txt")
+	epic := store.EpicRow{ID: runEpic, Repository: repo}
+	nodeGit(t, repo, "fetch", "-q", "origin", "+main:"+releaseRef(epic, "origin"))
+	nodeGit(t, repo, "checkout", "-q", "--detach", tip)
+	nodeGit(t, repo, "merge", "-q", "--no-edit", moved)
+	candidate := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	base, err := releaseReviewBase(t.Context(), hostexec.NewLocal(), epic, candidate)
+	if err != nil {
+		t.Fatalf("releaseReviewBase: %v", err)
+	}
+	if base != moved {
+		t.Fatalf("release review base = %s, want origin's commit %s the merge took in", base, moved)
+	}
+	if files := nodeGit(t, repo, "diff", "--name-only", base, candidate); files != "epic.txt" {
+		t.Errorf("files of the reviewed change = %q, want only the epic's epic.txt", files)
+	}
+	if files := nodeGit(t, repo, "diff", "--name-only", runBaseOf(t, repo), candidate); !strings.Contains(
+		files, "origin.txt",
+	) {
+		t.Errorf("files from the epic's base = %q, want origin's origin.txt among them", files)
+	}
+}
+
+// runBaseOf returns the first commit of repo, the base the scratch epic's branch starts from.
+func runBaseOf(t *testing.T, repo string) string {
+	t.Helper()
+	return nodeGit(t, repo, "rev-list", "--max-parents=0", "HEAD")
 }
