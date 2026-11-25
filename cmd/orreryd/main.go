@@ -15,7 +15,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -46,6 +48,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
@@ -157,6 +160,7 @@ type options struct {
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	relayListen     string                  // the --relay-listen address, "" when unset
+	gateway         string                  // the --gateway URL every limit probe is sent to, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
 	webhook         *alerts.Webhook         // the POST /alerts intake, set by startMetrics when metricsListen is set
@@ -219,6 +223,11 @@ type options struct {
 	// relayWhoIs is a test seam: the WhoIs the relay of --relay-listen admits its connections by, in place of
 	// node.Tailnet(). Production leaves it nil.
 	relayWhoIs node.WhoIs
+	// probeNow is a test seam: the clock the limit prober reads in place of time.Now. Production leaves it nil.
+	probeNow func() time.Time
+	// probeExec is a test seam: the Exec the limit prober runs each probe with in place of running claude. Production
+	// leaves it nil.
+	probeExec func(ctx context.Context, cmd *exec.Cmd) error
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -405,6 +414,27 @@ func checkClockSeams(dueAt, relayAt int64) error {
 	return nil
 }
 
+// checkFlagValues refuses the values checkClockSeams and checkGateway refuse, as usage errors.
+func checkFlagValues(dueAt, relayAt int64, gateway string) error {
+	if err := checkClockSeams(dueAt, relayAt); err != nil {
+		return err
+	}
+	return checkGateway(gateway)
+}
+
+// checkGateway refuses a --gateway value that is not an absolute http or https URL with a host, as a usage error. An
+// empty value names no gateway, so it is accepted.
+func checkGateway(gateway string) error {
+	if gateway == "" {
+		return nil
+	}
+	parsed, err := url.Parse(gateway)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return usagef("--gateway needs an absolute http or https URL with a host, got %q", gateway)
+	}
+	return nil
+}
+
 // unixClock is the clock of a test seam that names unix seconds, --due-at's or --relay-at's: nil, which is time.Now, for
 // zero, and otherwise a clock stopped at unix second at.
 func unixClock(at int64) func() time.Time {
@@ -451,6 +481,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	relayListen := flags.String("relay-listen", "", "address the relay of the hosts.toml agents listens on")
+	gateway := flags.String("gateway", "", "gateway URL every limit probe is sent to")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
 	relayAt := flags.Int64("relay-at", 0, "test seam: unix seconds the notice relay's watching checks read as now")
@@ -473,7 +504,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if err := checkLimits(*judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
-	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
+	if err := checkFlagValues(*dueAt, *relayAt, *gateway); err != nil {
 		return options{}, err
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
@@ -508,6 +539,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		relayListen:   *relayListen,
+		gateway:       *gateway,
 		flowTicks:     *flowTicks,
 		dueNow:        unixClock(*dueAt),
 		relayNow:      unixClock(*relayAt),
@@ -961,6 +993,10 @@ type sessionHost struct {
 	limitsDone    chan struct{}
 	stopDue       context.CancelFunc
 	dueDone       chan struct{}
+	// stopProbes cancels the limit prober's Run, which closes probesDone when it returns. Both are nil when no prober
+	// runs (see startProbes).
+	stopProbes context.CancelFunc
+	probesDone chan struct{}
 	// cron fires the cron jobs of the sessions. stopCron cancels its Run, which closes cronDone when it returns.
 	cron          *enginehost.CronScheduler
 	stopCron      context.CancelFunc
@@ -1029,6 +1065,7 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 		flowDone:      make(chan struct{}),
 		limitsDone:    make(chan struct{}),
 		dueDone:       make(chan struct{}),
+		probesDone:    make(chan struct{}),
 		cronDone:      make(chan struct{}),
 		summariesDone: make(chan struct{}),
 		reportsDone:   make(chan struct{}),
@@ -1047,9 +1084,11 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
 // builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
 // router which steps a usage limit holds, at start and on each stored hold or resume until stop; the due pass resumes
-// each due row whose reset has passed, at its start, on each wake and at each row's moment, until stop (startDue); the
-// session titles write each headless session's missing title through haiku, at start and on each first prompt the store
-// stores, until stop; the session headlines refresh each headless session's headline once its turns have ended, through
+// each due row whose reset has passed, at its start, on each wake and at each row's moment, until stop (startDue); with
+// opts.gateway set, the limit prober probes each idle account through that gateway, at start and as its timer fires,
+// until stop (startProbes); the session titles write each headless session's missing title through haiku, at start and
+// on each first prompt the store stores, until stop; the session headlines refresh each headless session's headline
+// once its turns have ended, through
 // haiku, at start and on each turn end the store stores, until stop; the manager stops idle sessions, until stop; and
 // the caller-event delivery tells each
 // step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
@@ -1122,8 +1161,7 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
-			Host:  hostName,
-			Hosts: hosts,
+			Host: hostName, Hosts: hosts,
 		})
 		host.steps = steps
 		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
@@ -1151,6 +1189,9 @@ func startSessions(
 		host.startTurnEnded(ctx, st, haiku, opts.models, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
+		if err := host.startProbes(ctx, st, opts, getenv, logger); err != nil {
+			return nil, host.abortStart(err)
+		}
 		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
@@ -2074,6 +2115,48 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 	}()
 }
 
+// startProbes probes the idle accounts of st through the gateway opts.gateway names until stop. Its readings are the
+// ledger beside st's store file, which getenv locates. It clocks on opts.probeNow, or time.Now when that is nil, and
+// runs claude through opts.probeExec, or the default when that is nil. It passes at start and then as its timer fires
+// (enginehost.LimitProber.Run). It starts nothing when opts.gateway is empty, and returns an error when the store path
+// does not resolve, which starts nothing.
+func (h *sessionHost) startProbes(
+	ctx context.Context,
+	st *store.Store,
+	opts options,
+	getenv func(string) string,
+	logger *slog.Logger,
+) error {
+	if opts.gateway == "" {
+		return nil
+	}
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return fmt.Errorf("limit prober: %w", err)
+	}
+	now := opts.probeNow
+	if now == nil {
+		now = time.Now
+	}
+	prober := enginehost.NewLimitProber(enginehost.LimitProberConfig{
+		Accounts: st,
+		Readings: ledger.NewReader(ledger.Path(storePath)),
+		Gateway:  opts.gateway,
+		Claude:   opts.claude,
+		Environ:  os.Environ(),
+		Now:      now,
+		Exec:     opts.probeExec,
+		Logger:   logger,
+	})
+	var probesCtx context.Context
+	probesCtx, h.stopProbes = context.WithCancel(ctx)
+	go func() {
+		defer close(h.probesDone)
+		prober.Run(probesCtx)
+	}()
+	return nil
+}
+
 // startSummaries writes the summary of each stored epic that has none, through haiku. It checks every epic at start,
 // then each epic the store stores, on the store's OnEpicStored hook, until stop.
 func (h *sessionHost) startSummaries(
@@ -2209,9 +2292,17 @@ func (h *sessionHost) startReports(
 	}()
 }
 
+// abortStart shuts the host down, stopping the loops already started, and returns err, for a start that fails after
+// some loops started.
+func (h *sessionHost) abortStart(err error) error {
+	h.shutdown()
+	return err
+}
+
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
-// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
-// summaries, the session titles, the session headlines, the session closures and the epic reports to return, stops
+// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the limit
+// prober when one runs, the epic summaries, the session titles, the session headlines, the session closures and the
+// epic reports to return, stops
 // the caller-event delivery and waits for it to return, closes the captures and waits for their drives, closes the node
 // checks, the evidence runner and the gatherers and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
@@ -2241,6 +2332,12 @@ func (h *sessionHost) shutdown() {
 			h.stopDue()
 			<-h.dueDone
 		})
+		if h.stopProbes != nil {
+			h.phase("limit probes", func() {
+				h.stopProbes()
+				<-h.probesDone
+			})
+		}
 		h.phase("cron fires", func() {
 			h.stopCron()
 			<-h.cronDone
