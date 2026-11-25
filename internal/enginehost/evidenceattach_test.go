@@ -48,12 +48,12 @@ func evidenceAttachAddEpic(t *testing.T, st *store.Store, id, repo, base string)
 	}
 }
 
-// evidenceAttachAddBrief stores id as a waiting captured brief of epic at base. Its item runs the cat command for 60
-// seconds and keeps the marker file.
-func evidenceAttachAddBrief(t *testing.T, st *store.Store, epic, id, base string) {
+// evidenceAttachAddBrief stores id as a waiting captured red brief of item of epic at base. Its item runs the cat command
+// for 60 seconds and keeps the marker file.
+func evidenceAttachAddBrief(t *testing.T, st *store.Store, epic, id, item, base string) {
 	t.Helper()
 	if err := st.AddEvidenceRun(t.Context(), store.EvidenceRun{
-		ID: id, Epic: epic, Item: "R1", Revision: base, Phase: evidence.PhaseRed,
+		ID: id, Epic: epic, Item: item, Revision: base, Phase: evidence.PhaseRed,
 		Source: evidence.SourceCaptured, State: store.RunWaiting,
 		Spec: evidence.Item{
 			Capture: evidenceAttachCat(), Limit: 60, Artifacts: []string{"marker"},
@@ -66,14 +66,14 @@ func evidenceAttachAddBrief(t *testing.T, st *store.Store, epic, id, base string
 }
 
 // evidenceAttachSeed stores epic captureTestEpic in st, over repo at base, with count waiting briefs, and returns their ids
-// in order.
+// in order. Brief n is of item R<n>, so no brief's verdict is reused for another (see reusedVerdict) and each is judged.
 func evidenceAttachSeed(t *testing.T, st *store.Store, repo, base string, count int) []string {
 	t.Helper()
 	evidenceAttachAddEpic(t, st, captureTestEpic, repo, base)
 	briefs := make([]string, 0, count)
 	for i := range count {
 		id := fmt.Sprintf("brief-%d", i+1)
-		evidenceAttachAddBrief(t, st, captureTestEpic, id, base)
+		evidenceAttachAddBrief(t, st, captureTestEpic, id, fmt.Sprintf("R%d", i+1), base)
 		briefs = append(briefs, id)
 	}
 	return briefs
@@ -230,7 +230,7 @@ func TestEvidenceAttachEarlierCaptureAttachesToABrief(t *testing.T) {
 	st := epicTestStore(t)
 	briefs := evidenceAttachSeed(t, st, repo, base, 1)
 	evidenceAttachAddEpic(t, st, evidenceAttachOtherEpic, repo, base)
-	evidenceAttachAddBrief(t, st, evidenceAttachOtherEpic, "other-brief", base)
+	evidenceAttachAddBrief(t, st, evidenceAttachOtherEpic, "other-brief", "R1", base)
 	evidenceAttachGather(t, st)
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceAttachNew(t, st, steps)

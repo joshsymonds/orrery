@@ -495,11 +495,16 @@ func evidenceRunCaptured(run store.EvidenceRun, capture store.EvidenceCapture) s
 	return run
 }
 
-// judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries attempts
-// in all, and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. A judge that
-// ends with no verdict while its epic is paused spends no attempt, and the next judge starts once the epic is resumed (see
+// judgeRun gives run its verdict. A run that has a verdict without a judge (see unjudgedVerdict) is recorded with it, and no
+// judge starts. Otherwise a judge that ends with no verdict is followed by another, up to evidenceJudgeTries attempts in all,
+// and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. A judge that ends
+// with no verdict while its epic is paused spends no attempt, and the next judge starts once the epic is resumed (see
 // judgeOnce). The verdict is recorded once.
 func (e *Evidence) judgeRun(ctx context.Context, repo string, run store.EvidenceRun) {
+	if verdict, reason, ok := e.unjudgedVerdict(ctx, repo, run); ok {
+		e.recordVerdict(ctx, run, verdict, reason)
+		return
+	}
 	judges, tries := run.Judges, 1
 	for {
 		started, verdict, reason, err := e.judgeOnce(ctx, repo, run, judges+1)

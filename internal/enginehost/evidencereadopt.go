@@ -68,7 +68,8 @@ func (e *Evidence) readoptDrive(ctx context.Context, repo string, run store.Evid
 
 // readoptJudge gives judging run its verdict as judgeRun does. It waits for the judge step the run holds, or for the judge a
 // restart finds under the next derived id, and a judge that ends with no verdict is followed by another, up to evidenceJudgeTries
-// attempts in all. The verdict is recorded once.
+// attempts in all. A run that holds no judge step and has a verdict without a judge (see unjudgedVerdict) is recorded with it,
+// and no judge starts. The verdict is recorded once.
 func (e *Evidence) readoptJudge(ctx context.Context, repo string, run store.EvidenceRun) {
 	step, judges, err := e.readoptJudgeStep(ctx, run)
 	if err != nil {
@@ -76,6 +77,12 @@ func (e *Evidence) readoptJudge(ctx context.Context, repo string, run store.Evid
 		return
 	}
 	verdict, reason := "", ""
+	if step == "" {
+		if unjudged, why, ok := e.unjudgedVerdict(ctx, repo, run); ok {
+			e.recordVerdict(ctx, run, unjudged, why)
+			return
+		}
+	}
 	if step != "" {
 		row, waitErr := e.awaitJudge(ctx, step)
 		if waitErr != nil {

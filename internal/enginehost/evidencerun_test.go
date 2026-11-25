@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -372,21 +373,34 @@ func TestEvidenceRunGreenExitZeroHoldsPasses(t *testing.T) {
 	}
 }
 
-// TestEvidenceRunGreenExitOneHoldsDoesNotPass runs a green item that exits 1 whose judge finds the conclusion holds.
-func TestEvidenceRunGreenExitOneHoldsDoesNotPass(t *testing.T) {
+// TestEvidenceRunGreenExitOneFailsWithoutAJudge runs a green item that exits 1. Green passes only at exit 0, so no judge
+// starts: the run is recorded fails, not passed, with a reason that names the exit and how a conclusion expecting another
+// exit wraps its command.
+func TestEvidenceRunGreenExitOneFailsWithoutAJudge(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "exit 1\n")
 	st := epicTestStore(t)
 	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
+	steps := &evidenceRunSteps{}
 	ev := evidenceRunNew(t, st, steps)
 
 	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
-	if got.Exit != 1 || got.Verdict != evidence.VerdictHolds || got.Passed {
+	if got.Exit != 1 || got.Verdict != evidence.VerdictFails || got.Passed || got.Judges != 0 {
 		t.Fatalf(
-			"run = exit %d verdict %q passed %t, want exit 1, holds, not passed",
-			got.Exit, got.Verdict, got.Passed,
+			"run = exit %d verdict %q passed %t judges %d, want exit 1, fails, not passed, no judge",
+			got.Exit, got.Verdict, got.Passed, got.Judges,
 		)
+	}
+	if n := steps.startCount(); n != 0 {
+		t.Fatalf("%d judge steps started, want none", n)
+	}
+	if got.JudgeReason != greenExitReason(1) {
+		t.Fatalf("reason = %q, want %q", got.JudgeReason, greenExitReason(1))
+	}
+	for _, want := range []string{"exited 1", "exits 0", "`! git grep"} {
+		if !strings.Contains(got.JudgeReason, want) {
+			t.Errorf("reason %q lacks %q", got.JudgeReason, want)
+		}
 	}
 }
 
