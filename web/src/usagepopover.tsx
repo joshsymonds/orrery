@@ -2,13 +2,16 @@
 // countdown to the reset, with the reset's clock in its tip. Under each name go who uses the account, else its plan, or
 // when it is limited, when its limit lifts; then when it was read. An "Accounts and routes" link calls onAccounts. Escape,
 // and a press outside the popover, call onClose. The band draws it beside the band, and the collapsed rail beside the rail.
+// Under the accounts, when spend is given, a foot totals the seven days' spend: what billed, each seat that billed with its
+// amount, and the subscription traffic priced at list. A null spend, which is what a page holds before a Spend read lands,
+// draws no foot.
 
 import type { JSX } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 
 import { ageText } from "./inboxrow";
 import { windowClaims } from "./usagedata";
-import type { BandRow, WindowDraw } from "./usagemodel";
+import { type BandRow, dollarsText, type SpendTotals, type WindowDraw } from "./usagemodel";
 
 // windowHues are the hue classes of the window cells, in the order of windowClaims: 5h, 7d, and Fable for 7d_oi.
 const windowHues = ["d5", "d7", "fb"] as const;
@@ -102,15 +105,18 @@ function AccountRow({ row, now }: { row: BandRow; now: number }): JSX.Element {
 }
 
 // UsagePopover draws every row: the band's account names and windows at reading size, with a header over the columns and
-// the link to the accounts and routes page. Escape, and a press outside it, call onClose.
+// the link to the accounts and routes page, then the spend foot when spend is given. Escape, and a press outside it, call
+// onClose.
 export function UsagePopover({
   rows,
   now,
+  spend,
   onAccounts,
   onClose,
 }: {
   rows: readonly BandRow[];
   now: number;
+  spend?: SpendTotals | null;
   onAccounts: () => void;
   onClose: () => void;
 }): JSX.Element {
@@ -160,6 +166,31 @@ export function UsagePopover({
           <AccountRow key={row.account.id} row={row} now={now} />
         ))}
       </div>
+      {spend && <SpendFoot spend={spend} />}
+    </div>
+  );
+}
+
+// SpendFoot draws the popover's foot: the billed total over the seven days, a line for each seat that billed with its
+// amount, and the subscription traffic at list price.
+function SpendFoot({ spend }: { spend: SpendTotals }): JSX.Element {
+  return (
+    <div class="up-foot">
+      <FootLine label="billed, last 7 days" amount={spend.billed} />
+      {spend.seats.map((seat) => (
+        <FootLine key={seat.seat} label={seat.seat} amount={seat.billed} />
+      ))}
+      <FootLine label="subscription traffic, at list price" amount={spend.subscriptionList} />
+    </div>
+  );
+}
+
+// FootLine draws one line of the foot: its label, and its amount in nano US dollars drawn in dollars.
+function FootLine({ label, amount }: { label: string; amount: bigint }): JSX.Element {
+  return (
+    <div class="up-frow">
+      <span class="up-lbl">{label}</span>
+      <span class="up-v">{dollarsText(amount)}</span>
     </div>
   );
 }

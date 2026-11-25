@@ -1,16 +1,16 @@
-// The stories of UsageBand: the band over the fixture's invented accounts, contexts and limit readings, at the fixture clock.
-// A story draws what it is given and changes nothing.
+// The stories of UsageBand: the band over the fixture's invented accounts, contexts, limit readings and seat spend, at the
+// fixture clock. A story draws what it is given and changes nothing.
 
 import { create } from "@bufbuild/protobuf";
 
 import { type Stories } from "./catalog/story";
 import { accounts, registry } from "./fixtures/accounts";
 import { at } from "./fixtures/clock";
-import { usageReadings } from "./fixtures/usage";
+import { usageReadings, usageSpend } from "./fixtures/usage";
 import { type UsageReading, UsageReadingSchema } from "./gen/orrery/v1/usage_pb";
 import { noUsage } from "./usagedata";
 import { UsageBand as UsageBandView } from "./usageband";
-import { bandRows } from "./usagemodel";
+import { bandRows, spendTotals } from "./usagemodel";
 
 // fixtureNow is the fixture clock in unix seconds.
 const fixtureNow = Number(at("@14:41"));
@@ -20,6 +20,9 @@ const day = 86400;
 
 // rows is the band the fixture's accounts, registry and readings draw.
 const rows = bandRows({ ...noUsage, accounts, registry, readings: usageReadings, answered: true }, fixtureNow);
+
+// spend is the fixture's seven days of seat spend, totalled as the band's line totals it.
+const spend = spendTotals(usageSpend, registry);
 
 // noPress is the press a story's band is given: none, since a story draws what it is given and changes nothing.
 const noPress = () => undefined;
@@ -51,11 +54,12 @@ function bandOf(ids: readonly string[], readings: readonly UsageReading[]) {
     { ...noUsage, accounts: accounts.filter((account) => ids.includes(account.id)), registry, readings, answered: true },
     fixtureNow,
   );
-  return <UsageBandView rows={shown} now={fixtureNow} onOpen={noPress} onAccounts={noPress} />;
+  return <UsageBandView rows={shown} now={fixtureNow} spend={null} onOpen={noPress} onAccounts={noPress} />;
 }
 
 export const UsageBand: Stories = {
-  default: () => <UsageBandView rows={rows} now={fixtureNow} onOpen={noPress} onAccounts={noPress} />,
+  default: () => <UsageBandView rows={rows} now={fixtureNow} spend={spend} onOpen={noPress} onAccounts={noPress} />,
+  "before-spend": () => <UsageBandView rows={rows} now={fixtureNow} spend={null} onOpen={noPress} onAccounts={noPress} />,
   // limited: max-1 is rejected in its 5h and 7d windows, so its dot is the limited glyph and its last column the time
   // until its 5h limit lifts; max-2 is not limited.
   limited: () =>

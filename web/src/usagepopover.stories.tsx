@@ -1,13 +1,18 @@
 // The stories of the usage popover: the accounts drawn at reading size over invented accounts, contexts and limit readings,
-// one story for each state a row takes. Every story draws against the one fixed clock below, and changes nothing.
+// one story for each state a row takes, and the popover's spend foot over the fixture's invented accounts, contexts,
+// readings and seven days of seat spend, drawn with that spend and without it, as the popover draws before a Spend read
+// lands. Every story draws against a fixed clock, and changes nothing.
 
 import { create } from "@bufbuild/protobuf";
 
 import type { Stories } from "./catalog/story";
+import { accounts, registry } from "./fixtures/accounts";
+import { at } from "./fixtures/clock";
+import { usageReadings, usageSpend } from "./fixtures/usage";
 import { type Account, AccountSchema, RouteContextSchema, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
 import { UsageReadingSchema } from "./gen/orrery/v1/usage_pb";
-import type { UsageData } from "./usagedata";
-import { bandRows } from "./usagemodel";
+import { noUsage, type UsageData } from "./usagedata";
+import { bandRows, spendTotals } from "./usagemodel";
 import { UsagePopover as Popover } from "./usagepopover";
 
 const noop = () => undefined;
@@ -81,9 +86,20 @@ const limited = dataOf(
 // bare is an account with no reading yet: its windows read no reading, and under its name stands its plan alone.
 const bare = dataOf([account("pro-1", "Claude Pro")], [], []);
 
+// fixtureNow is the fixture clock in unix seconds, which the spend stories draw against.
+const fixtureNow = Number(at("@14:41"));
+
+// fixtureRows are the rows the fixture's accounts, registry and readings draw, which the spend stories' popover draws.
+const fixtureRows = bandRows({ ...noUsage, accounts, registry, readings: usageReadings, answered: true }, fixtureNow);
+
+// spend is the fixture's seven days of seat spend, totalled as the popover's foot totals it.
+const spend = spendTotals(usageSpend, registry);
+
 export const UsagePopover: Stories = {
   ok: () => <Popover rows={bandRows(shared, now)} now={now} onAccounts={noop} onClose={noop} />,
   "warn-and-crit": () => <Popover rows={bandRows(warm, now)} now={now} onAccounts={noop} onClose={noop} />,
   limited: () => <Popover rows={bandRows(limited, now)} now={now} onAccounts={noop} onClose={noop} />,
   "no-reading": () => <Popover rows={bandRows(bare, now)} now={now} onAccounts={noop} onClose={noop} />,
+  "with-spend": () => <Popover rows={fixtureRows} now={fixtureNow} spend={spend} onAccounts={noop} onClose={noop} />,
+  "before-spend": () => <Popover rows={fixtureRows} now={fixtureNow} spend={null} onAccounts={noop} onClose={noop} />,
 };

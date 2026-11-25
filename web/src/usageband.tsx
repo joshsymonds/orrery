@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 
 import { Icon, StateGlyph } from "./glyphs";
-import type { BandRow, LastCell, WindowDraw } from "./usagemodel";
+import { type BandRow, dollarsText, type LastCell, type SpendTotals, type WindowDraw } from "./usagemodel";
 
 // The hue class of each window column, in the order of windowClaims: 5h, 7d, and Fable for 7d_oi.
 const windowHues = ["d5", "d7", "fb"] as const;
@@ -78,18 +78,22 @@ function windowCell(draw: WindowDraw | null, hue: (typeof windowHues)[number]): 
 // UsageBand draws the usage band under the inbox head: a table with a row for each account, in the order of rows, and
 // the columns 5h, 7d and Fable, then the last column. An account a context names has its dot filled. A limited account
 // has the limited glyph in its dot's place, and its last column is the time until its limit lifts. A stale account
-// that is not limited has its age in the last column, and an account with no drawn reading reads no reading yet. A
-// press on the band is onOpen; the gear opens the accounts and routes page through onAccounts. popover, when given, is
-// the usage popover, which lies beside the band at its top right.
+// that is not limited has its age in the last column, and an account with no drawn reading reads no reading yet. Under
+// the table, a line totals the seven days' spend: what the seats billed, and what they list at. The line is not drawn
+// while spend is null, which it is until a Spend read lands. A press on the band is onOpen; the gear opens the accounts
+// and routes page through onAccounts. popover, when given, is the usage popover, which lies beside the band at its top
+// right.
 export function UsageBand({
   rows,
   now,
+  spend,
   onOpen,
   onAccounts,
   popover,
 }: {
   rows: readonly BandRow[];
   now: number;
+  spend: SpendTotals | null;
   onOpen: () => void;
   onAccounts: () => void;
   popover?: JSX.Element;
@@ -136,6 +140,12 @@ export function UsageBand({
           );
         })}
       </div>
+      {spend !== null && (
+        <div class="uspend">
+          <span class="lbl">Billed 7d</span> <span class="amt">{dollarsText(spend.billed)}</span>{" "}
+          <span>list {dollarsText(spend.list)}</span>
+        </div>
+      )}
       {popover}
     </section>
   );

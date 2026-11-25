@@ -88,7 +88,7 @@ import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as 
 import { UsageBand } from "./usageband";
 import { noUsage, type UsageData } from "./usagedata";
 import { useUsage } from "./usageload";
-import { bandRows, firstInUse } from "./usagemodel";
+import { bandRows, firstInUse, spendTotals } from "./usagemodel";
 import { UsagePopover } from "./usagepopover";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
@@ -1713,6 +1713,9 @@ export function App({
     setAccountsOpen(true);
   });
 
+  // usageSpend is the seven days' spend the band's line and the usage popover's foot total, or null until a Spend read
+  // lands.
+  const usageSpend = usage.spend === null ? null : spendTotals(usage.spend, usage.registry);
   // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
   // accounts and routes page, and its press opens the usage popover beside it.
   const usageBand =
@@ -1720,11 +1723,18 @@ export function App({
       <UsageBand
         rows={bandRows(usage, now)}
         now={now}
+        spend={usageSpend}
         onOpen={() => setUsageOpen(true)}
         onAccounts={openAccounts}
         popover={
           usageOpen ? (
-            <UsagePopover rows={bandRows(usage, now)} now={now} onAccounts={openAccounts} onClose={() => setUsageOpen(false)} />
+            <UsagePopover
+              rows={bandRows(usage, now)}
+              now={now}
+              spend={usageSpend}
+              onAccounts={openAccounts}
+              onClose={() => setUsageOpen(false)}
+            />
           ) : undefined
         }
       />
@@ -3236,7 +3246,13 @@ export function App({
                     row: usageRow,
                     onOpen: () => setUsageOpen((open) => !open),
                     popover: usageOpen ? (
-                      <UsagePopover rows={usageRows} now={now} onAccounts={openAccounts} onClose={() => setUsageOpen(false)} />
+                      <UsagePopover
+                        rows={usageRows}
+                        now={now}
+                        spend={usageSpend}
+                        onAccounts={openAccounts}
+                        onClose={() => setUsageOpen(false)}
+                      />
                     ) : undefined,
                   }
             }
