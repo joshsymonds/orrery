@@ -104,13 +104,13 @@ func TestEvidenceBriefEvidenceNodeFilesABriefAtBaseAndAtHead(t *testing.T) {
 	}
 }
 
-// TestEvidenceBriefCapturesFileGreenBriefs runs the capture of R1 that the integrate, sync and release kinds each start, at the
-// commit each captures, through a real enginehost.Evidence over the store. All three start their capture through Runner.capture,
+// TestEvidenceBriefCapturesFileGreenBriefs runs the capture of R1 that the integrate and release kinds each start, at the
+// commit each captures, through a real enginehost.Evidence over the store. Both start their capture through Runner.capture,
 // so each is driven through it with the action its kind gives: the capture files a green brief at that commit and wakes the epic's
 // gatherer, and nothing starts.
 func TestEvidenceBriefCapturesFileGreenBriefs(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{kindIntegrate, kindSync, kindRelease} {
+	for _, kind := range []string{kindIntegrate, kindRelease} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 			repo, base := nodeRepo(t)
