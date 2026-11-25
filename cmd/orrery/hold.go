@@ -42,7 +42,7 @@ func runHoldWith(
 	flags.SetOutput(io.Discard)
 	off := flags.Bool("off", false, "free the member's hold")
 	if err := flags.Parse(args); err != nil {
-		return usagef("hold: %v", err)
+		return usagef("hold: %w", err)
 	}
 	if flags.NArg() != 1 {
 		return usagef("hold: want [--off] MEMBER")

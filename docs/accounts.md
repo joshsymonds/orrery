@@ -164,7 +164,7 @@ Routes.SetContextAccount sets only one context's `account`. It refuses an unknow
 
 ## Importing a routes file
 
-`orrery routes import FILE` stores a routes file as the route registry. The file is the registry JSON document that patchbay reads: `default_context`, and `seats` and `contexts` as objects keyed by id. Its seat and context members are the ones this document defines, and a context's `subagents` takes `default_seat`, `agent_types` and `models`. A context names an account by its id, and a routes file carries no token.
+`orrery routes import FILE` stores a routes file as the route registry. The file is the registry JSON document that patchbay reads: `default_context`, and `seats` and `contexts` as objects keyed by id. Its seat and context members are the ones this document defines, and a context's `subagents` takes `default_seat`, `agent_types` and `models`. A context names an account by its id, and a routes file carries no token. `import` takes no flags: a help flag after it prints the usage and exits 0, and any other flag in place of `FILE` exits 2 and reads no file (`cmd/orrery.routesCommand`).
 
 The command parses the file, then calls `Accounts.ReplaceRoutes` on orreryd's session socket. orreryd holds the parsed registry to the rules above, and replaces every stored route in one write. A file the parser or those rules refuse stores nothing, and the stored routes stay as they were. The parser refuses the whole file when:
 

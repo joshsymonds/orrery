@@ -100,7 +100,7 @@ func parseGate(args []string) (string, string, error) {
 	flags.SetOutput(io.Discard)
 	gatesFile := flags.String("gates", "", "gates file read before the project's")
 	if err := flags.Parse(args); err != nil {
-		return "", "", usagef("gate: %v", err)
+		return "", "", usagef("gate: %w", err)
 	}
 	if flags.NArg() != 1 {
 		return "", "", usagef("gate: want [--gates FILE] NAME")

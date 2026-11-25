@@ -189,15 +189,23 @@ subcommands:
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
 type usageError struct {
 	msg string
+	// cause is the error the message wraps with %w, such as flag.ErrHelp, or nil.
+	cause error
 }
 
 func (e usageError) Error() string {
 	return e.msg
 }
 
+// Unwrap returns the error the message wraps, so a help flag's flag.ErrHelp is found through it.
+func (e usageError) Unwrap() error {
+	return e.cause
+}
+
 // usagef returns a usageError with the formatted message.
 func usagef(format string, args ...any) error {
-	return usageError{msg: fmt.Sprintf(format, args...)}
+	err := fmt.Errorf(format, args...)
+	return usageError{msg: err.Error(), cause: errors.Unwrap(err)}
 }
 
 // statusError is a command that ended with a status of its own. What it wanted said is already written, so report
@@ -209,6 +217,12 @@ type statusError struct {
 func (e statusError) Error() string {
 	return fmt.Sprintf("exit status %d", e.code)
 }
+
+// routesName and stepName are the names of the routes and step subcommands.
+const (
+	routesName = "routes"
+	stepName   = "step"
+)
 
 // globals holds the flags that come before the subcommand.
 type globals struct {
@@ -223,8 +237,11 @@ func main() {
 // run executes one orrery command line and returns its exit code.
 func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(string) string) int {
 	opts, rest, err := parseGlobal(args)
+	if err == nil && asksHelp(rest) {
+		return report(stdout, stderr, flag.ErrHelp)
+	}
 	if err == nil && len(rest) > 0 {
-		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, stderr, getenv))
+		return report(stdout, stderr, dispatch(context.Background(), opts, rest, stdin, stdout, stderr, getenv))
 	}
 	// A hook must never fail a Claude Code turn. A refused command line that names hook exits 0 silently
 	// and forwards nothing, except that a refused `hook cron` still answers its call with a deny.
@@ -235,17 +252,21 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(st
 		return exitOK
 	}
 	if err != nil {
-		return report(stderr, err)
+		return report(stdout, stderr, err)
 	}
-	return report(stderr, usagef("no subcommand"))
+	return report(stdout, stderr, usagef("no subcommand"))
 }
 
-// report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.
-func report(stderr io.Writer, err error) int {
+// report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently. A help flag is a
+// request for the usage, which goes to stdout, and exits 0.
+func report(stdout, stderr io.Writer, err error) int {
 	var usage usageError
 	var status statusError
 	switch {
 	case err == nil:
+		return exitOK
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(stdout, usageText)
 		return exitOK
 	case errors.As(err, &usage):
 		fmt.Fprintf(stderr, "orrery: %s\n%s", usage.msg, usageText)
@@ -272,7 +293,7 @@ func parseGlobal(args []string) (globals, []string, error) {
 	socket := flags.String("S", "", "tmux server socket path")
 	daemonSocket := flags.String("socket", "", "orreryd socket path")
 	if err := flags.Parse(args); err != nil {
-		return globals{}, nil, usagef("%v", err)
+		return globals{}, nil, usagef("%w", err)
 	}
 	if *name != "" && *socket != "" {
 		return globals{}, nil, usagef("-L and -S are mutually exclusive")
@@ -307,9 +328,9 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence", "routes", "gateway":
+	case "run", "gate", "evidence", routesName, "gateway":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
-	case "hold", "step":
+	case "hold", stepName:
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder", releasestep.Command:
 		return orrerydCommand(ctx, name, args, stdout, stderr, getenv)
@@ -318,6 +339,36 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return dispatchTmux(ctx, opts, name, args, stdin, stdout, getenv)
 	}
+}
+
+// asksHelp reports whether rest, a subcommand and its arguments, asks for the usage: a help flag as the subcommand's
+// first argument, or, for a subcommand that takes a verb, as the verb's first argument. A help flag any later is left
+// to the command, where it may be text or part of an argv it runs, and commands that parse flags return flag.ErrHelp
+// for one among them. hook reads none, since a hook prints nothing.
+func asksHelp(rest []string) bool {
+	if len(rest) < 2 || rest[0] == "hook" {
+		return false
+	}
+	return isHelpFlag(rest[1]) || len(rest) > 2 && takesVerb(rest[0]) && isHelpFlag(rest[2])
+}
+
+// isHelpFlag reports whether arg asks for the usage, as the flag package reads -h, -help and --help.
+func isHelpFlag(arg string) bool {
+	switch arg {
+	case "-h", "-help", "--help":
+		return true
+	}
+	return false
+}
+
+// takesVerb reports whether subcommand name's first argument names a verb, such as epic get, so the verb's first
+// argument is an id, a file or a flag, never free text.
+func takesVerb(name string) bool {
+	switch name {
+	case "epic", "contract", cronVerb, "session", routesName, stepName, "evidence", "debug":
+		return true
+	}
+	return false
 }
 
 // orrerydCommand runs a subcommand orreryd runs, not the owner: holder runs a session's held child and serves its
@@ -360,7 +411,7 @@ func contractOrCron(ctx context.Context, opts globals, name string, args []strin
 // Both retry a call orreryd answers Unavailable. Only step writes to stdout.
 func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
-	if name == "step" {
+	if name == stepName {
 		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}
 	return runHold(ctx, opts, args, stderr, getenv)
@@ -431,7 +482,7 @@ func orreryCommand(
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "routes":
+	case routesName:
 		return runRoutes(ctx, opts, args, stdout, getenv)
 	case "gateway":
 		return runGateway(ctx, args, stderr, getenv)
@@ -491,7 +542,7 @@ func runDesk(ctx context.Context, opts globals, args []string) error {
 	var hosts listFlag
 	flags.Var(&hosts, "host", "host whose notice stream the desk keeps, repeatable")
 	if err := flags.Parse(args); err != nil {
-		return usagef("desk: %v", err)
+		return usagef("desk: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("desk: unexpected argument %q", flags.Arg(0))
@@ -642,7 +693,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
-		return usagef("serve: %v", err)
+		return usagef("serve: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("serve: unexpected argument %q", flags.Arg(0))
@@ -917,7 +968,7 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 	dir := flags.String("dir", "", "directory the shell session starts in")
 	clientTTY := flags.String("client", "", "tty of the client that shows the popup")
 	if err := flags.Parse(args); err != nil {
-		return usagef("shell: %v", err)
+		return usagef("shell: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("shell: unexpected argument %q", flags.Arg(0))
@@ -936,7 +987,7 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	flags.SetOutput(io.Discard)
 	clientTTY := flags.String("client", "", "tty of the client that shows the tree")
 	if err := flags.Parse(args); err != nil {
-		return usagef("tree: %v", err)
+		return usagef("tree: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("tree: unexpected argument %q", flags.Arg(0))
@@ -997,7 +1048,7 @@ func openCommand(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Ser
 	remote := flags.Bool("remote", false, "the current directory is on another host")
 	intent := flags.String("intent", "", "text the picker ranks actions for, in place of ARGS")
 	if err := flags.Parse(args); err != nil {
-		return usagef("open: %v", err)
+		return usagef("open: %w", err)
 	}
 	intentSet := false
 	flags.Visit(func(f *flag.Flag) {
@@ -1330,7 +1381,7 @@ func tmuxConf(args []string, stdout io.Writer) error {
 	flags.SetOutput(io.Discard)
 	binary := flags.String("binary", "", "the orrery binary the plugin runs")
 	if err := flags.Parse(args); err != nil {
-		return usagef("tmux-conf: %v", err)
+		return usagef("tmux-conf: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("tmux-conf: unexpected argument %q", flags.Arg(0))
@@ -1357,7 +1408,7 @@ func helpCommand(ctx context.Context, server tmuxctl.Server, args []string, stdo
 	flags.SetOutput(io.Discard)
 	html := flags.Bool("html", false, "write the HTML page instead of the card")
 	if err := flags.Parse(args); err != nil {
-		return usagef("help: %v", err)
+		return usagef("help: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("help: unexpected argument %q", flags.Arg(0))
@@ -1460,7 +1511,7 @@ func debugQueueReplay(args []string, out io.Writer, getenv func(string) string) 
 	before := flags.String("before", "", "RFC 3339 time that splits never taken rows into before and after")
 	root := flags.String("root", "", "directory of Claude projects (default $HOME/.claude/projects)")
 	if err := flags.Parse(args); err != nil {
-		return usagef("debug queue-replay: %v", err)
+		return usagef("debug queue-replay: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("debug queue-replay: unexpected argument %q", flags.Arg(0))
@@ -1498,7 +1549,7 @@ func debugSummarize(ctx context.Context, client *tmuxctl.Client, args []string, 
 	transcript := flags.String("transcript", "", "session transcript path")
 	claude := flags.String("claude", "claude", "claude binary to run")
 	if err := flags.Parse(args); err != nil {
-		return usagef("debug summarize: %v", err)
+		return usagef("debug summarize: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return usagef("debug summarize: unexpected argument %q", flags.Arg(0))

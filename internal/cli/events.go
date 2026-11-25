@@ -24,11 +24,18 @@ var ErrUsage = errors.New("usage")
 // usageError is a command line refused before any work. It matches ErrUsage.
 type usageError struct {
 	msg string
+	// cause is the error the refusal comes from, such as a flag parse's flag.ErrHelp, or nil.
+	cause error
 }
 
 // Error returns the message that names the refused command line.
 func (e usageError) Error() string {
 	return e.msg
+}
+
+// Unwrap returns the error the refusal comes from, so a help flag's flag.ErrHelp is found through it.
+func (e usageError) Unwrap() error {
+	return e.cause
 }
 
 // Is reports whether target is ErrUsage.
@@ -76,7 +83,7 @@ func eventsWithClock(ctx context.Context, clock rpcretry.Clock, args []string, o
 	after := flags.Int64("after", 0, "seq to start after, in place of the newest seq")
 	follow := flags.Bool("follow", false, "keep writing new events until the stream ends")
 	if err := flags.Parse(args); err != nil {
-		return usageError{msg: fmt.Sprintf("orrery events: %v", err)}
+		return usageError{msg: fmt.Sprintf("orrery events: %v", err), cause: err}
 	}
 	if flags.NArg() > 0 {
 		return usageError{msg: fmt.Sprintf("orrery events: unexpected argument %q", flags.Arg(0))}

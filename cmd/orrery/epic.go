@@ -188,7 +188,7 @@ func epicGet(ctx context.Context, epics enginev1connect.EpicsClient, rest []stri
 	offset := flags.Int("offset", 0, "the first item, or rune of a text part, to read")
 	limit := flags.Int("limit", 0, "the most items, or runes of a text part, to read")
 	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
-		return epicForm(epicGetForm)
+		return epicFlagForm(epicGetForm, err)
 	}
 	given := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })
@@ -242,7 +242,7 @@ func epicRelease(ctx context.Context, epics enginev1connect.EpicsClient, rest []
 		return nil
 	})
 	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
-		return epicForm(epicReleaseForm)
+		return epicFlagForm(epicReleaseForm, err)
 	}
 	return epicInvoke(ctx, epics, "epic_release", epicReleaseArgs{ID: rest[0], UndoNone: undoNone}, stdout)
 }
@@ -259,7 +259,7 @@ func epicClose(ctx context.Context, epics enginev1connect.EpicsClient, rest []st
 	kind := flags.String("as", "", "the close kind: superseded, shipped or abandoned")
 	by := flags.String("by", "", "the epic that replaces this one, which superseded requires")
 	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
-		return epicForm(epicCloseForm)
+		return epicFlagForm(epicCloseForm, err)
 	}
 	if !epicCloseKind(*kind) || (*kind == "superseded" && *by == "") {
 		return epicForm(epicCloseForm)
@@ -279,7 +279,7 @@ func epicAmend(ctx context.Context, epics enginev1connect.EpicsClient, rest []st
 	item := flags.String("item", "", "the evidence item the Requirement should hold, as JSON")
 	reason := flags.String("reason", "", "why the item is amended")
 	if err := flags.Parse(rest[2:]); err != nil || flags.NArg() != 0 {
-		return epicForm(epicAmendForm)
+		return epicFlagForm(epicAmendForm, err)
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(*item), &object); err != nil || object == nil {
@@ -302,6 +302,15 @@ func epicCloseKind(kind string) bool {
 // epicForm returns the usage error for `orrery epic` given the wrong arguments; form names the form it takes.
 func epicForm(form string) error {
 	return usageError{msg: "epic: want " + form}
+}
+
+// epicFlagForm returns the usage error for `orrery epic` whose flags parsed to err, or left arguments over when err is
+// nil; form names the form it takes. A help flag is a request for the usage, so its error is the parse's own.
+func epicFlagForm(form string, err error) error {
+	if errors.Is(err, flag.ErrHelp) {
+		return err
+	}
+	return epicForm(form)
 }
 
 // epicCreate implements `create FILE|-`. The JSON of the file, or of stdin for -, is the arguments of epic_create.
@@ -348,7 +357,7 @@ func epicAnswer(
 	question := flags.String("question", "", "the Q<n> the decision answers; omit it for a note")
 	choice := flags.String("choice", "", "the choice the decision gives the question: a declared choice's id, or other")
 	if err := flags.Parse(rest[1:]); err != nil {
-		return epicForm(epicAnswerForm)
+		return epicFlagForm(epicAnswerForm, err)
 	}
 	given := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })

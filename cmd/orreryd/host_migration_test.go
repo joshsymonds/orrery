@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -294,7 +295,7 @@ func TestHostMigrationHostsFileErrorFailsStartup(t *testing.T) {
 	socket := filepath.Join(root, "orreryd.sock")
 
 	var stderr bytes.Buffer
-	code := run([]string{"--host", hostMigrationName, "--socket", socket}, &stderr, getenv)
+	code := run([]string{"--host", hostMigrationName, "--socket", socket}, io.Discard, &stderr, getenv)
 	if code != exitFailure {
 		t.Fatalf("run exit code = %d, want %d; stderr %q", code, exitFailure, stderr.String())
 	}

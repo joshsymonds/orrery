@@ -284,6 +284,7 @@ orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND
 
 - `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
 - `--socket PATH` sets the daemon socket, as section 5 defines.
+- A help flag, `-h`, `-help` or `--help`, prints the usage text on stdout and exits 0 before any work. It is read before the subcommand, as a subcommand's first argument, as the first argument after the verb of `epic`, `contract`, `cron`, `session`, `routes`, `step`, `evidence` or `debug`, and among a command's own flags (`cmd/orrery.asksHelp`, `cmd/orrery.takesVerb`, `cmd/orrery.report`). Anywhere else it is the command's own argument, such as the TEXT of `session say` or an ARGV after `--`. `hook` reads none.
 
 Subcommands:
 
@@ -497,10 +498,12 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-shell PATH] [--holder-scope PATH] [--metrics-listen ADDR] [--flow-ticks PATH] [--judge-delay DURATION] [--due-at SECONDS] [--host NAME]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-shell PATH] [--holder-scope PATH] [--metrics-listen ADDR] [--gateway URL] [--flow-ticks PATH] [--judge-delay DURATION] [--due-at SECONDS] [--host NAME]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
+- `-h`, `-help` or `--help` prints the usage text on stdout and exits 0 before any work (`cmd/orreryd.report`).
+- `--gateway URL` probes each idle account's usage limits through the gateway at URL, an absolute `http` or `https` URL with a host; another value exits 2 (`cmd/orreryd.checkGateway`). Without it, no limit probe runs (`cmd/orreryd.startProbes`).
 - `--claude PATH` sets the `claude` binary the summarizer runs, and the binary each headless session runs.
 - `--summary-model CONTEXT=MODEL` maps a proxy context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).

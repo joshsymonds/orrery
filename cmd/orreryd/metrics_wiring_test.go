@@ -51,7 +51,7 @@ func TestMetricsListenRefusesNonLoopback(t *testing.T) {
 			var stderr bytes.Buffer
 			codes := make(chan int, 1)
 			go func() {
-				codes <- run([]string{"--socket", socket, "--metrics-listen", addr}, &stderr, getenv)
+				codes <- run([]string{"--socket", socket, "--metrics-listen", addr}, io.Discard, &stderr, getenv)
 			}()
 			code := <-codes
 			if code != exitFailure {

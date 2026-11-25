@@ -63,7 +63,7 @@ func parseGatewayFlags(args []string) (string, error) {
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", gateway.DefaultListen, "loopback address to serve on")
 	if err := flags.Parse(args); err != nil {
-		return "", usagef("gateway: %v", err)
+		return "", usagef("gateway: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return "", usagef("gateway: unexpected argument %q", flags.Arg(0))

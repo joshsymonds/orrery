@@ -124,7 +124,7 @@ func parseRun(args []string) ([]*v1.PoolNeed, []string, error) {
 	var needFlags listFlag
 	flags.Var(&needFlags, "needs", "POOL=N, repeatable")
 	if err := flags.Parse(flagArgs); err != nil {
-		return nil, nil, usagef("run: %v", err)
+		return nil, nil, usagef("run: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return nil, nil, usagef("run: unexpected argument %q before --", flags.Arg(0))

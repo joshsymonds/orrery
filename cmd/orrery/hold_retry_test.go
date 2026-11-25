@@ -180,7 +180,7 @@ func runHoldRetry(t *testing.T, clock rpcretry.Clock, daemon string, args ...str
 		&stderr,
 		func(string) string { return "" },
 	)
-	return report(&stderr, err), stderr.String()
+	return report(io.Discard, &stderr, err), stderr.String()
 }
 
 // connectErr returns a Connect error with code and message.

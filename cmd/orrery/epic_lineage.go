@@ -30,7 +30,7 @@ func epicLineage(ctx context.Context, epics enginev1connect.EpicsClient, rest []
 	epicID := flags.String("epic", "", "the epic whose task ladders to list; omit it to list every epic's")
 	escalated := flags.Bool("escalated", false, "list only the tasks whose highest rung is 3 or more")
 	if err := flags.Parse(rest); err != nil || flags.NArg() != 0 {
-		return epicForm(epicLineageForm)
+		return epicFlagForm(epicLineageForm, err)
 	}
 	given := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { given[f.Name] = true })

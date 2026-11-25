@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -37,14 +38,23 @@ func runRoutes(ctx context.Context, opts globals, args []string, stdout io.Write
 // routesCommand implements `orrery routes`. Its one form, import FILE, parses the routes file FILE with
 // llmroutes.ParseFile and stores the registry through ReplaceRoutes, which holds it to the rules of Routes.Replace. It
 // prints the seat and context counts of the registry the store holds. A file that the parser or orreryd refuses returns
-// an error and stores nothing. A wrong argument list is a usage error and calls nothing.
+// an error and stores nothing. A wrong argument list is a usage error and calls nothing. import takes no flags, so a
+// help flag after it asks for the usage and any other flag is refused, rather than read as FILE.
 func routesCommand(
 	ctx context.Context, accounts enginev1connect.AccountsClient, args []string, stdout io.Writer,
 ) error {
-	if len(args) != 2 || args[0] != routesImportVerb {
+	if len(args) == 0 || args[0] != routesImportVerb {
 		return usagef("routes: want %s", routesForm)
 	}
-	data, err := os.ReadFile(filepath.Clean(args[1]))
+	flags := flag.NewFlagSet("orrery routes import", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	if err := flags.Parse(args[1:]); err != nil {
+		return usagef("routes import: %w", err)
+	}
+	if flags.NArg() != 1 {
+		return usagef("routes: want %s", routesForm)
+	}
+	data, err := os.ReadFile(filepath.Clean(flags.Arg(0)))
 	if err != nil {
 		return fmt.Errorf("routes import: %w", err)
 	}

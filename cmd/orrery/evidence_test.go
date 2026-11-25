@@ -377,7 +377,7 @@ func runEvidenceClock(
 		&stderr,
 		func(string) string { return "" },
 	)
-	return report(&stderr, err), stderr.String()
+	return report(io.Discard, &stderr, err), stderr.String()
 }
 
 // TestEvidenceRunRetriesWhileNothingListens sends run to a socket nothing listens on. Each attempt never connects, so

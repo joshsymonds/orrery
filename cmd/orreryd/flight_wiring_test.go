@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -212,7 +213,7 @@ func TestFlightRefusedStartServesOn(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")
 	var stderr flightWiringLog
 	codes := make(chan int, 1)
-	go func() { codes <- run([]string{"--socket", socket}, &stderr, getenv) }()
+	go func() { codes <- run([]string{"--socket", socket}, io.Discard, &stderr, getenv) }()
 
 	// serve logs "store open" once the store has opened, after the sockets listen. Signaling before that would
 	// interrupt the open, so the test waits for the log line. The waits have no deadline of their own: the open is

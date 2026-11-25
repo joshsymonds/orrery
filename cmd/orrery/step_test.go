@@ -178,7 +178,7 @@ func runStepCapture(t *testing.T, clock rpcretry.Clock, daemon string, args ...s
 		&stderr,
 		func(string) string { return "" },
 	)
-	return report(&stderr, err), stdout.String(), stderr.String()
+	return report(io.Discard, &stderr, err), stdout.String(), stderr.String()
 }
 
 // runStepRetry runs `orrery step` with args as runStepCapture does, and returns the exit code and what was written to

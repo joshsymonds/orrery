@@ -141,7 +141,7 @@ func parseHolder(args []string) (holderArgs, error) {
 			return nil
 		})
 	if err := flags.Parse(flagArgs); err != nil {
-		return holderArgs{}, usagef("holder: %v", err)
+		return holderArgs{}, usagef("holder: %w", err)
 	}
 	if flags.NArg() > 0 {
 		return holderArgs{}, usagef("holder: unexpected argument %q before --", flags.Arg(0))

@@ -108,7 +108,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-shell PATH]
-               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR]
+               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR] [--gateway URL]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -129,20 +129,30 @@ flags:
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
   --relay-listen ADDR
                     serve the relay that admits the hosts.toml agents on ADDR, host:port (default: none)
+  --gateway URL     probe each idle account's usage limits through the gateway at URL, an absolute http or
+                    https URL (default: none, no limit probes)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
 type usageError struct {
 	msg string
+	// cause is the error the message wraps with %w, such as flag.ErrHelp, or nil.
+	cause error
 }
 
 func (e usageError) Error() string {
 	return e.msg
 }
 
+// Unwrap returns the error the message wraps, so a help flag's flag.ErrHelp is found through it.
+func (e usageError) Unwrap() error {
+	return e.cause
+}
+
 // usagef returns a usageError with the formatted message.
 func usagef(format string, args ...any) error {
-	return usageError{msg: fmt.Sprintf(format, args...)}
+	err := fmt.Errorf(format, args...)
+	return usageError{msg: err.Error(), cause: errors.Unwrap(err)}
 }
 
 // options holds the parsed command line.
@@ -266,21 +276,21 @@ func (m modelFlag) Set(value string) error {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stderr, os.Getenv))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
 }
 
 // run starts orreryd with the command line args and returns its exit code. It exits 0 after SIGINT or SIGTERM.
-func run(args []string, stderr io.Writer, getenv func(string) string) int {
+func run(args []string, stdout, stderr io.Writer, getenv func(string) string) int {
 	// start is when orreryd began, the start of the start phase that the flight recorder times to READY.
 	start := time.Now()
 	// The notify socket is read and removed before anything captures the environment, so no child inherits it.
 	notifySocket := getenv(envNotifySocket)
 	if err := os.Unsetenv(envNotifySocket); err != nil {
-		return report(stderr, fmt.Errorf("unset %s: %w", envNotifySocket, err))
+		return report(stdout, stderr, fmt.Errorf("unset %s: %w", envNotifySocket, err))
 	}
 	opts, err := parseFlags(args, getenv)
 	if err != nil {
-		return report(stderr, err)
+		return report(stdout, stderr, err)
 	}
 	opts.notifySocket = notifySocket
 	opts.started = start
@@ -292,9 +302,9 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 	defer opts.flight.Stop()
 	// The metrics address is bound before any socket exists, so a refused address fails before the daemon socket does.
 	if err := startMetrics(ctx, &opts, start, logger); err != nil {
-		return report(stderr, err)
+		return report(stdout, stderr, err)
 	}
-	return report(stderr, serve(ctx, opts, logger, getenv))
+	return report(stdout, stderr, serve(ctx, opts, logger, getenv))
 }
 
 // startFlight starts the flight recorder over the traces directory beside the store, so a phase that takes longer than
@@ -333,11 +343,15 @@ func observeFlight(
 	}
 }
 
-// report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.
-func report(stderr io.Writer, err error) int {
+// report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently. A help flag is a
+// request for the usage, which goes to stdout, and exits 0.
+func report(stdout, stderr io.Writer, err error) int {
 	var usage usageError
 	switch {
 	case err == nil:
+		return exitOK
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(stdout, usageText)
 		return exitOK
 	case errors.As(err, &usage):
 		fmt.Fprintf(stderr, "orreryd: %s\n%s", usage.msg, usageText)
@@ -490,7 +504,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	storeBusy := flags.Duration("store-busy-timeout", store.BusyTimeout,
 		"test seam: how long a store write waits for the write lock")
 	if err := flags.Parse(args); err != nil {
-		return options{}, usagef("%v", err)
+		return options{}, usagef("%w", err)
 	}
 	if flags.NArg() > 0 {
 		return options{}, usagef("unexpected argument %q", flags.Arg(0))

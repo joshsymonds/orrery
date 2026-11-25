@@ -131,7 +131,7 @@ func TestServeMetricsListenRefusesNonLoopback(t *testing.T) {
 			t.Errorf("runServe --metrics-listen %s error = %v, want the loopback refusal", metricsAddr, err)
 		}
 		var stderr bytes.Buffer
-		if code := report(&stderr, err); code != exitFailure {
+		if code := report(io.Discard, &stderr, err); code != exitFailure {
 			t.Errorf("runServe --metrics-listen %s exit code = %d, want %d", metricsAddr, code, exitFailure)
 		}
 	}
