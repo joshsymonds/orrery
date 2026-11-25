@@ -70,6 +70,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // approach, its questions, its research and its log. Round 6 draws no design's page, and its stage track stands nearest,
   // for the strip.
   "design-page": { replacement: "Track", epic: "F4" },
+  // UsagePanel draws a conversation's Usage panel in the right rail: its list total, its four token kinds, and its model-and-agent
+  // rows. Round 6 draws no usage panel, and ListPanel stands nearest, for a rail panel in the same frame.
+  "usage-panel": { replacement: "ListPanel", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
