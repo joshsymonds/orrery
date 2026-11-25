@@ -257,7 +257,9 @@ reap-test-tmux:
     go run ./internal/tmuxtest/cmd/tmuxreap
 
 # The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
-# merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
+# merge base of HEAD and origin/main), and the repo-wide scans when what they read changed. Integration and release run
+# the Done gates a verification choice picks, every Done gate when it falls back, and a gate declared always on every
+# run.
 check-changed BASE="": reap-test-tmux
     scripts/check-changed.sh {{BASE}}
 
