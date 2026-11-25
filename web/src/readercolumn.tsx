@@ -54,6 +54,7 @@ export type ColumnHead = Pick<
   | "contracts"
   | "onOpenContract"
   | "hereContract"
+  | "usage"
 >;
 
 // The section markup each column draws: the cursor's reader, and the pinned reader beside the list.

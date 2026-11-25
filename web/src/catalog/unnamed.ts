@@ -76,6 +76,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // EpicUsageSection draws an epic's Usage section on its page: each session's row, its model, requests, cache write tokens
   // and list cost, with a bar. Round 6 draws no epic's usage, and TaskTable stands nearest, for the epic's table of tasks.
   "epic-usage-section": { replacement: "TaskTable", epic: "F4" },
+  // UsageReadout draws a conversation's usage in its title row: the word usage and the session's list total, lit while the
+  // Usage panel is open. Round 6 draws no usage readout, and TitleRow stands nearest, for the title row it sits in.
+  "usage-readout": { replacement: "TitleRow", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
