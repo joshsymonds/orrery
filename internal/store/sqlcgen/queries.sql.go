@@ -10110,6 +10110,38 @@ func (q *Queries) ListLLMAccountIDs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listLLMAccountTokens = `-- name: ListLLMAccountTokens :many
+SELECT id, token FROM llm_accounts ORDER BY id
+`
+
+type ListLLMAccountTokensRow struct {
+	ID    string
+	Token string
+}
+
+func (q *Queries) ListLLMAccountTokens(ctx context.Context) ([]ListLLMAccountTokensRow, error) {
+	rows, err := q.db.QueryContext(ctx, listLLMAccountTokens)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLLMAccountTokensRow
+	for rows.Next() {
+		var i ListLLMAccountTokensRow
+		if err := rows.Scan(&i.ID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLLMAccounts = `-- name: ListLLMAccounts :many
 SELECT id, name, provider, plan, fingerprint, created FROM llm_accounts ORDER BY created, id
 `

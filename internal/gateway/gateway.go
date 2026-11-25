@@ -1,0 +1,281 @@
+// Package gateway is the Claude traffic gateway orrery runs. It reads the route registry orrery stores, resolves each
+// request to the seat it goes through, forwards the request upstream, and records the request in the ledger.
+package gateway
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"sync/atomic"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/gateway/awssig"
+	"github.com/joshsymonds/orrery/internal/ledger"
+	"github.com/joshsymonds/orrery/internal/llmroutes"
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// DefaultListen is the address the gateway listens on when it is given none.
+const DefaultListen = "127.0.0.1:4110"
+
+// DefaultInterval is how often the gateway re-reads the route registry when its Config names no interval.
+const DefaultInterval = 10 * time.Second
+
+// Timeouts for the default upstream client. There is deliberately no overall request timeout: a long thinking turn can
+// stream for many minutes, and cutting it short would look the same as an upstream failure.
+const (
+	dialTimeout           = 10 * time.Second
+	handshakeTimeout      = 10 * time.Second
+	idleTimeout           = 90 * time.Second
+	responseHeaderTimeout = 10 * time.Minute
+)
+
+// errNotImplemented is returned by each entry point and seat kind whose body is not written yet.
+var errNotImplemented = errors.New("gateway: not implemented yet")
+
+// RoutesReader reads the route registry and the token of each account its contexts name. *store.Reader satisfies it.
+type RoutesReader interface {
+	// RoutesSnapshot reads the route registry and the tokens of the accounts it names, in one read.
+	RoutesSnapshot(ctx context.Context) (store.RoutesSnapshot, error)
+}
+
+// Recorder records each request the gateway resolves to a seat: Start before the seat serves it or the gateway refuses
+// it, and Finish once its answer has been served. *ledger.Ledger satisfies it.
+type Recorder interface {
+	// Start records the start of a request and returns the id the request is known by.
+	Start(ctx context.Context, start ledger.Start) (int64, error)
+
+	// Finish records the completion of the request id.
+	Finish(ctx context.Context, id int64, finish ledger.Finish) error
+}
+
+// Clock is the time source the gateway reads, so that the re-read loop can be driven without the wall clock.
+type Clock interface {
+	// Now returns the current time.
+	Now() time.Time
+
+	// After returns a channel that receives the time once d has elapsed.
+	After(d time.Duration) <-chan time.Time
+}
+
+// SystemClock is the Clock that reads the wall clock.
+type SystemClock struct{}
+
+// Now returns the current wall-clock time.
+func (SystemClock) Now() time.Time {
+	return time.Now()
+}
+
+// After returns a channel that receives the wall-clock time once d has elapsed.
+func (SystemClock) After(d time.Duration) <-chan time.Time {
+	return time.After(d)
+}
+
+// Config is what a Gateway is built from.
+type Config struct {
+	// Routes reads the route registry. It is required.
+	Routes RoutesReader
+
+	// Interval is how often Run re-reads the route registry. Zero means DefaultInterval. A negative interval is refused.
+	Interval time.Duration
+
+	// Clock is the time source Run waits on. Nil means SystemClock.
+	Clock Clock
+
+	// Ledger records each request the gateway serves. It is required.
+	Ledger Recorder
+
+	// Logger receives the gateway's warnings. Nil means slog.Default().
+	Logger *slog.Logger
+
+	// Client is the HTTP client the gateway makes upstream calls with.
+	Client *http.Client
+
+	// AnthropicUpstream is the URL of Anthropic's API. Empty means llmroutes.AnthropicUpstream. It is the only URL
+	// that forward seats and account tokens are ever sent to.
+	AnthropicUpstream string
+
+	// CallerKeyFile is the path that the PATCHBAY_CALLER_KEY_FILE variable names. New reads the caller key from it once.
+	// An empty path, or a file that is unreadable or empty, leaves no caller key, and then every inject and sigv4 seat is
+	// refused.
+	CallerKeyFile string
+
+	// Getenv looks up an environment variable by name. The gateway uses it to resolve the variable names that a
+	// seat's api_key_env_file and model_map_env_file hold. Nil means os.Getenv.
+	Getenv func(string) string
+
+	// AWSCredentials exports the credentials of the named AWS profile, for sigv4 seats. Nil means no credentials are
+	// exported, and then every sigv4 request is refused.
+	AWSCredentials func(ctx context.Context, profile string) (awssig.Credentials, error)
+
+	// BedrockEndpoint returns the base URL of the Bedrock runtime in region. Nil, or an empty answer, means
+	// https://bedrock-runtime.<region>.amazonaws.com.
+	BedrockEndpoint func(region string) string
+}
+
+// Gateway serves Claude traffic. Build one with New.
+type Gateway struct {
+	routes   RoutesReader
+	ledger   Recorder
+	logger   *slog.Logger
+	client   *http.Client
+	upstream *url.URL
+	getenv   func(string) string
+	clock    Clock
+	interval time.Duration
+
+	// callerKey is the key a request to an inject or sigv4 seat must present. New reads it once. Empty means no key was
+	// loaded, and every such request is refused.
+	callerKey string
+
+	// snapshot is the route registry requests are served from. Load and Run set it. It stays nil, and every request is
+	// refused with 503, until a read has succeeded.
+	snapshot atomic.Pointer[store.RoutesSnapshot]
+
+	// admission holds one permit for each request being served, so that no more than requestAdmissionCapacity are.
+	admission chan struct{}
+
+	// awsCredentials exports the credentials a sigv4 seat signs with. Nil refuses every sigv4 request.
+	awsCredentials func(ctx context.Context, profile string) (awssig.Credentials, error)
+
+	// bedrockEndpoint returns the base URL of the Bedrock runtime in a region. Nil means the AWS default.
+	bedrockEndpoint func(region string) string
+}
+
+// New returns a Gateway serving cfg. It refuses a Config whose Routes or Ledger is nil, an AnthropicUpstream that is
+// not an absolute http or https URL, and a negative Interval.
+func New(cfg Config) (*Gateway, error) {
+	if cfg.Routes == nil {
+		return nil, errors.New("gateway: Config.Routes is required")
+	}
+	if cfg.Ledger == nil {
+		return nil, errors.New("gateway: Config.Ledger is required")
+	}
+	upstream, err := anthropicUpstream(cfg.AnthropicUpstream)
+	if err != nil {
+		return nil, err
+	}
+	interval := cfg.Interval
+	if interval == 0 {
+		interval = DefaultInterval
+	}
+	if interval < 0 {
+		return nil, fmt.Errorf("gateway: Config.Interval %v is negative", interval)
+	}
+
+	client := cfg.Client
+	if client == nil {
+		client = defaultClient()
+	}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	getenv := cfg.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	callerKey, err := CallerKey(cfg.CallerKeyFile)
+	if err != nil {
+		logger.Warn("gateway: no caller key is loaded; inject and sigv4 seats will be refused", slog.Any("error", err))
+	}
+	clock := cfg.Clock
+	if clock == nil {
+		clock = SystemClock{}
+	}
+
+	return &Gateway{
+		routes:    cfg.Routes,
+		ledger:    cfg.Ledger,
+		logger:    logger,
+		client:    client,
+		upstream:  upstream,
+		getenv:    getenv,
+		callerKey: callerKey,
+		clock:     clock,
+		interval:  interval,
+		admission: make(chan struct{}, requestAdmissionCapacity),
+
+		awsCredentials:  cfg.AWSCredentials,
+		bedrockEndpoint: cfg.BedrockEndpoint,
+	}, nil
+}
+
+// Load reads the route registry once, so that the gateway serves from it before Run starts re-reading it. A read that
+// fails leaves the gateway serving whatever it read before, or nothing, and returns the failure.
+func (g *Gateway) Load(ctx context.Context) error {
+	snap, err := g.routes.RoutesSnapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("gateway: read the route registry: %w", err)
+	}
+	g.snapshot.Store(&snap)
+
+	return nil
+}
+
+// Handler returns the handler the gateway is served as. It answers the model endpoints, GET /v1/models and GET
+// /v1/models/{id} with or without a /ctx/<name> prefix, ahead of the proxy path, and passes every other request to
+// ServeHTTP. A model endpoint is admitted like any request the gateway serves, so the admission bound covers it too.
+func (g *Gateway) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		route, ok := modelsRouteOf(r)
+		if !ok {
+			g.ServeHTTP(w, r)
+			return
+		}
+
+		if !g.tryAdmission() {
+			g.refuseOverload(w, r)
+			return
+		}
+		defer g.releaseAdmission()
+
+		g.serveModels(w, r, route)
+	})
+}
+
+// anthropicUpstream parses the base URL forward seats send to: configured, or Anthropic's own URL when configured is
+// empty. It refuses a URL that is not an absolute http or https URL with a host, and one that carries a query or
+// fragment, since a request path is appended to it.
+func anthropicUpstream(configured string) (*url.URL, error) {
+	if configured == "" {
+		configured = llmroutes.AnthropicUpstream
+	}
+	upstream, err := url.Parse(configured)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: parse Config.AnthropicUpstream: %w", err)
+	}
+	if (upstream.Scheme != "http" && upstream.Scheme != "https") || upstream.Host == "" ||
+		upstream.RawQuery != "" || upstream.Fragment != "" {
+		return nil, fmt.Errorf("gateway: Config.AnthropicUpstream %q is not an absolute http or https URL", configured)
+	}
+
+	return upstream, nil
+}
+
+// defaultClient is the upstream client used when Config names none. It bounds connection setup and the wait for
+// response headers, and it follows no redirect.
+func defaultClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
+			ForceAttemptHTTP2:     true,
+			IdleConnTimeout:       idleTimeout,
+			TLSHandshakeTimeout:   handshakeTimeout,
+			ResponseHeaderTimeout: responseHeaderTimeout,
+		},
+		CheckRedirect: relayRedirect,
+	}
+}
+
+// relayRedirect stops the client at the first response, redirect or not, so the caller gets the upstream's own answer.
+// Following a redirect would send the caller's credential, and the account token, to whatever host the upstream named.
+func relayRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}

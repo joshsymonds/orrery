@@ -18,12 +18,13 @@ const gradleHomeName = "gradle"
 // gradleHomeVar names Gradle's user home in the environment.
 const gradleHomeVar = "GRADLE_USER_HOME"
 
-// gradleProperties turns off the Gradle daemon and runs the Kotlin compiler inside the build. A daemon serves every later
-// build of the user that can reach it, so a build in one step could run in a daemon another step started, and a holder's
-// scope is stopped when the holder ends, which would end that daemon under the other step's build. Gradle reads these
-// properties from GRADLE_USER_HOME ahead of a project's own, and the environment's GRADLE_OPTS is no place for them: a
-// project's dev shell can replace it.
-const gradleProperties = "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\n"
+// gradleProperties turns off the Gradle daemon, runs the Kotlin compiler inside the build, and gives each build at most
+// eight workers. A daemon serves every later build of the user that can reach it, so a build in one step could run in a
+// daemon another step started, and a holder's scope is stopped when the holder ends, which would end that daemon under
+// the other step's build. Gradle's own worker count is every core, so the several builds a host's steps and gates run
+// at once would each take all of them. Gradle reads these properties from GRADLE_USER_HOME ahead of a project's own, and
+// the environment's GRADLE_OPTS is no place for them: a project's dev shell can replace it.
+const gradleProperties = "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\norg.gradle.workers.max=8\n"
 
 // gradleHomeMode is the mode of the Gradle home GradleEnviron makes: this user's only.
 const gradleHomeMode = 0o700

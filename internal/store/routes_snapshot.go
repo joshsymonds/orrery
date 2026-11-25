@@ -9,14 +9,16 @@ import (
 )
 
 // RoutesSnapshot is the route registry with the token of each account a route context names. Tokens maps the id of each
-// such account to its token, and has no entry for an account no context names.
+// such account to its token, and has no entry for an account no context names. AccountTokens maps the id of every
+// stored account to its token, so that a caller may name any account, whether a context names it or not.
 type RoutesSnapshot struct {
-	Routes llmroutes.Registry
-	Tokens map[string]string
+	Routes        llmroutes.Registry
+	Tokens        map[string]string
+	AccountTokens map[string]string
 }
 
-// RoutesSnapshot reads the route registry and the token of each account a route context names, in one read transaction.
-// It is the gateway's one token-bearing read, and it is Go-only: nothing else returns a token. It returns an error that
+// RoutesSnapshot reads the route registry and the tokens of the accounts, in one read transaction. It is the gateway's
+// one token-bearing read, and it is Go-only: nothing else returns a token. It returns an error that
 // matches ErrUnavailable when the file is missing or the database is busy. It never creates the file or its directory,
 // and it never writes the database.
 func (r *Reader) RoutesSnapshot(ctx context.Context) (RoutesSnapshot, error) {
@@ -29,7 +31,8 @@ func (r *Reader) RoutesSnapshot(ctx context.Context) (RoutesSnapshot, error) {
 	return snap, err
 }
 
-// readRoutesSnapshot returns the route registry and the tokens of the accounts it names, read with queries.
+// readRoutesSnapshot returns the route registry, the tokens of the accounts it names and the tokens of every stored
+// account, read with queries.
 func readRoutesSnapshot(ctx context.Context, queries *sqlcgen.Queries) (RoutesSnapshot, error) {
 	routes, err := readRoutes(ctx, queries)
 	if err != nil {
@@ -43,5 +46,13 @@ func readRoutesSnapshot(ctx context.Context, queries *sqlcgen.Queries) (RoutesSn
 	for _, row := range rows {
 		tokens[row.ID] = row.Token
 	}
-	return RoutesSnapshot{Routes: routes, Tokens: tokens}, nil
+	allRows, err := queries.ListLLMAccountTokens(ctx)
+	if err != nil {
+		return RoutesSnapshot{}, fmt.Errorf("list llm account tokens: %w", err)
+	}
+	accountTokens := make(map[string]string, len(allRows))
+	for _, row := range allRows {
+		accountTokens[row.ID] = row.Token
+	}
+	return RoutesSnapshot{Routes: routes, Tokens: tokens, AccountTokens: accountTokens}, nil
 }
