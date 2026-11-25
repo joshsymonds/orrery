@@ -1949,36 +1949,41 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .convo-head > .head-band { height: var(--o-space-8); background: var(--o-surface-raised); }
 .wlink[aria-current="true"] { border-radius: var(--o-radius-2); background: var(--o-surface-raised); }
 
-/* The held move (D16, flows 10a). A card rises out of its neck, scaled about its left edge at its row's height, and folds back
-   into it; a neck grows from its row and draws back; a tab's ground fades; the chat moves between the middle and the right;
-   a move to another conversation fades the head's title and the chat in where they stand; the phone's sheet unfolds from its
-   top and folds back. Every move is inside the no-preference condition, so with reduced motion each is a plain swap. */
+/* The held move (D20, flows 10a). A card rises out of its neck, scaled about its left edge at its row's height, from half its
+   width and a fifth of its height, 48 toward its row, solid a third of the way in; it starts a beat after the neck begins to
+   grow, and folds back into the neck, solid until seven tenths of the way. The neck draws back a beat after the card begins to
+   fold; a tab's ground fades; the chat moves over with the card as it opens, and back after the same beat as it folds; a move
+   to another conversation fades the head's title and the chat in where they stand; the phone's sheet unfolds from its top,
+   from a fifth of its height and 48 up, after the same beat, and folds back the same way. Every move is inside the
+   no-preference condition, so with reduced motion each is a plain swap. */
 @media (prefers-reduced-motion: no-preference) {
-  @keyframes held-rise { from { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } to { opacity: 1; transform: none; } }
-  @keyframes held-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-drill))) scale(0.86, 0.5); } }
+  @keyframes held-rise { from { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-rise))) scale(0.5, 0.2); } 30% { opacity: 1; } to { opacity: 1; transform: none; } }
+  @keyframes held-fold { from { opacity: 1; transform: none; } 70% { opacity: 1; } to { opacity: 0; transform: translateX(calc(-1 * var(--o-distance-rise))) scale(0.5, 0.2); } }
   @keyframes neck-grow { from { transform: scaleX(0); } to { transform: none; } }
   @keyframes neck-draw { from { transform: none; } to { transform: scaleX(0); } }
   @keyframes ground-in { from { background-color: transparent; } }
   @keyframes ground-out { to { background-color: transparent; } }
   @keyframes chat-move { from { transform: translateX(var(--held-dx, 0)); } to { transform: none; } }
-  @keyframes sheet-unfold { from { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } to { opacity: 1; transform: none; } }
-  @keyframes sheet-fold { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-drill))) scaleY(0.5); } }
+  @keyframes sheet-unfold { from { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-rise))) scale(1, 0.15); } 30% { opacity: 1; } to { opacity: 1; transform: none; } }
+  @keyframes sheet-fold { from { opacity: 1; transform: none; } 70% { opacity: 1; } to { opacity: 0; transform: translateY(calc(-1 * var(--o-distance-rise))) scale(1, 0.15); } }
 
-  .held-card:is([data-move="open"], [data-move="switch"], [data-move="other"]) { transform-origin: 0 var(--held-aim, 0); animation: held-rise var(--o-move-drill); }
-  .held-card:is([data-move="close"], [data-move="leave"]) { transform-origin: 0 var(--held-aim, 0); animation: held-fold var(--o-move-leave) both; }
-  .held-sheet[data-move="open"] { transform-origin: top; animation: sheet-unfold var(--o-move-drill); }
-  .held-sheet:is([data-move="close"], [data-move="leave"]) { transform-origin: top; animation: sheet-fold var(--o-move-leave) both; }
+  .held-card:is([data-move="open"], [data-move="switch"], [data-move="other"]) { transform-origin: 0 var(--held-aim, 0); animation: held-rise var(--o-move-rise) var(--o-delay-rise) backwards; }
+  .held-card:is([data-move="close"], [data-move="leave"]) { transform-origin: 0 var(--held-aim, 0); animation: held-fold var(--o-move-fold) both; }
+  .held-sheet[data-move="open"] { transform-origin: top; animation: sheet-unfold var(--o-move-rise) var(--o-delay-rise) backwards; }
+  .held-sheet:is([data-move="close"], [data-move="leave"]) { transform-origin: top; animation: sheet-fold var(--o-move-fold) both; }
 
   .inbox :is(.row, .design-tab)[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::before,
   .rail-lineage .lmark[data-held]:is([data-move="open"], [data-move="switch"], [data-move="other"])::after { transform-origin: left; animation: neck-grow var(--o-move-state); }
   .inbox :is(.row, .design-tab)[data-held]:is([data-move="close"], [data-move="leave"])::before,
-  .rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after { transform-origin: left; animation: neck-draw var(--o-move-leave) both; }
+  .rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after { transform-origin: left; animation: neck-draw var(--o-move-leave) var(--o-delay-rise) both; }
 
   .inbox .convo-block[data-held="tab"]:is([data-move="open"], [data-move="other"]) { animation: ground-in var(--o-move-state); }
   .inbox .convo-block[data-held="tab"]:is([data-move="close"], [data-move="leave"]) { animation: ground-out var(--o-move-leave) both; }
 
-  /* The chat moves, its reader and send box; the column's card stays where it is, and the column's mark clears on the chat's end. */
-  .read.held[data-move="open"] > :is(.reader, .send), .read[data-move="close"] > :is(.reader, .send) { animation: chat-move var(--o-move-layout); }
+  /* The chat moves, its reader and send box; the column's card stays where it is, and the column's mark clears on the chat's end.
+     As the card opens the chat moves over with it; as it folds, the chat moves back once the neck has begun to draw back. */
+  .read.held[data-move="open"] > :is(.reader, .send) { animation: chat-move var(--o-move-rise); }
+  .read[data-move="close"] > :is(.reader, .send) { animation: chat-move var(--o-move-layout) var(--o-delay-rise) backwards; }
   .read[data-move="other"] > .reader, .read[data-move="other"] .convo-head .crumbs { animation: move-fade var(--o-move-state); }
 }
 
