@@ -414,6 +414,14 @@ func checkClockSeams(dueAt, relayAt int64) error {
 	return nil
 }
 
+// checkFlagValues refuses the values checkClockSeams and checkGateway refuse, as usage errors.
+func checkFlagValues(dueAt, relayAt int64, gateway string) error {
+	if err := checkClockSeams(dueAt, relayAt); err != nil {
+		return err
+	}
+	return checkGateway(gateway)
+}
+
 // checkGateway refuses a --gateway value that is not an absolute http or https URL with a host, as a usage error. An
 // empty value names no gateway, so it is accepted.
 func checkGateway(gateway string) error {
@@ -496,10 +504,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if err := checkLimits(*judgeDelay, *storeBusy); err != nil {
 		return options{}, err
 	}
-	if err := checkClockSeams(*dueAt, *relayAt); err != nil {
-		return options{}, err
-	}
-	if err := checkGateway(*gateway); err != nil {
+	if err := checkFlagValues(*dueAt, *relayAt, *gateway); err != nil {
 		return options{}, err
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
@@ -1156,8 +1161,7 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
-			Host:  hostName,
-			Hosts: hosts,
+			Host: hostName, Hosts: hosts,
 		})
 		host.steps = steps
 		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
@@ -1185,11 +1189,8 @@ func startSessions(
 		host.startTurnEnded(ctx, st, haiku, opts.models, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
-		if opts.gateway != "" {
-			if err := host.startProbes(ctx, st, opts, getenv, logger); err != nil {
-				host.shutdown()
-				return nil, err
-			}
+		if err := host.startProbes(ctx, st, opts, getenv, logger); err != nil {
+			return nil, host.abortStart(err)
 		}
 		host.startIdle(ctx)
 	}
@@ -2117,7 +2118,7 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 // startProbes probes the idle accounts of st through the gateway opts.gateway names until stop. Its readings are the
 // ledger beside st's store file, which getenv locates. It clocks on opts.probeNow, or time.Now when that is nil, and
 // runs claude through opts.probeExec, or the default when that is nil. It passes at start and then as its timer fires
-// (enginehost.LimitProber.Run). It is called only when the gateway is set, and returns an error when the store path
+// (enginehost.LimitProber.Run). It starts nothing when opts.gateway is empty, and returns an error when the store path
 // does not resolve, which starts nothing.
 func (h *sessionHost) startProbes(
 	ctx context.Context,
@@ -2126,6 +2127,9 @@ func (h *sessionHost) startProbes(
 	getenv func(string) string,
 	logger *slog.Logger,
 ) error {
+	if opts.gateway == "" {
+		return nil
+	}
 	storePath, err := store.Path(getenv)
 	if err != nil {
 		return fmt.Errorf("limit prober: %w", err)
@@ -2286,6 +2290,13 @@ func (h *sessionHost) startReports(
 		defer close(h.reportsDone)
 		reports.Run(reportsCtx)
 	}()
+}
+
+// abortStart shuts the host down, stopping the loops already started, and returns err, for a start that fails after
+// some loops started.
+func (h *sessionHost) abortStart(err error) error {
+	h.shutdown()
+	return err
 }
 
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
