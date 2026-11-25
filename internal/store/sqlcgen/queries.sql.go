@@ -753,7 +753,7 @@ func (q *Queries) CountUnreadNoticeHistory(ctx context.Context, arg CountUnreadN
 const countWorkingEvidenceNodeRuns = `-- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs AS run
 WHERE run.epic = ?1 AND run.state = 'running'
-  AND run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != ''
+  AND run.kind IN ('evidence', 'integrate') AND run.revision != ''
 `
 
 // CountWorkingEvidenceNodeRuns counts the running node runs of an epic that capture its Requirements under ids of their

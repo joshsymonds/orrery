@@ -1912,7 +1912,7 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'c
 -- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs AS run
 WHERE run.epic = sqlc.arg(epic) AND run.state = 'running'
-  AND run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '';
+  AND run.kind IN ('evidence', 'integrate') AND run.revision != '';
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';
