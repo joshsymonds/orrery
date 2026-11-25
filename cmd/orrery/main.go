@@ -173,6 +173,7 @@ subcommands:
         [--host-status-cmd PATH] [--metrics-listen ADDR]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
+  gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -296,7 +297,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence", "routes":
+	case "run", "gate", "evidence", "routes", "gateway":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
@@ -390,7 +391,8 @@ func (c unreachableCrons) CronCall(
 }
 
 // orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
-// routes imports a routes file, and evidence runs an item's evidence or reads it back.
+// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway is not one of those; it
+// serves the Claude traffic gateway itself, and is dispatched here only to keep dispatch under its complexity limit.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -407,6 +409,8 @@ func orreryCommand(
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "routes":
 		return runRoutes(ctx, opts, args, stdout, getenv)
+	case "gateway":
+		return runGateway(ctx, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
