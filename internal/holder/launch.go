@@ -161,7 +161,8 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 // the program is the scope, named unit, and orrery's argv follows the scope's arguments. The scope's memory cap is the
 // host's: a systemd drop-in for orrery-hold-*.scope units sets it, as it does for terminal scopes. OOMPolicy=continue
 // keeps the scope, and with it the holder, running past a kill at that cap, so the holder records it in the exit
-// record.
+// record. A gate's scope also takes gateCPUWeight, so a check or evidence run yields the CPU to conversations while
+// both want it.
 func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []string) {
 	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
 	if cfg.GateLimit > 0 {
@@ -178,11 +179,17 @@ func holderCommand(cfg LaunchConfig, orrery, stateDir, unit string) (string, []s
 	if cfg.Scope == "" {
 		return orrery, argv
 	}
-	scoped := append([]string{
-		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", unit, orrery,
-	}, argv...)
-	return cfg.Scope, scoped
+	scoped := []string{"--user", "--scope", "--collect", "-p", "OOMPolicy=continue"}
+	if cfg.GateLimit > 0 {
+		scoped = append(scoped, "-p", "CPUWeight="+strconv.Itoa(gateCPUWeight))
+	}
+	scoped = append(scoped, "--unit", unit, orrery)
+	return cfg.Scope, append(scoped, argv...)
 }
+
+// gateCPUWeight is a gate scope's CPUWeight: a fifth of the default 100 every other scope keeps, so gates take the cores
+// conversations leave idle and give them back when a conversation works.
+const gateCPUWeight = 20
 
 // gateSeconds returns limit in whole seconds, rounded up, as --gate-limit takes it.
 func gateSeconds(limit time.Duration) int64 {

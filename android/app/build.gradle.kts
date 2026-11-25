@@ -112,4 +112,7 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     timeout.set(Duration.ofMinutes(20))
     // Gradle names each test that passes, so a run's output shows which tests it ran.
     testLogging { events("passed", "skipped", "failed") }
+    // A test task restored from the build cache runs nothing and names no test, and evidence is judged on those names,
+    // so tests always run.
+    outputs.cacheIf { false }
 }

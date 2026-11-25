@@ -272,7 +272,7 @@ round6-names:
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first. cover's test-budget lines are
 # printed again last: a gate keeps only the tail of its output, and the checks after cover print far more than it keeps.
-check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test box-cache-test test-deadline-test test-budget-test
+check: reap-test-tmux pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check gate-remote-test android-lock-test box-cache-test test-deadline-test test-budget-test
     cat test-artifacts/test-budget.lines
 
 # Stop the tmux servers tests started and outlived: a test binary that is killed, times out or panics runs no cleanup,
@@ -310,6 +310,10 @@ remote-flake-check:
 # Test scripts/gate-remote.sh against a fake box: a directory and a fake ssh, no AWS and no network.
 gate-remote-test:
     scripts/gate-remote-test.sh
+
+# Test scripts/android-lock.sh, which has the gates that fall back to this machine take turns at Android builds.
+android-lock-test:
+    scripts/android-lock-test.sh
 
 # Test scripts/box-cache.sh, the gate box's content-keyed caches, against a fixture checkout and stub tools.
 box-cache-test:
@@ -368,7 +372,7 @@ remote-test-budget-update:
 # On a gate box (ORRERY_BOX_CACHE set by scripts/box-cache.sh run), it runs under scripts/box-cache.sh android, which
 # restores and saves Gradle's caches and the android shell's Nix store paths.
 android-test:
-    ${ORRERY_BOX_CACHE:+scripts/box-cache.sh android "$ORRERY_BOX_CACHE"} nix develop .#android -c gradle -p android assembleDebug lintDebug test
+    scripts/android-lock.sh ${ORRERY_BOX_CACHE:+scripts/box-cache.sh android "$ORRERY_BOX_CACHE"} nix develop .#android -c gradle -p android assembleDebug lintDebug test
 
 # Build the debug APK and install it on the connected device. A fresh install
 # starts with $ORRERY_DEFAULT_SERVER as its server address (an install that
