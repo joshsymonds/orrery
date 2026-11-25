@@ -25,6 +25,7 @@ import { epicGaugeOf, type GaugeShare } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
+import type { RouteRegistry } from "./gen/orrery/v1/accounts_pb";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
@@ -89,7 +90,8 @@ import { UsageBand } from "./usageband";
 import { noUsage, type UsageData } from "./usagedata";
 import { useUsage } from "./usageload";
 import { bandRows, firstInUse, spendTotals } from "./usagemodel";
-import { UsagePopover } from "./usagepopover";
+import { endWords, movedWords, UsagePopover } from "./usagepopover";
+import { type Move as ContextMove, undoMoves } from "./usageuse";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 
@@ -204,9 +206,13 @@ interface PendingTarget {
   id: string;
 }
 
-// The toast's notice: the row an archive under 760px just archived, which Undo unarchives, or the moves a list answer
-// made, which Show and Undo act on.
-type ToastNotice = { kind: "archived"; row: Row } | { kind: "moved"; moves: Move[] };
+// The toast's notice: the row an archive under 760px just archived, which Undo unarchives; the moves a list answer
+// made, which Show and Undo act on; or the contexts a Use moved to account, which Undo moves back. A usage notice with no
+// moves draws its words alone, when a move back did not finish.
+type ToastNotice =
+  | { kind: "archived"; row: Row }
+  | { kind: "moved"; moves: Move[] }
+  | { kind: "usage"; text: string; moves: readonly ContextMove[]; account: string };
 
 // The note a page's More menu left under a row's title row, which names the row it is for.
 interface HeadNote {
@@ -1125,6 +1131,10 @@ export function App({
     if (toast === null) {
       return;
     }
+    if (toast.kind === "usage") {
+      usageUndo(toast.moves, toast.account);
+      return;
+    }
     setToast(null);
     const named = toast.kind === "archived" ? [toast.row] : toast.moves.map((move) => move.row);
     for (const row of named) {
@@ -1716,12 +1726,50 @@ export function App({
   // usageSpend is the seven days' spend the band's line and the usage popover's foot total, or null until a Spend read
   // lands.
   const usageSpend = usage.spend === null ? null : spendTotals(usage.spend, usage.registry);
+  // routesRead is the registry a Routes.Get read after a Use move answered, with the usage that read was made against. The
+  // usage the page draws takes that registry while it is still that usage, so the rows show the routes a move left, until the
+  // next read of the usage lands.
+  const [routesRead, setRoutesRead] = useState<{ base: UsageData; registry: RouteRegistry } | null>(null);
+  const usageView = (data: UsageData): UsageData =>
+    routesRead !== null && routesRead.base === data ? { ...data, registry: routesRead.registry } : data;
+  // rereadRoutes reads the routes again once a Use move has ended, and holds the registry it answers against the usage data
+  // the page shows, data. A read that fails holds nothing new: the page's next read reads the routes again.
+  const rereadRoutes = (data: UsageData) => {
+    void clients.routes.get({}).then(
+      ({ registry }) => {
+        if (registry !== undefined) {
+          setRoutesRead({ base: data, registry });
+        }
+      },
+      () => undefined,
+    );
+  };
+  // usageMoved is a Use move that set its contexts: the toast says what moved, with Undo for those moves, and the popover
+  // shuts.
+  const usageMoved = (moves: readonly ContextMove[], account: string) => {
+    setToast({ kind: "usage", text: movedWords(moves, account, usage.accounts), moves, account });
+    setUsageOpen(false);
+  };
+  // usageUndo moves the contexts a Use move moved back to their own accounts, and reads the routes again. A move back that does
+  // not finish replaces the toast with what stands, which has no Undo of its own.
+  const usageUndo = (moves: readonly ContextMove[], account: string) => {
+    setToast(null);
+    void undoMoves(clients.routes, moves).then((result) => {
+      rereadRoutes(collapsed ? usageData : usage);
+      if (result.kind !== "done") {
+        setToast({ kind: "usage", text: endWords(result, true, account, usage.accounts), moves: [], account });
+      }
+    });
+  };
+  // bandUsage is the usage the band and its popover draw, with the routes a Use move left.
+  const bandUsage = usageView(usage);
   // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
-  // accounts and routes page, and its press opens the usage popover beside it.
+  // accounts and routes page, and its press opens the usage popover beside it. The popover offers Use with the routes the page
+  // holds.
   const usageBand =
     usage.answered && usage.accounts.length > 0 ? (
       <UsageBand
-        rows={bandRows(usage, now)}
+        rows={bandRows(bandUsage, now)}
         now={now}
         spend={usageSpend}
         onOpen={() => setUsageOpen(true)}
@@ -1729,9 +1777,15 @@ export function App({
         popover={
           usageOpen ? (
             <UsagePopover
-              rows={bandRows(usage, now)}
+              rows={bandRows(bandUsage, now)}
               now={now}
               spend={usageSpend}
+              use={{
+                routes: clients.routes,
+                registry: bandUsage.registry,
+                onDone: usageMoved,
+                onRead: () => rereadRoutes(usage),
+              }}
               onAccounts={openAccounts}
               onClose={() => setUsageOpen(false)}
             />
@@ -3210,7 +3264,8 @@ export function App({
   // which the tile draws, or null when none is in use or the inbox is not collapsed. usageRows are every account, which the
   // popover beside the rail draws.
   const usageData = useUsage(clients, collapsed);
-  const usageRows = bandRows(usageData, now);
+  const railUsage = usageView(usageData);
+  const usageRows = bandRows(railUsage, now);
   const usageRow = collapsed ? firstInUse(usageRows) : null;
   // The usage popover shuts whenever the inbox collapses or expands, so it never opens beside the rail from the band.
   useEffect(() => {
@@ -3250,6 +3305,12 @@ export function App({
                         rows={usageRows}
                         now={now}
                         spend={usageSpend}
+                        use={{
+                          routes: clients.routes,
+                          registry: railUsage.registry,
+                          onDone: usageMoved,
+                          onRead: () => rereadRoutes(usageData),
+                        }}
                         onAccounts={openAccounts}
                         onClose={() => setUsageOpen(false)}
                       />
@@ -3424,13 +3485,21 @@ export function App({
           </Sheet>
         )}
       </div>
-      {toast !== null && (toast.kind === "moved" || !wide) && (
+      {toast !== null && (toast.kind !== "archived" || !wide) && (
         <Toast
-          text={toast.kind === "moved" ? moveNotice(toast.moves) : `Archived “${toast.row.label}”.`}
+          text={
+            toast.kind === "moved"
+              ? moveNotice(toast.moves)
+              : toast.kind === "usage"
+                ? toast.text
+                : `Archived “${toast.row.label}”.`
+          }
           actions={
             toast.kind === "moved"
               ? [{ label: "Show", onAction: () => showMove(toast.moves[0]) }, undoAction]
-              : [undoAction]
+              : toast.kind === "usage" && toast.moves.length === 0
+                ? []
+                : [undoAction]
           }
         />
       )}
