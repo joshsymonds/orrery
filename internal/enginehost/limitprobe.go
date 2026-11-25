@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -95,9 +96,14 @@ type LimitProberConfig struct {
 
 // LimitProber probes idle accounts so their limit readings stay fresh. The readings come from the probes' own traffic
 // through the gateway, never from a usage endpoint. A probe is a one-turn, toolless, schemaless claude -p run at the
-// gateway, pinned to its account with ANTHROPIC_CUSTOM_HEADERS.
+// gateway, pinned to its account with ANTHROPIC_CUSTOM_HEADERS. The prober keeps in memory the last attempt at each
+// probe, by model and account, so a probe that fails, or exits without writing a reading, still waits its window.
 type LimitProber struct {
 	cfg LimitProberConfig
+	// mu guards attempts, which Pass reads and writes.
+	mu sync.Mutex
+	// attempts holds the clock reading at which each account was last probed, by model and then by account.
+	attempts map[string]map[string]time.Time
 }
 
 // NewLimitProber returns a LimitProber for cfg. It applies the defaults cfg leaves nil or zero: time.Now as the
@@ -121,13 +127,16 @@ func NewLimitProber(cfg LimitProberConfig) *LimitProber {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &LimitProber{cfg: cfg}
+	return &LimitProber{cfg: cfg, attempts: make(map[string]map[string]time.Time)}
 }
 
-// Pass probes each account whose probe is due, at most once, and returns the earliest moment any account's probe next
-// becomes due. A Haiku probe is due when no reading of the account is under LimitProbeHaikuEvery old, and a Fable probe
-// when no 7d_oi reading is under LimitProbeFableEvery old; Haiku goes first. A failed read is logged, probes nothing,
-// and returns one minute after now.
+// Pass probes each account whose probe is due and returns the earliest moment any account's probe next becomes due. A
+// Haiku probe is due when no reading of the account is under LimitProbeHaikuEvery old and no Haiku attempt is either,
+// and a Fable probe when no 7d_oi reading is under LimitProbeFableEvery old and no Fable attempt is either; Haiku goes
+// first, so an account gets at most one probe a pass. An attempt is recorded before its probe runs, whether or not the
+// probe succeeds. An account's moment is worked out before its own probe is claimed, so a pass that probes an account
+// returns a moment no later than that pass, and the next pass finds the probe's window still open. A failed read is
+// logged, probes nothing, and returns one minute after now.
 func (p *LimitProber) Pass(ctx context.Context) time.Time {
 	now := p.cfg.Now()
 	accounts, err := p.cfg.Accounts.Accounts(ctx)
@@ -135,6 +144,7 @@ func (p *LimitProber) Pass(ctx context.Context) time.Time {
 		p.cfg.Logger.ErrorContext(ctx, "limitprobe: read accounts", "error", err)
 		return now.Add(limitProbeMinGap)
 	}
+	p.forget(accounts)
 	readings, err := p.cfg.Readings.Readings(ctx)
 	if err != nil {
 		p.cfg.Logger.ErrorContext(ctx, "limitprobe: read readings", "error", err)
@@ -146,23 +156,64 @@ func (p *LimitProber) Pass(ctx context.Context) time.Time {
 	newest, weekly := limitProbeNewest(readings)
 	var next time.Time
 	for i, account := range accounts {
-		haikuAt, haikuDue := limitProbeNext(now, newest, account.ID, LimitProbeHaikuEvery)
-		weeklyAt, weeklyDue := limitProbeNext(now, weekly, account.ID, LimitProbeFableEvery)
-		switch {
-		case haikuDue:
-			p.probe(ctx, account.ID, protocol.DefaultSummaryModel)
-		case weeklyDue:
-			p.probe(ctx, account.ID, LimitProbeFableModel)
-		}
-		at := haikuAt
-		if weeklyAt.Before(at) {
-			at = weeklyAt
+		model, at := p.claim(now, newest, weekly, account.ID)
+		if model != "" {
+			p.probe(ctx, account.ID, model)
 		}
 		if i == 0 || at.Before(next) {
 			next = at
 		}
 	}
 	return next
+}
+
+// claim decides which probe of account is due at now. When one is, it records that probe's attempt at cfg.Now() under
+// the lock, so the attempt is in place before the probe's command starts and two passes cannot both claim the probe. It
+// returns the model of the due probe, or "" when none is due, and the moment the account's next probe is due, worked
+// out before this claim.
+func (p *LimitProber) claim(now time.Time, newest, weekly map[string]time.Time, account string) (string, time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	haikuAt := limitProbeDueAt(now, newest, p.attempts[protocol.DefaultSummaryModel], account, LimitProbeHaikuEvery)
+	fableAt := limitProbeDueAt(now, weekly, p.attempts[LimitProbeFableModel], account, LimitProbeFableEvery)
+	at := haikuAt
+	if fableAt.Before(at) {
+		at = fableAt
+	}
+	var model string
+	switch {
+	case !now.Before(haikuAt):
+		model = protocol.DefaultSummaryModel
+	case !now.Before(fableAt):
+		model = LimitProbeFableModel
+	default:
+		return "", at
+	}
+	if p.attempts[model] == nil {
+		p.attempts[model] = make(map[string]time.Time)
+	}
+	p.attempts[model][account] = p.cfg.Now()
+	return model, at
+}
+
+// forget drops the attempts of every account not in accounts, so the record holds only accounts Pass still lists.
+func (p *LimitProber) forget(accounts []store.Account) {
+	listed := make(map[string]bool, len(accounts))
+	for _, account := range accounts {
+		listed[account.ID] = true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for model, byAccount := range p.attempts {
+		for account := range byAccount {
+			if !listed[account] {
+				delete(byAccount, account)
+			}
+		}
+		if len(byAccount) == 0 {
+			delete(p.attempts, model)
+		}
+	}
 }
 
 // limitProbeNewest returns the newest observation of each account's readings, and of its 7d_oi readings, by account
@@ -188,18 +239,32 @@ func limitProbeLatest(latest map[string]time.Time, account string, at time.Time)
 }
 
 // limitProbeNext returns the moment a probe spaced every apart from the newest observation of account in latest is
-// next due, and whether it is due at now. An account with no observation has its probe due at now.
-func limitProbeNext(now time.Time, latest map[string]time.Time, account string, every time.Duration) (time.Time, bool) {
+// next allowed. An account with no observation is allowed at now.
+func limitProbeNext(now time.Time, latest map[string]time.Time, account string, every time.Duration) time.Time {
 	last, ok := latest[account]
 	if !ok {
-		return now, true
+		return now
 	}
-	at := last.Add(every)
-	return at, !now.Before(at)
+	return last.Add(every)
 }
 
-// probe runs one probe of account on model. A failed probe is logged at Warn with the account, the model and the error,
-// and is never returned, so the pass goes on.
+// limitProbeDueAt returns the moment a probe of account, spaced every apart, is next due: the later of the moment its
+// readings allow, in latest, and the moment its last attempt allows, in attempts.
+func limitProbeDueAt(
+	now time.Time,
+	latest, attempts map[string]time.Time,
+	account string,
+	every time.Duration,
+) time.Time {
+	at := limitProbeNext(now, latest, account, every)
+	if attempt := limitProbeNext(now, attempts, account, every); attempt.After(at) {
+		at = attempt
+	}
+	return at
+}
+
+// probe runs one probe of account on model, whose attempt claim has already recorded. A failed probe is logged at Warn
+// with the account, the model and the error, and is never returned, so the pass goes on.
 func (p *LimitProber) probe(ctx context.Context, account, model string) {
 	if err := p.run(ctx, account, model); err != nil {
 		p.cfg.Logger.WarnContext(ctx, "limitprobe: probe failed", "account", account, "model", model, "error", err)

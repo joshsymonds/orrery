@@ -68,6 +68,32 @@ func (r *idleProbeRecorder) record(_ context.Context, cmd *exec.Cmd) error {
 	return r.err
 }
 
+// idleProbeClock is the clock of a test that advances it by hand. Now returns its reading.
+type idleProbeClock struct {
+	now time.Time
+}
+
+// Now returns the clock's reading.
+func (c *idleProbeClock) Now() time.Time {
+	return c.now
+}
+
+// idleProbeReadingStore is the LimitProbeReadings of a test whose readings change as it runs: its traffic and the Exec
+// seam of its probes add to it.
+type idleProbeReadingStore struct {
+	readings []ledger.Reading
+}
+
+// Readings returns a copy of the readings held.
+func (s *idleProbeReadingStore) Readings(context.Context) ([]ledger.Reading, error) {
+	return slices.Clone(s.readings), nil
+}
+
+// Add appends readings to those held.
+func (s *idleProbeReadingStore) Add(readings ...ledger.Reading) {
+	s.readings = append(s.readings, readings...)
+}
+
 // idleProbeConfig returns the config of a LimitProber over accounts and readings, whose clock is now and whose probes
 // are recorded on rec. Its claude is sh, which LookPath finds, and its environment holds a stale base URL and
 // summarizer entry that a probe must replace.
