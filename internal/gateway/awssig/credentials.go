@@ -59,18 +59,19 @@ func childVariables() []string {
 // LoadCredentials exports the credentials of the named AWS profile by running `aws configure export-credentials` with
 // AWS_PROFILE set to profile. The aws CLI does the reading, not this package: it already knows how to refresh an SSO
 // session, assume a role and run a credential_process, and a second reader of ~/.aws would be a second, subtly
-// different idea of what a profile means. getenv looks up environment variables and must not be nil. The CLI's
+// different idea of what a profile means. The CLI stops when ctx ends or exportTimeout passes, whichever is first.
+// getenv looks up environment variables and must not be nil. The CLI's
 // environment is built from getenv over childVariables and the profile alone. The CLI runs on every call, so a
 // refreshed credential takes effect without a restart.
 //
 // Every failure is reported as a short sentence naming only the profile. The CLI's own output is dropped: it can carry
 // credential material, and an error reaches the gateway's ledger and its callers.
-func LoadCredentials(profile string, getenv func(string) string) (Credentials, error) {
+func LoadCredentials(ctx context.Context, profile string, getenv func(string) string) (Credentials, error) {
 	if profile == "" {
 		return Credentials{}, errors.New("aws profile name is empty")
 	}
 
-	runCtx, cancel := context.WithTimeout(context.Background(), exportTimeout)
+	runCtx, cancel := context.WithTimeout(ctx, exportTimeout)
 	defer cancel()
 
 	// The binary and its verbs are constants: the aws CLI is found on the process's PATH as any command is.

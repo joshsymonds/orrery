@@ -73,7 +73,7 @@ func callLog(t *testing.T, logPath string) []string {
 func TestGatewayRoutesSigV4SigningCredentialProfileReadsTheNamedProfile(t *testing.T) {
 	dir, logPath := fakeAWS(t, printDocument(exportedDocument))
 
-	creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+	creds, err := awssig.LoadCredentials(t.Context(), "work", environment(map[string]string{"PATH": dir}))
 	if err != nil {
 		t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
 	}
@@ -120,7 +120,7 @@ func TestGatewayRoutesSigV4SigningCredentialProfileCarriesTheSessionToken(t *tes
 		t.Run(tc.name, func(t *testing.T) {
 			dir, _ := fakeAWS(t, printDocument(tc.document))
 
-			creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+			creds, err := awssig.LoadCredentials(t.Context(), "work", environment(map[string]string{"PATH": dir}))
 			if err != nil {
 				t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
 			}
@@ -147,7 +147,7 @@ func TestGatewayRoutesSigV4SigningCredentialProfileGetsOnlyItsEnvironment(t *tes
 		"INVENTED_GATEWAY_SECRET": "invented-gateway-secret",
 	})
 
-	creds, err := awssig.LoadCredentials("work", getenv)
+	creds, err := awssig.LoadCredentials(t.Context(), "work", getenv)
 	if err != nil {
 		t.Fatalf("LoadCredentials(\"work\") = %v; want the exported credentials", err)
 	}
@@ -175,7 +175,7 @@ func TestGatewayRoutesSigV4SigningCredentialProfileRefusals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, _ := fakeAWS(t, tc.body)
 
-			creds, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": dir}))
+			creds, err := awssig.LoadCredentials(t.Context(), "work", environment(map[string]string{"PATH": dir}))
 			if err == nil {
 				t.Fatalf("LoadCredentials(\"work\") = %+v; want an error", creds)
 			}
@@ -199,7 +199,11 @@ func TestGatewayRoutesSigV4SigningCredentialProfileWithoutTheAWSBinary(t *testin
 	empty := t.TempDir()
 	t.Setenv("PATH", empty)
 
-	if _, err := awssig.LoadCredentials("work", environment(map[string]string{"PATH": empty})); err == nil {
+	if _, err := awssig.LoadCredentials(
+		t.Context(),
+		"work",
+		environment(map[string]string{"PATH": empty}),
+	); err == nil {
 		t.Fatal("LoadCredentials(\"work\") = nil; want an error when aws is not on PATH")
 	}
 }
@@ -209,7 +213,7 @@ func TestGatewayRoutesSigV4SigningCredentialProfileWithoutTheAWSBinary(t *testin
 func TestGatewayRoutesSigV4SigningCredentialProfileEmptyNameRunsNothing(t *testing.T) {
 	dir, logPath := fakeAWS(t, printDocument(exportedDocument))
 
-	if _, err := awssig.LoadCredentials("", environment(map[string]string{"PATH": dir})); err == nil {
+	if _, err := awssig.LoadCredentials(t.Context(), "", environment(map[string]string{"PATH": dir})); err == nil {
 		t.Fatal("LoadCredentials(\"\") = nil; want an error for an empty profile name")
 	}
 

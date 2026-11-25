@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/gateway"
 	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/llmroutes"
@@ -269,4 +270,58 @@ func postGatewayMessages(t *testing.T, addr, callerKey string) (int, string) {
 	}
 
 	return resp.StatusCode, string(body)
+}
+
+// TestGatewaySignsSigV4SeatsWithTheAWSCLI serves a sigv4 seat with the aws CLI on PATH replaced by a script that logs
+// its profile and fails. A request on the seat runs the CLI with the seat's profile, so the command gives the gateway a
+// credential source, and its failure refuses the request with 502 before anything is sent.
+func TestGatewaySignsSigV4SeatsWithTheAWSCLI(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "aws.log")
+	script := "#!/bin/sh\necho \"$AWS_PROFILE $*\" >> '" + logPath + "'\nexit 1\n"
+	exectest.WriteFile(t, filepath.Join(dir, "aws"), []byte(script), 0o700)
+	t.Setenv("PATH", dir)
+	mapFile := filepath.Join(dir, "models.json")
+	if err := os.WriteFile(mapFile, []byte(`{"synthetic-model":"example.model-v1:0"}`), 0o600); err != nil {
+		t.Fatalf("write model map: %v", err)
+	}
+	getenv, storePath := gatewayTestEnv(t, "http://127.0.0.1:1")
+	st, err := store.Open(t.Context(), storePath, storetest.NoSync())
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	if err = st.ReplaceRoutes(t.Context(), llmroutes.Registry{
+		DefaultContext: "main",
+		Seats: []llmroutes.Seat{{
+			ID: "seat-bedrock", AuthMode: llmroutes.AuthSigV4, AWSProfile: "example-profile",
+			AWSRegion: "example-region-1", ModelMapEnvFile: "SYNTHETIC_MODEL_MAP",
+		}},
+		Contexts: []llmroutes.Context{{ID: "main", DefaultSeat: "seat-bedrock"}},
+	}); err != nil {
+		t.Fatalf("ReplaceRoutes: %v", err)
+	}
+	if err = st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	run := startGatewayRun(t, func(name string) string {
+		switch name {
+		case "SYNTHETIC_MODEL_MAP":
+			return mapFile
+		case "PATH":
+			return dir
+		}
+		return getenv(name)
+	})
+
+	status, _ := postGatewayMessages(t, run.addr, gatewayTestCallerKey)
+	if status != http.StatusBadGateway {
+		t.Errorf("POST /v1/messages = %d, want 502 for credentials the aws CLI could not export", status)
+	}
+	calls, err := os.ReadFile(logPath)
+	if err != nil || strings.TrimSpace(string(calls)) != "example-profile configure export-credentials" {
+		t.Errorf("aws calls = %q (%v), want one export of example-profile", calls, err)
+	}
+	if err := run.stop(); err != nil {
+		t.Fatalf("orrery gateway stopped with %v, want nil", err)
+	}
 }

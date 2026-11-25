@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/joshsymonds/orrery/internal/gateway"
+	"github.com/joshsymonds/orrery/internal/gateway/awssig"
 	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -102,6 +103,10 @@ func openGateway(
 		Logger:        logger,
 		CallerKeyFile: getenv(gatewayCallerKeyEnv),
 		Getenv:        getenv,
+		// A sigv4 seat signs with the credentials the aws CLI exports for its profile, read on each request.
+		AWSCredentials: func(ctx context.Context, profile string) (awssig.Credentials, error) {
+			return awssig.LoadCredentials(ctx, profile, getenv)
+		},
 	})
 	if err != nil {
 		return nil, nil, errors.Join(fmt.Errorf("gateway: %w", err), closeLedger(), routes.Close())
