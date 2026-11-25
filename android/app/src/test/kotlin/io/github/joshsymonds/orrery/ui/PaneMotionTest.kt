@@ -28,7 +28,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.Move
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -175,9 +177,9 @@ class PaneMotionTest {
         composeRule.onNodeWithTag(DESIGN_LINK_TAG).performClick()
     }
 
-    /** Advances the clock past the longest move, so a move that began at the last tap has ended. */
+    /** Advances the clock past the sheet's rise, its delay included, so a rise that began at the last tap has ended. */
     private fun settleSheet() {
-        composeRule.mainClock.advanceTimeBy(Move.DRILL.millis.toLong() * 2)
+        composeRule.mainClock.advanceTimeBy((OrreryTokens.Motion.Delay.rise + Move.RISE.millis).toLong() * 2)
     }
 
     /** The node tagged [tag] in the unmerged tree, as it is drawn now. */
@@ -190,6 +192,44 @@ class PaneMotionTest {
     /** The alpha the node tagged [tag] is at now: the band's, or a body's. */
     private fun sheetFade(tag: String): Float = node(tag).config[SheetFadeKey]
 
+    /** The virtual clock's time now, in milliseconds. */
+    private fun clockNow(): Long = composeRule.mainClock.currentTime
+
+    /** Whether the phone sheet is drawn now. */
+    private fun sheetDrawn(): Boolean =
+        composeRule.onAllNodesWithTag(PHONE_SHEET_TAG, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    /**
+     * Advances the virtual clock one frame at a time until it reads [until] or later, calling [atFrame] with the time of each
+     * frame that falls before [until]. The frames are the test clock's, and no wall clock is read.
+     */
+    private fun stepFramesUntil(until: Long, atFrame: (Long) -> Unit = {}) {
+        while (clockNow() < until) {
+            composeRule.mainClock.advanceTimeByFrame()
+            if (clockNow() < until) atFrame(clockNow())
+        }
+    }
+
+    /**
+     * Steps the clock frame by frame from the tap at [opened] until the sheet's alpha leaves 0, and returns the clock's time at
+     * that frame. Each frame before it holds the sheet at [SheetPose.FOLDED], transparent, and it must show by the end of its rise.
+     */
+    private fun stepUntilSheetShows(opened: Long): Long {
+        val deadline = opened + OrreryTokens.Motion.Delay.rise + Move.RISE.millis
+        var shown = -1L
+        while (shown < 0) {
+            composeRule.mainClock.advanceTimeByFrame()
+            val pose = sheetPose()
+            if (pose.alpha > 0f) {
+                shown = clockNow()
+            } else {
+                assertEquals("the sheet is held folded ${clockNow() - opened} ms after the tap", SheetPose.FOLDED, pose)
+                assertTrue("the sheet shows by the end of its rise", clockNow() < deadline)
+            }
+        }
+        return shown
+    }
+
     @Test
     fun paneMotionUnfoldsTheSheetDownFromTheBandAndRestsAtFullHeight() {
         setAnimatorDurationScale(1f)
@@ -199,7 +239,7 @@ class PaneMotionTest {
             setPane(server)
             openDesignFromItsLink()
 
-            composeRule.mainClock.advanceTimeBy(Move.DRILL.millis.toLong() / 2)
+            composeRule.mainClock.advanceTimeBy(OrreryTokens.Motion.Delay.rise + Move.RISE.millis.toLong() / 2)
 
             val midway = sheetPose()
             assertTrue("the sheet is part way down its unfold", midway.scaleY > 0.5f && midway.scaleY < 1f)
@@ -212,7 +252,7 @@ class PaneMotionTest {
                 node(PHONE_SHEET_TAG).boundsInRoot.top >= node(SHEET_BAND_TAG).boundsInRoot.bottom,
             )
 
-            composeRule.mainClock.advanceTimeBy(Move.DRILL.millis.toLong())
+            composeRule.mainClock.advanceTimeBy(Move.RISE.millis.toLong() + OrreryTokens.Motion.Delay.rise)
 
             assertEquals("the sheet rests at full height", SheetPose.REST, sheetPose())
             assertEquals("the band is opaque at rest", 1f, sheetFade(SHEET_BAND_TAG), 0f)
@@ -231,13 +271,20 @@ class PaneMotionTest {
             assertEquals("the sheet rests before it closes", SheetPose.REST, sheetPose())
 
             composeRule.onNodeWithTag(SHEET_CLOSE_TAG, useUnmergedTree = true).performClick()
-            composeRule.mainClock.advanceTimeBy(Move.LEAVE.millis.toLong() / 2)
+            val closed = clockNow()
+            composeRule.mainClock.advanceTimeBy(Move.FOLD.millis.toLong() / 2)
 
             val midway = sheetPose()
             assertTrue("the sheet is part way folded", midway.scaleY > 0.5f && midway.scaleY < 1f)
-            assertTrue("the sheet is part way transparent", midway.alpha < 1f)
+            assertEquals("the sheet is still solid half way through its fold", 1f, midway.alpha, 0f)
 
-            composeRule.mainClock.advanceTimeBy(Move.LEAVE.millis.toLong())
+            // Past 70% of the fold the sheet is fading; 90% of the way through it is part way transparent.
+            stepFramesUntil(closed + Move.FOLD.millis * 9 / 10)
+
+            val fading = sheetPose()
+            assertTrue("the sheet is part way transparent", fading.alpha > 0f && fading.alpha < 1f)
+
+            composeRule.mainClock.advanceTimeBy(Move.FOLD.millis.toLong())
 
             composeRule.onAllNodesWithTag(PHONE_SHEET_TAG, useUnmergedTree = true).assertCountEquals(0)
             composeRule.onAllNodesWithTag(SHEET_BAND_TAG, useUnmergedTree = true).assertCountEquals(0)
@@ -299,6 +346,113 @@ class PaneMotionTest {
             composeRule.mainClock.advanceTimeByFrame()
 
             composeRule.onAllNodesWithTag(PHONE_SHEET_TAG, useUnmergedTree = true).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun paneMotionRiseBolderSheetHoldsFoldedThroughTheRiseDelay() {
+        setAnimatorDurationScale(1f)
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            serveWork(server, designs = listOf(design(DESIGN_ID, DESIGN_TITLE, ORRERY_ID)), epics = emptyList())
+            setPane(server)
+            openDesignFromItsLink()
+            val opened = clockNow()
+
+            assertEquals("the folded sheet is 0.15 of its height", 0.15f, SheetPose.FOLDED.scaleY, 0f)
+            assertEquals("the folded sheet is one rise up", -OrreryTokens.Motion.Distance.rise, SheetPose.FOLDED.offsetY)
+            assertEquals("the folded sheet is transparent", 0f, SheetPose.FOLDED.alpha, 0f)
+
+            // Every frame from the tap is held folded and transparent until the sheet shows, which is past the rise delay.
+            val shown = stepUntilSheetShows(opened)
+            assertTrue("the sheet shows only once the rise delay has passed", shown - opened > OrreryTokens.Motion.Delay.rise)
+        }
+    }
+
+    @Test
+    fun paneMotionRiseBolderSheetUnfoldsOverTheRiseAndIsSolidBy30PercentOfIt() {
+        setAnimatorDurationScale(1f)
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            serveWork(server, designs = listOf(design(DESIGN_ID, DESIGN_TITLE, ORRERY_ID)), epics = emptyList())
+            setPane(server)
+            openDesignFromItsLink()
+            val shown = stepUntilSheetShows(clockNow())
+
+            // The fade is counted from the frame the sheet first shows, which is the rise delay's end within a frame.
+            stepFramesUntil(shown + Move.RISE.millis * 3 / 10)
+            assertEquals("the sheet is solid 30% of its rise on", 1f, sheetPose().alpha, 0f)
+
+            stepFramesUntil(shown + Move.RISE.millis / 2)
+            val midway = sheetPose()
+            assertTrue("the sheet is part way down its rise", midway.scaleY > 0.15f && midway.scaleY < 1f)
+            assertTrue(
+                "the sheet is part way up from its folded place",
+                midway.offsetY > SheetPose.FOLDED.offsetY && midway.offsetY < SheetPose.REST.offsetY,
+            )
+
+            settleSheet()
+            assertEquals("the sheet rests at full height", SheetPose.REST, sheetPose())
+        }
+    }
+
+    @Test
+    fun paneMotionRiseBolderSheetFoldsOverTheFoldAndStaysSolidUntil70PercentOfIt() {
+        setAnimatorDurationScale(1f)
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            serveWork(server, designs = listOf(design(DESIGN_ID, DESIGN_TITLE, ORRERY_ID)), epics = emptyList())
+            setPane(server)
+            openDesignFromItsLink()
+            settleSheet()
+            assertEquals("the sheet rests before it closes", SheetPose.REST, sheetPose())
+
+            composeRule.onNodeWithTag(SHEET_CLOSE_TAG, useUnmergedTree = true).performClick()
+            val closed = clockNow()
+
+            // Until 70% of the fold, the sheet is solid at every frame.
+            stepFramesUntil(closed + Move.FOLD.millis * 7 / 10) {
+                assertEquals("the sheet is solid ${it - closed} ms into its fold", 1f, sheetPose().alpha, 0f)
+            }
+
+            // Then it fades as it folds, and it is drawn until the fold is done.
+            stepFramesUntil(closed + Move.FOLD.millis * 9 / 10) {
+                assertTrue("the sheet is drawn ${it - closed} ms into its fold", sheetDrawn())
+            }
+            val fading = sheetPose()
+            assertTrue("the sheet is part way transparent", fading.alpha > 0f && fading.alpha < 1f)
+            assertTrue("the sheet is part way folded", fading.scaleY < 1f)
+
+            stepFramesUntil(closed + Move.FOLD.millis) {
+                assertTrue("the sheet is drawn ${it - closed} ms into its fold", sheetDrawn())
+            }
+            stepFramesUntil(closed + Move.FOLD.millis * 2L)
+            assertFalse("the sheet is gone once its fold is done", sheetDrawn())
+        }
+    }
+
+    @Test
+    fun paneMotionRiseBolderReducedMotionHasNoIntermediateFrameAtEitherEnd() {
+        setAnimatorDurationScale(0f)
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            serveWork(server, designs = listOf(design(DESIGN_ID, DESIGN_TITLE, ORRERY_ID)), epics = emptyList())
+            setPane(server)
+            openDesignFromItsLink()
+            val opened = clockNow()
+
+            // Through the window the rise would take, the sheet is at rest and opaque in every frame: the open is one step.
+            stepFramesUntil(opened + OrreryTokens.Motion.Delay.rise + Move.RISE.millis) {
+                assertEquals("the sheet is at rest ${it - opened} ms after the tap", SheetPose.REST, sheetPose())
+            }
+
+            composeRule.onNodeWithTag(SHEET_CLOSE_TAG, useUnmergedTree = true).performClick()
+            val closed = clockNow()
+
+            // The close is one step as well: no frame of the fold is drawn at any pose in between.
+            stepFramesUntil(closed + Move.FOLD.millis) {
+                assertFalse("the sheet is gone ${it - closed} ms after the close", sheetDrawn())
+            }
         }
     }
 }

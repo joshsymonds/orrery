@@ -66,11 +66,25 @@ class MotionTest {
             Move.LAYOUT to OrreryTokens.Motion.Move.layout,
             Move.DRILL to OrreryTokens.Motion.Move.drill,
             Move.LEAVE to OrreryTokens.Motion.Move.leave,
+            Move.RISE to OrreryTokens.Motion.Move.rise,
+            Move.FOLD to OrreryTokens.Motion.Move.fold,
         )
         timings.forEach { (move, timing) ->
             assertEquals("${move.name} millis", timing.millis, move.millis)
             assertSame("${move.name} easing", timing.easing, move.easing)
         }
+    }
+
+    @Test
+    fun riseSpecWaitsTheRiseDelayThenTweensTheRiseAndIsOneReducedStepUnanimated() {
+        val rise = riseSpec<Float>(animated = true) as? TweenSpec<*>
+        assertEquals("rise duration", Move.RISE.millis, rise?.durationMillis)
+        assertEquals("rise delay", OrreryTokens.Motion.Delay.rise, rise?.delay)
+        assertSame("rise easing", Move.RISE.easing, rise?.easing)
+        val reduced = riseSpec<Float>(animated = false) as? TweenSpec<*>
+        assertEquals("reduced duration", OrreryTokens.Motion.Reduced.millis, reduced?.durationMillis)
+        assertEquals("reduced has no delay", 0, reduced?.delay)
+        assertSame("reduced easing", OrreryTokens.Motion.Ease.linear, reduced?.easing)
     }
 
     @Test
