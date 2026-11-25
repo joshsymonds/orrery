@@ -1088,11 +1088,10 @@ func newSessionHost(logger *slog.Logger) *sessionHost {
 // opts.gateway set, the limit prober probes each idle account through that gateway, at start and as its timer fires,
 // until stop (startProbes); the session titles write each headless session's missing title through haiku, at start and
 // on each first prompt the store stores, until stop; the session headlines refresh each headless session's headline
-// once its turns have ended, through
-// haiku, at start and on each turn end the store stores, until stop; the manager stops idle sessions, until stop; and
-// the caller-event delivery tells each
-// step's caller when the step ends, and each epic's steerer of its events, on its start, on each wake, and once more
-// after a failed round, until stop (startCallerEvents);
+// once its turns have ended, through haiku, at start and on each turn end the store stores, until stop; the manager
+// stops idle sessions, until stop; and the caller-event delivery tells each step's caller when the step ends, and each
+// epic's steerer of its events, on its start, on each wake, and once more after a failed round, until stop
+// (startCallerEvents);
 // and the cron scheduler fires each cron job of a headless session when it is due, through the manager's DeliverCron,
 // from one timer for the next due fire until stop (startCron). A readopt, reconcile, restore or resume failure is
 // logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
@@ -1189,10 +1188,11 @@ func startSessions(
 		host.startTurnEnded(ctx, st, haiku, opts.models, logger)
 		host.startReports(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
+		host.startIdle(ctx)
+		// Every loop above is started, so a failed prober start shuts down what shutdown stops.
 		if err := host.startProbes(ctx, st, opts, getenv, logger); err != nil {
 			return nil, host.abortStart(err)
 		}
-		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
@@ -2302,9 +2302,8 @@ func (h *sessionHost) abortStart(err error) error {
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the limit
 // prober when one runs, the epic summaries, the session titles, the session headlines, the session closures and the
-// epic reports to return, stops
-// the caller-event delivery and waits for it to return, closes the captures and waits for their drives, closes the node
-// checks, the evidence runner and the gatherers and waits for their drives, ends every
+// epic reports to return, stops the caller-event delivery and waits for it to return, closes the captures and waits for
+// their drives, closes the node checks, the evidence runner and the gatherers and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {

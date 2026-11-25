@@ -28,35 +28,64 @@ const (
 	limitProbeWiringWait = 30 * time.Second
 )
 
-// limitProbeWiringNow is the injected clock the prober reads: a fixed moment, so a probe's record carries it.
+// limitProbeWiringNow is the moment the injected clock returns: a fixed moment, so a probe's record carries it.
 func limitProbeWiringNow() time.Time {
 	return time.Unix(limitProbeWiringStamp, 0)
 }
 
-// limitProbeWiringProbe is one probe the recording Exec ran: its command, and the injected clock's time when it ran.
+// limitProbeWiringClock is the injected clock the prober reads in place of time.Now. It counts the reads and keeps the
+// moment of the last one, so a probe can be stamped with the moment the prober last read the clock before the probe
+// ran. The prober reads it on its own goroutine, so it is guarded by a lock.
+type limitProbeWiringClock struct {
+	mu    sync.Mutex
+	reads int
+	last  time.Time
+}
+
+// now is the clock the prober reads: the injected moment, which it records as the last read.
+func (c *limitProbeWiringClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reads++
+	c.last = limitProbeWiringNow()
+	return c.last
+}
+
+// lastRead returns the moment of the last read and the number of reads. The moment is the zero time when no read
+// happened.
+func (c *limitProbeWiringClock) lastRead() (time.Time, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.last, c.reads
+}
+
+// limitProbeWiringProbe is one probe the recording Exec ran: its command, and the moment the prober last read the
+// injected clock when it ran.
 type limitProbeWiringProbe struct {
 	cmd *exec.Cmd
 	at  time.Time
 }
 
 // limitProbeWiringRecorder is the Exec the test gives the prober in place of running claude. It records each probe with
-// the injected clock's time, and signals each one on recorded. The prober runs on its own goroutine, so it is guarded
-// by a lock.
+// the moment the prober last read the injected clock, and signals each one on recorded. The prober runs on its own
+// goroutine, so the probes are guarded by a lock.
 type limitProbeWiringRecorder struct {
+	clock    *limitProbeWiringClock
 	mu       sync.Mutex
 	probes   []limitProbeWiringProbe
 	recorded chan struct{}
 }
 
-// newLimitProbeWiringRecorder returns an empty recorder.
+// newLimitProbeWiringRecorder returns an empty recorder with its own injected clock.
 func newLimitProbeWiringRecorder() *limitProbeWiringRecorder {
-	return &limitProbeWiringRecorder{recorded: make(chan struct{}, 1)}
+	return &limitProbeWiringRecorder{clock: &limitProbeWiringClock{}, recorded: make(chan struct{}, 1)}
 }
 
-// exec records cmd at the injected clock's time, and succeeds without running claude.
+// exec records cmd at the moment the prober last read the injected clock, and succeeds without running claude.
 func (r *limitProbeWiringRecorder) exec(_ context.Context, cmd *exec.Cmd) error {
+	at, _ := r.clock.lastRead()
 	r.mu.Lock()
-	r.probes = append(r.probes, limitProbeWiringProbe{cmd: cmd, at: limitProbeWiringNow()})
+	r.probes = append(r.probes, limitProbeWiringProbe{cmd: cmd, at: at})
 	r.mu.Unlock()
 	select {
 	case r.recorded <- struct{}{}:
@@ -91,8 +120,8 @@ func awaitLimitProbeWiring(t *testing.T, rec *limitProbeWiringRecorder) []limitP
 }
 
 // startLimitProbeWiringHost starts a --sessions host over a store that holds one invented account. Its --gateway is
-// gateway, its prober's clock is limitProbeWiringNow, and its prober's Exec is rec. It returns the host and the log its
-// shutdown writes to.
+// gateway, its prober's clock is rec's injected clock, and its prober's Exec is rec. It returns the host and the log
+// its shutdown writes to.
 func startLimitProbeWiringHost(t *testing.T, gateway string, rec *limitProbeWiringRecorder) (*sessionHost, *logBuffer) {
 	t.Helper()
 	st, getenv := openLimitStore(t)
@@ -108,7 +137,7 @@ func startLimitProbeWiringHost(t *testing.T, gateway string, rec *limitProbeWiri
 		claude:       eventWakeClaude(t),
 		sessionShell: eventWakeShell(t),
 		gateway:      gateway,
-		probeNow:     limitProbeWiringNow,
+		probeNow:     rec.clock.now,
 		probeExec:    rec.exec,
 	}
 	host, err := startSessions(
@@ -170,7 +199,11 @@ func checkLimitProbeWiringNoGateway(t *testing.T) {
 	if n := len(rec.snapshot()); n != 0 {
 		t.Errorf("%d probes recorded with an empty gateway, want none", n)
 	}
-	t.Logf("empty gateway: no prober started, shutdown logged no %q phase, no probe recorded", limitProbeWiringPhase)
+	if _, reads := rec.clock.lastRead(); reads != 0 {
+		t.Errorf("the injected clock was read %d times with an empty gateway, want none", reads)
+	}
+	t.Logf("empty gateway: no prober started, shutdown logged no %q phase, no probe recorded, the clock never read",
+		limitProbeWiringPhase)
 }
 
 // checkLimitProbeWiringGateway checks that with a gateway the prober starts beside the other loops, probes the account
@@ -195,8 +228,9 @@ func checkLimitProbeWiringGateway(t *testing.T) {
 	if !probe.at.Equal(limitProbeWiringNow()) {
 		t.Errorf("probe recorded at %v, want the injected clock's %v", probe.at, limitProbeWiringNow())
 	}
-	t.Logf("gateway %s: prober started, account %s probed at the injected clock's %v",
-		limitProbeWiringGateway, limitProbeWiringAccount, probe.at)
+	_, reads := rec.clock.lastRead()
+	t.Logf("gateway %s: prober started, account %s probed at the injected clock's %v after %d clock reads",
+		limitProbeWiringGateway, limitProbeWiringAccount, probe.at, reads)
 
 	if err := host.stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
