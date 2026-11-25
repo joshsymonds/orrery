@@ -31,12 +31,10 @@ func epicTableColumns() map[string][]string {
 			"closed_by", "superseded_by",
 			// park_class, the class of the park, which says who answers it, is 00050_park_class.sql.
 			"park_class",
-			// synced, the commit of origin's main the stored base last merged in a sync, is 00053_epic_synced.sql.
-			"synced",
-			// The epic's last read of origin's main, which a sync starts from, is 00054_origin_read.sql.
-			"origin_read_base", "origin_read_commit", "origin_read_state", "origin_read_at",
 			// steerer, the session that steers the epic, is 00080_epic_steerer.sql.
 			"steerer",
+			// host, the host the epic's work lives on, is 00097_engine_hosts.sql.
+			"host",
 		},
 		// Each epic's revision, which 00072_epic_revisions_table.sql moves out of epics.
 		"epic_revisions": {"epic", "revision"},
@@ -83,6 +81,8 @@ func epicTableColumns() map[string][]string {
 			// The task's kind and the seq of the design task it revises, from 00091_task_kind.sql.
 			"kind",
 			"revises",
+			// The seq of the task this task was split from, from 00104_task_split_test_runs.sql.
+			"split_from",
 		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
@@ -101,6 +101,10 @@ func epicTableColumns() map[string][]string {
 		"epic_task_findings": {
 			"epic", "task", "generation", "attempt", "review", "position", "id", "claim", "citation", "location",
 			"evidence", "verify_by", "step", "result", "reason", "unverified",
+		},
+		// The test runs of a task's attempts and reviews, from 00104_task_split_test_runs.sql.
+		"epic_task_test_runs": {
+			"epic", "task", "generation", "attempt", "review", "position", "command", "revision", "step", "output",
 		},
 		// The task ladder's rungs and their outcomes, from 00070_task_ladder.sql.
 		"epic_task_rungs": {
@@ -126,8 +130,8 @@ func epicTableColumns() map[string][]string {
 			"epic", "part", "position", "attempt", "step", "start", "head", "finish", "commits", "evidence",
 			"passed", "reason", "at",
 		},
-		"epic_release_slots": {"repository", "epic", "holder_kind", "label", "deadline"},
-		"epic_tells":         {"epic", "seq", "text", "at", "told", "question"},
+		"epic_tells":  {"epic", "seq", "text", "at", "told", "question", "steerer_delivered"},
+		"epic_stalls": {"epic", "seq", "at", "tasks", "runs", "actions", "parked"},
 		"epic_questions": {
 			"epic", "seq", "turn", "text", "state", "label", "choices", "recommended", "why", "confidence", "replaces",
 			"replaced_by", "choice",
@@ -157,6 +161,8 @@ func epicTableColumns() map[string][]string {
 		"planner_actions": {
 			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
 			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files", "reviewer",
+			// The tasks a split action's descendants are, from 00104_task_split_test_runs.sql.
+			"split_tasks",
 		},
 		// The gaps a planner turn declared it cannot resolve without the owner, from 00079_gap_reconcile.sql.
 		"planner_unresolvable": {"epic", "turn", "position", "gap", "reason", "recommended"},
@@ -176,7 +182,7 @@ func epicTableColumns() map[string][]string {
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
-			"passed", "created", "ended", "stderr_hash", "stderr_bytes",
+			"passed", "created", "ended", "stderr_hash", "stderr_bytes", "capture", "gatherer", "gatherers",
 		},
 		"evidence_artifacts":  {"run", "position", "path", "state", "hash", "blob", "size"},
 		"pushed_epic_notices": {"epic", "time"},
@@ -203,6 +209,17 @@ func columnsOf(t *testing.T, s *Store, table string) []string {
 		t.Fatalf("iterate columns of %s: %v", table, err)
 	}
 	return names
+}
+
+// addSessionBeforeHost inserts an engine session row the way EngineAdd did before 00103_session_host.sql added the host
+// column, for a store migrated to a version before it. It appends no engine_added event.
+func addSessionBeforeHost(t *testing.T, s *Store, id, dir, state string, at time.Time) {
+	t.Helper()
+	if _, err := s.db.ExecContext(context.Background(),
+		`INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?)`,
+		id, dir, state, engineStamp(at)); err != nil {
+		t.Fatalf("insert session %s: %v", id, err)
+	}
 }
 
 // rowsOf reads every row of table in rowid order, each as the values of its columns in declaration order.
@@ -514,7 +531,7 @@ func openStoreAtVersion(t *testing.T, path string, version int64) *sql.DB {
 		t.Fatalf("write store at version %d: %v", version, err)
 	}
 	// The fixture is a throwaway file, so it skips the fsyncs, as noSync's stores do.
-	db, err := sql.Open("sqlite", path+"?_synchronous=OFF")
+	db, err := sql.Open("sqlite3", path+"?_synchronous=OFF")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -580,9 +597,30 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00095_step_purpose.sql is the newest. The newest was
-	// 00094_epic_summaries_rewritten.sql before the step purpose migration added 00095,
-	// 00093_design_stage.sql before the epic summaries rewrite added 00094,
+	// Open applies 00014_epics.sql and every migration after it: 00115_step_purpose.sql is the newest.
+	// The newest was 00114_epic_summaries_rewritten.sql before the step purpose migration added 00115_step_purpose.sql,
+	// 00113_evidence_briefs.sql before the epic summaries rewrite added 00114_epic_summaries_rewritten.sql,
+	// 00112_evidence_gatherer.sql before the evidence briefs migration added 00113_evidence_briefs.sql,
+	// 00111_steps_epic_open.sql before the evidence gatherer migration added 00112_evidence_gatherer.sql,
+	// 00110_steerer_tells_stalls.sql before the open steps index of an epic added
+	// 00111_steps_epic_open.sql,
+	// 00109_step_listings_host.sql before the steerer tells and stalls migration added 00110_steerer_tells_stalls.sql,
+	// 00108_notice_host.sql before the step listings host migration added 00109_step_listings_host.sql,
+	// 00107_stage_records.sql before the notice host migration added 00108_notice_host.sql,
+	// 00106_contract_stage.sql before the stage records migration added 00107_stage_records.sql,
+	// 00105_designs.sql before the contract stage migration added 00106_contract_stage.sql,
+	// 00104_task_split_test_runs.sql before the designs migration added 00105_designs.sql,
+	// 00103_session_host.sql before the task split migration added 00104_task_split_test_runs.sql,
+	// 00102_session_held.sql before the session host column added 00103_session_host.sql,
+	// 00101_drop_sync_columns.sql before the held sessions migration added 00102_session_held.sql,
+	// 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
+	// 00099_sync_integrate_rounds.sql before the epic base migration added 00100_epic_base_legacy_sync.sql,
+	// 00098_drop_release_slots.sql before the sync integrate rounds migration added 00099,
+	// 00097_engine_hosts.sql before the release slots' drop added 00098,
+	// 00096_llm_accounts.sql before the engine hosts migration added 00097,
+	// 00095_headless_columns.sql before the LLM accounts migration added 00096_llm_accounts.sql,
+	// 00094_step_listings_no_evidence.sql before the headless columns migration added 00095,
+	// 00093_design_stage.sql before the step listings lost their evidence in 00094,
 	// 00092_integrate_rounds.sql before the design stage migration added 00093,
 	// 00091_task_kind.sql before the integrate rounds migration added 00092,
 	// 00090_closure_verdicts.sql before the task kind migration added 00091,
@@ -591,12 +629,12 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// 00087_task_generation.sql before the task dependencies migration added 00088,
 	// 00086_amender_makers.sql before the task generation migration added 00087,
 	// 00085_question_escalation.sql before the amender makers migration added 00086, 00084_contract_base.sql before
-	// the question escalation migration added 00085, 00083_release_slot_outside.sql before the contract base migration
-	// added 00084, 00082_contract_record.sql before the release slot migration added 00083, 00081_epic_actions.sql
+	// the question escalation migration added 00085, 00083 before the contract base migration added 00084,
+	// 00082_contract_record.sql before the 00083 migration added 00083, 00081_epic_actions.sql
 	// before the contract record migration added 00082, 00080_epic_steerer.sql before the
 	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
 	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
-	// undetermined reviews added 00078, 00076_notice_history.sql before the gambit ladder added 00077,
+	// undetermined reviews added 00078, 00076_notice_history.sql before the ladder migration added 00077,
 	// 00075_step_facts.sql before the notice history added 00076, 00074_task_repairs.sql before the step facts added
 	// 00075, 00073_session_awaited.sql before the task repairs added 00074, 00072_epic_revisions_table.sql before the
 	// awaited flag added 00073, 00071_park_question_runs.sql before the revisions table added 00072,
@@ -607,8 +645,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
 	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
 	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 95 {
-		t.Fatalf("store version after Open = %d, want 95", version)
+	if version != 115 {
+		t.Fatalf("store version after Open = %d, want 115", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -1053,22 +1091,20 @@ func limitToldDownAndUp() migrationCheck {
 	}
 }
 
-// releaseDownAndUp is the walk's check of 00038_release.sql: its Down removes the release run and release slot tables,
-// and its Up restores them.
+// releaseDownAndUp is the walk's check of 00038_release.sql: its Down removes the release run table, and its Up
+// restores it.
 func releaseDownAndUp() migrationCheck {
 	return migrationCheck{
 		down: func(t *testing.T, s *Store) {
 			t.Helper()
-			if tables := tableNames(t, s); tables["epic_release_runs"] || tables["epic_release_slots"] {
-				t.Errorf("release tables after Down: epic_release_runs %v, epic_release_slots %v; want neither",
-					tables["epic_release_runs"], tables["epic_release_slots"])
+			if tableNames(t, s)["epic_release_runs"] {
+				t.Errorf("epic_release_runs after Down = present, want absent")
 			}
 		},
 		up: func(t *testing.T, s *Store) {
 			t.Helper()
-			if tables := tableNames(t, s); !tables["epic_release_runs"] || !tables["epic_release_slots"] {
-				t.Errorf("release tables after Up: epic_release_runs %v, epic_release_slots %v; want both",
-					tables["epic_release_runs"], tables["epic_release_slots"])
+			if !tableNames(t, s)["epic_release_runs"] {
+				t.Errorf("epic_release_runs after Up = absent, want present")
 			}
 		},
 	}
@@ -1247,14 +1283,10 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 			"",
 			"",
 			"",
-			"",
-			"",
-			int64(0),
-			"",
 		},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0), "", "", ""},
-		"pending_notices": {"", ""},
+		"pending_notices": {"", "", ""},
 	}
 	for _, table := range tables {
 		want := make([][]any, len(before[table]))

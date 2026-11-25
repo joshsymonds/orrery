@@ -21,7 +21,7 @@ func TestEpicsHistoryDecisionByCarriesBySession(t *testing.T) {
 		{Seq: 4, Id: "d4", Text: "synthetic decision four", Time: historyAt(400)},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{}, store, &evidenceRunsFake{})
+	client := stepDataServe(t, &epicsFake{}, store, &evidenceRunsFake{})
 
 	got := epicsHistory(t, client, "repoa/shared", "", 0)
 	var decisions []*orreryv1.EpicDecision

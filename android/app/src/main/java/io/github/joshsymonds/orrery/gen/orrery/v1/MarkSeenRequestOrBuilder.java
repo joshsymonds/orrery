@@ -48,4 +48,28 @@ public interface MarkSeenRequestOrBuilder extends
    * @return The readUpTo.
    */
   long getReadUpTo();
+
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 3 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the pane runs on: the controller's, or a hosts.toml host's. Empty names the
+   * controller's host while hosts.toml lists no other host, and is invalid_argument once one does. A name with no
+   * agent is not_found. A host whose agent does not answer within its bound is unavailable.
+   * </pre>
+   *
+   * <code>string host = 3 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

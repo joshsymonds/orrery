@@ -22,7 +22,6 @@ class EpicRowWordsTest {
         live = true,
         runningSteps = runningSteps,
         endedSteps = endedSteps,
-        problem = "",
         phaseAt = now - 49 * 60,
     )
 
@@ -54,8 +53,6 @@ class EpicRowWordsTest {
         epic,
         EpicDetail(
             epic = epic,
-            tasks = emptyList(),
-            slices = emptyList(),
             steps = emptyList(),
             requirements = requirements,
             questions = questions,

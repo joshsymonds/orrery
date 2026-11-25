@@ -40,6 +40,7 @@ func TestTaskVersionRunTaskRunsTheCheckingVersionsItemAtRed(t *testing.T) {
 	if !reflect.DeepEqual(red.Spec, checking) {
 		t.Fatalf("red run spec = %+v, want the checking version's item %+v", red.Spec, checking)
 	}
+	evidenceRunAttach(t, ev, st, red)
 	evidenceRunSettled(t, engineOf(ev), st, evidenceTaskRunID)
 
 	green, err := ev.RunTask(t.Context(), evidenceTaskGreenRunID, evidenceRunEpic, 1, head, evidence.PhaseGreen)
@@ -50,5 +51,6 @@ func TestTaskVersionRunTaskRunsTheCheckingVersionsItemAtRed(t *testing.T) {
 	if want := evidenceRunItem(); !reflect.DeepEqual(green.Spec, want) {
 		t.Fatalf("green run spec = %+v, want the task's current item %+v", green.Spec, want)
 	}
+	evidenceRunAttach(t, ev, st, green)
 	evidenceRunSettled(t, engineOf(ev), st, evidenceTaskGreenRunID)
 }

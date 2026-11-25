@@ -39,8 +39,33 @@ jobs:
       - name: Install devenv and just
         run: nix profile add "github:cachix/devenv/$(jq -er '.nodes.devenv.locked.rev' devenv.lock)" nixpkgs#just
 
+      # Go's build and module caches, where the dev shell puts them (devenv-base.nix), and golangci-lint's, so a run
+      # compiles and lints only what changed since a run it restores from. Each run saves its own entry, also when the
+      # check fails, so a red run still warms the next; GitHub drops the least recently used past its size limit.
+      - name: Restore the Go and lint caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/orrery/build
+            ~/.cache/orrery/mod
+            .golangci-cache
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum', 'devenv.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum', 'devenv.lock') }}-
+            go-${{ runner.os }}-
+
       - name: Run the repository check
         run: TMPDIR=/tmp just check
+
+      - name: Save the Go and lint caches
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/orrery/build
+            ~/.cache/orrery/mod
+            .golangci-cache
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum', 'devenv.lock') }}-${{ github.run_id }}
 
   flake:
     runs-on: ubuntu-latest

@@ -6,22 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The keys of a step's result that a listing reads as evidence.
-const (
-	resultRedEvidence   = "red_evidence"
-	resultGreenEvidence = "green_evidence"
-)
-
 // StepListing is a step as a list of steps reads it, from the step_listings view: the fields of its row a listed step
 // carries, without the prompt, the schema, the agents, the owned paths, the gate's argv, source and needs, the checkout
-// and the loop's nudges, and with its result cut to what a list reads of it. Summary is the result's string summary,
-// and RedEvidence and GreenEvidence whether it holds red_evidence and green_evidence as evidence (see StepRow.Listing).
+// and the loop's nudges, and with its result cut to what a list reads of it: Summary, the result's string summary (see
+// StepRow.Listing).
 // Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown, and LoopStageFrom is zero
 // when the stage was stored with no start.
 type StepListing struct {
@@ -51,17 +44,13 @@ type StepListing struct {
 	LoopStageFrom   time.Time
 	Caller          string
 	Summary         string
-	RedEvidence     bool
-	GreenEvidence   bool
+	Host            string
 }
 
 // Listing returns the listing of row, as step_listings reads it from the stored row. The result is read as a JSON
-// object: its summary is the string at its summary key, and it holds red_evidence or green_evidence as evidence when
-// the key holds a string that, trimmed, is not empty and does not start with NOT RUN in any case. A key held more than
-// once is read at its last value. A result that does not parse, or is not an object, has no summary and no evidence,
-// and neither has a key whose value is not a string.
+// object: its summary is the string at its summary key, read at its last value when the key is held more than once. A
+// result that does not parse, or is not an object, has no summary, and neither has one whose summary is not a string.
 func (row StepRow) Listing() StepListing {
-	fields := stepResultFields(row.Result)
 	return StepListing{
 		ID:              row.ID,
 		Agent:           row.Agent,
@@ -88,16 +77,15 @@ func (row StepRow) Listing() StepListing {
 		LoopStage:       row.LoopStage,
 		LoopStageFrom:   row.LoopStageFrom,
 		Caller:          row.Caller,
-		Summary:         resultString(fields, "summary"),
-		RedEvidence:     resultEvidence(fields, resultRedEvidence),
-		GreenEvidence:   resultEvidence(fields, resultGreenEvidence),
+		Summary:         resultString(stepResultFields(row.Result), "summary"),
+		Host:            row.Host,
 	}
 }
 
 // StepListings returns the listings of the step rows with a non-empty epic, narrowed as LabelledSteps narrows them and in
 // its order. Only a read not narrowed to an epic reads every labeled step.
 func (s *Store) StepListings(ctx context.Context, epic, task string) ([]StepListing, error) {
-	return readStepListings(ctx, sqlcgen.New(s.db), epic, task)
+	return readStepListings(ctx, sqlcgen.New(s.read), epic, task)
 }
 
 // CallerStepListings returns the listings of the steps whose caller is the sessions row caller, labeled or not,
@@ -105,7 +93,7 @@ func (s *Store) StepListings(ctx context.Context, epic, task string) ([]StepList
 // running and the 20 that ended most recently, by end time then id, so a list holds at most 20 ended steps however many
 // the caller started.
 func (s *Store) CallerStepListings(ctx context.Context, caller, epic string) ([]StepListing, error) {
-	rows, err := sqlcgen.New(s.db).ListCallerStepListings(
+	rows, err := sqlcgen.New(s.read).ListCallerStepListings(
 		ctx,
 		sqlcgen.ListCallerStepListingsParams{Caller: caller, Epic: epic},
 	)
@@ -122,7 +110,7 @@ func (s *Store) CallerStepListings(ctx context.Context, caller, epic string) ([]
 // ended step's row is read. Both are read in one read transaction, so the counts and the listings describe one state of
 // the store.
 func (s *Store) RunningStepListings(ctx context.Context, epic, task string) ([]StepListing, map[string]int, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin running steps read: %w", err)
 	}
@@ -233,8 +221,7 @@ func stepListingOf(row sqlcgen.StepListing) (StepListing, error) {
 		LoopStage:     row.LoopStage,
 		Caller:        row.Caller,
 		Summary:       row.Summary,
-		RedEvidence:   row.RedEvidence,
-		GreenEvidence: row.GreenEvidence,
+		Host:          row.Host,
 	}
 	if row.EndValue != "" {
 		listing.Ended = time.Unix(row.Ended, 0)
@@ -270,11 +257,4 @@ func resultString(fields map[string]json.RawMessage, key string) string {
 		return ""
 	}
 	return text
-}
-
-// resultEvidence reports whether fields holds key as a string that, trimmed, is non-empty and does not start with NOT
-// RUN in any case. A value that is not a string is no evidence.
-func resultEvidence(fields map[string]json.RawMessage, key string) bool {
-	text := strings.TrimSpace(resultString(fields, key))
-	return text != "" && !strings.HasPrefix(strings.ToUpper(text), "NOT RUN")
 }

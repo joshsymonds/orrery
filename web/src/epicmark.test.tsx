@@ -117,7 +117,6 @@ test("EpicMark: a mark at 32 is marked for the mark size, and one at 24 by defau
 test("EpicMark: an orreryd epic building tasks, with no record tasks, draws its requirements and not an empty mark", () => {
   const detail = create(EpicsGetResponseSchema, {
     centre: "running",
-    tasks: [],
     buildTasks: [
       create(EpicBuildTaskSchema, { id: "T1", title: "shift-store", status: "open", stage: "implement", requirements: ["R1"] }),
       create(EpicBuildTaskSchema, { id: "T2", title: "csv-writer", status: "open", stage: "", requirements: ["R2"] }),

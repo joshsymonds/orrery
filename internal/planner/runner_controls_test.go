@@ -39,7 +39,7 @@ func openControlsStore(t *testing.T) (*store.Store, string) {
 // TestRunnerClaimsEveryPendingTriggerInOneTurn does.
 func addPendingTrigger(t *testing.T, path, id string, changes *changeNotice) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

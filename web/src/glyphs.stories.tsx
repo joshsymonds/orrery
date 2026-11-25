@@ -4,6 +4,7 @@ import type { Stories } from "./catalog/story";
 import * as glyphs from "./glyphs";
 
 export const StateGlyph: Stories = {
+  broken: () => <glyphs.StateGlyph state="broken" />,
   done: () => <glyphs.StateGlyph state="done" />,
   failed: () => <glyphs.StateGlyph state="failed" />,
   held: () => <glyphs.StateGlyph state="held" />,

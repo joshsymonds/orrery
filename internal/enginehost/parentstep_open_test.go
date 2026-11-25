@@ -70,7 +70,7 @@ func (s *callerSpy) readsOf(caller string) int {
 	return n
 }
 
-// parentRig is a manager at a cap of two sessions and two steps, and the Steps that starts its steps. The Steps reads the
+// parentRig is a manager and the Steps that starts its steps. The Steps reads the
 // store through a callerSpy, and the manager's clock is a handClock the test moves by hand.
 type parentRig struct {
 	manager   *Manager
@@ -101,7 +101,7 @@ func newParentRig(t *testing.T) parentRig {
 	clock := &handClock{now: fixedClock()}
 	scope := fakeSystemdRunPath(t)
 	manager := NewManager(Config{
-		Shell: sh, Claude: fakeClaudePath(t), Environ: environ, Cap: 2, StepCap: 2, Writer: writer, Now: clock.Now,
+		Shell: sh, Claude: fakeClaudePath(t), Environ: environ, Writer: writer, Now: clock.Now,
 		Notifier: &fakeSink{}, Store: s, HolderScope: scope, StateDir: root,
 	})
 	t.Cleanup(manager.Close)

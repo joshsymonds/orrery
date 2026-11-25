@@ -38,9 +38,6 @@ const (
 	eventWakeStep      = "wake-wiring-step"
 	eventWakeStepEvent = "step:" + eventWakeStep
 	eventWakePaneID    = "orrery-wake-pane"
-	// eventWakeSeeded is the id of a headless session row that no process runs. It is 32 lowercase hex digits, as the
-	// holder directory of a resumed session needs.
-	eventWakeSeeded = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b"
 	// eventWakeSignals sizes the channel each pass count fills, so a round never waits on a test that is not reading it.
 	eventWakeSignals = 64
 	// eventWakeRounds bounds the caller-event rounds a test awaits for a mark.
@@ -49,12 +46,11 @@ const (
 	eventWakeHistoryLimit = 10_000
 )
 
-// eventWakeRig holds the seams an event-wake test starts its host with: the session cap, the channel each caller-event
-// pass sends on when it returns, and the function that replaces cli.WakePane, which nil leaves as it is.
+// eventWakeRig holds the seams an event-wake test starts its host with: the channel each caller-event pass sends on
+// when it returns, and the function that replaces cli.WakePane, which nil leaves as it is.
 type eventWakeRig struct {
-	sessionCap int
-	passed     chan struct{}
-	wakePane   func(ctx context.Context, server, pane, text string) (bool, error)
+	passed   chan struct{}
+	wakePane func(ctx context.Context, server, pane, text string) (bool, error)
 }
 
 // shortStateRoot creates a state directory whose path is short enough for a holder's socket. A t.TempDir path carries
@@ -100,8 +96,6 @@ func startEventWakeHost(
 		socket:            filepath.Join(filepath.Dir(path), "orreryd.sock"),
 		claude:            eventWakeClaude(t),
 		sessionShell:      eventWakeShell(t),
-		sessionCap:        rig.sessionCap,
-		stepCap:           defaultStepCap,
 		callerEventPassed: func() { rig.passed <- struct{}{} },
 		callerEventTimer:  neverFiringTimer,
 		callerWakePane:    rig.wakePane,
@@ -253,16 +247,6 @@ func stopStepUnder(t *testing.T, st *store.Store, host *sessionHost, caller stor
 	}
 }
 
-// seedIdleCaller stores a headless session row named id, which no process runs. A delivery to it resumes the session
-// from its row, which needs a slot under the cap.
-func seedIdleCaller(t *testing.T, st *store.Store, id string) {
-	t.Helper()
-	add := store.EngineAdd{ID: id, Dir: t.TempDir(), State: string(protocol.StateDone), Kind: store.KindEngine}
-	if err := st.ApplyEngine(t.Context(), []store.EngineOp{add}, time.Unix(attentionWiringStamp, 0)); err != nil {
-		t.Fatalf("store session %s: %v", id, err)
-	}
-}
-
 // syncWakePane stores the pane caller of the event-wake tests, which names pane on the tmux server that the store
 // column server names, and returns the caller that names it.
 func syncWakePane(t *testing.T, st *store.Store, server, pane string) store.EpicCaller {
@@ -294,7 +278,7 @@ func recordWakeCreator(t *testing.T, st *store.Store, session string) {
 func steerWakeEpic(t *testing.T, path, session string) {
 	t.Helper()
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: "_busy_timeout=5000"}).String()
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
@@ -355,7 +339,7 @@ func ownerSay(t *testing.T, host *sessionHost, id string) {
 func TestStepEndPushWiringStoredEndDelivers(t *testing.T) {
 	st, getenv, path := openEventWakeStore(t)
 	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
+	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{passed: passed})
 	awaitCallerRound(passed)
 
 	caller := startSession(t, host, "hi")
@@ -374,7 +358,7 @@ func TestStepEndPushWiringStoredEndDelivers(t *testing.T) {
 func TestStepEndPushWiringQuietCallerAfterSay(t *testing.T) {
 	st, getenv, path := openEventWakeStore(t)
 	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
+	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{passed: passed})
 	awaitCallerRound(passed)
 
 	caller := startSession(t, host, "HANG")
@@ -404,7 +388,7 @@ func TestStepEndPushWiringQuietCallerAfterSay(t *testing.T) {
 func TestStepEndPushWiringStoppedCallerAfterResume(t *testing.T) {
 	st, getenv, path := openEventWakeStore(t)
 	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
+	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{passed: passed})
 	awaitCallerRound(passed)
 
 	caller := startSession(t, host, "hi")
@@ -420,34 +404,6 @@ func TestStepEndPushWiringStoppedCallerAfterResume(t *testing.T) {
 
 	ownerSay(t, host, caller)
 	awaitMarked(t, st, passed, eventWakeStepEvent, caller)
-
-	if err := stop(); err != nil {
-		t.Fatalf("stop sessions: %v", err)
-	}
-}
-
-// TestStepEndPushWiringSlotFreed checks that a step end held by a full session cap is sent once a slot frees, with no
-// wake from the test and the retry timer stubbed so it never fires. The caller is a headless row that no process runs,
-// so a delivery to it must resume it under the cap of one, which a session holds. The session's stop frees the slot.
-func TestStepEndPushWiringSlotFreed(t *testing.T) {
-	st, getenv, path := openEventWakeStore(t)
-	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: 1, passed: passed})
-	awaitCallerRound(passed)
-
-	seedIdleCaller(t, st, eventWakeSeeded)
-	filler := startSession(t, host, "hi")
-	awaitTurnDone(t, path, filler)
-	stopStepUnder(t, st, host, store.EpicCaller{Session: eventWakeSeeded})
-	awaitCallerRound(passed)
-	if markedIn(t, st, eventWakeStepEvent, eventWakeSeeded) {
-		t.Fatalf("step end marked while the full cap refused its caller")
-	}
-
-	if err := host.manager.Stop(t.Context(), filler); err != nil {
-		t.Fatalf("Stop the filler: %v", err)
-	}
-	awaitMarked(t, st, passed, eventWakeStepEvent, eventWakeSeeded)
 
 	if err := stop(); err != nil {
 		t.Fatalf("stop sessions: %v", err)
@@ -519,7 +475,7 @@ func TestStepEndPushWiringPaneStopFrame(t *testing.T) {
 		return true, nil
 	}
 	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{
-		sessionCap: defaultSessionCap, passed: passed, wakePane: wakePane,
+		passed: passed, wakePane: wakePane,
 	})
 	awaitCallerRound(passed)
 
@@ -559,7 +515,7 @@ func TestEpicEventPushWiringQuestionAndPhase(t *testing.T) {
 	createAttentionEpic(t, st, "")
 	pauseAttentionEpic(t, st)
 	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
+	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{passed: passed})
 	awaitCallerRound(passed)
 
 	creator := startSession(t, host, "hi")
@@ -594,7 +550,7 @@ func TestEpicEventPushWiringQuietCreatorAfterSay(t *testing.T) {
 	createAttentionEpic(t, st, "")
 	pauseAttentionEpic(t, st)
 	passed := make(chan struct{}, eventWakeSignals)
-	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{sessionCap: defaultSessionCap, passed: passed})
+	host, stop := startEventWakeHost(t, st, getenv, path, eventWakeRig{passed: passed})
 	awaitCallerRound(passed)
 
 	creator := startSession(t, host, "HANG")

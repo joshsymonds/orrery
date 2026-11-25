@@ -389,6 +389,7 @@ test("ArchivePaneRow: a pane whose Session is archived leaves the inbox, and sho
         cwd: "/work/api",
         label: "api",
         state: "working",
+        claudeSession: "claude-1",
         orreryId: "sess-7",
       }),
     ],

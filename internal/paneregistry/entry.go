@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-// Statuses that Claude Code writes to an entry's status field.
+// Statuses that Claude Code writes to an entry's status field. A session that is still starting has written its entry
+// without one, so an entry with no status is a session that has not reported a status yet.
 const (
 	StatusBusy    = "busy"
 	StatusWaiting = "waiting"
@@ -40,25 +41,28 @@ type Entry struct {
 	Tmux       string `json:"tmux"`
 }
 
-// Parse decodes a session registry entry. It returns an error naming the cause when data is not a JSON object, when
-// the entry lacks status or sessionId, or when its status is not busy, waiting, idle or shell.
+// Parse decodes a session registry entry. An entry with no status parses, with an empty Status, since Claude Code writes
+// a starting session's entry before its first status. It returns an error naming the cause when data is not a JSON
+// object, when the entry lacks sessionId, or when it has a status that is not busy, waiting, idle or shell.
 func Parse(data []byte) (Entry, error) {
 	var entry Entry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return Entry{}, fmt.Errorf("paneregistry: entry is not a JSON object: %w", err)
 	}
-	if entry.Status == "" {
-		return Entry{}, errors.New("paneregistry: entry lacks status")
-	}
 	if entry.SessionID == "" {
 		return Entry{}, errors.New("paneregistry: entry lacks sessionId")
 	}
 	switch entry.Status {
-	case StatusBusy, StatusWaiting, StatusIdle, StatusShell:
+	case "", StatusBusy, StatusWaiting, StatusIdle, StatusShell:
 	default:
 		return Entry{}, fmt.Errorf("paneregistry: entry status %q is not busy, waiting, idle or shell", entry.Status)
 	}
 	return entry, nil
+}
+
+// Starting reports whether the entry is of a session that has not yet written a status.
+func (e Entry) Starting() bool {
+	return e.Status == ""
 }
 
 // Pane returns the id of the tmux pane the session runs in: the part of the tmux field after its last '.', so

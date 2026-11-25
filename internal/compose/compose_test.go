@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // testRef is a candidate pin under refs/orrery/, where Compose pins its candidate.
@@ -144,14 +146,14 @@ func TestComposeRecomposeGivesSameCommits(t *testing.T) {
 	second := composeRevision(t, dir, base, "two\n", map[string]string{"y": "two"}, nil)
 	tasks := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
 
-	composed, err := Compose(ctx, dir, base, tasks, testRef)
+	composed, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
 	if len(composed.Composed) != 2 {
 		t.Fatalf("Composed = %v, want two commits to recompose", composed.Composed)
 	}
-	again, err := Compose(ctx, dir, base, tasks, testRef)
+	again, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("recompose refused by the pin: %v", err)
 	}
@@ -167,12 +169,12 @@ func TestComposePinRefusesAnotherCommit(t *testing.T) {
 	base := composeBase(t, dir)
 	first := composeRevision(t, dir, base, "one\n", map[string]string{"x": "new"}, nil)
 	second := composeRevision(t, dir, base, "two\n", map[string]string{"y": "two"}, nil)
-	pinned, err := Compose(ctx, dir, base, []Task{{Seq: 1, Base: base, Revision: first}}, testRef)
+	pinned, err := Compose(ctx, hostexec.NewLocal(), dir, base, []Task{{Seq: 1, Base: base, Revision: first}}, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
 	other := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
-	if _, err = Compose(ctx, dir, base, other, testRef); err == nil {
+	if _, err = Compose(ctx, hostexec.NewLocal(), dir, base, other, testRef); err == nil {
 		t.Fatal("Compose moved a pin that points at another commit")
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", testRef); got != pinned.Candidate {
@@ -187,7 +189,7 @@ func TestComposePinRefusesRefOutsideOrrery(t *testing.T) {
 	base := composeBase(t, dir)
 	first := composeRevision(t, dir, base, "one\n", map[string]string{"x": "new"}, nil)
 	tasks := []Task{{Seq: 1, Base: base, Revision: first}}
-	if _, err := Compose(ctx, dir, base, tasks, testBranch); err == nil {
+	if _, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testBranch); err == nil {
 		t.Fatalf("Compose pinned a candidate at %s, outside refs/orrery/", testBranch)
 	}
 	refs := composeGit(t, dir, nil, "", "for-each-ref", "--format=%(refname)")
@@ -213,7 +215,7 @@ func TestComposeLeavesOutTasksAndComposesTheRest(t *testing.T) {
 		{Seq: 4, Base: base, Revision: last},
 	}
 
-	result, err := Compose(ctx, dir, base, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -264,7 +266,7 @@ func TestComposeTaskOnAncestorWithDisjointChangesComposes(t *testing.T) {
 	later := composeRevision(t, dir, batchBase, "later\n", map[string]string{"y": "two"}, nil)
 	tasks := []Task{{Seq: 1, Base: older, Revision: revision}, {Seq: 2, Base: batchBase, Revision: later}}
 
-	result, err := Compose(ctx, dir, batchBase, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, batchBase, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -300,7 +302,7 @@ func TestComposeTaskOnUnrelatedBaseIsLeftOut(t *testing.T) {
 	missing := strings.Repeat("0", len(batchBase))
 	tasks := []Task{{Seq: 1, Base: sibling, Revision: unrelated}, {Seq: 2, Base: missing, Revision: unrelated}}
 
-	result, err := Compose(ctx, dir, batchBase, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, batchBase, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -327,7 +329,7 @@ func TestComposeBranchMergeKeepsTaskCommitsInHistory(t *testing.T) {
 	revisions := map[int64]string{1: first, 2: second}
 	tasks := []Task{{Seq: 1, Base: base, Revision: first}, {Seq: 2, Base: base, Revision: second}}
 
-	result, err := Compose(ctx, dir, base, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -372,7 +374,7 @@ func TestComposeBranchMergeLeavesOutConflictWholeNamingPaths(t *testing.T) {
 		{Seq: 3, Base: base, Revision: third},
 	}
 
-	result, err := Compose(ctx, dir, base, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -401,7 +403,7 @@ func TestComposeBranchMergeLeavesOutTaskOffTheBatchBase(t *testing.T) {
 	here := composeRevision(t, dir, base, "here\n", map[string]string{"y": "two"}, nil)
 	tasks := []Task{{Seq: 1, Base: sibling, Revision: elsewhere}, {Seq: 2, Base: base, Revision: here}}
 
-	result, err := Compose(ctx, dir, base, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -436,14 +438,14 @@ func TestComposeBranchMergeRecomposeGivesSameCommits(t *testing.T) {
 		{Seq: 3, Base: base, Revision: third},
 	}
 
-	composed, err := Compose(ctx, dir, base, tasks, testRef)
+	composed, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
 	if len(composed.Composed) != 2 || len(composed.LeftOut) != 1 {
 		t.Fatalf("Composed = %v, LeftOut = %v; want two composed and one left out", composed.Composed, composed.LeftOut)
 	}
-	again, err := Compose(ctx, dir, base, tasks, testRef)
+	again, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("recompose refused by the pin: %v", err)
 	}
@@ -478,7 +480,7 @@ func TestComposeLeavesWorkingTreeAndIndexUnchanged(t *testing.T) {
 	indexBefore := composeGit(t, dir, nil, "", "ls-files", "--stage")
 	statusBefore := composeGit(t, dir, nil, "", "status", "--porcelain")
 
-	result, err := Compose(ctx, dir, base, tasks, testRef)
+	result, err := Compose(ctx, hostexec.NewLocal(), dir, base, tasks, testRef)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -508,13 +510,13 @@ func TestAdvanceMovesBranchOnlyFromExpectedCommit(t *testing.T) {
 	first := composeRevision(t, dir, base, "one\n", map[string]string{"a": "changed"}, nil)
 	composeGit(t, dir, nil, "", "update-ref", testBranch, base)
 
-	if err := Advance(ctx, dir, testBranch, first, base); err != nil {
+	if err := Advance(ctx, hostexec.NewLocal(), dir, testBranch, first, base); err != nil {
 		t.Fatalf("Advance from the branch's commit: %v", err)
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", testBranch); got != first {
 		t.Fatalf("branch = %s after Advance, want %s", got, first)
 	}
-	if err := Advance(ctx, dir, testBranch, base, base); err == nil {
+	if err := Advance(ctx, hostexec.NewLocal(), dir, testBranch, base, base); err == nil {
 		t.Fatal("Advance moved a branch that is not at from")
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", testBranch); got != first {
@@ -529,7 +531,7 @@ func TestAdvanceRefusesBranchOutsideEpic(t *testing.T) {
 	base := composeBase(t, dir)
 	first := composeRevision(t, dir, base, "one\n", map[string]string{"a": "changed"}, nil)
 
-	if err := Advance(ctx, dir, "refs/heads/main", first, base); err == nil {
+	if err := Advance(ctx, hostexec.NewLocal(), dir, "refs/heads/main", first, base); err == nil {
 		t.Fatal("Advance moved refs/heads/main, which is outside refs/heads/epic/")
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", "refs/heads/main"); got != base {
@@ -546,7 +548,7 @@ func TestAdvanceRefusesAMoveThatIsNotAFastForward(t *testing.T) {
 	older := composeRevision(t, dir, base, "older\n", map[string]string{"b": "older"}, nil)
 	composeGit(t, dir, nil, "", "update-ref", testBranch, newer)
 
-	if err := Advance(ctx, dir, testBranch, older, newer); err == nil {
+	if err := Advance(ctx, hostexec.NewLocal(), dir, testBranch, older, newer); err == nil {
 		t.Fatal("Advance moved the branch to a commit that does not build on it")
 	}
 	if got := composeGit(t, dir, nil, "", "rev-parse", testBranch); got != newer {

@@ -68,8 +68,8 @@ func TestStepPurposeWritesOnlyWhileEmpty(t *testing.T) {
 	}
 }
 
-// stepPurposeDownAndUp is the walk's check of 00095_step_purpose.sql: a step stored with a purpose stays listed when the
-// Down drops the purpose column, and its Up adds the column back empty, so a purpose does not survive a Down.
+// stepPurposeDownAndUp is the walk's check of 00115_step_purpose.sql: a step stored with a purpose stays listed when
+// the Down drops the purpose column, and its Up adds the column back empty, so a purpose does not survive a Down.
 func stepPurposeDownAndUp() migrationCheck {
 	return migrationCheck{
 		seed: func(t *testing.T, s *Store) {

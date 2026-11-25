@@ -277,3 +277,50 @@ func TestEpicReadsRefuseRunExitOutOfRange(t *testing.T) {
 		})
 	}
 }
+
+// TestEpicGetShowsAcceptedTaskIntegratedOnceItsBatchPassed accepts T1 and reads it as its integrate batch moves: not
+// integrated before a batch claims it, nor while the claiming batch runs, and integrated once the batch passed with T1
+// in it. T2, which no batch composed, is never integrated.
+func TestEpicGetShowsAcceptedTaskIntegratedOnceItsBatchPassed(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, client := plannedBuildEpic(t)
+	build := store.TaskBuild{Stage: "review", Base: buildBaseRevision, Attempt: 1, Revision: buildHeadRevision}
+	if err := st.SetTaskBuild(ctx, epicServiceID, 1, store.TaskBuild{}, build); err != nil {
+		t.Fatalf("SetTaskBuild: %v", err)
+	}
+	if err := st.AcceptTask(ctx, epicServiceID, 1, build, "reviewed"); err != nil {
+		t.Fatalf("AcceptTask: %v", err)
+	}
+	integrated := func(when string, want bool) {
+		t.Helper()
+		epic := getEpicOK(t, client)
+		if got := taskWithID(t, epic, "T1").GetIntegrated(); got != want {
+			t.Errorf("T1 integrated %s = %v, want %v", when, got, want)
+		}
+		if taskWithID(t, epic, "T2").GetIntegrated() {
+			t.Errorf("T2 integrated %s, want never", when)
+		}
+	}
+	integrated("before a batch", false)
+
+	const path = "plan/S1/integrate"
+	at := time.Unix(turnFreed, 0)
+	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{{
+		Path: path, ID: "build-integrate", Node: "integrate", Kind: "integrate", Attempt: 1,
+	}}, nil, at); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	composed := `{"composed":[{"task":1}]}`
+	if err := st.ClaimBatch(ctx, epicServiceID, path, 1, buildHeadRevision, "refs", composed, []int64{1}); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
+	}
+	integrated("while its batch runs", false)
+
+	if err := st.EndBatch(ctx, epicServiceID, store.BatchEnd{
+		Path: path, Attempt: 1, Outcome: "passed", Output: "synthetic", Over: buildHeadRevision,
+	}, nil, at); err != nil {
+		t.Fatalf("EndBatch: %v", err)
+	}
+	integrated("once its batch passed", true)
+}

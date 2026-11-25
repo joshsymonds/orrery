@@ -31,32 +31,6 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> 
-      getTasksList();
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask getTasks(int index);
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  int getTasksCount();
-
-  /**
-   * <pre>
    * Every step labelled with the epic, oldest first.
    * </pre>
    *
@@ -83,37 +57,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> 
-      getSlicesList();
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index);
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  int getSlicesCount();
-
-  /**
-   * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -122,8 +66,7 @@ public interface EpicsGetResponseOrBuilder extends
       getRequirementsList();
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -131,8 +74,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement getRequirements(int index);
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -141,7 +83,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -150,7 +92,7 @@ public interface EpicsGetResponseOrBuilder extends
       getNodesList();
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -158,7 +100,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode getNodes(int index);
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -167,7 +109,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -176,7 +118,7 @@ public interface EpicsGetResponseOrBuilder extends
       getBuildTasksList();
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -184,7 +126,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask getBuildTasks(int index);
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -193,7 +135,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -202,7 +144,7 @@ public interface EpicsGetResponseOrBuilder extends
       getQuestionsList();
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -210,7 +152,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion getQuestions(int index);
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -219,7 +161,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -228,7 +170,7 @@ public interface EpicsGetResponseOrBuilder extends
   boolean hasContract();
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -238,7 +180,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * Whether the epic is paused, so its planner starts no turn.
    * </pre>
    *
    * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -248,7 +190,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -257,7 +199,7 @@ public interface EpicsGetResponseOrBuilder extends
   java.lang.String getParked();
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -268,8 +210,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -278,8 +219,7 @@ public interface EpicsGetResponseOrBuilder extends
   java.lang.String getSummary();
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -290,8 +230,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -300,8 +239,7 @@ public interface EpicsGetResponseOrBuilder extends
       getLedgerList();
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -309,8 +247,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding getLedger(int index);
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -319,8 +256,8 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -329,8 +266,8 @@ public interface EpicsGetResponseOrBuilder extends
       getReleasesList();
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -338,8 +275,8 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun getReleases(int index);
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -348,7 +285,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -357,7 +294,7 @@ public interface EpicsGetResponseOrBuilder extends
       getReviewsList();
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -365,7 +302,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict getReviews(int index);
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -400,8 +337,8 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -410,8 +347,8 @@ public interface EpicsGetResponseOrBuilder extends
   java.lang.String getRepository();
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -422,8 +359,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -432,8 +368,7 @@ public interface EpicsGetResponseOrBuilder extends
       getReleaseStepsList();
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -441,8 +376,7 @@ public interface EpicsGetResponseOrBuilder extends
   io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof getReleaseSteps(int index);
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -451,7 +385,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -460,7 +394,7 @@ public interface EpicsGetResponseOrBuilder extends
   boolean hasReport();
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -470,8 +404,8 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+   * parked and when the owner holds its park. The parked reason is still in parked.
    * </pre>
    *
    * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -481,8 +415,7 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -491,8 +424,7 @@ public interface EpicsGetResponseOrBuilder extends
   java.lang.String getSupersededBy();
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -503,10 +435,23 @@ public interface EpicsGetResponseOrBuilder extends
 
   /**
    * <pre>
+   * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+   * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+   * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+   * waits on the owner. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @return The steererParked.
+   */
+  boolean getSteererParked();
+
+  /**
+   * <pre>
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @return The centre.
    */
   java.lang.String getCentre();
@@ -515,7 +460,7 @@ public interface EpicsGetResponseOrBuilder extends
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @return The bytes for centre.
    */
   com.google.protobuf.ByteString
@@ -526,7 +471,7 @@ public interface EpicsGetResponseOrBuilder extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @return The newest.
    */
   java.lang.String getNewest();
@@ -535,7 +480,7 @@ public interface EpicsGetResponseOrBuilder extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @return The bytes for newest.
    */
   com.google.protobuf.ByteString

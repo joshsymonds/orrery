@@ -6,6 +6,7 @@ import (
 
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // epicMarkID is the id of the orreryd epic the derivation tests read.
@@ -29,7 +30,7 @@ func epicMarkGet(
 ) *orreryv1.EpicsGetResponse {
 	t.Helper()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 	return epicsGet(t, client, epicMarkID)
 }
 
@@ -349,6 +350,51 @@ func TestEpicMarkPlannerParkAndUnheldStepAreNotAsks(t *testing.T) {
 			}
 			if got := epicMarkGet(t, stored, tc.steps, nil).GetCentre(); got != "running" {
 				t.Errorf("center = %q, want running", got)
+			}
+		})
+	}
+}
+
+// TestEpicMarkCentreFollowsTheSteererRule shows the centre reads a question or park its steerer holds as the steerer's
+// move, not asks, and reads asks once the steerer escalates it or when no steering session hears the epic.
+func TestEpicMarkCentreFollowsTheSteererRule(t *testing.T) {
+	t.Parallel()
+	question := func(escalated int64) func(stored *enginev1.StoredEpic) {
+		return func(stored *enginev1.StoredEpic) {
+			stored.Questions = []*enginev1.EpicQuestion{{
+				Id: "Q1", Turn: 1, Text: "synthetic question", State: "open", Escalated: escalated,
+			}}
+		}
+	}
+	park := func(escalated int64) func(stored *enginev1.StoredEpic) {
+		return func(stored *enginev1.StoredEpic) {
+			stored.Parked = "synthetic park"
+			stored.ParkClass = string(store.ParkClassBranch)
+			stored.Questions = []*enginev1.EpicQuestion{{
+				Id: "Q1", Turn: 1, Text: "synthetic park", Label: store.ParkLabel, State: "open", Escalated: escalated,
+			}}
+		}
+	}
+	cases := []struct {
+		name  string
+		heard bool
+		setup func(stored *enginev1.StoredEpic)
+		want  string
+	}{
+		{name: "a question its steerer holds", heard: true, setup: question(0), want: "running"},
+		{name: "a park its steerer holds", heard: true, setup: park(0), want: "running"},
+		{name: "a question its steerer escalated", heard: true, setup: question(epicsAgo(time.Minute)), want: "asks"},
+		{name: "a park its steerer escalated", heard: true, setup: park(epicsAgo(time.Minute)), want: "asks"},
+		{name: "a question no steerer hears", heard: false, setup: question(0), want: "asks"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			stored := epicMarkStored("accepted", "R1")
+			stored.SteererHeard = tc.heard
+			tc.setup(stored)
+			if got := epicMarkGet(t, stored, nil, nil).GetCentre(); got != tc.want {
+				t.Errorf("center = %q, want %q", got, tc.want)
 			}
 		})
 	}

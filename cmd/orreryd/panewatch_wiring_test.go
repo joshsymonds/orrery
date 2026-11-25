@@ -186,6 +186,11 @@ func TestPaneWatchWiringEntryReachesUpdates(t *testing.T) {
 func TestPaneWatchWiringUnreadableEntryNotices(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, ".claude", "sessions", paneWatchEntry)
+	// orreryd makes the registry directory as its pane watch starts, which can be after the first write below, so the
+	// test makes it first; orreryd's make of a directory already there succeeds.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("make the registry directory: %v", err)
+	}
 	socket, ended := paneWatchServe(t, home)
 	lines := paneWatchDesk(t, socket, ended)
 	var got deskstream.Line

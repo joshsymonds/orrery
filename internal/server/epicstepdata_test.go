@@ -12,17 +12,16 @@ import (
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 )
 
-// stepDataServe serves newEpicsHandler over root, steps, store and evidence with the fixed clock, and returns a
-// generated Epics client.
+// stepDataServe serves newEpicsHandler over steps, store and evidence with the fixed clock, and returns a generated
+// Epics client.
 func stepDataServe(
 	t *testing.T,
-	root string,
 	steps StepClient,
 	store EpicStoreClient,
 	evidence EvidenceClient,
 ) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(steps, store, nil, evidence, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
@@ -111,13 +110,14 @@ func TestEpicStepMessageRedactsNewFreeText(t *testing.T) {
 // epicStepMessage itself reads the listed summary and never the result.
 func TestEpicStepMessageSummaryIsTheResultsStringSummary(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
-	client := epicsServe(t, root, &epicsFake{steps: []*enginev1.Step{
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
+		storedEpicOf("repo/epic", "accepted", epicsAgo(2*time.Hour)),
+	}}
+	client := epicStoreServe(t, &epicsFake{steps: []*enginev1.Step{
 		{Id: "s1", Epic: "repo/epic", Result: `{"summary":"synthetic summary"}`, Started: epicsAgo(3 * time.Hour)},
 		{Id: "s2", Epic: "repo/epic", Result: `{"summary":3}`, Started: epicsAgo(2 * time.Hour)},
 		{Id: "s3", Epic: "repo/epic", Result: `synthetic {"summary":"x"`, Started: epicsAgo(time.Hour)},
-	}})
+	}}, store)
 	steps := epicsGet(t, client, "repo/epic").GetSteps()
 	got := make(map[string]string, len(steps))
 	for _, step := range steps {
@@ -164,7 +164,6 @@ func TestEpicStepMessageVerdictsAreJudgeOnly(t *testing.T) {
 }
 
 func TestEpicStepRolesOnGetAndList(t *testing.T) {
-	root := t.TempDir()
 	stored := storedEpicOf("repoa/shared", "accepted", epicsAgo(2*time.Hour))
 	stored.Turns = []*enginev1.EpicTurn{{Seq: 1, Step: "turn"}}
 	stored.Tasks = []*enginev1.EpicTask{{Id: "T1", Reviews: []*enginev1.EpicTaskReview{{Step: "review"}}}}
@@ -177,7 +176,7 @@ func TestEpicStepRolesOnGetAndList(t *testing.T) {
 		{Id: "idle", Epic: "repoa/shared", ReadOnly: true, Started: epicsAgo(time.Hour)},
 	}}
 	evidence := &evidenceRunsFake{runs: []*enginev1.EvidenceRun{{Id: "run-1", JudgeStep: "judge"}}}
-	client := stepDataServe(t, root, steps, store, evidence)
+	client := stepDataServe(t, steps, store, evidence)
 
 	getWant := map[string]string{
 		"impl": "implementer", "review": "reviewer", "turn": "planner", "judge": "evidence", "idle": "",

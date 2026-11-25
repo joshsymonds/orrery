@@ -45,16 +45,39 @@ function reviewStep(started: bigint, ended: bigint): EpicStep {
   return step({ role: "reviewer", readOnly: true, end: "done", started, ended });
 }
 
-// The stages of task T1 in a Get response with the build task at the given status and stage, and the given steps and
-// build records, read at now.
+// The ring the server stands an open task at for each build stage, as the fixtures here give it.
+const stagePlaces: Record<string, string> = {
+  red: "red",
+  implement: "implement",
+  orchestrate: "implement",
+  green: "green",
+  review: "review",
+  verify: "review",
+};
+
+// The stages of task T1 in a Get response with the build task at the given status and stage, standing where place and
+// tone say (by default at its stage's ring, running, or planned with no stage), and the given steps and build records,
+// read at now.
 function stagesFor(
-  init: { status?: string; stage?: string; steps?: StepInit[]; red?: RunInit; green?: RunInit; reviews?: ReviewInit[] } = {},
+  init: {
+    status?: string;
+    stage?: string;
+    place?: string;
+    tone?: string;
+    steps?: StepInit[];
+    red?: RunInit;
+    green?: RunInit;
+    reviews?: ReviewInit[];
+  } = {},
 ): TaskStages {
+  const place = init.place ?? stagePlaces[init.stage ?? ""] ?? "planned";
   const build: BuildInit = {
     id: "T1",
     title: "Parser",
     status: init.status ?? "open",
     stage: init.stage ?? "",
+    place,
+    tone: init.tone ?? (place === "planned" ? "plan" : "run"),
     requirements: ["R1"],
     red: init.red,
     green: init.green,
@@ -99,7 +122,7 @@ test("TaskStages: a planned task has five ahead rows that read not reached, and 
 });
 
 test("TaskStages: an integrated task has five passed rows, opens integrate, and its integrate row reads merged", () => {
-  const stages = stagesFor({ status: "done" });
+  const stages = stagesFor({ status: "done", place: "integrated", tone: "ok" });
   assert.equal(statesOf(stages), "passed passed passed passed passed");
   assert.equal(summaryOfStage(stages, "integrate"), "merged");
   assert.equal(stages.open, "integrate");
@@ -111,7 +134,7 @@ test("TaskStages: at each of the five places the rows before it are passed, it i
     [{ stage: "implement" }, "passed now ahead ahead ahead", "implement"],
     [{ stage: "green" }, "passed passed now ahead ahead", "green"],
     [{ stage: "review" }, "passed passed passed now ahead", "review"],
-    [{ status: "gated" }, "passed passed passed passed now", "integrate"],
+    [{ status: "done", place: "integrate", tone: "acc" }, "passed passed passed passed now", "integrate"],
   ];
   for (const [init, states, open] of cases) {
     const stages = stagesFor(init);
@@ -122,11 +145,11 @@ test("TaskStages: at each of the five places the rows before it are passed, it i
 
 test("TaskStages: the now row takes the task's tone: run live, mine held, limited grey, bad failed, acc accepted", () => {
   const cases: [Parameters<typeof stagesFor>[0], string][] = [
-    [{ steps: [step({})] }, "run"],
-    [{ steps: [step({ held: true, stage: "held" })] }, "mine"],
-    [{ steps: [step({ limited: true, stage: "limited" })] }, "limited"],
-    [{ steps: [step({ end: "gate_failed", ended: 200n })] }, "bad"],
-    [{ status: "gated" }, "acc"],
+    [{ place: "implement", tone: "run", steps: [step({})] }, "run"],
+    [{ place: "implement", tone: "mine", steps: [step({ held: true, stage: "held" })] }, "mine"],
+    [{ place: "implement", tone: "limited", steps: [step({ limited: true, stage: "limited" })] }, "limited"],
+    [{ status: "gap", place: "implement", tone: "bad", steps: [step({ end: "gate_failed", ended: 200n })] }, "bad"],
+    [{ status: "done", place: "integrate", tone: "acc" }, "acc"],
   ];
   for (const [init, tone] of cases) {
     const stages = stagesFor(init);
@@ -137,15 +160,15 @@ test("TaskStages: the now row takes the task's tone: run live, mine held, limite
 });
 
 test("TaskStages: the now row's clock is the running step's elapsed time since its stage start, else since its start", () => {
-  const withStage = stagesFor({ steps: [step({ started: 1000n, stageStarted: 1800n })] });
+  const withStage = stagesFor({ stage: "implement", steps: [step({ started: 1000n, stageStarted: 1800n })] });
   assert.equal(withStage.rows[1].end, "3:20");
 
-  const withoutStage = stagesFor({ steps: [step({ started: 1500n })] });
+  const withoutStage = stagesFor({ stage: "implement", steps: [step({ started: 1500n })] });
   assert.equal(withoutStage.rows[1].end, "8:20");
 });
 
-test("TaskStages: a now row with no running step has no clock", () => {
-  const stages = stagesFor({ steps: [step({ end: "gate_failed", started: 100n, ended: 200n })] });
+test("TaskStages: a now row with no running step has no clock, as a task between attempts has none", () => {
+  const stages = stagesFor({ stage: "implement", steps: [step({ end: "gate_failed", started: 100n, ended: 200n })] });
   const now = stages.rows.find((row) => row.state === "now");
   assert.equal(now?.stage, "implement");
   assert.equal(now?.end, "");
@@ -154,6 +177,8 @@ test("TaskStages: a now row with no running step has no clock", () => {
 test("TaskStages: a passed row shows its run's or its steps' duration, and a zero or missing duration shows none", () => {
   const stages = stagesFor({
     status: "done",
+    place: "integrated",
+    tone: "ok",
     red: { id: "red-1", phase: "red", state: "ended", passed: true, verdict: "holds", created: 100n, ended: 220n },
     green: { id: "green-1", phase: "green", state: "ended", passed: true, verdict: "holds", created: 500n, ended: 500n },
     steps: [
@@ -268,6 +293,8 @@ test("TaskStages: a finished implement row says whether its gate passed and whet
 test("TaskStages: the implement row's time runs from its first attempt's start to its last attempt's end", () => {
   const stages = stagesFor({
     status: "done",
+    place: "integrated",
+    tone: "ok",
     steps: [step({ started: 400n, end: "failed", ended: 500n }), step({ started: 800n, end: "done", ended: 1000n })],
   });
   assert.equal(stages.rows[1].end, "10 min");
@@ -316,13 +343,15 @@ test("TaskStages: the review row names a verifier's open findings in verify, els
 test("TaskStages: the review row's time runs from its first read-only step's start to its last one's end", () => {
   const stages = stagesFor({
     status: "done",
+    place: "integrated",
+    tone: "ok",
     steps: [reviewStep(1100n, 1130n), reviewStep(1200n, 1240n)],
   });
   assert.equal(stages.rows[3].end, "2 min");
 });
 
-test("TaskStages: the integrate row reads accepted and waiting for its merge while the task is gated", () => {
-  const stages = stagesFor({ status: "gated" });
+test("TaskStages: the integrate row reads accepted and waiting for its merge while the task is accepted", () => {
+  const stages = stagesFor({ status: "done", stage: "review", place: "integrate", tone: "acc" });
   assert.equal(summaryOfStage(stages, "integrate"), "accepted · waits for its merge");
   assert.equal(stages.open, "integrate");
 });

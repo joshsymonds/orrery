@@ -62,7 +62,6 @@ private fun epicOf(): EpicRow = EpicRow(
     live = true,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     path = "/home/user/example-repo",
 )
 
@@ -72,8 +71,6 @@ private fun detail(
     steps: List<StepRow> = emptyList(),
 ): EpicDetail = EpicDetail(
     epic = epicOf(),
-    tasks = emptyList(),
-    slices = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,

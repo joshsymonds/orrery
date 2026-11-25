@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"slices"
@@ -15,9 +14,9 @@ import (
 )
 
 // restartStepDrain ends the step manager of rig as a crash leaves it, and returns a manager over the same store and state
-// dir. Its step cap is stepCap, its controller speaks holder wire version version, and its notices go to the returned
-// sink. The caller runs Reconcile.
-func restartStepDrain(t *testing.T, rig crashRig, version, stepCap int) (*Manager, *fakeSink) {
+// dir. Its controller speaks holder wire version version, and its notices go to the returned sink. The caller runs
+// Reconcile.
+func restartStepDrain(t *testing.T, rig crashRig, version int) (*Manager, *fakeSink) {
 	t.Helper()
 	rig.manager.Close()
 	writer := NewWriter(WriterConfig{Applier: rig.store})
@@ -33,8 +32,6 @@ func restartStepDrain(t *testing.T, rig crashRig, version, stepCap int) (*Manage
 		Shell:         sh,
 		Claude:        fakeClaudePath(t),
 		Environ:       []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
-		Cap:           1,
-		StepCap:       stepCap,
 		Writer:        writer,
 		Now:           fixedClock,
 		Notifier:      sink,
@@ -73,16 +70,16 @@ func waitStoppingEnded(t *testing.T, m *Manager, id string) {
 	})
 }
 
-// drainHeldStep starts the held step in dir with obs as its observer, then restarts the step manager of rig with stepCap
-// and a controller one version newer than the step's holder, and re-adopts the step mid-round. It ends the held turn and
+// drainHeldStep starts the held step in dir with obs as its observer, then restarts the step manager of rig with a
+// controller one version newer than the step's holder, and re-adopts the step mid-round. It ends the held turn and
 // waits for the hand-off to reach obs, for the holder and its claude to end, and for the step's pump to end. The step is
 // then drained, with nothing more to record. It returns the restarted manager and its notice sink.
-func drainHeldStep(t *testing.T, rig crashRig, dir string, obs *stepObserver, stepCap int) (*Manager, *fakeSink) {
+func drainHeldStep(t *testing.T, rig crashRig, dir string, obs *stepObserver) (*Manager, *fakeSink) {
 	t.Helper()
 	startHeldStep(t, rig, dir, obs)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
-	restarted, sink := restartStepDrain(t, rig, holder.WireVersion+1, stepCap)
+	restarted, sink := restartStepDrain(t, rig, holder.WireVersion+1)
 	restarted.ExpectStep(stepA, obs)
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -100,13 +97,13 @@ func drainHeldStep(t *testing.T, rig crashRig, dir string, obs *stepObserver, st
 
 // TestReadoptOneVersionOlderStepStopsAtHandOff re-adopts a step mid-round from a holder one version older. The round's end
 // is recorded on that holder and handed to the observer, then the holder and its claude stop. The stop records nothing,
-// and the step keeps its slot for its id.
+// and the step stays held for its id.
 func TestReadoptOneVersionOlderStepStopsAtHandOff(t *testing.T) {
 	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
 	obs := &stepObserver{}
-	restarted, sink := drainHeldStep(t, rig, dir, obs, 1)
+	restarted, sink := drainHeldStep(t, rig, dir, obs)
 
 	waitHistory(
 		t,
@@ -127,7 +124,7 @@ func TestReadoptOneVersionOlderStepStopsAtHandOff(t *testing.T) {
 	if slices.Contains(restarted.Live(), stepA) {
 		t.Fatalf("session %s is live after its hand-off, want its holder stopped", stepA)
 	}
-	requireStepSlots(t, restarted, 1)
+	requireStepsHeld(t, restarted, 1)
 	row, err := rig.store.EngineSession(t.Context(), stepA)
 	if err != nil {
 		t.Fatalf("EngineSession: %v", err)
@@ -140,10 +137,10 @@ func TestReadoptOneVersionOlderStepStopsAtHandOff(t *testing.T) {
 	}
 }
 
-// TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue re-adopts a step whose turn ended before the restart, from a
-// holder one version older. The restart stops that holder at once and keeps the step's slot, and the step stays held, so
+// TestReadoptIdleOneVersionOlderStepStaysHeldForContinue re-adopts a step whose turn ended before the restart, from a
+// holder one version older. The restart stops that holder at once and the step stays held, so
 // its loop still runs and its next Continue respawns it with --resume.
-func TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue(t *testing.T) {
+func TestReadoptIdleOneVersionOlderStepStaysHeldForContinue(t *testing.T) {
 	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
@@ -163,7 +160,7 @@ func TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue(t *testing.T) {
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
 
-	restarted, _ := restartStepDrain(t, rig, holder.WireVersion+1, 1)
+	restarted, _ := restartStepDrain(t, rig, holder.WireVersion+1)
 	restarted.ExpectStep(stepA, &stepObserver{})
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -175,9 +172,9 @@ func TestReadoptIdleOneVersionOlderStepKeepsItsSlotForContinue(t *testing.T) {
 		t.Fatalf("session %s is live after the restart, want its idle holder stopped", stepA)
 	}
 	if !restarted.StepLive(stepA) {
-		t.Fatalf("step %s is not held after the restart, want its slot kept for its next Continue", stepA)
+		t.Fatalf("step %s is not held after the restart, want it kept for its next Continue", stepA)
 	}
-	requireStepSlots(t, restarted, 1)
+	requireStepsHeld(t, restarted, 1)
 
 	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
@@ -205,7 +202,7 @@ func TestContinueRespawnsDrainedStepWithResume(t *testing.T) {
 	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
-	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{}, 1)
+	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{})
 
 	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
@@ -228,61 +225,22 @@ func TestContinueRespawnsDrainedStepWithResume(t *testing.T) {
 	if !hasFlagValue(args[1], "--resume", "session_1") {
 		t.Fatalf("respawn args = %q, want --resume session_1", args[1])
 	}
-	requireStepSlots(t, restarted, 1)
+	requireStepsHeld(t, restarted, 1)
 }
 
-// TestContinueRespawnsDrainedStepWhenStepCapIsFull fills the step cap with other steps after a step's hand-off. The
-// drained step keeps its slot, so a step past the cap is refused, and the drained step's next Continue still starts.
-func TestContinueRespawnsDrainedStepWhenStepCapIsFull(t *testing.T) {
+// TestStopOfDrainedStepDropsIt stops a drained step with no Continue after its hand-off. Stop returns no error, records
+// the step stopped, and drops the step from the drained set.
+func TestStopOfDrainedStepDropsIt(t *testing.T) {
 	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
-	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{}, 2)
-
-	if err := restarted.StartStep(t.Context(), testStep(stepB, t.TempDir())); err != nil {
-		t.Fatalf("StartStep of a step under the cap: %v", err)
-	}
-	requireStepSlots(t, restarted, 2)
-	err := restarted.StartStep(t.Context(), testStep(stepC, t.TempDir()))
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("StartStep with the cap full = %v, want ErrCapReached", err)
-	}
-	requireStepSlots(t, restarted, 2)
-
-	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
-	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
-		t.Fatalf("Continue of the drained step with the cap full: %v", err)
-	}
-	waitHistory(
-		t,
-		engineOf(rig.manager, restarted),
-		rig.path,
-		stepA,
-		"the respawned step's reply done",
-		func(h store.EngineHistory) bool {
-			return stepDone(t, h, "fake reply 2")
-		},
-	)
-	args := fakeArgs(t, dir)
-	if len(args) != 2 || !hasFlagValue(args[1], "--resume", "session_1") {
-		t.Fatalf("fake claude starts = %q, want a second start with --resume session_1", args)
-	}
-	requireStepSlots(t, restarted, 2)
-}
-
-// TestStopOfDrainedStepFreesItsSlot stops a drained step with no Continue after its hand-off. Stop returns no error,
-// records the step stopped, and frees the slot the step kept.
-func TestStopOfDrainedStepFreesItsSlot(t *testing.T) {
-	t.Parallel()
-	rig := newStepCrashRig(t, nil)
-	dir := t.TempDir()
-	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{}, 1)
-	requireStepSlots(t, restarted, 1)
+	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{})
+	requireStepsHeld(t, restarted, 1)
 
 	if err := restarted.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop of the drained step: %v", err)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	row, err := rig.store.EngineSession(t.Context(), stepA)
 	if err != nil {
 		t.Fatalf("EngineSession: %v", err)
@@ -292,19 +250,19 @@ func TestStopOfDrainedStepFreesItsSlot(t *testing.T) {
 	}
 }
 
-// TestReleaseOfDrainedStepFreesItsSlot releases a drained step with no Continue after its hand-off, as a limit does.
-// The release records nothing and frees the slot the step kept.
-func TestReleaseOfDrainedStepFreesItsSlot(t *testing.T) {
+// TestReleaseOfDrainedStepDropsIt releases a drained step with no Continue after its hand-off, as a limit does. The
+// release records nothing and drops the step from the drained set.
+func TestReleaseOfDrainedStepDropsIt(t *testing.T) {
 	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
-	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{}, 1)
-	requireStepSlots(t, restarted, 1)
+	restarted, _ := drainHeldStep(t, rig, dir, &stepObserver{})
+	requireStepsHeld(t, restarted, 1)
 
 	if err := restarted.Release(t.Context(), stepA); err != nil {
 		t.Fatalf("Release of the drained step: %v", err)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	row, err := rig.store.EngineSession(t.Context(), stepA)
 	if err != nil {
 		t.Fatalf("EngineSession: %v", err)
@@ -325,7 +283,7 @@ func TestReadoptOwnVersionStepStaysLiveAfterHandOff(t *testing.T) {
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
 
-	restarted, _ := restartStepDrain(t, rig, holder.WireVersion, 1)
+	restarted, _ := restartStepDrain(t, rig, holder.WireVersion)
 	restarted.ExpectStep(stepA, obs)
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -349,7 +307,7 @@ func TestReadoptOwnVersionStepStaysLiveAfterHandOff(t *testing.T) {
 	if !slices.Contains(restarted.Live(), stepA) {
 		t.Fatalf("session %s is not live after its hand-off, want it kept for its own version", stepA)
 	}
-	requireStepSlots(t, restarted, 1)
+	requireStepsHeld(t, restarted, 1)
 	running, err := holder.Running(pids.Holder, pids.HolderStart)
 	if err != nil || !running {
 		t.Fatalf("holder %d running = %v, err %v, want running", pids.Holder, running, err)
@@ -395,7 +353,7 @@ func TestContinueWaitsForDrainedStepsPumpBeforeRespawn(t *testing.T) {
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, stepA))
 
-	restarted, _ := restartStepDrain(t, rig, holder.WireVersion+1, 1)
+	restarted, _ := restartStepDrain(t, rig, holder.WireVersion+1)
 	restarted.ExpectStep(stepA, obs)
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)

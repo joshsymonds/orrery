@@ -36,6 +36,7 @@ func TestReaderQueryPlans(t *testing.T) {
 		"HeadlessSessions":   {"ListHeadlessSessions"},
 		"LastTurnEnds":       {"LastTurnEnds"},
 		"Dirs":               {"ListKnownDirs"},
+		"HostPanes":          {"ListHostSessions"},
 		"EpicSessions":       {"ListEpicSessions"},
 		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},
@@ -45,9 +46,38 @@ func TestReaderQueryPlans(t *testing.T) {
 		"PendingCallerEvents": {
 			"ListPendingCallerSteps", "ListSteeredEpics", "ListOpenEpicQuestions", "CountCallerEvent",
 		},
-		"StepFacts": {"ListStepFacts"},
-		"Contract":  {"GetContractListing", "ListContractVersions", "ListContractStates"},
-		"Contracts": {"ListContractListings"},
+		"StepFacts":           {"ListStepFacts"},
+		"Contract":            {"GetContractListing", "ListContractVersions", "ListContractStates"},
+		"Contracts":           {"ListContractListings"},
+		"ContractWorkingCopy": {"GetContractWorking", "ListContractRowWrites"},
+		"ContractRowWrites":   {"ListContractRowWrites"},
+		"ContractStepReads":   {"ListContractStepReads", "ListStepFacts"},
+		"ContractRefusals":    {"ListContractRefusals"},
+		"ContractShown":       {"ListContractShown"},
+		"Accounts":            {"ListLLMAccounts"},
+		"Routes":              {"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings"},
+		"ContractLeft": {
+			"GetContractListing", "GetContractVersion", "GetContractDesign", "ListDesignQuestions",
+			"ListContractRowWrites", "ListContractRefusals", "GetContractWorking", "ListContractShown",
+		},
+		"RoutesSnapshot": {
+			"GetRouteRegistry", "ListRouteSeats", "ListRouteContexts", "ListRouteBindings", "ListRouteAccountTokens",
+		},
+		"Design":    {},
+		"Designs":   {},
+		"DesignLog": {"ListDesignLog"},
+		"DesignConversation": {
+			"NewestDesignConversation", "GetDesign", "ListDesignContracts", "ListDesignEdges", "GetLoneContract",
+		},
+		"RunningDesignSteps":   {"ListRunningDesignSteps"},
+		"DesignApproaches":     {"ListDesignApproaches"},
+		"DesignApproachChoice": {"ListDesignApproachChoices"},
+		"DesignDelegations": {
+			"ListDesignDelegations", "ListDesignQuestions", "ListDesignDispositions", "GetDesignClosureSkip",
+			"ListDesignApproachChoices", "GetDesign", "GetLoneContract", "ListDesignContracts", "ListDesignEdges",
+			"ListContractRowWrites", "ListContractStates",
+		},
+		"Close": {},
 	}
 	checkReaderMethodsListed(t, readerQueries)
 
@@ -171,8 +201,9 @@ func TestToldLimitQueryPlans(t *testing.T) {
 // steps' listings for every epic list and an epic's listings for every epic page. A search of steps is not a scan and
 // passes. ListLabelledSteps and ListLabelledStepListings list the labeled steps of every epic and so read the whole
 // table; no pass reads them, and they are not listed. A read of one task's steps of an epic searches both labels, in
-// the order it returns them. The count of the labeled steps by label, which an epic list takes its ended counts from,
-// reads the label index alone and no step's row.
+// the order it returns them. The read of an epic's open steps, which every read of its flow makes, searches the open
+// steps by the epic and takes their ids from that index alone, in the order it returns them. The count of the labeled
+// steps by label, which an epic list takes its ended counts from, reads the label index alone and no step's row.
 func TestStepQueryPlans(t *testing.T) {
 	t.Parallel()
 	texts := sqlcQueryTexts(t)
@@ -197,6 +228,10 @@ func TestStepQueryPlans(t *testing.T) {
 	want := []string{"SEARCH steps USING INDEX steps_epic_task (epic=? AND task=?)"}
 	if got := planDetails(t, s.db.DB, "ListEpicTaskSteps", texts["ListEpicTaskSteps"]); !reflect.DeepEqual(got, want) {
 		t.Errorf("ListEpicTaskSteps plan = %q, want %q", got, want)
+	}
+	want = []string{"SEARCH steps USING COVERING INDEX steps_epic_open (epic=?)"}
+	if got := planDetails(t, s.db.DB, "ListOpenEpicSteps", texts["ListOpenEpicSteps"]); !reflect.DeepEqual(got, want) {
+		t.Errorf("ListOpenEpicSteps plan = %q, want %q", got, want)
 	}
 	for name, first := range map[string]string{
 		"ListEpicStepListings":     "SEARCH steps USING INDEX steps_epic_task (epic=?)",
@@ -295,6 +330,44 @@ func TestReaderQueryPlansAliases(t *testing.T) {
 		if got := len(rows) > 0; got != tc.flagged {
 			t.Errorf("%s: flagged = %v (plan rows flagged %q), want %v", tc.name, got, rows, tc.flagged)
 		}
+	}
+}
+
+// TestReaderQueryPlansHeadlessColumns fails when ListHeadlessSessions reads event payloads again, or when its plan
+// touches events other than by an index SEARCH. The listing reads the four columns each session row stores, so its
+// text holds no json_extract, and events is searched only for the cutoff EXISTS. A plan row that scans events, or
+// searches it without an index, would read the table's history on every listing. It logs the json_extract check and
+// each plan row.
+func TestReaderQueryPlansHeadlessColumns(t *testing.T) {
+	t.Parallel()
+	text, ok := sqlcQueryTexts(t)["ListHeadlessSessions"]
+	if !ok {
+		t.Fatalf("query ListHeadlessSessions is not defined in %s", queryPlanSource)
+	}
+	hasJSON := strings.Contains(text, "json_extract")
+	t.Logf("ListHeadlessSessions json_extract check: text holds json_extract = %v", hasJSON)
+	if hasJSON {
+		t.Errorf("query ListHeadlessSessions holds json_extract, want the four session columns read directly")
+	}
+
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	names := eventsNames(text)
+	searches := 0
+	for _, detail := range planDetails(t, s.db.DB, "ListHeadlessSessions", text) {
+		t.Logf("ListHeadlessSessions plan row: %q", detail)
+		fields := strings.Fields(detail)
+		if len(fields) < 2 || !names[fields[1]] {
+			continue
+		}
+		if fields[0] != "SEARCH" || !strings.Contains(detail, "EXISTS") || !strings.Contains(detail, "INDEX") {
+			t.Errorf("query ListHeadlessSessions: plan row %q touches events other than by an index SEARCH "+
+				"for the cutoff EXISTS", detail)
+			continue
+		}
+		searches++
+	}
+	if searches == 0 {
+		t.Errorf("query ListHeadlessSessions: no plan row is an index SEARCH for the cutoff EXISTS")
 	}
 }
 

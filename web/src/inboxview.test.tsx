@@ -41,7 +41,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
 
 // convo is a conversation of row drawn in a project, with nothing hung under it.
 function convo(init: Pick<Row, "key"> & Partial<Row>): Convo {
-  return { key: init.key, row: row(init), standIn: "", again: false, hung: [] };
+  return { key: init.key, row: row(init), hung: [], folded: [] };
 }
 
 // makeProject is a project card with the conversations and ended conversations given.

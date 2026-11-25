@@ -19,6 +19,8 @@ enum class Move(val millis: Int, val easing: Easing) {
     LAYOUT(OrreryTokens.Motion.Move.layout.millis, OrreryTokens.Motion.Move.layout.easing),
     DRILL(OrreryTokens.Motion.Move.drill.millis, OrreryTokens.Motion.Move.drill.easing),
     LEAVE(OrreryTokens.Motion.Move.leave.millis, OrreryTokens.Motion.Move.leave.easing),
+    RISE(OrreryTokens.Motion.Move.rise.millis, OrreryTokens.Motion.Move.rise.easing),
+    FOLD(OrreryTokens.Motion.Move.fold.millis, OrreryTokens.Motion.Move.fold.easing),
 }
 
 val EaseOut: Easing = OrreryTokens.Motion.Ease.out
@@ -30,6 +32,33 @@ fun <T> Move.spec(animated: Boolean): FiniteAnimationSpec<T> =
     } else {
         tween(OrreryTokens.Motion.Reduced.millis, easing = OrreryTokens.Motion.Ease.linear)
     }
+
+// The phone sheet's unfold: Move.RISE after motion.delay.rise, on its own ease. With animations off it is one linear step of
+// motion.reduced, and no delay.
+fun <T> riseSpec(animated: Boolean): FiniteAnimationSpec<T> =
+    if (animated) {
+        tween(Move.RISE.millis, delayMillis = OrreryTokens.Motion.Delay.rise, easing = Move.RISE.easing)
+    } else {
+        tween(OrreryTokens.Motion.Reduced.millis, easing = OrreryTokens.Motion.Ease.linear)
+    }
+
+// The phone sheet's alpha on its unfold. It follows the clock rather than the unfold's ease: it is solid 30% of the way
+// through Move.RISE, counted from the end of motion.delay.rise, and linear in between.
+fun riseFadeSpec(): FiniteAnimationSpec<Float> =
+    tween(
+        Move.RISE.millis * 3 / 10,
+        delayMillis = OrreryTokens.Motion.Delay.rise,
+        easing = OrreryTokens.Motion.Ease.linear,
+    )
+
+// The phone sheet's alpha on its fold. It follows the clock rather than the fold's ease: it stays solid until 70% of the way
+// through Move.FOLD, then falls to 0 by the fold's end, linear in between.
+fun foldFadeSpec(): FiniteAnimationSpec<Float> =
+    tween(
+        Move.FOLD.millis - Move.FOLD.millis * 7 / 10,
+        delayMillis = Move.FOLD.millis * 7 / 10,
+        easing = OrreryTokens.Motion.Ease.linear,
+    )
 
 // The chart's glow. One pulse is motion.loop.pulse: each way takes half of it and the value reverses rather than restarting.
 fun pulseSpec(): InfiniteRepeatableSpec<Float> =

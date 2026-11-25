@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -158,7 +159,7 @@ func TestStepPurposeReleaseIntegratorNamesTheMergeAndCandidate(t *testing.T) {
 	w := newConflictWorld(t)
 	w.pass()
 
-	start := w.started(w.integratorID(1))
+	start := w.started(w.integratorID())
 	if want := "Merge main into epic-runner's release candidate."; start.Purpose != want {
 		t.Errorf("integrator Purpose = %q, want %q", start.Purpose, want)
 	}
@@ -172,7 +173,7 @@ func TestStepPurposeTaskIntegratorNamesTheTaskAndEpic(t *testing.T) {
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
 	steps := &fakeSteps{store: s}
-	runner := &Runner{steps: steps, stateDir: t.TempDir(), getenv: integratorRoles(t)}
+	runner := &Runner{steps: steps, stateDir: t.TempDir(), getenv: integratorRoles(t), hosts: hostexec.LocalHosts()}
 	epic := store.EpicRow{
 		ID: runEpic, Repository: c.repo, Base: runBase, Tasks: []store.EpicTask{{Seq: 2, Title: "two"}},
 	}

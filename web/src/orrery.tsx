@@ -3,8 +3,8 @@ import { useState } from "preact/hooks";
 
 import type { EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import { CENTRE, RING_RADII, VIEW, cellPath, point, sector, sliceGap, sliceStart } from "./orbits";
-import type { Phase } from "./phases";
-import { PLACES, type RecordTask, phaseOfPlace } from "./record";
+import { type Phase, PLACES } from "./phases";
+import { type RecordTask, phaseOfPlace } from "./record";
 
 // The requirement rim lies between radius ARC_INNER and ARC_OUTER, outside the rings.
 export const ARC_INNER = 184;

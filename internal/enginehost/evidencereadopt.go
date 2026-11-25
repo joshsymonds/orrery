@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -12,10 +11,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Resume takes up every evidence run the store holds open, as a restarted orreryd does. A capturing run with a stored grant
-// readopts its gate, one with no grant runs its capture from the start, and a judging run gets its verdict. Each run is driven
-// in the background under a context that Close cancels and waits for, as Run's drives are, and a run this Evidence already
-// drives is left alone. It returns the errors of the runs it could not take up, joined.
+// Resume takes up every evidence run the store holds open, as a restarted orreryd does. A judging run gets its verdict, and a
+// supplied run still capturing is read again. A captured brief is left to its gatherer, which the gatherers' Resume wakes.
+// Each run is driven in the background under a context that Close cancels and waits for, as Run's drives are, and a run this
+// Evidence already drives is left alone. It returns the errors of the runs it could not take up, joined.
 func (e *Evidence) Resume(ctx context.Context) error {
 	defer e.calls.enter()()
 	open, err := e.store.OpenEvidenceRuns(ctx)
@@ -56,48 +55,15 @@ func (e *Evidence) readoptStart(ctx context.Context, run store.EvidenceRun) erro
 	return nil
 }
 
-// readoptDrive takes up open run at repo. A judging run gets its verdict, a capturing run with a grant is readopted, and any
-// other capturing run starts its capture.
+// readoptDrive takes up open run at repo. A judging run gets its verdict, and a supplied run still capturing is read again. A
+// captured run that is not judging is a brief, which waits for its gatherer, so it is left as it is.
 func (e *Evidence) readoptDrive(ctx context.Context, repo string, run store.EvidenceRun) {
 	switch {
 	case run.State == "judging":
 		e.readoptJudge(ctx, repo, run)
-	case run.Grant != "":
-		e.readoptCapture(ctx, repo, run)
-	default:
-		e.readoptUnlaunched(ctx, repo, run)
+	case run.Source == evidence.SourceSupplied:
+		e.drive(ctx, repo, run)
 	}
-}
-
-// readoptUnlaunched runs the capture of a run with no grant from the start. Its gate never launched, so a worktree a restart
-// found at its path is what a start stopped before the grant left, and it is removed before the capture is added again.
-func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store.EvidenceRun) {
-	if run.Source == evidence.SourceCaptured {
-		worktree := filepath.Join(e.captures.worktrees, run.ID)
-		if err := removeStepWorktree(context.WithoutCancel(ctx), repo, worktree); err != nil {
-			e.logger.WarnContext(ctx, "clear worktree of unlaunched evidence run", "run", run.ID, "err", err)
-			return
-		}
-	}
-	e.drive(ctx, repo, run)
-}
-
-// readoptCapture readopts the capture of run, whose grant is stored, and records it as drive does: an ended capture is
-// recorded even when ctx has ended, and a judge is readopted only while ctx has not. A gate that detaches again records
-// nothing, so the next restart readopts it.
-func (e *Evidence) readoptCapture(ctx context.Context, repo string, run store.EvidenceRun) {
-	capture, err := e.captures.readopt(ctx, repo, run.Revision, run.ID, run.Spec, run.Grant)
-	if err != nil {
-		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
-		return
-	}
-	if !e.recordCapture(ctx, run.ID, capture) {
-		return
-	}
-	if capture.NotCaptured != "" || ctx.Err() != nil {
-		return
-	}
-	e.readoptJudge(ctx, repo, evidenceRunCaptured(run, capture))
 }
 
 // readoptJudge gives judging run its verdict as judgeRun does. It waits for the judge step the run holds, or for the judge a

@@ -44,7 +44,7 @@ func engineTasks(t *testing.T, history store.EngineHistory) []engineTaskRow {
 // from the task's start.
 func TestBackgroundTaskRowRecordsEachMessageOfTheAgentAndTheShell(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "TASKS"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -86,7 +86,7 @@ func stoppedRows(t *testing.T, history store.EngineHistory) []engineTaskRow {
 // by the stop, and the agent, which already ended, gets no stopped record.
 func TestBackgroundTaskRowStoppedRecordsTheRunningShellAsStopped(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "TASKS"})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestBackgroundTaskRowStoppedRecordsTheRunningShellAsStopped(t *testing.T) {
 // the shell task as stopped, and the agent, which already ended, gets no stopped record.
 func TestBackgroundTaskRowClosedSessionRecordsTheRunningShellAsStopped(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "TASKS"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

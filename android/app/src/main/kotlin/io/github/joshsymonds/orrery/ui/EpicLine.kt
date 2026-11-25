@@ -35,7 +35,7 @@ fun provenCountOf(detail: EpicDetail?): String {
     return "$proven of ${requirements.size} proven"
 }
 
-// The record task statuses that count as done, compared without case, as the web's taskStateOf counts them.
+// The task statuses that count as done, compared without case, as the web's taskStateOf counts them.
 private val DONE_STATUSES = setOf("done", "integrated")
 
 // The count: the proven requirements over all of them, else the done tasks over all of them.
@@ -45,8 +45,8 @@ private fun countOf(detail: EpicDetail, wedges: List<Wedge>): String {
         val proven = requirements.count { provenOf(it.id, wedges, requirements) }
         return "$proven of ${requirements.size} proven"
     }
-    val done = detail.tasks.count { it.status.lowercase() in DONE_STATUSES }
-    return "$done of ${detail.tasks.size} tasks done"
+    val done = detail.buildTasks.count { it.status.lowercase() in DONE_STATUSES }
+    return "$done of ${detail.buildTasks.size} tasks done"
 }
 
 // The state: the title row's state phrase, then the integrated units of the wedges when there are any.

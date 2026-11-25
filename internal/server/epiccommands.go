@@ -30,8 +30,7 @@ func (e epicsServer) Pause(
 	return connect.NewResponse(&orreryv1.EpicsPauseResponse{}), nil
 }
 
-// Resume forwards a resume of the named epic to orreryd, and answers the limited steps it resumed and the limited steps
-// a full step cap left limited.
+// Resume forwards a resume of the named epic to orreryd, and answers the limited steps it resumed.
 func (e epicsServer) Resume(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsResumeRequest],
@@ -46,10 +45,7 @@ func (e epicsServer) Resume(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&orreryv1.EpicsResumeResponse{
-		Resumed:      reply.Msg.GetResumed(),
-		StillLimited: reply.Msg.GetStillLimited(),
-	}), nil
+	return connect.NewResponse(&orreryv1.EpicsResumeResponse{Resumed: reply.Msg.GetResumed()}), nil
 }
 
 // Stop forwards a stop of the named epic to orreryd, which pauses it and stops the step of its running turn.

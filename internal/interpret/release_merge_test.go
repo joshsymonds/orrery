@@ -3,7 +3,6 @@ package interpret
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +19,7 @@ type mergeWire struct {
 	Behind    bool   `json:"behind"`
 	Candidate string `json:"candidate"`
 	Tip       string `json:"tip"`
+	Origin    string `json:"origin"`
 }
 
 // mergeRepo makes a scratch repository on main, with the identity the release's merge commit is written under.
@@ -93,10 +93,12 @@ func TestReleasePrepareNotBehindRecordsTipAsCandidate(t *testing.T) {
 	}
 }
 
-// TestReleasePrepareBehindPinsTwoParentMerge: origin's main has a commit the tip lacks, so the candidate is a merge of
-// the tip and origin's commit that holds both sides. It is pinned under the run's release ref, and no ref outside
-// refs/orrery moves: not a branch, origin's remote-tracking refs, HEAD or the checkout.
-func TestReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
+// TestEpicBaseReleasePrepareBehindCommitsNothing: origin's main has a commit the tip lacks, and git merges the two with
+// no conflict. The prepare records the tip, origin's commit and that the tip is behind, and no candidate: it commits no
+// merge and pins nothing under the run's release ref, since the release integrator makes the merge. The only ref it
+// writes is the release's ref for origin, and no ref outside refs/orrery moves: not a branch, origin's
+// remote-tracking refs, HEAD or the checkout.
+func TestEpicBaseReleasePrepareBehindCommitsNothing(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	repo := w.repo
@@ -110,22 +112,17 @@ func TestReleasePrepareBehindPinsTwoParentMerge(t *testing.T) {
 
 	run := runAt(t, w.s, releaseNodePath)
 	got := decodeMerge(t, run.Result)
-	if !got.Behind || got.Error != "" || got.Tip != tip || run.Revision == "" || got.Candidate != run.Revision {
-		t.Fatalf("Result = %+v with revision %q, want a merge behind tip %q", got, run.Revision, tip)
+	if !got.Behind || got.Error != "" || got.Tip != tip || got.Origin != originHead || got.Candidate != "" ||
+		run.Revision != "" {
+		t.Fatalf("Result = %+v with revision %q, want tip %q behind origin's commit %q and no candidate",
+			got, run.Revision, tip, originHead)
 	}
 	ref := fmt.Sprintf("refs/orrery/epic-runner/release/%s-%d", run.ID, run.Attempt)
-	if pinned := nodeGit(t, repo, "rev-parse", ref); pinned != run.Revision {
-		t.Errorf("%s points at %q, want the candidate %q", ref, pinned, run.Revision)
+	if pinned := nodeGit(t, repo, "for-each-ref", ref); pinned != "" {
+		t.Errorf("%s = %q, want nothing pinned at the prepare", ref, pinned)
 	}
-	parents := strings.Fields(nodeGit(t, repo, "rev-list", "--parents", "-n", "1", run.Revision))
-	if want := []string{run.Revision, tip, originHead}; !reflect.DeepEqual(parents, want) {
-		t.Errorf("merge commit and parents = %q, want %q", parents, want)
-	}
-	files := strings.Fields(nodeGit(t, repo, "ls-tree", "--name-only", run.Revision))
-	for _, file := range []string{"README", "epic.txt", "origin.txt"} {
-		if !slices.Contains(files, file) {
-			t.Errorf("merge tree = %q, want it to hold %s from one side or the other", files, file)
-		}
+	if fetched := nodeGit(t, repo, "rev-parse", "refs/orrery/epic-runner/release/origin"); fetched != originHead {
+		t.Errorf("release origin ref = %s, want origin's commit %s", fetched, originHead)
 	}
 	if after := nodeGit(t, repo, "symbolic-ref", "HEAD"); after != head {
 		t.Errorf("HEAD = %q after the prepare, want %q", after, head)
@@ -185,12 +182,13 @@ func TestReleasePrepareRepeatChangesNothing(t *testing.T) {
 // TestReleasePrepareResultSetPreparesRecordedCandidate: a run whose Result is recorded and whose revision is not, as a
 // crash between the two writes leaves it, is prepared at the candidate its Result names. Origin has moved past the tip
 // since the Result was recorded, so a prepare that read git again would pin a merge that contains origin's main. The
-// epic is paused for the first pass, so the run starts and takes the slot but does not prepare.
+// epic is paused for the first pass, so the run starts but does not prepare.
 //
 // This test used to assert that the recorded candidate stayed and that no ref moved. Its assertions changed because
 // the candidate is now checked before the first step starts, whether an attempt recorded it or an earlier one did: the
-// tip is recorded, origin's main is found not in it, and the attempt prepares again. The verify run that marks the tip
-// stale is the proof that the prepare took the recorded Result rather than reading git again.
+// tip is recorded, origin's main is found not in it, and the attempt prepares again, which hands the merge of origin's
+// main into the tip to the release integrator under the next generation. The verify run that marks the tip stale is
+// the proof that the prepare took the recorded Result rather than reading git again.
 func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
@@ -234,8 +232,12 @@ func TestReleasePrepareResultSetPreparesRecordedCandidate(t *testing.T) {
 			verify, tip, run.Attempt)
 	}
 	got := runAt(t, w.s, releaseNodePath)
-	if got.Revision == tip || !containsCommit(t, w.repo, moved, got.Revision) {
-		t.Errorf("revision = %q, want a new candidate that contains origin's main %s", got.Revision, moved)
+	if merge := decodeMerge(t, got.Result); merge.Tip != tip || merge.Origin != moved || got.Revision != "" {
+		t.Errorf("Result = %s with revision %q, want the merge of origin's main %s into the tip %s handed to the "+
+			"release integrator", got.Result, got.Revision, moved, tip)
+	}
+	if starts := w.integratorStarts(); len(starts) != 1 || starts[0].ID != w.generationID("integrator 1") {
+		t.Errorf("integrator starts = %+v, want the round of generation 1", starts)
 	}
 }
 

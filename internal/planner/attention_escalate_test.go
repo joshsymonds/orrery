@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +82,7 @@ func steerRunnerByPane(t *testing.T, s *store.Store) {
 // removeRunnerPanes takes every pane off the server of the runner's steerer, so its sessions row is removed.
 func removeRunnerPanes(t *testing.T, s *store.Store) {
 	t.Helper()
-	if err := s.SyncServer(context.Background(), "-L orrery", nil, claimedAt().Add(time.Minute)); err != nil {
+	if err := s.SyncServer(context.Background(), "", "-L orrery", nil, claimedAt().Add(time.Minute)); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 }
@@ -350,31 +351,72 @@ func TestAttentionEscalate_EscalationMarkIsWrittenWithItsNoticeRow(t *testing.T)
 	}
 }
 
-func TestAttentionEscalate_ParkLimitAndPlainTellUnchanged(t *testing.T) {
+// TestAttentionEscalate_HeardParkNotNotifiedUntilEscalated checks that a park on a heard epic goes to its steerer
+// first: it routes no owner notice, its park question's tell is marked told, and the pass routes nothing more. Once the
+// steerer escalates the park question, the next pass routes exactly one notice, the escalation's, which leads with the
+// escalation line, and opens on the park question.
+func TestAttentionEscalate_HeardParkNotNotifiedUntilEscalated(t *testing.T) {
 	t.Parallel()
-	t.Run("park", func(t *testing.T) {
-		t.Parallel()
-		ctx := context.Background()
-		s := openRunnerStore(t)
-		createRunnerEpic(t, s)
-		steerRunner(t, s, "working")
-		turn := claimAttentionTurn(t, s)
-		if err := s.FreeTurn(ctx, runnerEpicID, turn, store.TurnFree{
-			Reason: "credit ran out", Park: "credit ran out",
-		}, claimedAt()); err != nil {
-			t.Fatalf("FreeTurn: %v", err)
-		}
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steerRunner(t, s, "working")
+	turn := claimAttentionTurn(t, s)
+	if err := s.FreeTurn(ctx, runnerEpicID, turn, store.TurnFree{
+		Reason: "credit ran out", Park: "credit ran out",
+	}, claimedAt()); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
+	}
 
-		router := attendRunner(s)
+	if router := attendRunner(s); len(router.notices) != 0 {
+		t.Fatalf("notices for a park on a heard epic = %d, want none before its steerer escalates it",
+			len(router.notices))
+	}
+	if router := attendRunner(s); len(router.notices) != 0 {
+		t.Fatalf("notices on a second pass = %d, want none", len(router.notices))
+	}
 
-		if len(router.notices) != 1 {
-			t.Fatalf("notices for a park on a heard epic = %d, want exactly one", len(router.notices))
-		}
-		if got := shownOf(t, router.notices[0]).desk.Body; got != creditParkBody {
-			t.Errorf("park notice body = %q, want %q", got, creditParkBody)
-		}
-	})
+	maker := store.Maker{By: store.MakerConversation, Session: steererSession}
+	escalateRunnerQuestion(t, s, maker)
+	router := attendRunner(s)
+	if len(router.notices) != 1 {
+		t.Fatalf("notices after the steerer escalated the park = %d, want exactly one", len(router.notices))
+	}
+	shown := shownOf(t, router.notices[0])
+	want := "escalated by conversation " + steererSession + ": " + escalationReason
+	if got := shown.desk.Body; !strings.HasPrefix(got, want+"\n") {
+		t.Errorf("escalation notice body = %q, want it to lead with %q", got, want)
+	}
+	if shown.desk.Block != "question" || shown.desk.BlockRef != "Q1" {
+		t.Errorf("escalation notice block = %q %q, want the park question Q1", shown.desk.Block, shown.desk.BlockRef)
+	}
+}
 
+// TestAttentionEscalate_UnheardParkNotifies checks that a park on an epic with no steerer is the owner's directly: one
+// notice routes, with the park's body.
+func TestAttentionEscalate_UnheardParkNotifies(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	turn := claimAttentionTurn(t, s)
+	if err := s.FreeTurn(ctx, runnerEpicID, turn, store.TurnFree{
+		Reason: "credit ran out", Park: "credit ran out",
+	}, claimedAt()); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
+	}
+
+	router := attendRunner(s)
+	if len(router.notices) != 1 {
+		t.Fatalf("notices for a park on an epic with no steerer = %d, want exactly one", len(router.notices))
+	}
+	if got := shownOf(t, router.notices[0]).desk.Body; got != creditParkBody {
+		t.Errorf("park notice body = %q, want %q", got, creditParkBody)
+	}
+}
+
+func TestAttentionEscalate_LimitAndPlainTellUnchanged(t *testing.T) {
+	t.Parallel()
 	t.Run("limit", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()

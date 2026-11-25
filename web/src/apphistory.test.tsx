@@ -175,7 +175,7 @@ function phaseEpic(): EpicsView {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [run] });
   const detail = create(EpicsGetResponseSchema, {
     epic,
-    buildTasks: [{ id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"] }],
+    buildTasks: [{ id: "T1", title: "Parser", status: "dispatched", requirements: ["R1"], place: "green", tone: "run" }],
     requirements: [{ id: "R1", text: "The parser parses" }],
     steps: [run],
   });
@@ -469,7 +469,7 @@ test("HashRoute: the orrery crumb of the epic page closes it and pushes the inbo
   withApp(t, { rows: historyRows(), epics: firstEpic() }, async ({ container, reports }) => {
     await openEpicLine(container, widgetsFirstKey);
     const before = reports.length;
-    await click(container, 'section.page[aria-label="epic"] .title-row .back', "‹");
+    await click(container, 'article.held-card button[aria-label="Fold back"]');
     assert.deepEqual(reports.slice(before), [[inboxAddress, "push"]]);
   }));
 

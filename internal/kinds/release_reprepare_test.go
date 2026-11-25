@@ -1,7 +1,6 @@
 package kinds
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -28,7 +27,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActPrepare},
@@ -38,7 +36,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpicPaused(releasingEpic(steps...)),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActNone},
@@ -48,21 +45,23 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "cand-2", `{"behind":false}`),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidateRun(1, "cand-1"),
 					staleRun(2, "cand-1"),
 					candidateRun(2, "cand-2"),
 				},
 			},
-			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-2"}},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 2, "release 1")},
+				Items: []string{"release 1", "cand-2"},
+			},
 		},
 		{
 			"latest candidate that origin's main is not in at this attempt is prepared again",
 			releaseNode(3, "", ""),
 			Rows{
 				Epic: releasingEpic(steps...),
-				Slot: releaseEpicID,
 				Releases: []store.ReleaseRun{
 					candidateRun(1, "cand-1"),
 					candidateRun(2, "cand-2"),
@@ -76,7 +75,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(2, "cand-1"), staleRun(2, "cand-1")},
 			},
 			Action{Kind: ActPrepare},
@@ -86,7 +84,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(2, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -96,7 +93,6 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(1, "cand-1")},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
@@ -106,87 +102,49 @@ func TestReleaseRepreparesCandidateOriginMainIsNotIn(t *testing.T) {
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
-				Slot:     releaseEpicID,
 				Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-0")},
 			},
-			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
+			Action{
+				Kind:  ActStep,
+				IDs:   []string{store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 2, "release 1")},
+				Items: []string{"release 1", "cand-1"},
+			},
 		},
 	}
 	checkDecisions(t, Release{}, cases)
 }
 
-// generationWorkID returns the id of part of attempt's work under generation of the test run, as the kind walks the Done
-// gates of a candidate prepared again.
-func generationWorkID(attempt, generation int64, part string) string {
-	return store.NodeWorkID(gatedRun(store.NodeRun{ID: testRunID}, generation).ID, attempt, part)
-}
-
-// generationCheck returns the Done gate check i of attempt under generation of the test run, passed or not.
-func generationCheck(attempt, generation int64, i int, passed bool) store.NodeCheck {
-	check := doneCheck(attempt, i, passed)
-	check.ID = generationWorkID(attempt, generation, fmt.Sprintf("done %d", i))
-	return check
-}
-
-// TestReleaseRepreparesRunsDoneGatesOnNewCandidate checks that a candidate prepared again at an attempt walks the Done
-// gates of its own: the checks for the candidate it replaces do not decide them, whether that candidate was prepared at
-// an earlier attempt or at this one, and the new candidate is recorded only once its own gates have passed.
-func TestReleaseRepreparesRunsDoneGatesOnNewCandidate(t *testing.T) {
+// TestReleaseRepreparedCandidateIsRecordedWithoutGates checks what a release decides once it has prepared a candidate
+// again at an attempt: a candidate that is not behind origin's main is recorded as the candidate of this attempt at
+// once, with no Done gate run although the epic has one and the gate passed for the candidate it replaces, and a
+// prepare that names origin's commit hands the merge to the release integrator under the candidate's generation.
+func TestReleaseRepreparedCandidateIsRecordedWithoutGates(t *testing.T) {
 	t.Parallel()
-	gated := func(gates ...string) store.EpicRow {
-		return store.EpicRow{ID: releaseEpicID, Phase: store.PhaseReleasing, DoneGates: gates}
-	}
+	gated := store.EpicRow{ID: releaseEpicID, Phase: store.PhaseReleasing, DoneGates: []string{"lint"}}
 	replacedEarlier := []store.ReleaseRun{candidateRun(1, "cand-1"), staleRun(2, "cand-1")}
 	replacedHere := []store.ReleaseRun{candidateRun(2, "cand-1"), staleRun(2, "cand-1")}
 	cases := []decideCase{
 		{
-			"new candidate starts its Done gate under its generation although the gate passed for the candidate of an earlier attempt it replaces",
-			releaseNode(2, "cand-2", `{"behind":true}`),
-			Rows{
-				Epic:     gated("lint"),
-				Checks:   []store.NodeCheck{doneCheck(1, 1, true)},
-				Releases: replacedEarlier,
-			},
-			Action{Kind: ActStart, IDs: []string{generationWorkID(2, 1, "done 1")}, Items: []string{"lint"}},
-		},
-		{
-			"new candidate starts its Done gate under its generation although the gate passed for the candidate of this attempt it replaces",
-			releaseNode(2, "cand-2", `{"behind":true}`),
-			Rows{
-				Epic:     gated("lint"),
-				Checks:   []store.NodeCheck{doneCheck(2, 1, true)},
-				Releases: replacedHere,
-			},
-			Action{Kind: ActStart, IDs: []string{generationWorkID(2, 1, "done 1")}, Items: []string{"lint"}},
-		},
-		{
-			"new candidate that is not behind still walks its Done gates under its generation",
+			"new candidate not behind origin's main is recorded although it replaces one of an earlier attempt",
 			releaseNode(2, "cand-2", `{"behind":false}`),
-			Rows{
-				Epic:     gated("lint"),
-				Releases: replacedHere,
-			},
-			Action{Kind: ActStart, IDs: []string{generationWorkID(2, 1, "done 1")}, Items: []string{"lint"}},
-		},
-		{
-			"new candidate whose Done gate did not pass stops naming the gate and the new revision",
-			releaseNode(2, "cand-2", `{"behind":true}`),
-			Rows{
-				Epic:     gated("lint"),
-				Checks:   []store.NodeCheck{generationCheck(2, 1, 1, false)},
-				Releases: replacedEarlier,
-			},
-			Action{Kind: ActStop, Output: "done gate lint did not pass at cand-2"},
-		},
-		{
-			"new candidate with every Done gate passed under its generation is recorded as the candidate of this attempt",
-			releaseNode(2, "cand-2", `{"behind":true}`),
-			Rows{
-				Epic:     gated("lint"),
-				Checks:   []store.NodeCheck{generationCheck(2, 1, 1, true)},
-				Releases: replacedHere,
-			},
+			Rows{Epic: gated, Releases: replacedEarlier},
 			Action{Kind: ActRecord, Items: []string{"candidate", "cand-2"}},
+		},
+		{
+			"new candidate not behind origin's main is recorded although it replaces one of this attempt",
+			releaseNode(2, "cand-2", `{"behind":false}`),
+			Rows{Epic: gated, Releases: replacedHere},
+			Action{Kind: ActRecord, Items: []string{"candidate", "cand-2"}},
+		},
+		{
+			"new prepare that names origin's commit starts the release integrator under the new generation",
+			releaseNode(2, "", cleanResult),
+			Rows{Epic: gated, Releases: replacedHere},
+			Action{
+				Kind:  ActIntegrator,
+				IDs:   []string{store.NodeWorkID(store.ReleaseGatedID(testRunID, 1), 2, integratorWork)},
+				Items: []string{"4"},
+			},
 		},
 	}
 	checkDecisions(t, Release{}, cases)

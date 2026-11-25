@@ -153,10 +153,10 @@ func TestRecordNodeResultStoresResultOnceAtItsAttempt(t *testing.T) {
 	})
 }
 
-// TestCheckNodeRefsWithParkParksRunAndEpicWithOneTell checks that CheckNodeRefs with a park reason parks the running
-// run at its attempt and its epic with the reason, adds the reason as one tell followed by each tell given, and
-// records that the refs were checked. A call at another attempt, a call on an ended run and a repeat add nothing.
-func TestCheckNodeRefsWithParkParksRunAndEpicWithOneTell(t *testing.T) {
+// TestCheckNodeRefsOnlyAddsTellsOnce checks that CheckNodeRefs leaves the running run running and its epic unparked,
+// adds its tells and records that the refs were checked, and that a repeat, a call at another attempt and a call on an
+// ended run add no tells.
+func TestCheckNodeRefsOnlyAddsTellsOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, raw := openWorkStore(t)
@@ -174,71 +174,16 @@ func TestCheckNodeRefsWithParkParksRunAndEpicWithOneTell(t *testing.T) {
 		t.Fatalf("EndNodes: %v", err)
 	}
 
-	const park = "workflow node check moved main (aaa to bbb)"
-	tells := []string{"main moved under the gate", "check the branch"}
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 2, park, tells, loopParkedAt()); err != nil {
-		t.Fatalf("CheckNodeRefs at another attempt: %v", err)
-	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "done", 1, park, tells, loopParkedAt()); err != nil {
-		t.Fatalf("CheckNodeRefs of an ended run: %v", err)
-	}
-	if got := tellsOf(t, raw, workEpic); len(got) != 0 {
-		t.Fatalf("tells after CheckNodeRefs that changed nothing = %q, want none", got)
-	}
-
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, park, tells, loopParkedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, []string{"moved a"}, loopParkedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, "second park", []string{"again"}, nodeEndedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, []string{"moved b"}, loopParkedAt()); err != nil {
 		t.Fatalf("repeat CheckNodeRefs: %v", err)
 	}
-
-	requireNodeRuns(t, s, workEpic, []store.NodeRun{
-		{Path: "check", ID: "id-check", Node: "check", Kind: "gate", Attempt: 1, RefsChecked: true,
-			State: store.NodeParked, Started: nodeStartedAt()},
-		{Path: "done", ID: "id-done", Node: "done", Kind: "gate", Attempt: 1, Outcome: "passed",
-			State: store.NodeEnded, Started: nodeStartedAt(), Ended: nodeEndedAt()},
-	})
-	if parked := parkedOf(t, raw, workEpic); parked != park {
-		t.Errorf("parked of epic %s after CheckNodeRefs = %q, want %q", workEpic, parked, park)
-	}
-	want := []string{park, tells[0], tells[1]}
-	if got := tellsOf(t, raw, workEpic); !reflect.DeepEqual(got, want) {
-		t.Errorf("tells of epic %s after CheckNodeRefs = %q, want %q", workEpic, got, want)
-	}
-}
-
-// TestCheckNodeRefsWithoutParkOnlyAddsTellsOnce checks that CheckNodeRefs without a park reason leaves the running run
-// running, adds its tells and records that the refs were checked, and that a repeat, a call at another attempt and a
-// call on an ended run add no tells.
-func TestCheckNodeRefsWithoutParkOnlyAddsTellsOnce(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	s, raw := openWorkStore(t)
-
-	runs := []store.NodeRun{
-		{Path: "check", ID: "id-check", Node: "check", Kind: "gate", Attempt: 1},
-		{Path: "done", ID: "id-done", Node: "done", Kind: "gate", Attempt: 1},
-	}
-	if err := s.StartNodes(ctx, workEpic, runs, nil, nodeStartedAt()); err != nil {
-		t.Fatalf("StartNodes: %v", err)
-	}
-	if err := s.EndNodes(
-		ctx, workEpic, []store.NodeEnd{{Path: "done", Outcome: "passed"}}, nodeEndedAt(),
-	); err != nil {
-		t.Fatalf("EndNodes: %v", err)
-	}
-
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, "", []string{"moved a"}, loopParkedAt()); err != nil {
-		t.Fatalf("CheckNodeRefs: %v", err)
-	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, "", []string{"moved b"}, loopParkedAt()); err != nil {
-		t.Fatalf("repeat CheckNodeRefs: %v", err)
-	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 2, "", []string{"moved c"}, loopParkedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, workEpic, "check", 2, []string{"moved c"}, loopParkedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs at another attempt: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "done", 1, "", []string{"moved d"}, loopParkedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, workEpic, "done", 1, []string{"moved d"}, loopParkedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs of an ended run: %v", err)
 	}
 
@@ -249,7 +194,7 @@ func TestCheckNodeRefsWithoutParkOnlyAddsTellsOnce(t *testing.T) {
 			State: store.NodeEnded, Started: nodeStartedAt(), Ended: nodeEndedAt()},
 	})
 	if parked := parkedOf(t, raw, workEpic); parked != "" {
-		t.Errorf("parked of epic %s after CheckNodeRefs without a park = %q, want empty", workEpic, parked)
+		t.Errorf("parked of epic %s after CheckNodeRefs = %q, want empty", workEpic, parked)
 	}
 	if got := tellsOf(t, raw, workEpic); !reflect.DeepEqual(got, []string{"moved a"}) {
 		t.Errorf("tells of epic %s after CheckNodeRefs = %q, want one tell %q", workEpic, got, "moved a")
@@ -486,7 +431,7 @@ func TestRetryNodeTurnsParkedRunRunningAtNextAttempt(t *testing.T) {
 	if err := s.RecordNodeResult(ctx, workEpic, "check", 1, `["plan.go"]`); err != nil {
 		t.Fatalf("RecordNodeResult: %v", err)
 	}
-	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, "", nil, loopParkedAt()); err != nil {
+	if err := s.CheckNodeRefs(ctx, workEpic, "check", 1, nil, loopParkedAt()); err != nil {
 		t.Fatalf("CheckNodeRefs: %v", err)
 	}
 	if err := s.ParkNode(

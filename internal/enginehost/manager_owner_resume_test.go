@@ -104,7 +104,7 @@ func TestResumeRefusesInterruptedRowWithoutClaudeSession(t *testing.T) {
 
 func TestResumeUnknownIDIsNoSession(t *testing.T) {
 	t.Parallel()
-	m, _ := newTestManager(t, 1, fakeClaudePath(t))
+	m, _ := newTestManager(t, fakeClaudePath(t))
 
 	if err := m.Resume(t.Context(), "missing"); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("Resume of an unknown id = %v, want ErrNoSession", err)

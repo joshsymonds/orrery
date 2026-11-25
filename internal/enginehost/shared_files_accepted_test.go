@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // TestSharedFilesAcceptedOwnedCheckStillFails: a file another task holds is accepted in a task's own files, but the
@@ -19,7 +21,9 @@ func TestSharedFilesAcceptedOwnedCheckStillFails(t *testing.T) {
 		"shared.go": "held by another task\n",
 	})
 
-	outside := stepGitTestCheck(t, commitChecks(ctx, dir, start, commit, []string{"mine.go"}), "owned")
+	outside := stepGitTestCheck(t, commitChecks(
+		ctx, hostexec.NewLocal(), dir, start, commit, []string{"mine.go"},
+	), "owned")
 	if outside.OK {
 		t.Fatalf("owned passed though shared.go is outside the task's files: %s", outside.Detail)
 	}
@@ -27,7 +31,9 @@ func TestSharedFilesAcceptedOwnedCheckStillFails(t *testing.T) {
 		t.Errorf("owned detail %q does not name shared.go", outside.Detail)
 	}
 
-	own := stepGitTestCheck(t, commitChecks(ctx, dir, start, commit, []string{"mine.go", "shared.go"}), "owned")
+	own := stepGitTestCheck(t, commitChecks(
+		ctx, hostexec.NewLocal(), dir, start, commit, []string{"mine.go", "shared.go"},
+	), "owned")
 	if !own.OK {
 		t.Errorf("owned failed though the task lists shared.go among its own files: %s", own.Detail)
 	}

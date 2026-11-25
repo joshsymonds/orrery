@@ -11,6 +11,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -66,7 +68,7 @@ func writeScratchFile(t *testing.T, path, content string) {
 func TestResolverGateResolvesEpicGate(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t, commandGate("check"))
-	if err := NewResolver(environ, "").Gate(context.Background(), epic, "check"); err != nil {
+	if err := NewResolver(environ, "", nil).Gate(context.Background(), epic, "check"); err != nil {
 		t.Fatalf("Gate(check) = %v, want nil", err)
 	}
 }
@@ -75,7 +77,7 @@ func TestResolverGateResolvesGateOnlyProjectFileDefines(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t)
 	writeScratchFile(t, filepath.Join(epic.Repository, ".orrery", "project.toml"), projectLint)
-	if err := NewResolver(environ, "").Gate(context.Background(), epic, "lint"); err != nil {
+	if err := NewResolver(environ, "", nil).Gate(context.Background(), epic, "lint"); err != nil {
 		t.Fatalf("Gate(lint) = %v, want nil", err)
 	}
 }
@@ -83,7 +85,7 @@ func TestResolverGateResolvesGateOnlyProjectFileDefines(t *testing.T) {
 func TestResolverGateUnknownWrapsErrUnknown(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t, commandGate("check"))
-	err := NewResolver(environ, "").Gate(context.Background(), epic, "missing")
+	err := NewResolver(environ, "", nil).Gate(context.Background(), epic, "missing")
 	if !errors.Is(err, gates.ErrUnknown) {
 		t.Fatalf("Gate(missing) = %v, want an error wrapping gates.ErrUnknown", err)
 	}
@@ -93,7 +95,7 @@ func TestResolverGateRefusesAgentGate(t *testing.T) {
 	t.Parallel()
 	review := store.EpicGate{Name: "review", Agent: "reviewer", Limit: 60, Must: []string{"the diff is correct"}}
 	epic, environ := scratchEpic(t, review)
-	err := NewResolver(environ, "").Gate(context.Background(), epic, "review")
+	err := NewResolver(environ, "", nil).Gate(context.Background(), epic, "review")
 	const want = `gate "review" is an agent gate, not a command gate`
 	if err == nil || err.Error() != want {
 		t.Fatalf("Gate(review) = %v, want %q", err, want)
@@ -104,7 +106,7 @@ func TestResolverGateNamesEpicGateThatFailsDefine(t *testing.T) {
 	t.Parallel()
 	bad := store.EpicGate{Name: "Check", Argv: []string{"/opt/tools/run"}, Limit: 60}
 	epic, environ := scratchEpic(t, bad)
-	err := NewResolver(environ, "").Gate(context.Background(), epic, "check")
+	err := NewResolver(environ, "", nil).Gate(context.Background(), epic, "check")
 	if err == nil || !strings.Contains(err.Error(), `gate "Check"`) {
 		t.Fatalf("Gate(check) = %v, want an error naming the epic gate %q", err, "Check")
 	}
@@ -113,7 +115,7 @@ func TestResolverGateNamesEpicGateThatFailsDefine(t *testing.T) {
 func TestResolverJudgeResolvesBuiltInAgent(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t)
-	if err := NewResolver(environ, "").Judge(epic, "general-purpose"); err != nil {
+	if err := NewResolver(environ, "", nil).Judge(epic, "general-purpose"); err != nil {
 		t.Fatalf("Judge(general-purpose) = %v, want nil", err)
 	}
 }
@@ -122,7 +124,7 @@ func TestResolverJudgeResolvesProjectAgent(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t)
 	writeScratchFile(t, filepath.Join(epic.Repository, ".claude", "agents", "reviewer.md"), agentDefinition("reviewer"))
-	if err := NewResolver(environ, "").Judge(epic, "reviewer"); err != nil {
+	if err := NewResolver(environ, "", nil).Judge(epic, "reviewer"); err != nil {
 		t.Fatalf("Judge(reviewer) = %v, want nil", err)
 	}
 }
@@ -130,8 +132,37 @@ func TestResolverJudgeResolvesProjectAgent(t *testing.T) {
 func TestResolverJudgeUnknownWrapsErrUnresolved(t *testing.T) {
 	t.Parallel()
 	epic, environ := scratchEpic(t)
-	err := NewResolver(environ, "").Judge(epic, "nobody")
+	err := NewResolver(environ, "", nil).Judge(epic, "nobody")
 	if !errors.Is(err, agents.ErrUnresolved) {
 		t.Fatalf("Judge(nobody) = %v, want an error wrapping agents.ErrUnresolved", err)
+	}
+}
+
+func TestResolverJudgeReadsAgentsThroughEpicHost(t *testing.T) {
+	t.Parallel()
+	epic, environ := scratchEpic(t)
+	epic.Host = "remote"
+	agentFile := filepath.Join(epic.Repository, ".claude", "agents", "reviewer.md")
+	writeScratchFile(t, agentFile, agentDefinition("reviewer"))
+	recorder := hostexectest.NewRecorder(hostexec.NewLocal())
+	hosts := hostexec.Map{"remote": recorder}
+	if err := NewResolver(environ, "", hosts).Judge(epic, "reviewer"); err != nil {
+		t.Fatalf("Judge(reviewer) = %v, want nil", err)
+	}
+	for _, call := range recorder.Calls() {
+		if call.Op == "ReadFile" && call.Path == agentFile {
+			return
+		}
+	}
+	t.Fatalf("Judge(reviewer) did not read %s through the epic's host; calls = %+v", agentFile, recorder.Calls())
+}
+
+func TestResolverJudgeUnknownHostWrapsErrUnknownHost(t *testing.T) {
+	t.Parallel()
+	epic, environ := scratchEpic(t)
+	epic.Host = "missing"
+	err := NewResolver(environ, "", hostexec.Map{}).Judge(epic, "general-purpose")
+	if !errors.Is(err, hostexec.ErrUnknownHost) {
+		t.Fatalf("Judge(general-purpose) = %v, want an error wrapping hostexec.ErrUnknownHost", err)
 	}
 }

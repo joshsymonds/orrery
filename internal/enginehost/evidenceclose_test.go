@@ -9,26 +9,13 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // evidenceCloseScript returns a capture that writes its pid to pidFile and sleeps a minute, so its gate runs until a
 // test ends it.
 func evidenceCloseScript(pidFile string) string {
 	return fmt.Sprintf("echo $$ > %q\nsleep 60\n", pidFile)
-}
-
-// evidenceCloseNew returns an Evidence over st and steps whose captures hold their gates in stateRoot, under the
-// systemd-run scope when scope is not "". Close runs at cleanup, after any holder the test ends.
-func evidenceCloseNew(t *testing.T, st *store.Store, steps EvidenceSteps, stateRoot, scope string) *Evidence {
-	t.Helper()
-	home := t.TempDir()
-	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
-	ev := NewEvidence(EvidenceConfig{
-		Store: st, Steps: steps, Pools: &fakeGatePools{}, Environ: gateEnv("XDG_CONFIG_HOME=" + home),
-		StateDir: t.TempDir(), GateStateDir: stateRoot, GateScope: scope,
-	})
-	t.Cleanup(ev.Close)
-	return ev
 }
 
 // evidenceCloseEndHolder registers a cleanup that ends the holder of run id's capture under stateRoot, if one is left.
@@ -41,77 +28,95 @@ func evidenceCloseEndHolder(t *testing.T, stateRoot, id string) {
 		if _, err := os.Stat(dir); err != nil {
 			return
 		}
-		if err := gateEnd(ctx, dir); err != nil {
+		if err := gateEnd(ctx, gateTestHost(), dir); err != nil {
 			t.Errorf("end gate holder %s: %v", dir, err)
 		}
 	})
 }
 
-// evidenceCloseStart stores an epic whose R1 is a captured item of a capture that writes its pid to pidFile, and starts
-// a green run of R1 through ev. It returns the run Run stored and the gate's pid once the gate runs.
-func evidenceCloseStart(t *testing.T, st *store.Store, ev *Evidence, pidFile string) (store.EvidenceRun, int) {
+// evidenceCloseStart files a brief for a green run of R1 through ev, whose capture writes its pid to pidFile and sleeps. Then
+// captureTestStep asks c for that capture of the brief. It returns the brief, the capture as Capture returned it, and the
+// gate's pid once the gate runs.
+func evidenceCloseStart(
+	t *testing.T, st *store.Store, ev *Evidence, c *Captures, pidFile string,
+) (store.EvidenceRun, store.Capture, int) {
 	t.Helper()
 	repo := stepGitTestRepo(t)
 	head := stepGitTestCommit(t, repo, map[string]string{"capture.sh": evidenceCloseScript(pidFile)})
 	item := evidenceRunItem()
 	evidenceRunSeed(t, st, repo, item, item)
-	started, err := ev.Run(t.Context(), evidenceRunEpic, "R1", head, evidence.PhaseGreen)
+	brief, err := ev.Run(t.Context(), evidenceRunEpic, "R1", head, evidence.PhaseGreen)
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("Run(R1): %v", err)
 	}
-	return started, stepCtlAwaitGatePid(t, engineOf(ev), pidFile)
+	capture, err := c.Capture(t.Context(), captureTestStep, CaptureArgs{
+		Commit: head, Argv: item.Capture, Briefs: []string{brief.ID}, Files: item.Artifacts,
+	})
+	if err != nil {
+		t.Fatalf("Capture of brief %s: %v", brief.ID, err)
+	}
+	waittest.UntilIdle(t, c.workFinished, "the capture's gate to start", func() bool {
+		_, ok := stepCtlGatePid(pidFile)
+		return ok
+	})
+	pid, _ := stepCtlGatePid(pidFile)
+	return brief, capture, pid
 }
 
-// TestEvidenceCloseWithGateScopeDetachesARunningCapture closes an Evidence under a gate scope while its capture's gate
-// runs. The gate keeps running under its holder, and the run stays capturing with its grant stored and nothing more
-// recorded.
-func TestEvidenceCloseWithGateScopeDetachesARunningCapture(t *testing.T) {
+// TestCapturesCloseWithGateScopeDetachesARunningCapture closes the captures under a gate scope while a capture's gate runs.
+// The gate keeps running under its holder, and the capture stays running with its grant stored and nothing more recorded: its
+// brief is not attached, and nothing ends.
+func TestCapturesCloseWithGateScopeDetachesARunningCapture(t *testing.T) {
 	t.Parallel()
 	stateRoot := gateShortStateDir(t)
 	st := epicTestStore(t)
 	steps := &evidenceRunSteps{}
-	ev := evidenceCloseNew(t, st, steps, stateRoot, fakeSystemdRunPath(t))
-	started, pid := evidenceCloseStart(t, st, ev, filepath.Join(t.TempDir(), "gate.pid"))
-	evidenceCloseEndHolder(t, stateRoot, started.ID)
+	ev := evidenceRunNew(t, st, steps)
+	rig := captureTestNewRig(t, captureTestStore{Store: st}, fakeSystemdRunPath(t))
+	rig.gateRoot = stateRoot
+	c := rig.captures(t)
+	brief, capture, pid := evidenceCloseStart(t, st, ev, c, filepath.Join(t.TempDir(), "gate.pid"))
+	evidenceCloseEndHolder(t, stateRoot, capture.ID)
 
-	ev.Close()
+	c.Close()
 
 	if gateProcessGone(pid) {
 		t.Fatalf("gate process %d is gone after Close under a gate scope, want it running under its holder", pid)
 	}
-	got, err := st.EvidenceRun(t.Context(), started.ID)
+	got, err := st.Capture(t.Context(), capture.ID)
 	if err != nil {
-		t.Fatalf("read evidence run after Close: %v", err)
+		t.Fatalf("read capture after Close: %v", err)
 	}
-	if got.State != "capturing" || got.Grant == "" || got.NotCaptured != "" || got.LogHash != "" ||
-		got.JudgeStep != "" || got.Judges != 0 || got.Verdict != "" || steps.startCount() != 0 {
+	run, err := st.EvidenceRun(t.Context(), brief.ID)
+	if err != nil {
+		t.Fatalf("read brief after Close: %v", err)
+	}
+	if got.State != "running" || got.Grant == "" || !got.Ended.IsZero() || got.NotCaptured != "" || got.LogHash != "" ||
+		run.State != store.RunWaiting || run.Capture != "" || run.Verdict != "" || steps.startCount() != 0 {
 		t.Fatalf(
-			"run after Close = state %q grant %q not captured %q log %q judge %q judges %d verdict %q starts %d, "+
-				"want capturing with a grant and nothing more recorded",
-			got.State,
-			got.Grant,
-			got.NotCaptured,
-			got.LogHash,
-			got.JudgeStep,
-			got.Judges,
-			got.Verdict,
+			"capture after Close = state %q grant %q ended %v not captured %q log %q; brief = state %q capture %q "+
+				"verdict %q; starts %d, want the capture running with a grant and the brief waiting with nothing more recorded",
+			got.State, got.Grant, got.Ended, got.NotCaptured, got.LogHash, run.State, run.Capture, run.Verdict,
 			steps.startCount(),
 		)
 	}
 }
 
-// TestEvidenceCloseWithoutGateScopeEndsARunningCapture closes an Evidence without a gate scope while its capture's gate
-// runs. The cancel kills the gate, so its process and its holder directory are gone.
-func TestEvidenceCloseWithoutGateScopeEndsARunningCapture(t *testing.T) {
+// TestCapturesCloseWithoutGateScopeEndsARunningCapture closes the captures without a gate scope while a capture's gate runs. The
+// cancel kills the gate, so its process and its holder directory are gone.
+func TestCapturesCloseWithoutGateScopeEndsARunningCapture(t *testing.T) {
 	t.Parallel()
 	stateRoot := gateShortStateDir(t)
 	st := epicTestStore(t)
-	ev := evidenceCloseNew(t, st, &evidenceRunSteps{}, stateRoot, "")
-	started, pid := evidenceCloseStart(t, st, ev, filepath.Join(t.TempDir(), "gate.pid"))
-	evidenceCloseEndHolder(t, stateRoot, started.ID)
+	ev := evidenceRunNew(t, st, &evidenceRunSteps{})
+	rig := captureTestNewRig(t, captureTestStore{Store: st}, "")
+	rig.gateRoot = stateRoot
+	c := rig.captures(t)
+	_, capture, pid := evidenceCloseStart(t, st, ev, c, filepath.Join(t.TempDir(), "gate.pid"))
+	evidenceCloseEndHolder(t, stateRoot, capture.ID)
 
-	ev.Close()
+	c.Close()
 
 	gateWaitGone(t, pid)
-	requireDirGone(t, holderDir(t, stateRoot, "evidence-"+started.ID))
+	requireDirGone(t, holderDir(t, stateRoot, "evidence-"+capture.ID))
 }

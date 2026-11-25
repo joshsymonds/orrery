@@ -27,23 +27,25 @@ type SessionTitleStore interface {
 }
 
 // SessionTitlesConfig configures SessionTitles. Store reads the sessions and stores their titles, Haiku makes each title
-// call, NewTimer arms the one retry a refused write or a failed read waits on, and Logger logs a failed read, call or
-// write. A nil NewTimer wraps time.NewTimer, and a nil Logger discards. Passed is a test seam: when set, Run calls it
-// after each pass. Production leaves it nil.
+// call, NewTimer arms the one retry a refused write or a failed read waits on, AfterFunc arms the deadline a failed call
+// waits out before it is made again (see callRetries), and Logger logs a failed read, call or write. A nil NewTimer
+// wraps time.NewTimer, a nil AfterFunc wraps time.AfterFunc, and a nil Logger discards. Passed is a test seam: when set,
+// Run calls it after each pass. Production leaves it nil.
 type SessionTitlesConfig struct {
-	Store    SessionTitleStore
-	Haiku    haikuCaller
-	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
-	Logger   *slog.Logger
-	Passed   func()
+	Store     SessionTitleStore
+	Haiku     haikuCaller
+	NewTimer  func(time.Duration) (<-chan time.Time, func() bool)
+	AfterFunc func(time.Duration, func()) func() bool
+	Logger    *slog.Logger
+	Passed    func()
 }
 
-// SessionTitles writes a title for each headless session that has none, from its first prompt. It keeps the ids it has
-// tried since it started, so each session gets at most one call per start, and the titles whose write the store
-// refused, which a retry writes again.
+// SessionTitles writes a title for each headless session that has none, from its first prompt. A session whose call
+// failed is called for again once its wait ends (see callRetries), and the titles whose write the store refused are kept
+// for a retry to write again.
 type SessionTitles struct {
 	cfg      SessionTitlesConfig
-	tried    map[string]bool
+	calls    *callRetries
 	unstored unstoredWrites[string]
 	wakes    *housekeepWake
 	// fullOwed is set until a read of every untitled session succeeds. It is set at start, so the start reads all of
@@ -57,7 +59,7 @@ func NewSessionTitles(cfg SessionTitlesConfig) *SessionTitles {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	return &SessionTitles{
-		cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[string]{},
+		cfg: cfg, calls: newCallRetries(cfg.AfterFunc), unstored: unstoredWrites[string]{},
 		wakes: newHousekeepWake(cfg.NewTimer), fullOwed: true,
 	}
 }
@@ -69,8 +71,10 @@ func (t *SessionTitles) Wake(session string) {
 }
 
 // Run writes the titles at start, over every untitled session, and then on each wake and each retry, until ctx ends. A
-// pass whose write or read the store refused arms one retry, and a clean pass arms none.
+// pass whose write or read the store refused arms one retry, and a clean pass arms none. Run stops each failed call's
+// deadline still armed when it returns.
 func (t *SessionTitles) Run(ctx context.Context) {
+	defer t.calls.stop()
 	t.wakes.run(ctx, func(ctx context.Context, retry bool) bool {
 		owed := t.pass(ctx, retry)
 		if t.cfg.Passed != nil {
@@ -98,8 +102,8 @@ func (t *SessionTitles) pass(ctx context.Context, retry bool) bool {
 	return t.fullOwed || len(t.unstored) > 0
 }
 
-// fullPass titles each untitled session that this start has not tried, one call at a time, in id order. A failed read is
-// logged and leaves the full read owed.
+// fullPass titles each untitled session whose call is ready (see callRetries) and that has no title kept for a retry to
+// write, one call at a time, in id order. A failed read is logged and leaves the full read owed.
 func (t *SessionTitles) fullPass(ctx context.Context) {
 	rows, err := t.cfg.Store.UntitledSessions(ctx)
 	if err != nil {
@@ -111,18 +115,18 @@ func (t *SessionTitles) fullPass(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if t.tried[row.ID] {
+		if !t.calls.ready(row.ID) || t.unstored.holds(row.ID) {
 			continue
 		}
-		t.tried[row.ID] = true
 		t.title(ctx, row)
 	}
 }
 
-// wokenSession reads the session with id and titles it when it is untitled and this start has not tried it. A session
-// that is not untitled is dropped, and a failed read is logged and kept for the retry.
+// wokenSession reads the session with id and titles it when it is untitled, its call is ready and no title of it is kept
+// for a retry to write. A session that is not
+// untitled is dropped, with any failure of its call, and a failed read is logged and kept for the retry.
 func (t *SessionTitles) wokenSession(ctx context.Context, id string) {
-	if t.tried[id] {
+	if !t.calls.ready(id) || t.unstored.holds(id) {
 		return
 	}
 	row, untitled, err := t.cfg.Store.UntitledSession(ctx, id)
@@ -132,26 +136,30 @@ func (t *SessionTitles) wokenSession(ctx context.Context, id string) {
 		t.wakes.keep(id)
 		return
 	case !untitled:
+		t.calls.forget(id)
 		return
 	}
-	t.tried[id] = true
 	t.title(ctx, row)
 }
 
 // title calls Haiku for the title of row and stores it when the reply has a non-blank title. A failed call or reply is
-// logged and leaves the title empty. The write ignores ctx's cancellation, so a stop that lands after a reply still
+// logged, leaves the title empty and holds the session's next call until its wait ends, when its deadline wakes the
+// session. A good reply forgets the session's failures. The write ignores ctx's cancellation, so a stop that lands after a reply still
 // stores it, and a write the store refuses is logged and kept for a retry to write again.
 func (t *SessionTitles) title(ctx context.Context, row store.UntitledSession) {
 	raw, err := t.cfg.Haiku.Call(ctx, sessionTitleSchema, sessionTitleInstruction+"\n\n"+row.FirstPrompt)
 	if err != nil {
 		t.cfg.Logger.ErrorContext(ctx, "title session", "session", row.ID, "error", err)
+		t.calls.failed(row.ID, func() { t.Wake(row.ID) })
 		return
 	}
 	title, err := sessionTitleOf(raw)
 	if err != nil {
 		t.cfg.Logger.ErrorContext(ctx, "invalid session title", "session", row.ID, "error", err)
+		t.calls.failed(row.ID, func() { t.Wake(row.ID) })
 		return
 	}
+	t.calls.forget(row.ID)
 	if err = t.cfg.Store.SetSessionTitle(context.WithoutCancel(ctx), row.ID, title); err != nil {
 		t.cfg.Logger.ErrorContext(ctx, "store session title; kept for the next pass", "session", row.ID, "error", err)
 		t.unstored[row.ID] = title

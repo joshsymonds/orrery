@@ -315,6 +315,66 @@ test("EpicAsk: a planner's park is one quiet line after the sentence, with no bu
   });
 });
 
+test("SteererHolds: a steerer's park is one quiet line after the sentence, with no Ask and no button in the section", () => {
+  const props = baseProps(
+    detailOf({
+      parked: "workflow node gate failed",
+      steererParked: true,
+      questions: [{ id: "Q1", text: "Retry the gate?", steererHeld: true, choices: threeChoices }],
+      steps: [step({ id: "s1" })],
+    }),
+  );
+  return withSection(props, async (container) => {
+    assert.equal(
+      sentenceOf(container).textContent,
+      "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it.",
+    );
+    const line = askOf(container);
+    assert.equal(line?.className, "inote quiet");
+    assert.equal(
+      line?.textContent,
+      "Its steerer holds this park, and answers it or escalates it to you: workflow node gate failed",
+    );
+    assert.equal(container.querySelector(".ask"), null, "a steerer's park draws an Ask");
+    assert.deepEqual(buttonTexts(container), []);
+  });
+});
+
+test("SteererHolds: a question its steerer holds is one quiet line after the sentence, with no Ask and no button", () => {
+  const props = baseProps(
+    detailOf({
+      questions: [{ id: "Q1", text: "Which index should it add?", steererHeld: true, choices: threeChoices }],
+    }),
+  );
+  return withSection(props, async (container) => {
+    assert.equal(sentenceOf(container).textContent, "It waits on its steerer's answer.");
+    const line = askOf(container);
+    assert.equal(line?.className, "inote quiet");
+    assert.equal(
+      line?.textContent,
+      "Its steerer holds this question, and answers it or escalates it to you: Which index should it add?",
+    );
+    assert.equal(container.querySelector(".ask"), null, "a steerer-held question draws an Ask");
+    assert.deepEqual(buttonTexts(container), []);
+  });
+});
+
+test("SteererHolds: the owner's question draws its Ask ahead of a question its steerer holds", () => {
+  const props = baseProps(
+    detailOf({
+      questions: [
+        { id: "Q1", text: "Retry the gate?", steererHeld: true, choices: threeChoices },
+        { id: "Q2", text: "Which index should it add?", choices: threeChoices },
+      ],
+    }),
+  );
+  return withSection(props, async (container) => {
+    assert.equal(sentenceOf(container).textContent, "It waits on your answer.");
+    assert.equal(askOf(container)?.querySelector(".q")?.textContent, "Which index should it add?");
+    assert.equal(container.querySelector(".inote.quiet"), null, "the steerer's line is drawn beside the owner's Ask");
+  });
+});
+
 test("EpicWords: each running step is a row with its glyph, label, pips, doing and clock, and finished steps draw none", () => {
   const props = baseProps(
     detailOf({
@@ -327,7 +387,7 @@ test("EpicWords: each running step is a row with its glyph, label, pips, doing a
   );
   return withSection(props, async (container) => {
     assert.equal(container.querySelector("section.now")?.getAttribute("aria-label"), "Now");
-    assert.equal(container.querySelector("section.now h3")?.textContent, "Now");
+    assert.equal(container.querySelector("section.now .sec .name")?.textContent, "Now");
     assert.equal(sentenceOf(container).textContent, nowSentenceOf(props.detail));
     const rows = container.querySelectorAll("div.tbl.steps > div.tr");
     assert.equal(rows.length, 2, "the finished step draws no row");

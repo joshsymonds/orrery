@@ -12,8 +12,8 @@ import (
 // ErrNoContract reports that no contract has the id asked for.
 var ErrNoContract = errors.New("no contract")
 
-// ErrContractExists reports that a contract or an epic already holds the id a contract was proposed under.
-var ErrContractExists = errors.New("contract id already held by a contract or an epic")
+// ErrContractExists reports that a contract, an epic or a design already holds the id a contract was proposed under.
+var ErrContractExists = errors.New("contract id already held by a contract, an epic or a design")
 
 // ContractProposed is the state a contract is in when it is first stored.
 const ContractProposed = "proposed"
@@ -53,13 +53,14 @@ type ContractListing struct {
 
 // ContractStateChange is one state a contract entered. Session is the sessions row id of the session that made the
 // change, and "" for the owner. Base is the commit an accepted state stores as the contract's base, and "" on any other
-// state.
+// state. Maker is who made the change, and the zero StageMaker when none was given.
 type ContractStateChange struct {
 	State   string
 	Version int64
 	Session string
 	Words   string
 	Base    string
+	Maker   StageMaker
 	At      int64
 }
 
@@ -73,37 +74,59 @@ type ContractRecord struct {
 
 // ProposeContract stores id as a new contract. proposal is stored as version 1, whatever its Version says, with no
 // changed rows or sections, and the contract enters state proposed at version 1 by proposal.Writer with
-// proposal.Words at proposal.At. It returns an error that matches ErrContractExists, and stores nothing, when a
-// contract or an epic already has id.
+// proposal.Words at proposal.At. A draft stored under id is deleted in the same write. It returns an error that matches
+// ErrContractExists, and stores nothing, when a contract, an epic or a design already has id.
 func (s *Store) ProposeContract(ctx context.Context, id string, proposal ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		held, err := queries.CountContract(ctx, id)
-		if err != nil {
-			return fmt.Errorf("count contract %s: %w", id, err)
-		}
-		epics, err := queries.CountEpic(ctx, id)
-		if err != nil {
-			return fmt.Errorf("count epic %s: %w", id, err)
-		}
-		if held > 0 || epics > 0 {
-			return fmt.Errorf("contract %s: %w", id, ErrContractExists)
-		}
-		if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
-			return fmt.Errorf("insert contract %s: %w", id, err)
-		}
-		proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
-		if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
-			return versionErr
-		}
-		change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
-		return appendContractState(ctx, queries, id, ContractProposed, 1, change)
+		return proposeContract(ctx, queries, id, proposal)
 	})
+}
+
+// proposeContract stores id as a new contract as ProposeContract does, with queries. It returns an error that matches
+// ErrContractExists when a contract, an epic or a design already has id.
+func proposeContract(ctx context.Context, queries *sqlcgen.Queries, id string, proposal ContractVersion) error {
+	held, err := contractIDHeld(ctx, queries, id)
+	if err != nil {
+		return err
+	}
+	if held {
+		return fmt.Errorf("contract %s: %w", id, ErrContractExists)
+	}
+	if err = queries.InsertContract(ctx, sqlcgen.InsertContractParams{ID: id, Created: proposal.At}); err != nil {
+		return fmt.Errorf("insert contract %s: %w", id, err)
+	}
+	if err = queries.DeleteContractDraft(ctx, id); err != nil {
+		return fmt.Errorf("delete draft of contract %s: %w", id, err)
+	}
+	proposal.Version, proposal.ChangedRows, proposal.ChangedSections = 1, nil, nil
+	if versionErr := insertContractVersion(ctx, queries, id, proposal); versionErr != nil {
+		return versionErr
+	}
+	change := ContractChange{Session: proposal.Writer, Words: proposal.Words, At: proposal.At}
+	return appendContractState(ctx, queries, id, ContractProposed, 1, change)
+}
+
+// contractIDHeld reports whether a contract, an epic or a design already holds id, read with queries.
+func contractIDHeld(ctx context.Context, queries *sqlcgen.Queries, id string) (bool, error) {
+	contracts, err := queries.CountContract(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count contract %s: %w", id, err)
+	}
+	epics, err := queries.CountEpic(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count epic %s: %w", id, err)
+	}
+	designs, err := queries.CountDesign(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("count design %s: %w", id, err)
+	}
+	return contracts > 0 || epics > 0 || designs > 0, nil
 }
 
 // Contract returns the contract with id, its listing with its versions and states. Both are read in one read
 // transaction. It returns an error that matches ErrNoContract when no contract has id.
 func (s *Store) Contract(ctx context.Context, id string) (ContractRecord, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return ContractRecord{}, fmt.Errorf("begin contract read: %w", err)
 	}
@@ -119,7 +142,7 @@ func (s *Store) Contract(ctx context.Context, id string) (ContractRecord, error)
 
 // Contracts returns the listing of every contract, oldest first and ties by id.
 func (s *Store) Contracts(ctx context.Context) ([]ContractListing, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin contracts read: %w", err)
 	}
@@ -131,6 +154,20 @@ func (s *Store) Contracts(ctx context.Context) ([]ContractListing, error) {
 		return nil, fmt.Errorf("end contracts read: %w", err)
 	}
 	return listings, nil
+}
+
+// ContractStaged reports whether the contract with id is staged, which is whether the contract stage proposed it. Each
+// contract the migration that added the staged column found reads false. It returns an error that matches ErrNoContract
+// when no contract has id.
+func (s *Store) ContractStaged(ctx context.Context, id string) (bool, error) {
+	staged, err := sqlcgen.New(s.read).GetContractStaged(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("contract %s: %w", id, ErrNoContract)
+	}
+	if err != nil {
+		return false, fmt.Errorf("read staged of contract %s: %w", id, err)
+	}
+	return staged != 0, nil
 }
 
 // Contract returns the contract with id as Store.Contract does, read without writing the store.
@@ -179,7 +216,9 @@ func readContract(ctx context.Context, queries *sqlcgen.Queries, id string) (Con
 	}
 	for _, row := range states {
 		record.States = append(record.States, ContractStateChange{
-			State: row.State, Version: row.Version, Session: row.Session, Words: row.Words, Base: row.Base, At: row.At,
+			State: row.State, Version: row.Version, Session: row.Session, Words: row.Words, Base: row.Base,
+			Maker: StageMaker{Kind: row.Maker, Quote: row.Quote, Reason: row.MakerReason, Delegation: row.Delegation},
+			At:    row.At,
 		})
 	}
 	return record, nil

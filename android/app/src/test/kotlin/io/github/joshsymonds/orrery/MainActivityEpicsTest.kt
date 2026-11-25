@@ -125,6 +125,7 @@ class MainActivityEpicsTest {
         .setPane(0)
         .setCwd("/home/user/alpha")
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel(label)
@@ -163,13 +164,15 @@ class MainActivityEpicsTest {
         epicStep(id = CHECK_STEP_ID, stage = "checks"),
     )
 
-    /** The one planned task of the epic, the orrery's one wedge. */
+    /** The one planned task of the epic, the orrery's one wedge, which serve places running at green. */
     private fun taskBuild(): EpicBuildTask = EpicBuildTask.newBuilder()
         .setId(TASK_ID)
         .setTitle(TASK_TITLE)
         .setStatus("open")
         .setStage("checks")
         .addRequirements("R1")
+        .setPlace("green")
+        .setTone("run")
         .build()
 
     private fun liveEpic(): Epic = Epic.newBuilder()
@@ -183,7 +186,6 @@ class MainActivityEpicsTest {
         .addRunningSteps(epicStep())
         .addRunningSteps(epicStep(id = HELD_STEP_ID, held = true))
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     /**
@@ -228,7 +230,6 @@ class MainActivityEpicsTest {
         .setChanged(NOW - 3_600L)
         .setLive(false)
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     /** The one requirement a contracted epic carries, with its evidence. */

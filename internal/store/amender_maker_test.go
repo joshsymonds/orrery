@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -87,27 +88,42 @@ func TestAmenderMakerPlanner(t *testing.T) {
 	}
 }
 
-// TestAmenderMakerConversationMayNotChangeConclusion checks that a conversation's amendment that changes the conclusion of
-// R1 is a RefusalError, and stores nothing.
-func TestAmenderMakerConversationMayNotChangeConclusion(t *testing.T) {
+// TestAmenderMakerConversationChangesConclusion checks that a conversation's amendment that changes the conclusion of R1 is
+// stored checking, with the conversation as its amender, and that R1 still holds its old item while its red run is judged.
+func TestAmenderMakerConversationChangesConclusion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
-	err := amendRefused(t, s, Maker{By: MakerConversation, Session: "engine-1"}, newAmendItem())
-	requireRefusal(t, err,
-		"the conversation may not change the conclusion of R1; only the owner amends a conclusion")
+	amended := makerAmendment(t, s, Maker{By: MakerConversation, Session: "engine-1"}, newAmendItem())
+	if amended.Amender != AmenderConversation {
+		t.Errorf("amender of the conversation's conclusion change = %q, want %q", amended.Amender, AmenderConversation)
+	}
+	if amended.State != AmendmentChecking {
+		t.Errorf("state of the conversation's conclusion change = %s, want checking", amended.State)
+	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
+		t.Errorf("R1 item while checking = %+v, want the old item %+v", item, oldAmendItem())
+	}
 }
 
-// TestAmenderMakerConversationMayNotChangeKind checks that a conversation's amendment that changes the kind of R1 is a
-// RefusalError, and stores nothing.
-func TestAmenderMakerConversationMayNotChangeKind(t *testing.T) {
+// TestAmenderMakerConversationChangesKind checks that a conversation's amendment that changes the kind of R1 is stored
+// checking, with the conversation as its amender, and that R1 still holds its old item while its red run is judged.
+func TestAmenderMakerConversationChangesKind(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	createAmendEpic(t, s)
 	kind := captureAmendItem()
 	kind.Kind, kind.Tests = evidence.KindCapture, nil
-	err := amendRefused(t, s, Maker{By: MakerConversation, Session: "engine-1"}, kind)
-	requireRefusal(t, err, "the conversation may not change the kind of R1; only the owner amends a kind")
+	amended := makerAmendment(t, s, Maker{By: MakerConversation, Session: "engine-1"}, kind)
+	if amended.Amender != AmenderConversation {
+		t.Errorf("amender of the conversation's kind change = %q, want %q", amended.Amender, AmenderConversation)
+	}
+	if amended.State != AmendmentChecking {
+		t.Errorf("state of the conversation's kind change = %s, want checking", amended.State)
+	}
+	if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
+		t.Errorf("R1 item while checking = %+v, want the old item %+v", item, oldAmendItem())
+	}
 }
 
 // TestAmenderMakerConversationAppliedTellsOwner checks that a conversation's amendment that keeps the conclusion and kind

@@ -218,7 +218,7 @@ internal fun Ask(
                     Text(command.tool, style = OrreryTokens.Type.label, color = OrreryTokens.Ink.three)
                     Text(
                         command.text,
-                        style = OrreryTokens.Type.small,
+                        style = OrreryTokens.Type.code,
                         color = OrreryTokens.Ink.one,
                         modifier = Modifier
                             .fillMaxWidth()

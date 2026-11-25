@@ -1,9 +1,10 @@
 // The stories of the inbox rail's tiles: round 6's Tile on the collapsed inbox's rail, one story for each of its states.
 // The project tiles are round 7's B2c tiles: the project's whole name set sideways, its count above and its dots below.
+// The lineage under a project's tile is round 8's: a pill per conversation, a pill per design, and a mark for each contract or epic.
 
 import type { Stories } from "./catalog/story";
-import { ProjectTile, RailTile } from "./inboxrail";
-import type { RailTileModel } from "./railtiles";
+import { ProjectTile, RailLineage as Lineage, RailTile } from "./inboxrail";
+import type { LineageConvo, RailTileModel } from "./railtiles";
 
 const noop = () => undefined;
 
@@ -31,4 +32,64 @@ export const Tile: Stories = {
   "project-new": () => <ProjectTile tile={tileOf("almanac", { fresh: true })} onClick={noop} />,
   current: () => <ProjectTile tile={tileOf("lighthouse", { n: 1, live: true, cur: true })} onClick={noop} />,
   new: () => <RailTile icon="plus" tone="primary" label="New session" onClick={noop} />,
+};
+
+// The lineage's conversations: tidepool's session works the design Tide alerts, with an epic and a contract under it; the
+// design's epic is open in the first story. twoDesigns has the session work two designs, each a stack of its own.
+const tide = { key: "design:tide", name: "Tide alerts" };
+const alerts = { key: "epic:tide/alerts", kind: "epic" as const, name: "alerts" };
+const table = { key: "contract:tide/table", kind: "contract" as const, name: "table" };
+const oneDesign: LineageConvo[] = [
+  {
+    key: "sess-tide",
+    held: false,
+    own: [],
+    designs: [{ ...tide, open: false, marks: [{ ...alerts, open: false }, { ...table, open: false }] }],
+  },
+];
+const openEpic: LineageConvo[] = [
+  {
+    key: "sess-tide",
+    held: true,
+    own: [],
+    designs: [{ ...tide, open: false, marks: [{ ...alerts, open: true }, { ...table, open: false }] }],
+  },
+];
+// heldConvo is the session the open epic alerts holds: it steers the epic alerts in no design, which is open, so the epic
+// is its own mark, drawn before the design Tide alerts with its table.
+const heldConvo: LineageConvo[] = [
+  {
+    key: "sess-tide",
+    held: true,
+    own: [{ ...alerts, open: true }],
+    designs: [{ ...tide, open: false, marks: [{ ...table, open: false }] }],
+  },
+];
+const twoDesigns: LineageConvo[] = [
+  {
+    key: "sess-tide",
+    held: false,
+    own: [],
+    designs: [
+      { ...tide, open: false, marks: [{ ...table, open: false }] },
+      {
+        key: "design:feed",
+        name: "Harbour feed",
+        open: false,
+        marks: [
+          { key: "epic:feed/ingest", kind: "epic", name: "ingest", open: false },
+          { key: "epic:feed/publish", kind: "epic", name: "publish", open: false },
+        ],
+      },
+    ],
+  },
+];
+
+const tidepool = "|/home/owner/code/tidepool";
+
+export const RailLineage: Stories = {
+  design: () => <Lineage projectKey={tidepool} convos={oneDesign} onPress={noop} />,
+  "two-designs": () => <Lineage projectKey={tidepool} convos={twoDesigns} onPress={noop} />,
+  open: () => <Lineage projectKey={tidepool} convos={openEpic} onPress={noop} />,
+  held: () => <Lineage projectKey={tidepool} convos={heldConvo} onPress={noop} />,
 };

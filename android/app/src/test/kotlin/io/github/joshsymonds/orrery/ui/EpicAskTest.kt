@@ -13,9 +13,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.After
@@ -55,9 +58,11 @@ private fun step(
 
 private fun detail(
     steps: List<StepRow> = emptyList(),
+    buildTasks: List<EpicBuildTaskRow> = emptyList(),
     questions: List<EpicQuestionRow> = emptyList(),
     parked: String = "",
     plannerParked: Boolean = false,
+    steererParked: Boolean = false,
 ): EpicDetail = EpicDetail(
     epic = EpicRow(
         id = "example-repo/example-epic",
@@ -68,15 +73,25 @@ private fun detail(
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     ),
-    tasks = emptyList(),
-    slices = emptyList(),
+    buildTasks = buildTasks,
     steps = steps,
     questions = questions,
     parked = parked,
     plannerParked = plannerParked,
+    steererParked = steererParked,
 )
+
+private val steererQuestion = EpicQuestionRow(
+    id = "q1",
+    text = "Which branch should it build on?",
+    turn = 1L,
+    asked = BASE,
+    steererHeld = true,
+)
+
+private const val STEERER_QUESTION_LINE =
+    "Its steerer holds this question, and answers it or escalates it to you: Which branch should it build on?"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -217,6 +232,94 @@ class EpicAskTest {
     }
 
     @Test
+    fun aSteerersParkIsOneGreyLineWithNoAskAndNoClickableNode() {
+        composeRule.setContent {
+            MaterialTheme {
+                NowAsk(
+                    detail = detail(parked = "budget exhausted", steererParked = true),
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
+                    onRetry = {},
+                    onStop = {},
+                    onResume = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("now-sentence").assertTextEquals(
+            "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it.",
+        )
+        composeRule.onNodeWithTag("epic-steerer-holds").assertTextEquals(
+            "Its steerer holds this park, and answers it or escalates it to you: budget exhausted",
+        )
+        composeRule.onAllNodesWithTag("epic-park").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
+        composeRule.onAllNodes(hasClickAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun aQuestionItsSteererHoldsIsOneGreyLineInNowWithNoAskAndNoClickableNode() {
+        composeRule.setContent {
+            MaterialTheme {
+                NowAsk(
+                    detail = detail(questions = listOf(steererQuestion)),
+                    now = BASE,
+                    onAnswer = { _, _, _ -> },
+                    onRetry = {},
+                    onStop = {},
+                    onResume = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("now-sentence").assertTextEquals("It waits on its steerer's answer.")
+        composeRule.onNodeWithTag("epic-steerer-holds").assertTextEquals(STEERER_QUESTION_LINE)
+        composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
+        composeRule.onAllNodes(hasClickAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun aConversationDrawsAQuestionItsSteererHoldsAsTheSteerersLineWithNoAsk() {
+        FakeOrreryServer().use { server ->
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent {
+                MaterialTheme {
+                    EpicQuestion(detail(questions = listOf(steererQuestion)), "q1", BASE, client)
+                }
+            }
+
+            composeRule.onNodeWithTag("epic-steerer-question").assertTextEquals(STEERER_QUESTION_LINE)
+            composeRule.onAllNodesWithTag("ask").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("ask-settled").assertCountEquals(0)
+            composeRule.onAllNodes(hasClickAction()).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun aConversationDrawsTheSameQuestionOnceEscalatedAsAnAskCarryingItsEscalationLine() {
+        val escalated = steererQuestion.copy(
+            steererHeld = false,
+            escalated = BASE,
+            escalationReason = "the branch is the owner's call",
+            escalationBy = "conversation",
+            escalationSession = "example-session-1",
+        )
+        FakeOrreryServer().use { server ->
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent {
+                MaterialTheme {
+                    EpicQuestion(detail(questions = listOf(escalated)), "q1", BASE, client)
+                }
+            }
+
+            composeRule.onNodeWithTag("ask-question").assertTextEquals("Which branch should it build on?")
+            composeRule.onNodeWithTag("ask-escalation")
+                .assertTextEquals("escalated by session example-session-1: the branch is the owner's call")
+            composeRule.onAllNodesWithTag("epic-steerer-question").assertCountEquals(0)
+        }
+    }
+
+    @Test
     fun aLimitWaitGivesOneResumeNowThatTriesBeforeTheReset() {
         var resumes = 0
         composeRule.setContent {
@@ -247,7 +350,19 @@ class EpicAskTest {
         composeRule.setContent {
             MaterialTheme {
                 NowAsk(
-                    detail = detail(steps = listOf(step())),
+                    detail = detail(
+                        steps = listOf(step()),
+                        buildTasks = listOf(
+                            EpicBuildTaskRow(
+                                id = "T1",
+                                title = "Example task",
+                                status = "open",
+                                stage = "",
+                                red = null,
+                                green = null,
+                            ),
+                        ),
+                    ),
                     now = BASE,
                     onAnswer = { _, _, _ -> },
                     onRetry = {},

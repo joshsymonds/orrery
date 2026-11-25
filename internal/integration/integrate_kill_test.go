@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -147,7 +148,7 @@ func integrateKillSeed(t *testing.T, r *buildRig, gate store.EpicGate) {
 	if err = st.AcceptTask(ctx, buildRigEpic, task.Seq, accepted, "reviewed"); err != nil {
 		t.Fatalf("accept task: %v", err)
 	}
-	if err = build.CreateBranch(ctx, r.repo, buildRigEpic, r.base); err != nil {
+	if err = build.CreateBranch(ctx, hostexec.NewLocal(), r.repo, buildRigEpic, r.base); err != nil {
 		t.Fatalf("create epic branch: %v", err)
 	}
 	if err = st.Close(); err != nil {

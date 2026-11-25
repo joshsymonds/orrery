@@ -11,24 +11,23 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// Release is the release kind. Its run takes the repository's release slot or waits for it, prepares and gates the
-// release candidate, has the release integrator finish a merge of origin's commit that conflicts, sends the release back
-// to planning when the integrator stopped on a change to the candidate, starts the plan that replans it for an owner's
-// correction and resumes it once that plan has ended, has its release reviewers hold the candidate before the first
-// release step, starts each release step in order, stores each end first, stops on any failure, judges the
-// postconditions, and ends the epic released, or done when it has no release steps.
+// Release is the release kind. Its run begins the release of a clean epic at once, prepares the release candidate, has
+// the release integrator merge origin's commit into a tip that lacks it and verify the merged tree, sends the release
+// back to planning when the integrator stopped on a change to the candidate or a release reviewer refused it, starts the
+// plan that replans it for an owner's correction and resumes it once that plan has ended, has its release reviewers hold
+// the candidate before the first release step, starts each release step in order, stores each end first, stops on any
+// failure, judges the postconditions, and ends the epic released, or done when it has no release steps.
 type Release struct{}
 
 // The actions a release run takes beyond the ones every kind shares.
 const (
-	ActTake       ActionKind = "take"
+	ActBegin      ActionKind = "begin"
 	ActIntegrator ActionKind = "integrator"
 	ActStep       ActionKind = "step"
 	ActJudge      ActionKind = "judge"
 	ActRecord     ActionKind = "record"
 	ActStop       ActionKind = "stop"
 	ActEnding     ActionKind = "ending"
-	ActFree       ActionKind = "free"
 	ActReplan     ActionKind = "replan"
 	ActResume     ActionKind = "resume"
 )
@@ -49,11 +48,12 @@ const (
 	outcomeReleased = "released"
 )
 
-// ReleaseResult is the result a release prepare writes to its run: the error that stopped it, whether the revision it
-// records is behind the target, the candidate it records and the tip the candidate was made from. A merge of origin's
-// commit into the tip that conflicts records no candidate: it records origin's commit, the branch of origin it was
-// fetched from and the paths that conflict, and the release integrator makes the candidate. The release kind reads it
-// and the executor writes and reads it, so it is defined once, here.
+// ReleaseResult is the result a release prepare writes to its run: the error that stopped it, whether the tip is behind
+// the target, the candidate it records and the tip the candidate was made from. A tip that holds origin's commit is the
+// candidate. A tip that lacks it records no candidate: it records origin's commit as Origin, the branch of origin it was
+// fetched from and the paths git's merge of the two conflicts in, none for a merge that is clean, and the release
+// integrator makes the candidate. The release kind reads it and the executor writes and reads it, so it is defined
+// once, here.
 type ReleaseResult struct {
 	Error     string   `json:"error"`
 	Behind    bool     `json:"behind"`
@@ -64,11 +64,11 @@ type ReleaseResult struct {
 	Conflicts []string `json:"conflicts,omitempty"`
 }
 
-// Decide decides a release run from its epic, the release slot and the epic's release runs. A released or done epic
-// frees the slot it holds and otherwise ends passed, a clean epic ends done or takes the slot, a releasing epic goes on
-// with its candidate, its release steps and its judge, a stopped epic whose run a retry turned running is sent back to
-// planning (replanAction), a correcting epic starts its release's replan plan when none has started and resumes the
-// release once that plan has ended (resumeAction), and any other phase gives none (Idle).
+// Decide decides a release run from its epic and the epic's release runs. A released or done epic ends passed, a clean
+// epic ends done or begins its release, a releasing epic goes on with its candidate, its release steps and its judge, a
+// stopped epic whose run a retry turned running is sent back to planning (replanAction), a correcting epic starts its
+// release's replan plan when none has started and resumes the release once that plan has ended (resumeAction), and any
+// other phase gives none (Idle).
 func (Release) Decide(node Node, rows Rows) Action {
 	decide, ok := releaseDecision(rows.Epic.Phase)
 	if !ok {
@@ -89,7 +89,7 @@ func (Release) Idle(phase string) bool {
 func releaseDecision(phase string) (func(store.NodeRun, Rows) Action, bool) {
 	switch phase {
 	case phaseReleased, phaseDone:
-		return func(_ store.NodeRun, rows Rows) Action { return releaseEnded(rows) }, true
+		return releaseEnded, true
 	case store.PhaseClean:
 		return func(_ store.NodeRun, rows Rows) Action { return releaseClean(rows) }, true
 	case store.PhaseReleasing:
@@ -104,7 +104,8 @@ func releaseDecision(phase string) (func(store.NodeRun, Rows) Action, bool) {
 }
 
 // replanAction sends the release of run back to planning when a replan release run of its attempt is stored, with that
-// run's reason, the report of the round of the release integrator that asked for it. Otherwise it gives none.
+// run's reason: the report of the round of the release integrator that asked for it, or of the release review that
+// refused the candidate when a retry replans that refusal. Otherwise it gives none.
 func replanAction(run store.NodeRun, rows Rows) Action {
 	replan, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartReplan && r.Attempt == run.Attempt
@@ -133,11 +134,8 @@ func resumeAction(run store.NodeRun, rows Rows) Action {
 	}
 }
 
-// releaseEnded frees the release slot an epic that is released or done holds, and ends it passed otherwise.
-func releaseEnded(rows Rows) Action {
-	if holdsSlot(rows) {
-		return Action{Kind: ActFree}
-	}
+// releaseEnded ends a released or done epic's release passed.
+func releaseEnded(store.NodeRun, Rows) Action {
 	return Action{Kind: ActEnd, Outcome: outcomePassed}
 }
 
@@ -149,21 +147,20 @@ func endingAction(outcome string, rows Rows) Action {
 	}
 }
 
-// releaseClean ends a clean epic with no release steps done, gives none while another epic holds the release slot, and
-// takes the slot otherwise.
+// releaseClean ends a clean epic with no release steps done, and otherwise begins its release at once.
 func releaseClean(rows Rows) Action {
 	if len(rows.Epic.ReleaseSteps) == 0 {
 		return endingAction(outcomeDone, rows)
 	}
-	if rows.Slot != "" && !holdsSlot(rows) {
-		return Action{Kind: ActNone}
-	}
-	return Action{Kind: ActTake}
+	return Action{Kind: ActBegin}
 }
 
-// holdsSlot reports whether the epic holds the release slot of its repository.
-func holdsSlot(rows Rows) bool {
-	return rows.Slot == rows.Epic.ID
+// ownerStopped reports whether the owner stopped the release at attempt: a stop release run of that attempt is stored.
+func ownerStopped(rows Rows, attempt int64) bool {
+	_, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartStop && r.Attempt == attempt
+	})
+	return ok
 }
 
 // releaseRun decides a releasing epic's run. Its candidate comes first, then its release steps in order, the first of
@@ -215,9 +212,9 @@ func staleAt(attempt int64, head string, runs []store.ReleaseRun) bool {
 }
 
 // candidateAction decides a releasing epic whose candidate has not passed. It stops on a candidate that failed at this
-// attempt. Otherwise it prepares the candidate, stops on the error the prepare recorded, and holds the candidate at its
-// done gates when it is behind the target or prepared again at this attempt. Any other candidate is recorded. A prepare
-// that found the merge of origin's commit conflicting hands the merge to the release integrator (integratorAction).
+// attempt. A prepare that found origin's commit not in the tip hands its merge to the release integrator
+// (integratorAction), whether that merge conflicts or not. Otherwise it prepares the candidate, stops on the error the
+// prepare recorded, and records the candidate it prepared, at any generation.
 func candidateAction(run store.NodeRun, rows Rows) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartCandidate && !r.Passed && r.Attempt == run.Attempt
@@ -229,15 +226,11 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	if err != nil {
 		return Action{Kind: ActStop, Output: err.Error()}
 	}
-	if len(result.Conflicts) > 0 {
+	if result.Origin != "" {
 		return integratorAction(run, rows)
 	}
 	if run.Revision == "" {
 		return prepareRelease(result, rows)
-	}
-	generation := replacedCount(run.Attempt, rows.Releases)
-	if result.Behind || generation > 0 {
-		return gatesAction(run, rows, generation)
 	}
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
 }
@@ -246,22 +239,15 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 // that did not pass. Each one is a candidate the attempt has prepared again, so it is the generation of the candidate
 // the run has now.
 func replacedCount(attempt int64, runs []store.ReleaseRun) int64 {
-	var count int64
-	for _, run := range runs {
-		if run.Part == store.ReleasePartVerify && !run.Passed && run.Attempt == attempt {
-			count++
-		}
-	}
-	return count
+	return store.ReleaseGeneration(runs, attempt)
 }
 
-// gatedRun returns run as the Done gates of its candidate are walked under, at generation. The first candidate of an
-// attempt is walked under the run's own id. A candidate prepared again is walked under an id that carries its generation,
-// so the checks the attempt ran for the candidate it replaces cannot decide its gates.
+// gatedRun returns run as the work of its candidate at generation runs under: its release integrator, its release
+// reviewers and its first release step. The first candidate of an attempt runs under the run's own id. A candidate
+// prepared again runs under an id that carries its generation, so the work the attempt ran for the candidate it replaces
+// cannot decide its own.
 func gatedRun(run store.NodeRun, generation int64) store.NodeRun {
-	if generation > 0 {
-		run.ID = fmt.Sprintf("%s-generation-%d", run.ID, generation)
-	}
+	run.ID = store.ReleaseGatedID(run.ID, generation)
 	return run
 }
 
@@ -288,23 +274,6 @@ func prepareRelease(result ReleaseResult, rows Rows) Action {
 	return Action{Kind: ActStop, Output: result.Error}
 }
 
-// gatesAction decides a candidate held at the epic's Done gates, walked as an integrate run walks them (doneGates), under
-// the generation of the candidate. It returns the action a gate that is not decided asks for, a gate lost at a restart
-// twice stops the release with the park's reason, a gate that did not pass stops it, and the candidate is recorded once
-// every gate has passed.
-func gatesAction(run store.NodeRun, rows Rows, generation int64) Action {
-	gate, act, settled := doneGates(gatedRun(run, generation), rows)
-	switch {
-	case !settled && act.Kind == ActPark:
-		return Action{Kind: ActStop, Output: act.Output}
-	case !settled:
-		return act
-	case gate != "":
-		return Action{Kind: ActStop, Output: fmt.Sprintf("done gate %s did not pass at %s", gate, run.Revision)}
-	}
-	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
-}
-
 // walkSteps decides a releasing epic whose candidate passed at candidate. Each release step in order passes at any
 // attempt or is decided by stepAction from the head of the last step before it, and the judge follows the last step.
 func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
@@ -324,8 +293,8 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
 // attempt, and records a step whose end is stored. Otherwise it waits while the step runs, or starts it when it has no
-// row, unless the epic does not hold the slot, is paused, the step's undo is none after an earlier failure, or the first
-// step's candidate is not yet held by the release reviewers (releaseReviewGate).
+// row, unless the owner stopped the release at this attempt, is paused, the step's undo is none after an earlier
+// failure, or the first step's candidate is not yet held by the release reviewers (releaseReviewGate).
 func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
@@ -337,15 +306,15 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 		}
 	}
 	label := fmt.Sprintf("release %d", position)
-	id := store.NodeWorkID(run.ID, run.Attempt, label)
+	id := store.ReleaseStepWorkID(run, rows.Releases, position)
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, []string{label, start})
 	}
-	if !holdsSlot(rows) {
+	if ownerStopped(rows, run.Attempt) {
 		return Action{
 			Kind: ActStop,
 			Output: fmt.Sprintf(
-				"release step %d (%s) did not start: this epic does not hold the release slot",
+				"release step %d (%s) did not start: the owner stopped the release",
 				position, step.Step,
 			),
 		}
@@ -372,29 +341,30 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 
 // releaseReviewGate decides whether the release reviewers have held candidate, the candidate the first release step
 // starts from. Each enabled reviewer of the release stage, in merged order, reviews candidate once at this attempt, as its
-// step is started and recorded: a review that failed stops the release with its reason, and the next reviewer waits for
-// the one before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step
-// has ended. It holds when no release reviewer is enabled.
+// step is started and recorded: a review that failed is decided by reviewRefused, and the next reviewer waits for the one
+// before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step has
+// ended. It holds when no release reviewer is enabled.
 func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, bool) {
 	generation := replacedCount(run.Attempt, rows.Releases)
 	gated := gatedRun(run, generation)
 	enabled := reviewers.ForStage(rows.Epic.Reviewers, reviewers.StageRelease)
 	for i, reviewer := range enabled {
 		position := releaseReviewPosition(generation, int64(len(enabled)), int64(i+1))
+		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
+		row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id })
 		review, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 			return r.Part == store.ReleasePartReview && r.Attempt == run.Attempt && r.Position == position
 		})
 		if ok {
 			if !review.Passed {
-				return Action{Kind: ActStop, Output: review.Reason}, false
+				return reviewRefused(rows, row, review, candidate), false
 			}
 			continue
 		}
-		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
 		items := []string{
 			store.ReleasePartReview, candidate, reviewer.Name, strconv.FormatInt(position, 10),
 		}
-		if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
+		if found {
 			return recordAction(row, items), false
 		}
 		return Action{Kind: ActStep, IDs: []string{id}, Items: items}, false
@@ -402,10 +372,42 @@ func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, 
 	return Action{}, true
 }
 
+// reviewRefused decides the release whose reviewer, whose step is row, recorded review failed for candidate. A reviewer
+// that refused the candidate with findings (ReleaseRefusalClaims) sends the release back to planning as ActReplan: its
+// output and reason are the review's reason, and its items name the epic's branch tip the candidate was made from as the
+// replan's head. Once per tip: when an earlier replan already recorded that tip, the planner left the branch where it was,
+// and the release stops with the review's reason and a note saying so. Any other failed review stops it with its reason.
+func reviewRefused(rows Rows, row store.StepRow, review store.ReleaseRun, candidate string) Action {
+	tip, ok := candidateTip(rows.Releases, candidate)
+	if !ok || len(ReleaseRefusalClaims(row)) == 0 {
+		return Action{Kind: ActStop, Output: review.Reason}
+	}
+	if _, replanned := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartReplan && r.Head == tip
+	}); replanned {
+		return Action{Kind: ActStop, Output: review.Reason + "; the epic's branch has not moved since the last replan"}
+	}
+	return Action{
+		Kind: ActReplan, Output: review.Reason, Reason: review.Reason,
+		Items: []string{store.ReleasePartReplan, tip},
+	}
+}
+
+// candidateTip returns the epic's branch tip that the latest passed candidate run whose head is candidate was made
+// from, and false when no such run records one.
+func candidateTip(runs []store.ReleaseRun, candidate string) (string, bool) {
+	for _, run := range slices.Backward(runs) {
+		if run.Part == store.ReleasePartCandidate && run.Passed && run.Head == candidate {
+			return run.Start, run.Start != ""
+		}
+	}
+	return "", false
+}
+
 // releaseReviewPosition returns the position of the review run of the release reviewer at index, counted from 1 among the
 // n enabled release reviewers, which reviews the candidate of generation. Each generation numbers its reviews after those
-// of the generation before it, as integratorPosition numbers the rounds of the release integrator, so every review of an
-// attempt has a position of its own.
+// of the generation before it, as integratorPosition numbers the release integrator's round of each generation, so every
+// review of an attempt has a position of its own.
 func releaseReviewPosition(generation, n, index int64) int64 {
 	return generation*n + index
 }
@@ -443,7 +445,8 @@ func undoNoneStopped(run store.NodeRun, rows Rows, position int64, step store.Ep
 }
 
 // judgeAction decides the judge after the last release step, from the candidate. It ends released when the judge of this
-// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it.
+// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it. It
+// stops without starting the judge when the owner stopped the release at this attempt.
 func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
 	judged, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartJudge && r.Attempt == run.Attempt
@@ -459,8 +462,8 @@ func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
 	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
 		return recordAction(row, items)
 	}
-	if !holdsSlot(rows) {
-		return Action{Kind: ActStop, Output: "the judge did not start: this epic does not hold the release slot"}
+	if ownerStopped(rows, run.Attempt) {
+		return Action{Kind: ActStop, Output: "the judge did not start: the owner stopped the release"}
 	}
 	if rows.Epic.Paused {
 		return Action{Kind: ActNone}

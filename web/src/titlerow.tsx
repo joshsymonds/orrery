@@ -22,12 +22,12 @@ function pillClass(base: string, tone: WordTone | undefined): string {
   return tone ? `${base} t-${tone}` : base;
 }
 
-// TitleRow is the title row every page shares, as round 6 draws it: one line holding the back button, the breadcrumb, the
-// state, the blocker, and the commands the children are, pushed to its end. The line never wraps: the page's crumb is
-// cut short to keep the commands in view, and carries its whole text as its title when it is text. A › stands between
-// crumbs. Back and every crumb but the last call their handlers; a crumb with no handler is a plain label, and the last
-// crumb is the page itself, a span marked as the current page. A place crumb, a project, draws as the inbox draws a
-// project's name. Every text is a
+// TitleRow is the title row every page shares, as round 6 draws it: one line holding the back button, when it is given, the
+// breadcrumb, the state, the blocker, and the commands the children are, pushed to its end. The line never wraps: the
+// page's crumb is cut short to keep the commands in view, and carries its whole text as its title when it is text. A ›
+// stands between crumbs. Back, when given, and every crumb but the last call their handlers; a crumb with no handler is a
+// plain label, and the last crumb is the page itself, a span marked as the current page. A place crumb, a project, draws
+// as the inbox draws a project's name. Every text is a
 // child text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the first.
 // A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when given.
 export function TitleRow({
@@ -42,7 +42,7 @@ export function TitleRow({
   children,
 }: {
   crumbs: Crumb[];
-  onBack: () => void;
+  onBack?: () => void;
   state?: string;
   stateTone?: WordTone;
   blocker?: string;
@@ -56,9 +56,11 @@ export function TitleRow({
     <>
       <header class="title-row">
         <div class="line1">
-          <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
-            ‹
-          </button>
+          {onBack === undefined ? null : (
+            <button type="button" class="back" aria-label="back" onClick={() => onBack()}>
+              ‹
+            </button>
+          )}
           <nav class="crumbs" aria-label="where">
             {crumbs.map((crumb, index) => (
               <Fragment key={index}>

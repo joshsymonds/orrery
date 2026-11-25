@@ -37,6 +37,7 @@ function taskOf(task: string, place: RecordTask["place"], tone: RecordTask["tone
     cells: cellsOf(place, tone),
     words: "implement · doing",
     since: 0,
+    labels: [task],
     ...init,
   };
 }

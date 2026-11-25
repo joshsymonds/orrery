@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -120,29 +121,43 @@ func (r *Runner) ensureBranch(ctx context.Context, epic store.EpicRow) string {
 	return tip
 }
 
+// hostOf returns the Host epic lives on, which the Runner's hosts resolves by the epic's Host. A name that resolves to
+// no Host is an error that names the epic.
+func (r *Runner) hostOf(epic store.EpicRow) (hostexec.Host, error) {
+	host, err := r.hosts.Host(epic.Host)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic.ID, err)
+	}
+	return host, nil
+}
+
 // branchTip is ensureBranch's work: it returns the tip of epic's branch, creating or adopting the branch as the epic's
 // state allows, and "" with no error when the epic is paused or parked and has no created branch.
 func (r *Runner) branchTip(ctx context.Context, epic store.EpicRow) (string, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", err
+	}
 	if epic.Branch == branchCreated {
-		return r.createdTip(ctx, epic)
+		return r.createdTip(ctx, host, epic)
 	}
 	if epic.Paused || epic.Parked != "" {
 		return "", nil
 	}
-	tip, exists, err := BranchTip(ctx, epic.Repository, epic.ID)
+	tip, exists, err := BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", err
 	}
 	if exists {
-		return r.adopt(ctx, epic, tip)
+		return r.adopt(ctx, host, epic, tip)
 	}
-	return r.create(ctx, epic)
+	return r.create(ctx, host, epic)
 }
 
-// createdTip returns the tip of the branch of a created epic. A branch that is gone parks the epic, unless the epic is
-// parked already, so the owner is told once and not on every pass.
-func (r *Runner) createdTip(ctx context.Context, epic store.EpicRow) (string, error) {
-	tip, exists, err := BranchTip(ctx, epic.Repository, epic.ID)
+// createdTip returns the tip of the branch of a created epic on host. A branch that is gone parks the epic, unless the
+// epic is parked already, so the owner is told once and not on every pass.
+func (r *Runner) createdTip(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, error) {
+	tip, exists, err := BranchTip(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", err
 	}
@@ -158,11 +173,11 @@ func (r *Runner) createdTip(ctx context.Context, epic store.EpicRow) (string, er
 // adopt returns the tip of the existing branch of an epic that has no branch state yet or is creating one. The branch
 // is the epic's only when the epic left it creating at its base and nothing has it checked out; any other existing
 // branch parks the epic.
-func (r *Runner) adopt(ctx context.Context, epic store.EpicRow, tip string) (string, error) {
+func (r *Runner) adopt(ctx context.Context, host hostexec.Host, epic store.EpicRow, tip string) (string, error) {
 	if epic.Branch != branchCreating || tip != epic.Base {
 		return "", r.park(ctx, epic.ID, "epic/"+Slug(epic.ID)+" exists")
 	}
-	checked, err := BranchCheckedOut(ctx, epic.Repository, epic.ID)
+	checked, err := BranchCheckedOut(ctx, host, epic.Repository, epic.ID)
 	if err != nil {
 		return "", err
 	}
@@ -174,11 +189,11 @@ func (r *Runner) adopt(ctx context.Context, epic store.EpicRow, tip string) (str
 
 // create makes the branch of an epic that has none: it marks the branch creating, creates it at the base, and marks it
 // created. A branch that cannot be created parks the epic with the reason it could not.
-func (r *Runner) create(ctx context.Context, epic store.EpicRow) (string, error) {
+func (r *Runner) create(ctx context.Context, host hostexec.Host, epic store.EpicRow) (string, error) {
 	if err := r.store.SetEpicBranch(ctx, epic.ID, branchCreating); err != nil {
 		return "", fmt.Errorf("mark branch of epic %s creating: %w", epic.ID, err)
 	}
-	if err := r.git.CreateBranch(ctx, epic.Repository, epic.ID, epic.Base); err != nil {
+	if err := r.git.CreateBranch(ctx, host, epic.Repository, epic.ID, epic.Base); err != nil {
 		return "", r.park(ctx, epic.ID, "epic/"+Slug(epic.ID)+" exists: "+err.Error())
 	}
 	return r.markCreated(ctx, epic.ID, epic.Base)
@@ -222,7 +237,7 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 	if task.Build.Stage != StageImplement || view.Step == nil || view.Step.End == "" {
 		return view, nil
 	}
-	view.Head = r.head(ctx, view.Step.Workspace)
+	view.Head = r.head(ctx, epic, view.Step.Workspace)
 	if task.Build.Refs != "" {
 		moves, err := r.refMoves(ctx, epic, task.Build.Refs, task.Build.Base, view.Head)
 		if err != nil {
@@ -234,7 +249,8 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 }
 
 // readUnit sets the parts of view that describe task's current unit: its evidence run or step by the derived id of the
-// unit, the reproduction check of a test item's green unit, and how many environment reruns ran just before it.
+// unit, the reproduction check of a test item's green unit, the step of the test run a verify unit waits on, and how
+// many environment reruns ran just before it.
 func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
 	runID, stepID := unitIDs(unitScope(epic.ID, task), task.Seq, task.Build)
 	if runID != "" {
@@ -261,6 +277,20 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 	}
 	if found {
 		view.Repro = &repro
+	}
+	if run, pending := pendingTestRun(task); pending && task.Build.Stage == StageVerify {
+		id := testRunID(unitScope(epic.ID, task), task.Seq, task.Build, run.Position)
+		var (
+			row     store.StepRow
+			started bool
+		)
+		row, started, err = r.stepRow(ctx, id)
+		if err != nil {
+			return err
+		}
+		if started {
+			view.TestRunStep = &row
+		}
 	}
 	view.EnvironmentBefore, err = r.environmentBefore(ctx, epic, task)
 	return err
@@ -331,11 +361,15 @@ func answered(questions []store.EpicQuestion, seq int64) bool {
 
 // peers returns the tasks of epic as a request reads them, with the integration each has by the epic's node runs.
 func (r *Runner) peers(ctx context.Context, epic store.EpicRow) ([]Peer, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return nil, err
+	}
 	runs, err := r.store.NodeRuns(ctx, epic.ID)
 	if err != nil {
 		return nil, fmt.Errorf("read node runs of epic %s: %w", epic.ID, err)
 	}
-	return peersOf(ctx, epic, runs)
+	return peersOf(ctx, host, epic, runs)
 }
 
 // noVerify reports whether the task-stage reviewer at task's gate position has verify off. The gate positions are the
@@ -472,10 +506,14 @@ func (r *Runner) environmentAt(
 	return ok && evidence.Current(run.Spec, runItemOf(task)) && run.NotCaptured == store.NotCapturedEnvironment, nil
 }
 
-// head returns the commit HEAD names in the worktree at dir. A worktree that cannot be read has no head: the error is
-// logged and "" is returned, so the implementer's return must then name its commit.
-func (r *Runner) head(ctx context.Context, dir string) string {
-	head, err := runGit(ctx, dir, "rev-parse", "HEAD")
+// head returns the commit HEAD names in the worktree at dir on epic's host. A worktree that cannot be read has no head:
+// the error is logged and "" is returned, so the implementer's return must then name its commit.
+func (r *Runner) head(ctx context.Context, epic store.EpicRow, dir string) string {
+	var head string
+	host, err := r.hostOf(epic)
+	if err == nil {
+		head, err = runGit(ctx, host, dir, "rev-parse", "HEAD")
+	}
 	if err != nil {
 		r.logger.WarnContext(ctx, "read implementer head", "dir", dir, "err", err)
 		return ""
@@ -484,13 +522,16 @@ func (r *Runner) head(ctx context.Context, dir string) string {
 }
 
 // refMoves returns the ref moves between the snapshot before and a snapshot of epic's repository now that the implementer
-// is blamed for. The implementer's commits are those between base, the commit its step started at, and head, the HEAD of
-// its worktree. ScopeMoves leaves out each move that neither parks nor is the epic's own and whose target holds none of
-// those commits. A move of main or of HEAD onto a commit that origin's main reaches, and that holds none of those
-// commits, is told rather than parked. Without origin's main, or without a head to read the commits from, the moves
-// that remain park as Compare reports them.
+// made. The implementer's commits are those between base, the commit its step started at, and head, the HEAD of its
+// worktree. ScopeMoves keeps only the moves of the epic's own refs and the moves whose target holds one of those
+// commits, so a move another worktree or the primary checkout made is no move of the step's. Without a head to read the
+// commits from, only the epic's own refs are kept.
 func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base, head string) ([]RefMove, error) {
-	after, err := snapshotOf(ctx, r.store, epic)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return nil, err
+	}
+	after, err := snapshotOf(ctx, host, r.store, epic)
 	if err != nil {
 		return nil, err
 	}
@@ -498,31 +539,16 @@ func (r *Runner) refMoves(ctx context.Context, epic store.EpicRow, before, base,
 	if err != nil {
 		return nil, fmt.Errorf("compare refs of epic %s: %w", epic.ID, err)
 	}
-	moves, err = ScopeMoves(ctx, epic.Repository, epic.ID, moves, base, head)
+	moves, err = ScopeMoves(ctx, host, epic.Repository, epic.ID, moves, base, head)
 	if err != nil {
 		return nil, fmt.Errorf("scope ref moves of epic %s: %w", epic.ID, err)
-	}
-	origin, ok, err := originMain(ctx, epic.Repository)
-	if err != nil {
-		return nil, fmt.Errorf("read origin main of epic %s: %w", epic.ID, err)
-	}
-	if !ok || head == "" {
-		return moves, nil
-	}
-	steps, err := stepCommits(ctx, epic.Repository, base, head)
-	if err != nil {
-		return nil, fmt.Errorf("read implementer commits of epic %s: %w", epic.ID, err)
-	}
-	moves, err = originTells(ctx, epic.Repository, moves, origin, steps)
-	if err != nil {
-		return nil, fmt.Errorf("check ref moves of epic %s against origin: %w", epic.ID, err)
 	}
 	return moves, nil
 }
 
 // snapshotOf returns a snapshot of epic's repository. It leaves out the branch of every epic that shares the
 // repository, since an epic's own branch is the work the build commits and not a move the implementer made.
-func snapshotOf(ctx context.Context, s Store, epic store.EpicRow) (string, error) {
+func snapshotOf(ctx context.Context, host hostexec.Host, s Store, epic store.EpicRow) (string, error) {
 	epics, err := s.Epics(ctx)
 	if err != nil {
 		return "", fmt.Errorf("list epics: %w", err)
@@ -533,5 +559,5 @@ func snapshotOf(ctx context.Context, s Store, epic store.EpicRow) (string, error
 			exclude = append(exclude, BranchRef(other.ID))
 		}
 	}
-	return Snapshot(ctx, epic.Repository, exclude)
+	return Snapshot(ctx, host, epic.Repository, exclude)
 }

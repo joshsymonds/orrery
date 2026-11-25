@@ -180,3 +180,60 @@ test("OrchestratorPark: a planner-parked epic with a park and a failed release s
     { kind: "question", text: "alpha asks: Use Postgres?", summary: "", epic: "repo-a/alpha", question: "Q1" },
   ]);
 });
+
+test("SteererHolds: a question the epic's steerer holds raises no need", () => {
+  assert.deepEqual(needsFor({ questions: [{ id: "Q1", text: "Use Postgres?", steererHeld: true }] }), []);
+});
+
+test("SteererHolds: beside a steerer-held question, the owner's question still raises its need", () => {
+  const needs = needsFor({
+    questions: [
+      { id: "Q1", text: "Use Postgres?", steererHeld: true },
+      { id: "Q2", text: "Ship on Friday?" },
+    ],
+  });
+  assert.deepEqual(
+    needs.map((need) => `${need.kind} ${need.question}`),
+    ["question Q2"],
+  );
+});
+
+test("SteererHolds: the same question once escalated raises a question need", () => {
+  const needs = needsFor({
+    questions: [
+      { id: "Q1", text: "Use Postgres?", steererHeld: false, escalated: 1700000300n, escalationReason: "owner's call" },
+    ],
+  });
+  assert.deepEqual(needs, [
+    { kind: "question", text: "alpha asks: Use Postgres?", summary: "", epic: "repo-a/alpha", question: "Q1" },
+  ]);
+});
+
+test("SteererHolds: a steerer park raises no park need, and none for a failed release step", () => {
+  assert.deepEqual(
+    needsFor({
+      parked: "workflow node gate failed",
+      steererParked: true,
+      questions: [{ id: "Q1", text: "Retry the gate?", steererHeld: true }],
+    }),
+    [],
+  );
+  assert.deepEqual(
+    needsFor({
+      parked: "release step 2 (publish) failed",
+      steererParked: true,
+      releaseSteps: [{ position: 2n, step: "publish", state: "failed", reason: "registry 503" }],
+    }),
+    [],
+  );
+});
+
+test("SteererHolds: a steerer-parked epic still raises a held step's other need", () => {
+  const needs = needsFor({
+    parked: "budget",
+    steererParked: true,
+    steps: [{ id: "s1", task: "web-line", held: true }],
+  });
+  assert.deepEqual(textsOf(needs), ["alpha: web-line held"]);
+  assert.equal(needs[0].kind, "other");
+});

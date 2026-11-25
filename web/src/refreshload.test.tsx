@@ -363,9 +363,9 @@ const firstLoad = counts(1, 5, 1, 1, 1);
 // Before the page reloaded by what an event can change, the same visible minute made 600 epics lists, 180 Gets (12
 // ticks of 5 live epics, and each card reading its epic each second) and 600 reads of each of the three rows lists, and
 // the first load made 7 Gets. The hidden minute made the same work as the visible one.
-// These two simulate a minute in 600 steps of renders, so they take longer than the suite's 5 s default; 30 s still
-// bounds a hang.
-test("RefreshLoad: a visible tab over a streaming agent, five live epics and two epic cards, for a minute", { timeout: 30_000 }, async (t) => {
+// These two simulate a minute in 600 steps of renders, the slowest tests here; the suite's 120 s limit still bounds a
+// hang.
+test("RefreshLoad: a visible tab over a streaming agent, five live epics and two epic cards, for a minute", async (t) => {
   const scenario = await runScenario(t, false);
   assert.deepEqual(scenario.first, firstLoad, "the first load");
   // The agent's streaming text and its turns' ends change neither the rows nor the epics, so only the 12 ticks load:
@@ -378,7 +378,7 @@ test("RefreshLoad: a visible tab over a streaming agent, five live epics and two
   assert.deepEqual(scenario.shownStreams, open, "the streams of a tab that stayed visible");
 });
 
-test("RefreshLoad: a hidden tab over a streaming agent, five live epics and two epic cards, for a minute", { timeout: 30_000 }, async (t) => {
+test("RefreshLoad: a hidden tab over a streaming agent, five live epics and two epic cards, for a minute", async (t) => {
   const scenario = await runScenario(t, true);
   assert.deepEqual(scenario.first, firstLoad, "the first load");
   assert.deepEqual(scenario.minute, counts(0, 0, 0, 0, 0), "the hidden minute");

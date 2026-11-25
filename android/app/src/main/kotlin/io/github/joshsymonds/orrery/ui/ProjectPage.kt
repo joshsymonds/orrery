@@ -35,8 +35,9 @@ private const val STATE_WAITING = "waiting"
 /**
  * One project of the inbox tree as a page: its name in the title row with Back, its path and host, its counts, then its
  * Conversations, each with its state, title, what it last said or asks, and age, and under each the epics and contracts
- * it steers as WorkCards. The ended line unfolds the ended conversations, shared with the inbox's own ended line. A foot
- * bar starts a session in the project's directory, and is absent when the project has none.
+ * it steers as WorkCards, with its ended epics folded under a line. The ended line unfolds the ended conversations,
+ * shared with the inbox's own ended line. A foot bar starts a session in the project's directory, and is absent when the
+ * project has none.
  *
  * The page shows the tree [state] holds at once, reads the tree once at launch and keeps the answer in [state]. A tap on
  * a conversation opens its pane, and a WorkCard opens what the inbox opens for its item key: an epic through
@@ -71,7 +72,8 @@ fun ProjectPageScreen(
 
     val loaded = data
     val projects = remember(loaded, state.view) {
-        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view) }.orEmpty()
+        loaded?.let { inboxTree(it.panes, it.archived, it.epics, it.details, it.contracts, it.host, state.view, it.designs) }
+            .orEmpty()
     }
     val project = projects.firstOrNull { it.key == projectKey }
     val paneOf = remember(projects) {
@@ -79,7 +81,7 @@ fun ProjectPageScreen(
     }
     val conversationOfContract = remember(projects) {
         projects.flatMap { it.convos + it.ended }.flatMap { convo ->
-            convo.hung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
+            convo.allHung.filterIsInstance<ContractNode>().map { it.key to convo.pane }
         }.toMap()
     }
     val onOpen: (String) -> Unit = { key ->
@@ -129,9 +131,9 @@ private fun ColumnScope.ProjectBody(
     ) {
         ProjectHead(project, now)
         Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
-            SectionHead("Conversations", count = project.convos.size.toString())
+            SectionHead("Conversations", count = conversationsOf(project).toString())
             for (convo in project.convos) {
-                ConvoBlock(convo, now, onOpen)
+                ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
             }
         }
         if (project.ended.isNotEmpty()) {
@@ -139,7 +141,7 @@ private fun ColumnScope.ProjectBody(
             EndedLine(project, unfolded, onClick = { state.toggleEnded(project.key) })
             if (unfolded) {
                 for (convo in project.ended) {
-                    ConvoBlock(convo, now, onOpen)
+                    ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
                 }
             }
         }
@@ -163,7 +165,7 @@ private fun ProjectHead(project: Project, now: Long) {
     val place = listOf(project.path, if (project.host.isEmpty()) "" else "on ${project.host}")
         .filter { it.isNotEmpty() }
         .joinToString(" · ")
-    val epics = project.convos.sumOf { convo -> convo.hung.count { it is EpicNode } }
+    val epics = project.convos.sumOf { convo -> convo.allHung.count { it is EpicNode } }
     val waits = projectWaiting(project)
     val newest = newestChangeOf(project)
     Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
@@ -172,7 +174,7 @@ private fun ProjectHead(project: Project, now: Long) {
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.sixteen)) {
             Text(
-                countWords(project.convos.size, "conversation", "conversations"),
+                countWords(conversationsOf(project), "conversation", "conversations"),
                 style = OrreryTokens.Type.small,
                 color = OrreryTokens.Ink.two,
             )
@@ -195,33 +197,22 @@ private fun ProjectHead(project: Project, now: Long) {
     }
 }
 
-/** One conversation and the epics and contracts hung under it, each a WorkCard. A stand-in row has its words instead. */
+/**
+ * One conversation and the epics and contracts hung under it, each a WorkCard, then its folded ended epics under a fold
+ * line, which opens to them as WorkCards while [foldOpen] holds its key. A row with no pane is an own row: its one thing
+ * draws as its WorkCard alone. A tap on the fold line calls [onFold] with the conversation's key.
+ */
 @Composable
-private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
+private fun ConvoBlock(
+    convo: Convo,
+    now: Long,
+    onOpen: (String) -> Unit,
+    foldOpen: Set<String>,
+    onFold: (String) -> Unit,
+) {
     val pane = convo.pane
     Column(modifier = Modifier.fillMaxWidth()) {
-        if (pane == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("project-convo:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-            ) {
-                Text(
-                    convoLineOf(convo, now),
-                    modifier = Modifier.weight(1f),
-                    style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Ink.three,
-                )
-                val changed = convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
-                if (changed != 0L) {
-                    Text(
-                        ageOf((now - changed).coerceAtLeast(0L)),
-                        modifier = Modifier.testTag("project-age:${convo.key}"),
-                        style = OrreryTokens.Type.small,
-                        color = OrreryTokens.Ink.three,
-                    )
-                }
-            }
-        } else {
+        if (pane != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -257,15 +248,24 @@ private fun ConvoBlock(convo: Convo, now: Long, onOpen: (String) -> Unit) {
                 }
             }
         }
-        if (convo.hung.isNotEmpty()) {
+        if (convo.allHung.isNotEmpty() || convo.folded.isNotEmpty()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = OrreryTokens.Space.sixteen),
                 verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             ) {
-                for (hung in convo.hung) {
+                for (hung in convo.allHung) {
                     WorkCard(card = workCardOf(hung, now), onOpen = onOpen)
+                }
+                if (convo.folded.isNotEmpty()) {
+                    val open = convo.key in foldOpen
+                    FoldLine(convo, open, onFold = { onFold(convo.key) })
+                    if (open) {
+                        for (epic in convo.folded) {
+                            WorkCard(card = workCardOf(epic, now), onOpen = onOpen)
+                        }
+                    }
                 }
             }
         }
@@ -295,12 +295,15 @@ private fun EndedLine(project: Project, unfolded: Boolean, onClick: () -> Unit) 
 
 private fun countWords(count: Int, one: String, many: String): String = "$count ${if (count == 1) one else many}"
 
+/** A project's conversations as the page counts them: the rows with a pane, not the own rows of things with none. */
+private fun conversationsOf(project: Project): Int = project.convos.count { it.pane != null }
+
 private fun waitsWords(count: Int): String = if (count == 1) "1 thing waits on you" else "$count things wait on you"
 
 /** The newest change among the project's conversations and what hangs under them, unix seconds; zero when none has one. */
 private fun newestChangeOf(project: Project): Long =
     (project.convos + project.ended).maxOfOrNull { convo ->
-        convo.pane?.changed ?: convo.hung.maxOfOrNull { stampOf(it) } ?: 0L
+        convo.pane?.changed ?: convo.allHung.maxOfOrNull { stampOf(it) } ?: 0L
     } ?: 0L
 
 private fun stampOf(hung: Hung): Long = when (hung) {

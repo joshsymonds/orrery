@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -32,16 +33,18 @@ func taskMergeMessage(seq int64, revision string) string {
 // taskIntegratorPrompt renders the prompt of a round of the task integrator that merges task's revision into the
 // candidate in merge: the role text, then the sections Task, Merge, Conflicted paths and Previous attempt, each under
 // a `## ` heading and None. when it has no lines (planner.WriteSection). tasks are the epic's tasks, which name the
-// composed merges on the candidate's side, and previous is the failure the round before met, "" for the first round.
+// composed merges on the candidate's side, and previous is the failure the round before met, "" for the first round. Git
+// runs on host, the host the epic lives on.
 func taskIntegratorPrompt(
-	ctx context.Context, merge integratorMerge, tasks []store.EpicTask, task store.EpicTask, previous string,
+	ctx context.Context, host hostexec.Host, merge integratorMerge, tasks []store.EpicTask, task store.EpicTask,
+	previous string,
 ) (string, error) {
-	base, err := gitOutput(ctx, merge.repo, "merge-base", merge.tip, merge.origin)
+	base, err := gitOutput(ctx, host, merge.repo, "merge-base", merge.tip, merge.origin)
 	if err != nil {
 		return "", err
 	}
 	base = strings.TrimSpace(base)
-	conflicted, err := taskConflictedLines(ctx, merge, tasks, base)
+	conflicted, err := taskConflictedLines(ctx, host, merge, tasks, base)
 	if err != nil {
 		return "", err
 	}
@@ -52,6 +55,15 @@ func taskIntegratorPrompt(
 	planner.WriteSection(&out, "Conflicted paths", conflicted)
 	planner.WriteSection(&out, "Previous attempt", previousLines(previous))
 	return out.String(), nil
+}
+
+// previousLines returns the lines of previous, the failure the commit of the task integrator's round before met, or none
+// for the first round.
+func previousLines(previous string) []string {
+	if previous == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(previous, "\n"), "\n")
 }
 
 // taskLines returns the title and deliverable of task, as `- T<n> <title>` and `  deliverable: <deliverable>`.
@@ -75,9 +87,9 @@ func taskMergeLines(merge integratorMerge, seq int64, base string) []string {
 // side since base that changed the path, newest first, as the task's title and deliverable (taskSideLines). A path no
 // composed merge changed says None.
 func taskConflictedLines(
-	ctx context.Context, merge integratorMerge, tasks []store.EpicTask, base string,
+	ctx context.Context, host hostexec.Host, merge integratorMerge, tasks []store.EpicTask, base string,
 ) ([]string, error) {
-	merges, err := composedMerges(ctx, merge.repo, base, merge.tip)
+	merges, err := composedMerges(ctx, host, merge.repo, base, merge.tip)
 	if err != nil {
 		return nil, err
 	}
@@ -116,8 +128,8 @@ func taskSideLines(composed composedMerge, tasks []store.EpicTask) []string {
 
 // composedMerges returns the merges from base to tip that compose a task, newest first, each with the task's sequence
 // number and the paths it changes from its first parent.
-func composedMerges(ctx context.Context, repo, base, tip string) ([]composedMerge, error) {
-	out, err := gitOutput(ctx, repo, "log", "--merges", "--format=%H %s", base+".."+tip)
+func composedMerges(ctx context.Context, host hostexec.Host, repo, base, tip string) ([]composedMerge, error) {
+	out, err := gitOutput(ctx, host, repo, "log", "--merges", "--format=%H %s", base+".."+tip)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +141,7 @@ func composedMerges(ctx context.Context, repo, base, tip string) ([]composedMerg
 			continue
 		}
 		var changed []string
-		changed, err = changedPaths(ctx, repo, commit+"^1", commit)
+		changed, err = changedPaths(ctx, host, repo, commit+"^1", commit)
 		if err != nil {
 			return nil, err
 		}

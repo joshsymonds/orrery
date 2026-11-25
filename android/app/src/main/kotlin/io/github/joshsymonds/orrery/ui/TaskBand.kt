@@ -28,7 +28,8 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * The epic's one line, over a task's record and its worker's session: the epic's slug in bold, its state word and its
- * done tasks, then its blocker in attention when the epic asks, and a chevron. Pressing it calls [onOpenEpic].
+ * done tasks, then its blocker pill in its tone (attention when the epic asks the owner, quiet when its steerer holds
+ * the park or the question), and a chevron. Pressing it calls [onOpenEpic].
  */
 @Composable
 fun EpicPin(detail: EpicDetail, now: Long, onOpenEpic: () -> Unit, modifier: Modifier = Modifier) {
@@ -65,7 +66,7 @@ fun EpicPin(detail: EpicDetail, now: Long, onOpenEpic: () -> Unit, modifier: Mod
                 blocker.word,
                 modifier = Modifier.testTag("epic-pin-blocker"),
                 style = OrreryTokens.Type.small,
-                color = OrreryTokens.Role.attention,
+                color = toneColourOf(blocker.tone),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

@@ -6,6 +6,7 @@ import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,6 +22,7 @@ class InboxTreeFilterTest {
         summary: String = "",
         newestReply: Long = 0L,
         seen: Long = 0L,
+        claudeSession: String = "synthetic-claude",
     ) = Pane(
         id = id,
         host = serving,
@@ -38,6 +40,7 @@ class InboxTreeFilterTest {
         questionHash = "",
         newestReply = newestReply,
         orreryId = orreryId,
+        claudeSession = claudeSession,
     )
 
     private fun headless(
@@ -47,6 +50,7 @@ class InboxTreeFilterTest {
         newestReply: Long = 0L,
         seen: Long = 0L,
         archived: Boolean = false,
+        ended: Boolean = false,
     ) = Pane(
         id = id,
         host = "",
@@ -65,6 +69,7 @@ class InboxTreeFilterTest {
         newestReply = newestReply,
         headless = true,
         archived = archived,
+        ended = ended,
     )
 
     private fun epic(
@@ -83,7 +88,6 @@ class InboxTreeFilterTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
         steering = steering,
         path = "/home/user/repo",
@@ -114,8 +118,6 @@ class InboxTreeFilterTest {
         questions: List<EpicQuestionRow> = emptyList(),
     ) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         questions = questions,
         parked = parked,
@@ -154,6 +156,22 @@ class InboxTreeFilterTest {
             details = mapOf("e1" to detail(e, questions = questions)),
         )
         assertEquals(1, countsOf(projects).waiting)
+    }
+
+    @Test
+    fun countsWaitingDoesNotCountAnEpicWhoseOnlyQuestionItsSteererHoldsAndDoesOnceItIsEscalated() {
+        val e = epic("e1", steering = "o1")
+        val held = EpicQuestionRow("q1", "Which?", 1L, 1L, steererHeld = true)
+        val heldDetail = detail(e, questions = listOf(held))
+        val heldTree = tree(panes = listOf(pane("%1", "o1")), epics = listOf(e), details = mapOf("e1" to heldDetail))
+        assertEquals(0, countsOf(heldTree).waiting)
+        assertFalse(waits(EpicNode(e, heldDetail, contract = null)))
+
+        val escalated = held.copy(steererHeld = false, escalated = 50L, escalationBy = "conversation")
+        val asked = detail(e, questions = listOf(escalated))
+        val askedTree = tree(panes = listOf(pane("%1", "o1")), epics = listOf(e), details = mapOf("e1" to asked))
+        assertEquals(1, countsOf(askedTree).waiting)
+        assertTrue(waits(EpicNode(e, asked, contract = null)))
     }
 
     @Test
@@ -214,10 +232,10 @@ class InboxTreeFilterTest {
         assertEquals(0, countsOf(projects).waiting)
     }
 
-    // R2: a live epic or proposed contract whose conversation is archived hangs under the archived stand-in and counts.
+    // R2: a live epic or proposed contract whose conversation is archived draws on its own row and counts.
 
     @Test
-    fun countsWaitingCountsALiveEpicThatNeedsYouUnderAnArchivedStandIn() {
+    fun countsWaitingCountsALiveEpicThatNeedsYouOnItsOwnRowWhenItsConversationIsArchived() {
         val e = epic("e1", steering = "o1")
         val projects = tree(
             panes = listOf(pane("%1", "o1")),
@@ -225,23 +243,25 @@ class InboxTreeFilterTest {
             epics = listOf(e),
             details = mapOf("e1" to detail(e, parked = "held")),
         )
-        val convo = projects.single().convos.single()
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("epic:e1"), convo.hung.map { it.key })
+        val own = projects.single().convos.single()
+        assertEquals("epic:e1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("epic:e1"), own.hung.map { it.key })
         assertEquals(1, countsOf(projects).waiting)
         assertEquals(1, projectWaiting(projects.single()))
     }
 
     @Test
-    fun countsWaitingCountsAProposedContractUnderAnArchivedStandIn() {
+    fun countsWaitingCountsAProposedContractOnItsOwnRowWhenItsConversationIsArchived() {
         val projects = tree(
             panes = listOf(pane("%1", "o1")),
             archivedIds = setOf("o1"),
             contracts = listOf(contract("c1", conversation = "o1")),
         )
-        val convo = projects.single().convos.single()
-        assertEquals(StandIn.ARCHIVED, convo.standIn)
-        assertEquals(listOf("contract:c1"), convo.hung.map { it.key })
+        val own = projects.single().convos.single()
+        assertEquals("contract:c1", own.key)
+        assertEquals(null, own.pane)
+        assertEquals(listOf("contract:c1"), own.hung.map { it.key })
         assertEquals(1, countsOf(projects).waiting)
         assertEquals(1, projectWaiting(projects.single()))
     }
@@ -254,7 +274,7 @@ class InboxTreeFilterTest {
             panes = listOf(
                 pane("%1", "o1", newestReply = 5L),
                 pane("%2", "o2", newestReply = 5L, seen = 5L),
-                headless("h1", state = "stopped", newestReply = 5L),
+                headless("h1", state = "stopped", newestReply = 5L, ended = true),
             ),
             epics = listOf(epic("x", steering = "o1", live = false)),
         )
@@ -303,8 +323,10 @@ class InboxTreeFilterTest {
             panes = listOf(pane("%1", "o1", state = "waiting")),
             epics = listOf(epic("x", steering = "o1", live = false)),
         )
-        assertTrue(projects.single().ended.isNotEmpty())
-        assertEquals(emptyList<Convo>(), narrow(projects, Narrow.WAITING).single().ended)
+        assertEquals(listOf("epic:x"), projects.single().convo("pane:laptop:%1").folded.map { it.key })
+        val kept = narrow(projects, Narrow.WAITING).single()
+        assertEquals(emptyList<Convo>(), kept.ended)
+        assertEquals(emptyList<EpicNode>(), kept.convo("pane:laptop:%1").folded)
     }
 
     // R4: the new chip narrows to unseen rows, each with nothing hung under it.
@@ -315,7 +337,7 @@ class InboxTreeFilterTest {
             panes = listOf(
                 pane("%1", "o1", newestReply = 5L),
                 pane("%2", "o2", newestReply = 5L, seen = 5L),
-                headless("h1", state = "stopped", newestReply = 5L),
+                headless("h1", state = "stopped", newestReply = 5L, ended = true),
             ),
             epics = listOf(epic("e1", steering = "o1")),
         )
@@ -394,6 +416,20 @@ class InboxTreeFilterTest {
     }
 
     @Test
+    fun searchKeepsAMatchingEndedEpicFoldedUnderItsConversationAndDropsTheRest() {
+        val projects = tree(
+            panes = listOf(pane("%1", "o1", label = "notes")),
+            epics = listOf(
+                epic("e1", steering = "o1", slug = "tide-alerts", live = false),
+                epic("e2", steering = "o1", slug = "cleanup", live = false),
+            ),
+        )
+        val kept = search(projects, "tide").single()
+        assertEquals(listOf("epic:e1"), kept.convo("pane:laptop:%1").folded.map { it.key })
+        assertEquals(emptyList<Hung>(), kept.convo("pane:laptop:%1").hung)
+    }
+
+    @Test
     fun searchKeepsEverythingHungUnderARowWhoseProjectMatches() {
         val projects = tree(
             panes = listOf(
@@ -411,8 +447,8 @@ class InboxTreeFilterTest {
     fun searchKeepsAMatchingConversationBehindTheEndedLine() {
         val projects = tree(
             panes = listOf(
-                headless("h1", state = "stopped", label = "tide cleanup"),
-                headless("h2", state = "stopped", label = "billing"),
+                headless("h1", state = "stopped", label = "tide cleanup", ended = true),
+                headless("h2", state = "stopped", label = "billing", ended = true),
             ),
         )
         assertEquals(setOf("session:h1"), keysOf(search(projects, "tide").single().ended))

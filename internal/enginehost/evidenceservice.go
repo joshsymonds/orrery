@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -22,9 +23,23 @@ type EvidenceCommands interface {
 	StderrLog(ctx context.Context, run string) ([]byte, string, error)
 }
 
-// evidenceService implements the Evidence RPCs over evidence.
+// CaptureCommands is the set of capture operations the Evidence service answers CaptureEvidence with. *Captures
+// satisfies it.
+type CaptureCommands interface {
+	Capture(ctx context.Context, caller string, args CaptureArgs) (store.Capture, error)
+}
+
+// AttachCommands is the set of operations the Evidence service answers AttachEvidence with. *Evidence satisfies it.
+type AttachCommands interface {
+	Attach(ctx context.Context, caller, capture string, briefs []string) ([]store.EvidenceRun, error)
+}
+
+// evidenceService implements the Evidence RPCs over evidence, captures and attacher. A nil captures refuses
+// CaptureEvidence as unavailable, and a nil attacher refuses AttachEvidence as unavailable.
 type evidenceService struct {
 	evidence EvidenceCommands
+	captures CaptureCommands
+	attacher AttachCommands
 }
 
 // ready returns the refusal every evidence RPC gets when there is no evidence runner.
@@ -118,6 +133,60 @@ func (s *evidenceService) GetEvidenceArtifact(
 		return nil, evidenceServiceStoreError(err)
 	}
 	return connect.NewResponse(&v1.GetEvidenceArtifactResponse{Data: data, Hash: hash}), nil
+}
+
+// CaptureEvidence refuses as unavailable when there is no capture service. Otherwise it runs the command for the caller
+// session, the session in the Orrery-Session header, and returns the id of the capture it made. A caller that is not a
+// running step is FailedPrecondition, and any other refused request is InvalidArgument, each with its reason.
+func (s *evidenceService) CaptureEvidence(
+	ctx context.Context,
+	req *connect.Request[v1.CaptureEvidenceRequest],
+) (*connect.Response[v1.CaptureEvidenceResponse], error) {
+	if s.captures == nil {
+		return nil, evidenceServiceRefuse(connect.CodeUnavailable, evidenceServiceUnavailableMessage)
+	}
+	capture, err := s.captures.Capture(ctx, req.Header().Get(protocol.HeaderSession), CaptureArgs{
+		Commit: req.Msg.GetCommit(),
+		Argv:   req.Msg.GetArgv(),
+		Runner: req.Msg.GetRunner(),
+		Briefs: req.Msg.GetBriefs(),
+		Files:  req.Msg.GetFiles(),
+	})
+	switch {
+	case errors.Is(err, ErrCaptureNotStep):
+		return nil, evidenceServiceRefuse(connect.CodeFailedPrecondition, err.Error())
+	case errors.Is(err, ErrCaptureRefused):
+		return nil, evidenceServiceRefuse(connect.CodeInvalidArgument, err.Error())
+	case err != nil:
+		return nil, evidenceServiceStoreError(err)
+	}
+	return connect.NewResponse(&v1.CaptureEvidenceResponse{Capture: capture.ID}), nil
+}
+
+// AttachEvidence refuses as unavailable when there is no attacher. Otherwise it attaches the capture to the briefs for
+// the caller session, the session in the Orrery-Session header, and returns the runs it attached it to. A refused
+// request is FailedPrecondition with its reason.
+func (s *evidenceService) AttachEvidence(
+	ctx context.Context,
+	req *connect.Request[v1.AttachEvidenceRequest],
+) (*connect.Response[v1.AttachEvidenceResponse], error) {
+	if s.attacher == nil {
+		return nil, evidenceServiceRefuse(connect.CodeUnavailable, evidenceServiceUnavailableMessage)
+	}
+	runs, err := s.attacher.Attach(
+		ctx, req.Header().Get(protocol.HeaderSession), req.Msg.GetCapture(), req.Msg.GetBriefs(),
+	)
+	switch {
+	case errors.Is(err, ErrAttachRefused):
+		return nil, evidenceServiceRefuse(connect.CodeFailedPrecondition, err.Error())
+	case err != nil:
+		return nil, evidenceServiceStoreError(err)
+	}
+	msgs, err := evidenceServiceRunMessages(runs)
+	if err != nil {
+		return nil, evidenceServiceStoreError(err)
+	}
+	return connect.NewResponse(&v1.AttachEvidenceResponse{Runs: msgs}), nil
 }
 
 // evidenceServiceCheckRun returns the refusal of a run request whose epic, item, revision or phase is empty, naming the

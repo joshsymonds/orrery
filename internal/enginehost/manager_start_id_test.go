@@ -37,7 +37,7 @@ func countKind(history store.EngineHistory, kind string) int {
 
 func TestStartWithChosenIDStoresRowUnderThatID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 
 	id, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"})
@@ -57,7 +57,7 @@ func TestStartWithChosenIDStoresRowUnderThatID(t *testing.T) {
 
 func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 
 	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); err != nil {
@@ -69,7 +69,7 @@ func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1") && h.State == "done"
 	})
 
-	// The session is live here, and the cap of one is full, so a start that did not return early would fail.
+	// The session is live here, so a start that did not return early would spawn a second claude in dir.
 	beforeLive := chosenHistory(t, path)
 	beforeArgs := fakeArgs(t, dir)
 	id, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "again"})
@@ -113,7 +113,7 @@ func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
 }
 
 func TestStartRefusesBadIDBeforeStoringOrSpawning(t *testing.T) {
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	cases := []struct {
 		name string
 		id   string
@@ -149,7 +149,7 @@ func TestStartRefusesBadIDBeforeStoringOrSpawning(t *testing.T) {
 
 func TestConcurrentStartsWithOneIDStoreOneRow(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	const starts = 8
 	ids := make([]string, starts)

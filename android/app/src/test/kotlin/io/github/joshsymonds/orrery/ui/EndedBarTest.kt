@@ -86,16 +86,12 @@ class EndedBarTest {
     /** The steerings the bar reported through onSteered, in order. */
     private val steered = CopyOnWriteArrayList<String>()
 
-    private fun listedEpic(
-        steering: String = SESSION,
-        live: Boolean = true,
-        source: String = "orreryd",
-    ): EpicProto = EpicProto.newBuilder()
+    private fun listedEpic(steering: String = SESSION, live: Boolean = true): EpicProto = EpicProto.newBuilder()
         .setId(EPIC)
         .setRepository(REPO)
         .setSlug(SLUG)
         .setLive(live)
-        .setSource(source)
+        .setSource("orreryd")
         .setSteering(steering)
         .build()
 
@@ -108,8 +104,6 @@ class EndedBarTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
-        source = "orreryd",
         steering = SESSION,
     )
 
@@ -279,18 +273,6 @@ class EndedBarTest {
     fun aStoppedSessionSteeringAnEndedOrreryEpicKeepsTheComposerAndNoBar() {
         FakeOrreryServer().use { server ->
             serveSessionSteering(server, "stopped", listedEpic(live = false))
-            setScreen(server)
-
-            awaitHeadRead()
-            assertTrue(nodeExists(COMPOSER_TAG))
-            assertFalse(nodeExists(BAR_TAG))
-        }
-    }
-
-    @Test
-    fun aStoppedSessionSteeringARecordEpicKeepsTheComposerAndNoBar() {
-        FakeOrreryServer().use { server ->
-            serveSessionSteering(server, "stopped", listedEpic(source = "record"))
             setScreen(server)
 
             awaitHeadRead()

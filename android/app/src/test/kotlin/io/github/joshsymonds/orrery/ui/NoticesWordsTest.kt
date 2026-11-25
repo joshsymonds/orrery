@@ -52,7 +52,6 @@ class NoticesWordsTest {
         live = live,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
     )
 
     private fun pane(
@@ -93,7 +92,7 @@ class NoticesWordsTest {
 
     // detailOf is an epic's detail with its centre state, and no requirements.
     private fun detailOf(epic: EpicRow, centre: String): EpicDetail =
-        EpicDetail(epic = epic, tasks = emptyList(), slices = emptyList(), steps = emptyList(), centre = centre)
+        EpicDetail(epic = epic, steps = emptyList(), centre = centre)
 
     @Test
     fun aShippedEpicLeadsWithItsCheckMarkSlugAndBlockWords() {

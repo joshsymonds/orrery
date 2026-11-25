@@ -45,7 +45,7 @@ func (r *Runner) execute(ctx context.Context, epic store.EpicRow, view View, act
 }
 
 // record carries out an action that is one store write of the task's build: a move, a settle of a checking version, a
-// pause, a park, a review or a finding. Any other action does nothing and reports false.
+// pause, a park, a review, a finding or the result of a test run. Any other action does nothing and reports false.
 func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	switch action.Kind {
@@ -70,6 +70,9 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 	case ActFinding:
 		err := r.store.SetFindingResult(ctx, epic.ID, seq, from, action.Next, action.Finding)
 		return r.written(ctx, epic.ID, seq, "store finding", err)
+	case ActTestRun:
+		err := r.store.SetTestRunResult(ctx, epic.ID, seq, from, action.Next, action.TestResult)
+		return r.written(ctx, epic.ID, seq, "store test run", err)
 	default:
 		return false
 	}
@@ -78,7 +81,12 @@ func (r *Runner) record(ctx context.Context, epic store.EpicRow, view View, acti
 // snapshotRefs stores the refs snapshot the implementer's step is checked against.
 func (r *Runner) snapshotRefs(ctx context.Context, epic store.EpicRow, view View) bool {
 	seq, from := view.Task.Seq, view.Task.Build
-	snap, err := snapshotOf(ctx, r.store, epic)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "snapshot refs", err)
+		return false
+	}
+	snap, err := snapshotOf(ctx, host, r.store, epic)
 	if err != nil {
 		r.report(ctx, epic.ID, seq, "snapshot refs", err)
 		return false
@@ -115,27 +123,33 @@ func (r *Runner) startRun(ctx context.Context, epic store.EpicRow, view View, ac
 }
 
 // startUnit starts the step action names and records its id as the build's step. An orchestrate unit records nothing,
-// since its build's step is the implementer step it decides, and its own step is found by its derived id. A start the
-// cap refuses changes nothing, so the next pass retries it. A role error parks the task held parked. Any other start
-// error is handled as DecideStartError decides.
+// since its build's step is the implementer step it decides, and its own step is found by its derived id. A test run
+// step records nothing either, for the same reason: its step is found by its derived id. A role error parks the task
+// held parked. A test run the engine refuses stores the refusal as its output, under its derived id, and the build goes
+// on to the next run or the verifier. Any other start error is handled as DecideStartError decides.
 func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	id, err := r.startStep(ctx, epic, view, action)
 	var roleErr RoleError
 	switch {
-	case err == nil && action.Unit == StageOrchestrate:
+	case err == nil && (action.Unit == StageOrchestrate || action.Unit == unitTestRun):
 		return true
 	case err == nil:
 		next := from
 		next.Step = id
 		return r.written(ctx, epic.ID, seq, "record step", r.store.SetTaskBuild(ctx, epic.ID, seq, from, next))
-	case errors.Is(err, enginehost.ErrCapReached):
-		return false
 	case errors.As(err, &roleErr):
 		next := from
 		next.Held = HeldParked
 		park := r.store.ParkTask(ctx, epic.ID, seq, from, next, store.ParkClassTask, err.Error(), r.now())
 		return r.written(ctx, epic.ID, seq, "park on role error", park)
+	case action.Unit == unitTestRun:
+		// The run's step id is stored as its step, since the store reads a run with no step as one still to run.
+		result := store.TaskTestRunResult{
+			Attempt: from.Attempt, Review: from.GatePos, Position: action.TestRun.Position, Step: action.ID,
+			Output: fmt.Sprintf("not run: %v", err),
+		}
+		return r.record(ctx, epic, view, storedTestRun(from, result))
 	default:
 		return r.execute(ctx, epic, view, DecideStartError(view, err))
 	}
@@ -144,7 +158,8 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 // fail climbs the task one rung off action's failure, in one write (store.Store.ClimbTask): the rung it climbs to is
 // action's Move.To, or the rung after the task's own. The failure is the cause the climb records, the files action
 // names are the task's needs files, and a fail an orchestrator decided records its decision in the same write, with a
-// longer cause. A climb below the gap rung carries the task's kept work onto the base it lands on (carry) before the
+// longer cause, and counts it on the climbed build, as every other decision is counted, so the task's next decision
+// takes the next id. A climb below the gap rung carries the task's kept work onto the base it lands on (carry) before the
 // climb is written, so no rung starts from a base without the work. The climb to the gap rung carries nothing, and
 // removes the task's worktrees. Any other climb keeps them, so the next rung's implementer continues in the same
 // worktree.
@@ -156,6 +171,9 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 	}
 	cause := store.ClimbCause(action.Reason, action.Decision != nil)
 	next := store.ClimbedBuild(from, min(target, store.GapRung), cause)
+	if action.Decision != nil {
+		next.Decisions++
+	}
 	var version *store.TaskVersionInput
 	if next.Attempt < store.GapRung {
 		var carried bool
@@ -198,14 +216,19 @@ func (r *Runner) carry(
 	if newBase == "" || newBase == from.Base {
 		return next, nil, true
 	}
+	host, err := r.hostOf(epic)
+	if err != nil {
+		r.report(ctx, epic.ID, seq, "carry work", err)
+		return next, nil, false
+	}
 	path, wip := ImplementWorktree(r.stateDir, epic.ID, view.Task), WipRef(epic.ID, seq)
-	moveErr := r.git.MoveTaskWorktree(ctx, path, wip, epic.ID, seq, newBase)
+	moveErr := r.git.MoveTaskWorktree(ctx, host, path, wip, epic.ID, seq, newBase)
 	if moveErr == nil {
 		next.Base = newBase
 		return next, nil, true
 	}
 	ref := CarryRef(epic.ID, seq, next.Attempt)
-	commit, keepErr := r.git.KeepWork(ctx, path, wip, ref)
+	commit, keepErr := r.git.KeepWork(ctx, host, path, wip, ref)
 	if keepErr != nil {
 		r.report(ctx, epic.ID, seq, "keep work", keepErr)
 		return next, nil, false
@@ -263,7 +286,11 @@ func (r *Runner) ask(ctx context.Context, epic store.EpicRow, view View, action 
 func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	path := ImplementWorktree(r.stateDir, epic.ID, view.Task)
-	if err := r.git.MoveTaskWorktree(ctx, path, WipRef(epic.ID, seq), epic.ID, seq, action.Revision); err != nil {
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.MoveTaskWorktree(ctx, host, path, WipRef(epic.ID, seq), epic.ID, seq, action.Revision)
+	}
+	if err != nil {
 		reason := fmt.Sprintf("%s could not move onto the new base %s: %v", taskLabel(seq), action.Revision, err)
 		return r.fail(ctx, epic, view, Action{Kind: ActFail, Reason: reason})
 	}
@@ -274,11 +301,15 @@ func (r *Runner) resume(ctx context.Context, epic store.EpicRow, view View, acti
 func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	ref := refsOrreryPrefix + Slug(epic.ID) + "/" + taskLabel(seq)
-	if err := r.git.Pin(ctx, epic.Repository, ref, from.Revision); err != nil {
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.Pin(ctx, host, epic.Repository, ref, from.Revision)
+	}
+	if err != nil {
 		r.report(ctx, epic.ID, seq, "pin accepted task", err)
 		return false
 	}
-	err := r.store.AcceptTask(ctx, epic.ID, seq, from, action.Reason)
+	err = r.store.AcceptTask(ctx, epic.ID, seq, from, action.Reason)
 	if !r.written(ctx, epic.ID, seq, "accept task", err) {
 		return false
 	}
@@ -289,7 +320,10 @@ func (r *Runner) accept(ctx context.Context, epic store.EpicRow, view View, acti
 // removeWorktrees removes the worktrees of task seq. The task's state is stored before this runs, so a failure is
 // logged and the task stays as it is.
 func (r *Runner) removeWorktrees(ctx context.Context, epic store.EpicRow, seq int64) {
-	err := r.git.RemoveWorktrees(ctx, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
+	host, err := r.hostOf(epic)
+	if err == nil {
+		err = r.git.RemoveWorktrees(ctx, host, epic.Repository, TaskDir(r.stateDir, epic.ID, seq))
+	}
 	r.report(ctx, epic.ID, seq, "remove task worktrees", err)
 }
 

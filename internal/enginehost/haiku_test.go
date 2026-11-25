@@ -127,7 +127,7 @@ func haikuWantArgv(settings string) string {
 		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
-		"--max-turns", "1",
+		"--max-turns", "3",
 		"--output-format", "json",
 		"--json-schema", haikuSchema,
 	}
@@ -156,7 +156,7 @@ func haikuAwaitFile(t *testing.T, path, failMsg string, ended <-chan struct{}) {
 	}
 }
 
-// haikuHoldTimeout is the Timeout of a Haiku whose test holds its only slot with a hung call. It is far longer than
+// haikuHoldTimeout is the Timeout of a Haiku whose test holds a call open with a hung claude. It is far longer than
 // the test binary's timeout, so the hung call ends only when the test cancels it, however slowly the machine starts
 // the fake claude.
 const haikuHoldTimeout = 24 * time.Hour
@@ -240,6 +240,15 @@ func TestHaikuCallErrors(t *testing.T) {
 			name:   "nonzero exit carries stderr",
 			fake:   haikuFake{stdout: "", stderr: "boom from claude", status: 3},
 			errHas: "boom from claude",
+		},
+		{
+			name: "nonzero exit carries the result's subtype and errors from stdout",
+			fake: haikuFake{
+				stdout: `{"type":"result","subtype":"error_max_turns","is_error":true,` +
+					`"errors":["Reached maximum number of turns (3)"]}`,
+				status: 1,
+			},
+			errHas: "exit status 1: result error_max_turns: Reached maximum number of turns (3)",
 		},
 		{
 			name:   "stdout is not JSON",
@@ -327,23 +336,29 @@ func TestHaikuCallEndsWhenContextEnds(t *testing.T) {
 	}
 }
 
-// TestHaikuCallCapWaitsForSlot holds the only slot with a hung call and checks that a second call waits, never
-// starts claude, and fails when its wait ends.
-func TestHaikuCallCapWaitsForSlot(t *testing.T) {
+// TestHaikuCallRunsBesideAHungCall holds one call open with a hung claude and checks that a second call on the same
+// caller starts its own claude and returns its result while the first is still running: calls do not wait on each other.
+func TestHaikuCallRunsBesideAHungCall(t *testing.T) {
 	t.Parallel()
 	dir := haikuDir(t)
-	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
-sleep 30`, status: 0})
-	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: haikuHoldTimeout})
+	// The first run marks started and hangs; any later run finds the mark and prints its result at once.
+	hangFirst := `if [ ! -e "$dir/started" ]; then
+	: > "$dir/started"
+	sleep 30
+fi`
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0, extra: hangFirst})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Timeout: haikuHoldTimeout})
 	held, releaseHold := haikuHold(t, h, dir)
 
-	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancelWait()
-	if _, err := h.Call(waitCtx, haikuSchema, "waits"); err == nil {
-		t.Fatalf("second call with the slot held returned no error")
+	out, err := h.Call(context.Background(), haikuSchema, "beside")
+	if err != nil {
+		t.Fatalf("call beside the hung call: %v", err)
 	}
-	if runs := haikuRuns(t, dir); runs != 1 {
-		t.Fatalf("claude ran %d times, want 1: the waiting call must not start claude", runs)
+	if got, want := string(out), `{"verdict":"ok"}`; got != want {
+		t.Fatalf("structured_output = %s, want %s", got, want)
+	}
+	if runs := haikuRuns(t, dir); runs != 2 {
+		t.Fatalf("claude ran %d times, want 2: the hung call and the one beside it", runs)
 	}
 
 	releaseHold()
@@ -368,28 +383,9 @@ func TestHaikuCallMissingClaude(t *testing.T) {
 	}
 }
 
-func TestHaikuCallReleasesSlotAfterCall(t *testing.T) {
-	t.Parallel()
-	dir := haikuDir(t)
-	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
-	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1})
-
-	for i := range 2 {
-		if _, err := h.Call(context.Background(), haikuSchema, "input"); err != nil {
-			t.Fatalf("call %d with Cap 1: %v", i+1, err)
-		}
-	}
-	if runs := haikuRuns(t, dir); runs != 2 {
-		t.Fatalf("claude ran %d times, want 2", runs)
-	}
-}
-
 func TestNewHaikuDefaults(t *testing.T) {
 	t.Parallel()
 	h := NewHaiku(HaikuConfig{Claude: "/bin/true"})
-	if got := cap(h.slots); got != 2 {
-		t.Fatalf("default cap = %d, want 2", got)
-	}
 	if h.timeout != 60*time.Second {
 		t.Fatalf("default timeout = %v, want 60s", h.timeout)
 	}
@@ -468,30 +464,6 @@ func TestHaikuWithEnvWithoutEnvKeepsTodaysArgv(t *testing.T) {
 	}
 }
 
-// TestHaikuWithEnvSharesCallSlots holds the only slot of h with a hung call and checks that a call bound to an env
-// waits for that slot, never starts claude, and fails when its wait ends.
-func TestHaikuWithEnvSharesCallSlots(t *testing.T) {
-	t.Parallel()
-	dir := haikuDir(t)
-	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
-sleep 30`, status: 0})
-	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: haikuHoldTimeout})
-	held, releaseHold := haikuHold(t, h, dir)
-
-	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancelWait()
-	bound := h.withEnv(haikuBoundEnv())
-	if _, err := bound.Call(waitCtx, haikuSchema, "waits"); err == nil {
-		t.Fatalf("bound call with the slot held returned no error")
-	}
-	if runs := haikuRuns(t, dir); runs != 1 {
-		t.Fatalf("claude ran %d times, want 1: the waiting bound call must not start claude", runs)
-	}
-
-	releaseHold()
-	<-held
-}
-
 // haikuCallViaBaseURL and haikuCallViaModel are the base URL and model the CallVia tests pass.
 const (
 	haikuCallViaBaseURL = "http://proxy.invalid/ctx/example"
@@ -531,7 +503,7 @@ func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 			`"CTX_EXAMPLE":"example"},"claudeMdExcludes":["` + haikuMemory + `"]}`,
 		"--no-session-persistence",
 		"--tools", "",
-		"--max-turns", "1",
+		"--max-turns", "3",
 		"--output-format", "json",
 		"--json-schema", haikuSchema,
 	}

@@ -66,56 +66,43 @@ func blockingAndProbeServer(entered chan<- struct{}, release <-chan struct{}, pr
 	}}
 }
 
-// TestNinthToolCallIsRefusedAtOnceAndNeverStarts checks that with eight tools/call requests in flight on one
-// connection, a ninth is refused at once with JSON-RPC error -32000 and its handler never starts, and that a new
-// call succeeds once the eight have finished.
-func TestNinthToolCallIsRefusedAtOnceAndNeverStarts(t *testing.T) {
+// TestToolCallsRunWithNoCeiling checks that one connection runs every tools/call it is sent at once: with sixteen calls
+// held in flight, a seventeenth starts and is answered while they are still held, and the sixteen are answered once
+// released.
+func TestToolCallsRunWithNoCeiling(t *testing.T) {
 	t.Parallel()
-	const ceiling = 8
-	entered := make(chan struct{}, ceiling)
+	const held = 16
+	entered := make(chan struct{}, held)
 	release := make(chan struct{})
 	var probeStarts atomic.Int32
 	p, _ := servePipes(t, blockingAndProbeServer(entered, release, &probeStarts))
 	initialize(p)
 
-	blocking := make(map[int]bool, ceiling)
-	for range ceiling {
+	blocking := make(map[int]bool, held)
+	for range held {
 		blocking[sendToolCall(p, "block")] = true
 	}
-	for range ceiling {
+	for range held {
 		<-entered
 	}
 
-	refusedID := sendToolCall(p, "probe")
-	refused := readNumberedReply(t, p)
-	if refused.ID != refusedID {
-		t.Fatalf("reply id = %d, want %d", refused.ID, refusedID)
+	probeID := sendToolCall(p, "probe")
+	probed := readNumberedReply(t, p)
+	if probed.ID != probeID || probed.Error != nil {
+		t.Fatalf("reply id %d, error %+v; want the probe's result for id %d while %d calls are held",
+			probed.ID, probed.Error, probeID, held)
 	}
-	if refused.Error == nil || refused.Error.Code != -32000 ||
-		refused.Error.Message != "Server already has 8 tool calls in flight" {
-		t.Fatalf("ninth tools/call reply: error %+v, result %s; want -32000 with the ceiling message",
-			refused.Error, refused.Result)
-	}
-	if n := probeStarts.Load(); n != 0 {
-		t.Fatalf("the refused call's handler started %d times, want 0", n)
+	if n := probeStarts.Load(); n != 1 {
+		t.Fatalf("probe handler started %d times, want 1", n)
 	}
 
 	close(release)
-	for range ceiling {
+	for range held {
 		reply := readNumberedReply(t, p)
 		if reply.Error != nil || !blocking[reply.ID] {
-			t.Fatalf("reply to call %d: error %+v; want a result for one of the eight blocked calls",
-				reply.ID, reply.Error)
+			t.Fatalf("reply to call %d: error %+v; want a result for one of the held calls", reply.ID, reply.Error)
 		}
 		delete(blocking, reply.ID)
-	}
-
-	outcome := p.tool("probe", "{}")
-	if outcome.isError || outcome.text != "ran" {
-		t.Fatalf("call after the eight finished: text %q, isError %v; want ran, false", outcome.text, outcome.isError)
-	}
-	if n := probeStarts.Load(); n != 1 {
-		t.Fatalf("probe handler started %d times, want 1 (the call after the eight)", n)
 	}
 }
 

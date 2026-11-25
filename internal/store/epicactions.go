@@ -49,7 +49,7 @@ type SteerTarget struct {
 
 // SteerTarget returns the sessions row with id, and true. It returns false, and no error, when no row has the id.
 func (s *Store) SteerTarget(ctx context.Context, id string) (SteerTarget, bool, error) {
-	row, err := sqlcgen.New(s.db).GetSession(ctx, id)
+	row, err := sqlcgen.New(s.read).GetSession(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SteerTarget{}, false, nil
 	}

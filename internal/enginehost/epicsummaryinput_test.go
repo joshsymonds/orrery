@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver clearSummaries opens the database with.
+	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -151,11 +152,10 @@ func TestEpicSummaryWritesAClearedEpicAgainAtStart(t *testing.T) {
 // clearSummaries empties the summary of every epic in the database at path, the statement the rewrite migration runs.
 func clearSummaries(t *testing.T, path string) {
 	t.Helper()
-	connector, err := sqlite.NewConnector(path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open database for the clear: %v", err)
 	}
-	db := sql.OpenDB(connector)
 	defer func() {
 		if err := db.Close(); err != nil {
 			t.Errorf("close database after the clear: %v", err)

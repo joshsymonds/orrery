@@ -32,17 +32,68 @@ type ClosureVerdict struct {
 type Contract struct {
 	ID      string
 	Created int64
+	Staged  int64
+}
+
+type ContractDraft struct {
+	ID         string
+	Design     string
+	Repository string
+	Title      string
+	Body       string
+	Decisions  string
+	Words      string
+	Writer     string
+	Created    int64
+	Updated    int64
+}
+
+type ContractRefusal struct {
+	Contract string
+	Seq      int64
+	Version  int64
+	Field    string
+	Text     string
+	Session  string
+	At       int64
+}
+
+type ContractRowWrite struct {
+	Contract    string
+	Seq         int64
+	Version     int64
+	Row         string
+	Action      string
+	Depends     string
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+type ContractShown struct {
+	Contract string
+	Version  int64
+	Row      string
+	At       int64
 }
 
 type ContractState struct {
-	Contract string
-	Seq      int64
-	State    string
-	Version  int64
-	Session  string
-	Words    string
-	At       int64
-	Base     string
+	Contract    string
+	Seq         int64
+	State       string
+	Version     int64
+	Session     string
+	Words       string
+	At          int64
+	Base        string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
 }
 
 type ContractVersion struct {
@@ -61,6 +112,16 @@ type ContractVersion struct {
 	ChangedSections string
 }
 
+type ContractWorking struct {
+	Contract  string
+	Version   int64
+	Body      string
+	Decisions string
+	Writer    string
+	Created   int64
+	Updated   int64
+}
+
 type CronJob struct {
 	JobID      string
 	Session    string
@@ -70,6 +131,146 @@ type CronJob struct {
 	Recurring  int64
 	CreatedAt  int64
 	LastFireAt int64
+}
+
+type Design struct {
+	ID           string
+	Title        string
+	Conversation string
+	Created      int64
+}
+
+type DesignApproach struct {
+	Design      string
+	Seq         int64
+	Name        string
+	Shape       string
+	Cost        string
+	Wins        string
+	Loses       string
+	Reconsider  string
+	Research    string
+	Recommended int64
+	Reason      string
+	Session     string
+	At          int64
+}
+
+type DesignApproachChoice struct {
+	Design      string
+	Seq         int64
+	Approach    int64
+	Words       string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+type DesignClosureSkip struct {
+	Design      string
+	Reason      string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+type DesignContract struct {
+	Contract string
+	Design   string
+	Position int64
+	Added    int64
+}
+
+type DesignConversation struct {
+	Design   string
+	Seq      int64
+	Session  string
+	Previous string
+	At       int64
+}
+
+type DesignDelegation struct {
+	Design  string
+	Seq     int64
+	Kinds   string
+	Message string
+	Session string
+	At      int64
+}
+
+type DesignDisposition struct {
+	Design      string
+	Seq         int64
+	Item        string
+	Disposition string
+	Reason      string
+	Boundary    string
+	Maker       string
+	Quote       string
+	MakerReason string
+	Delegation  string
+	Session     string
+	At          int64
+}
+
+type DesignEdge struct {
+	Design   string
+	Contract string
+	After    string
+	Created  int64
+}
+
+type DesignLog struct {
+	Design  string
+	Seq     int64
+	At      int64
+	Maker   string
+	Session string
+	What    string
+	Ids     string
+	Words   string
+}
+
+type DesignQuestion struct {
+	Design         string
+	Seq            int64
+	Contract       string
+	Text           string
+	Options        string
+	Recommendation string
+	Asker          string
+	Asked          int64
+	Answer         string
+	Accepted       int64
+	Maker          string
+	Quote          string
+	MakerReason    string
+	Delegation     string
+	Answerer       string
+	Answered       int64
+}
+
+type DesignStep struct {
+	Step       string
+	Design     string
+	Kind       string
+	Subject    string
+	Repository string
+	Revision   string
+	Delta      string
+	Created    int64
+}
+
+type DesignStepRead struct {
+	Step     string
+	Contract string
+	Version  int64
 }
 
 type DueResume struct {
@@ -136,12 +337,8 @@ type Epic struct {
 	ClosedBy         string
 	SupersededBy     string
 	ParkClass        string
-	Synced           string
-	OriginReadBase   string
-	OriginReadCommit string
-	OriginReadState  string
-	OriginReadAt     int64
 	Steerer          string
+	Host             string
 }
 
 type EpicAction struct {
@@ -388,14 +585,6 @@ type EpicReleaseRun struct {
 	At       int64
 }
 
-type EpicReleaseSlot struct {
-	Repository string
-	Epic       string
-	HolderKind string
-	Label      string
-	Deadline   int64
-}
-
 type EpicReleaseStep struct {
 	Epic     string
 	Position int64
@@ -486,6 +675,16 @@ type EpicSession struct {
 	Creator int64
 }
 
+type EpicStall struct {
+	Epic    string
+	Seq     int64
+	At      int64
+	Tasks   int64
+	Runs    int64
+	Actions int64
+	Parked  int64
+}
+
 type EpicTask struct {
 	Epic        string
 	Seq         int64
@@ -523,6 +722,7 @@ type EpicTask struct {
 	DependsOn   string
 	Kind        string
 	Revises     int64
+	SplitFrom   int64
 }
 
 type EpicTaskContribute struct {
@@ -616,6 +816,19 @@ type EpicTaskTestChange struct {
 	Path     string
 }
 
+type EpicTaskTestRun struct {
+	Epic       string
+	Task       int64
+	Generation int64
+	Attempt    int64
+	Review     int64
+	Position   int64
+	Command    string
+	Revision   string
+	Step       string
+	Output     string
+}
+
 type EpicTaskVersion struct {
 	Epic        string
 	Task        int64
@@ -637,12 +850,13 @@ type EpicTaskVersion struct {
 }
 
 type EpicTell struct {
-	Epic     string
-	Seq      int64
-	Text     string
-	At       int64
-	Told     int64
-	Question int64
+	Epic             string
+	Seq              int64
+	Text             string
+	At               int64
+	Told             int64
+	Question         int64
+	SteererDelivered int64
 }
 
 type EpicTrigger struct {
@@ -705,6 +919,55 @@ type EvidenceArtifact struct {
 	Size     int64
 }
 
+type EvidenceCapture struct {
+	ID           string
+	Epic         string
+	Repository   string
+	Step         string
+	Role         string
+	Runner       string
+	CommitSha    string
+	Argv         string
+	Files        string
+	LimitSeconds int64
+	State        string
+	GrantID      string
+	Holder       string
+	Exit         int64
+	TimedOut     int64
+	NotCaptured  string
+	LogHash      string
+	LogBytes     int64
+	StderrHash   string
+	StderrBytes  int64
+	Delivered    int64
+	Created      int64
+	Ended        int64
+}
+
+type EvidenceCaptureBrief struct {
+	Capture string
+	Run     string
+}
+
+type EvidenceCaptureFile struct {
+	Capture  string
+	Position int64
+	Path     string
+	State    string
+	Hash     string
+	Blob     string
+	Size     int64
+}
+
+type EvidenceGatherer struct {
+	Epic    string
+	Seq     int64
+	Step    string
+	Started int64
+	Ended   int64
+}
+
 type EvidenceRun struct {
 	ID          string
 	Epic        string
@@ -730,6 +993,9 @@ type EvidenceRun struct {
 	Ended       int64
 	StderrHash  string
 	StderrBytes int64
+	Capture     string
+	Gatherer    string
+	Gatherers   int64
 }
 
 type Grant struct {
@@ -770,6 +1036,16 @@ type IntegrateRound struct {
 	Created     int64
 }
 
+type LlmAccount struct {
+	ID          string
+	Name        string
+	Provider    string
+	Plan        string
+	Token       string
+	Fingerprint string
+	Created     int64
+}
+
 type NoticeHistory struct {
 	ID       int64
 	Pane     string
@@ -784,6 +1060,7 @@ type NoticeHistory struct {
 	BlockRef string
 	Time     int64
 	Read     bool
+	Host     string
 }
 
 type PaneSend struct {
@@ -809,6 +1086,7 @@ type PendingNotice struct {
 	Silent      bool
 	Epic        string
 	LimitKey    string
+	Host        string
 }
 
 type PendingNoticeID struct {
@@ -836,6 +1114,7 @@ type PlannerAction struct {
 	Files       string
 	RemoveFiles string
 	Reviewer    string
+	SplitTasks  string
 }
 
 type PlannerUnresolvable struct {
@@ -873,6 +1152,7 @@ type PushedNotice struct {
 	Pane    string
 	Session string
 	Time    int64
+	Host    string
 }
 
 type PutOffQuestion struct {
@@ -882,32 +1162,77 @@ type PutOffQuestion struct {
 	PutOffAt  int64
 }
 
+type RouteBinding struct {
+	Context  string
+	Scope    string
+	Selector string
+	Seat     string
+}
+
+type RouteContext struct {
+	ID                  string
+	DefaultSeat         string
+	Account             string
+	HasSubagents        int64
+	SubagentDefaultSeat string
+}
+
+type RouteRegistry struct {
+	ID             int64
+	DefaultContext string
+}
+
+type RouteSeat struct {
+	ID                     string
+	AuthMode               string
+	Upstream               string
+	Model                  string
+	ApiKeyEnvFile          string
+	AwsProfile             string
+	AwsRegion              string
+	ModelMapEnvFile        string
+	Billing                string
+	Speed                  string
+	CacheTtl               string
+	Insecure               int64
+	StripCacheControl      int64
+	StrictStructuredOutput int64
+	MaxInputTokens         int64
+	StripBetas             string
+}
+
 type Session struct {
-	ID            string
-	Server        string
-	Pane          string
-	State         string
-	Changed       string
-	Seen          string
-	Question      string
-	Summary       string
-	Label         string
-	Context       string
-	Tool          string
-	ClaudeSession string
-	Transcript    string
-	Kind          string
-	Dir           string
-	Reason        string
-	Consumed      sql.NullInt64
-	ReplayFrom    int64
-	Background    bool
-	TurnOutput    string
-	PromptsFrom   int64
-	Title         string
-	Headline      string
-	HeadlineAt    int64
-	Awaited       bool
+	ID              string
+	Server          string
+	Pane            string
+	State           string
+	Changed         string
+	Seen            string
+	Question        string
+	Summary         string
+	Label           string
+	Context         string
+	Tool            string
+	ClaudeSession   string
+	Transcript      string
+	Kind            string
+	Dir             string
+	Reason          string
+	Consumed        sql.NullInt64
+	ReplayFrom      int64
+	Background      bool
+	TurnOutput      string
+	PromptsFrom     int64
+	Title           string
+	Headline        string
+	HeadlineAt      int64
+	Awaited         bool
+	LatestReply     string
+	NewestReplyAt   int64
+	FirstPromptText string
+	LatestRequestID string
+	Held            bool
+	Host            string
 }
 
 type Step struct {
@@ -964,6 +1289,7 @@ type Step struct {
 	LinesFiles      int64
 	LinesAdded      int64
 	LinesRemoved    int64
+	Host            string
 	Purpose         string
 }
 
@@ -994,8 +1320,7 @@ type StepListing struct {
 	LoopStageFrom   int64
 	Caller          string
 	Summary         string
-	RedEvidence     bool
-	GreenEvidence   bool
+	Host            string
 }
 
 type ToldLimitStep struct {

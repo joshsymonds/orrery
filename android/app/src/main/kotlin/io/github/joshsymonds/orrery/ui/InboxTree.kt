@@ -1,11 +1,12 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 
-/** A thing drawn under a conversation or a stand-in row: a listed epic, or a contract that no drawn epic carries. */
+/** A thing drawn under a conversation's row or on its own row: a listed epic, or a contract that no drawn epic carries. */
 internal sealed interface Hung {
     val key: String
 }
@@ -18,29 +19,36 @@ internal data class EpicNode(val epic: EpicRow, val detail: EpicDetail?, val con
     override val key: String = "epic:${epic.id}"
 }
 
-/** A contract hung under the conversation that wrote it, or under a stand-in row. */
+/** A contract hung under the conversation that wrote it, or on its own row. */
 internal data class ContractNode(val contract: ContractRow) : Hung {
     override val key: String = "contract:${contract.id}"
 }
 
 /**
- * Which row a [Convo] is: [NONE] for a conversation's own row, [UNLISTED] for what steers with no listed conversation,
- * and [ARCHIVED] for what steers with an archived conversation.
+ * A design drawn in the tree: its [design] row and the [kids] hung under it. Not a [Hung]: a design is a block of its
+ * own, not a row that hangs under a conversation.
  */
-internal enum class StandIn { NONE, UNLISTED, ARCHIVED }
+internal data class DesignBlock(val design: DesignRow, val kids: List<Hung>) {
+    val key: String = "design:${design.id}"
+}
 
 /**
- * One row of a project. [pane] is the conversation's pane or headless session, null for a stand-in. [again] is true for
- * a conversation drawn a second time behind the ended line as the parent of its ended epics. [hung] is what hangs under
- * the row.
+ * One row of a project. [pane] is the conversation's pane or headless session, null for the own row of a thing or a
+ * design with no drawn conversation, which holds just that thing or that design. [hung] is what hangs under the row.
+ * [folded] is the ended epics of a conversation in the tree, newest first, which fold under the row; a conversation
+ * behind the ended line keeps its ended epics in [hung] and has none folded. [designs] are the design blocks drawn on
+ * the row, none by default.
  */
 internal data class Convo(
     val key: String,
     val pane: Pane?,
-    val standIn: StandIn,
-    val again: Boolean,
     val hung: List<Hung>,
+    val folded: List<EpicNode>,
+    val designs: List<DesignBlock> = emptyList(),
 )
+
+/** What hangs under a row: its own hung things, then the kids of each design block drawn on it. */
+internal val Convo.allHung: List<Hung> get() = hung + designs.flatMap { it.kids }
 
 /**
  * A card of the tree: [convos] in the tree, ranked, and [ended] behind its ended line, newest first. [dir] is the
@@ -65,9 +73,6 @@ internal fun Pane.unread(): Boolean = newestReply > seen
 private const val SHELL_SESSION_PREFIX = "_orrery-shell-"
 private const val STATE_WAITING = "waiting"
 private const val STATE_WORKING = "working"
-private const val STATE_DONE = "done"
-private const val STATE_STOPPED = "stopped"
-private const val STATE_FAILED = "failed"
 private const val CONTRACT_PROPOSED = "proposed"
 private const val CONTRACT_ACCEPTED = "accepted"
 private const val NO_DIRECTORY_KEY = "nodir"
@@ -80,10 +85,14 @@ private val HOME_PARENTS = setOf("home", "Users")
 private val WORKTREE_SUFFIXES = listOf(".worktrees", "-worktrees")
 private val HEX_SUFFIX = Regex("-[0-9a-f]{7}$")
 
+/** The key a conversation is drawn and named by: its headless session's id, or its tmux pane's host and id. */
+internal fun convoKeyOf(pane: Pane): String =
+    if (pane.headless) "session:${pane.id}" else "pane:${pane.host}:${pane.id}"
+
 /** A conversation: a tmux pane or a headless session, with the id that epics and contracts name it by. */
 private class Conversation(val pane: Pane, val archived: Boolean, val place: CardPlace) {
     val id: String = if (pane.headless) pane.id else pane.orreryId
-    val key: String = if (pane.headless) "session:${pane.id}" else "pane:${pane.host}:${pane.id}"
+    val key: String = convoKeyOf(pane)
 }
 
 /** Where a card sits: its key, absolute directory, name, shown path, and the host when it is not the serving one. */
@@ -94,13 +103,13 @@ private class Slot(
     val place: CardPlace,
     val key: String,
     val pane: Pane?,
-    val standIn: StandIn,
-    val again: Boolean,
     val ended: Boolean,
 ) {
     val hung = mutableListOf<Hung>()
+    val folded = mutableListOf<EpicNode>()
+    val designs = mutableListOf<DesignBlock>()
 
-    fun toConvo(): Convo = Convo(key, pane, standIn, again, hung.toList())
+    fun toConvo(): Convo = Convo(key, pane, hung.toList(), folded.sortedByDescending { it.epic.changed }, designs.toList())
 }
 
 private class Ranked(val project: Project, val best: Int, val newest: Long)
@@ -109,14 +118,19 @@ private class Ranked(val project: Project, val best: Int, val newest: Long)
 private class Slots {
     private val rows = LinkedHashMap<Triple<Boolean, String, String>, Slot>()
 
-    fun conversation(conversation: Conversation, ended: Boolean, again: Boolean): Slot =
+    fun conversation(conversation: Conversation, ended: Boolean): Slot =
         rows.getOrPut(Triple(ended, conversation.place.key, conversation.key)) {
-            Slot(conversation.place, conversation.key, conversation.pane, StandIn.NONE, again, ended)
+            Slot(conversation.place, conversation.key, conversation.pane, ended)
         }
 
-    fun standIn(place: CardPlace, standIn: StandIn, ended: Boolean): Slot {
-        val key = "standin:${standIn.name.lowercase()}:${place.key}"
-        return rows.getOrPut(Triple(ended, place.key, key)) { Slot(place, key, null, standIn, false, ended) }
+    /** The own row of a thing with no drawn conversation: keyed by the thing's key, it holds just that thing. */
+    fun own(place: CardPlace, hung: Hung, ended: Boolean) {
+        rows.getOrPut(Triple(ended, place.key, hung.key)) { Slot(place, hung.key, null, ended) }.hung.add(hung)
+    }
+
+    /** The own row of a design with no drawn conversation: keyed design:<id>, it holds just that design. */
+    fun ownDesign(place: CardPlace, block: DesignBlock, ended: Boolean) {
+        rows.getOrPut(Triple(ended, place.key, block.key)) { Slot(place, block.key, null, ended) }.designs.add(block)
     }
 
     fun projects(): List<Project> {
@@ -161,6 +175,9 @@ private class Index(
     /** The conversation an id names, or null when none does; an empty id names none. */
     fun target(id: String): Conversation? = byId[id]
 
+    /** The conversation an id names when a view draws it: archived for the archived view, unarchived for the inbox. */
+    fun drawnTarget(id: String, archived: Boolean): Conversation? = target(id)?.takeIf { it.archived == archived }
+
     fun node(epic: EpicRow): EpicNode =
         EpicNode(epic, details[epic.id], contractsById[epic.id]?.takeIf { it.state == CONTRACT_PROPOSED })
 
@@ -175,8 +192,21 @@ private class Index(
         }
 }
 
-/** Places each conversation and what hangs under it in the inbox: live work, the ended line, and stand-in rows. */
-private fun placeInbox(index: Index, slots: Slots) {
+/**
+ * A thing one view draws: its [hung] node, its [place], whether it has [ended], and the conversation row it hangs under,
+ * null when the view draws no conversation it names.
+ */
+private class Item(val hung: Hung, val place: CardPlace, val ended: Boolean, val row: Conversation?)
+
+/** A design a view draws: its [block], the conversation row it sits on (null for its own row), and the [kids] it takes. */
+private class PlannedDesign(val block: DesignBlock, val row: Conversation?, val kids: List<Item>)
+
+/**
+ * Places each conversation and what hangs under it in the inbox: live work and the ended line. An epic or contract whose
+ * conversation is not listed, or is archived, draws on its own row in its project. Each conversation draws in one row,
+ * behind the ended line when serve marks it ended and in the tree otherwise.
+ */
+private fun placeInbox(index: Index, slots: Slots, designs: List<DesignRow>) {
     // An ended epic carrying a proposed contract stays in the tree: the contract's ask is live work.
     val proposedIds = index.shownContracts.filter { it.state == CONTRACT_PROPOSED }.map { it.id }.toSet()
     val liveShown = index.epics.filter { !it.archived && (it.live || it.id in proposedIds) }
@@ -184,94 +214,150 @@ private fun placeInbox(index: Index, slots: Slots) {
     val carried = (liveShown + endedShown).map { it.id }.toSet()
     val contractItems = index.shownContracts.filterNot { it.id in carried }
 
-    fun ended(conversation: Conversation): Boolean {
-        val pane = conversation.pane
-        if (liveShown.any { steers(conversation, it.steering) }) return false
-        if (index.shownContracts.any { steers(conversation, it.conversation) }) {
-            return false
-        }
-        val steersEnded = endedShown.any { steers(conversation, it.steering) }
-        val headlessEnded = pane.headless &&
-            (pane.state == STATE_STOPPED || (pane.state == STATE_FAILED && !pane.unread()))
-        return headlessEnded || (pane.state == STATE_DONE && steersEnded)
-    }
-
-    val behind = index.conversations.filter { !it.archived && ended(it) }.toSet()
+    // Serve decides the ended line: an archived conversation draws only in the archived view, and one serve marks ended
+    // draws behind its project's ended line.
+    val behind = index.conversations.filter { !it.archived && it.pane.ended }.toSet()
     val inTree = index.conversations.filter { !it.archived && it !in behind }
-    for (conversation in inTree) slots.conversation(conversation, ended = false, again = false)
-    for (conversation in behind) slots.conversation(conversation, ended = true, again = false)
+    for (conversation in inTree) slots.conversation(conversation, ended = false)
+    for (conversation in behind) slots.conversation(conversation, ended = true)
 
-    for (epic in liveShown) {
-        val target = index.target(epic.steering)
-        val slot = if (target == null || target.archived) {
-            slots.standIn(
-                index.placeOfEpic(epic),
-                if (target == null) StandIn.UNLISTED else StandIn.ARCHIVED,
-                ended = false,
+    val items = buildList {
+        for (epic in liveShown) {
+            add(Item(index.node(epic), index.placeOfEpic(epic), ended = false, row = index.drawnTarget(epic.steering, false)))
+        }
+        for (epic in endedShown) {
+            add(Item(index.node(epic), index.placeOfEpic(epic), ended = true, row = index.drawnTarget(epic.steering, false)))
+        }
+        for (contract in contractItems) {
+            add(
+                Item(
+                    ContractNode(contract),
+                    index.placeOfContract(contract),
+                    ended = false,
+                    row = index.drawnTarget(contract.conversation, false),
+                ),
             )
-        } else {
-            slots.conversation(target, ended = false, again = false)
         }
-        slot.hung.add(index.node(epic))
     }
-
-    for (epic in endedShown) {
-        val target = index.target(epic.steering)
-        val slot = when {
-            target == null -> slots.standIn(index.placeOfEpic(epic), StandIn.UNLISTED, ended = true)
-            target.archived -> slots.standIn(index.placeOfEpic(epic), StandIn.ARCHIVED, ended = true)
-            target in behind -> slots.conversation(target, ended = true, again = false)
-            else -> slots.conversation(target, ended = true, again = true)
-        }
-        slot.hung.add(index.node(epic))
-    }
-
-    for (contract in contractItems) {
-        val target = index.target(contract.conversation)
-        val slot = when {
-            target == null -> slots.standIn(index.placeOfContract(contract), StandIn.UNLISTED, ended = false)
-            target.archived -> slots.standIn(index.placeOfContract(contract), StandIn.ARCHIVED, ended = false)
-            else -> slots.conversation(target, ended = false, again = false)
-        }
-        slot.hung.add(ContractNode(contract))
-    }
+    val planned = planDesigns(index, items, designs, inbox = true)
+    placeItems(slots, items, takenKeys(planned), behind)
+    placeDesigns(slots, planned, behind)
 }
 
 /**
  * Places the archived view: each archived conversation with every epic and contract it steered, and each archived epic
- * whose conversation is not archived under that conversation, or under the unlisted stand-in.
+ * whose conversation is not archived on its own row. A contract shows here only under an archived conversation, and a
+ * design only on its archived conversation's row.
  */
-private fun placeArchived(index: Index, slots: Slots) {
-    val archivedConversations = index.conversations.filter { it.archived }
-    for (conversation in archivedConversations) slots.conversation(conversation, ended = false, again = false)
+private fun placeArchived(index: Index, slots: Slots, designs: List<DesignRow>) {
+    for (conversation in index.conversations.filter { it.archived }) slots.conversation(conversation, ended = false)
 
     val visible = index.epics.filter { epic -> index.target(epic.steering)?.archived == true || epic.archived }
-    for (epic in visible) {
-        val target = index.target(epic.steering)
-        val slot = if (target == null) {
-            slots.standIn(index.placeOfEpic(epic), StandIn.UNLISTED, ended = false)
-        } else {
-            slots.conversation(target, ended = false, again = false)
-        }
-        slot.hung.add(index.node(epic))
-    }
-
     val carried = visible.map { it.id }.toSet()
-    for (contract in index.shownContracts) {
-        if (contract.id in carried) continue
-        val target = index.target(contract.conversation) ?: continue
-        if (!target.archived) continue
-        slots.conversation(target, ended = false, again = false).hung.add(ContractNode(contract))
+    val items = buildList {
+        for (epic in visible) {
+            add(
+                Item(
+                    index.node(epic),
+                    index.placeOfEpic(epic),
+                    ended = false,
+                    row = index.drawnTarget(epic.steering, true),
+                ),
+            )
+        }
+        for (contract in index.shownContracts) {
+            if (contract.id in carried) continue
+            val row = index.drawnTarget(contract.conversation, true) ?: continue
+            add(Item(ContractNode(contract), index.placeOfContract(contract), ended = false, row = row))
+        }
+    }
+    val planned = planDesigns(index, items, designs, inbox = false)
+    placeItems(slots, items, takenKeys(planned), emptySet())
+    placeDesigns(slots, planned, emptySet())
+}
+
+/**
+ * Plans the designs a view draws, in the order they were created: each design of a conversation the view draws, and in
+ * the inbox also each design whose conversation is not drawn but whose kids are. A design takes the items its contracts
+ * name, by id or by epic, in position order, and an item one design takes is no other design's kid.
+ */
+private fun planDesigns(index: Index, items: List<Item>, designs: List<DesignRow>, inbox: Boolean): List<PlannedDesign> {
+    val claimed = mutableSetOf<String>()
+    val planned = mutableListOf<PlannedDesign>()
+    val ordered = designs.filterNot { it.ofOne }.sortedWith(compareBy<DesignRow> { it.created }.thenBy { it.id })
+    for (design in ordered) {
+        val row = index.drawnTarget(design.conversation, archived = !inbox)
+        val kids = kidsOf(design, items, claimed)
+        if (row == null && (!inbox || kids.isEmpty())) continue
+        claimed += kids.map { it.hung.key }
+        planned += PlannedDesign(DesignBlock(design, kids.map { it.hung }), row, kids)
+    }
+    return planned
+}
+
+/**
+ * A design's kids: for each of its contracts in position order, the items its id names and then the items its epic
+ * names, each once, and never one that another design took.
+ */
+private fun kidsOf(design: DesignRow, items: List<Item>, taken: Set<String>): List<Item> {
+    val kids = mutableListOf<Item>()
+    for (contract in design.contracts.sortedBy { it.position }) {
+        for (id in listOf(contract.id, contract.epic)) {
+            for (item in items) {
+                if (id.isNotEmpty() && idOf(item.hung) == id && item.hung.key !in taken && item !in kids) kids.add(item)
+            }
+        }
+    }
+    return kids
+}
+
+/** The keys of every kid the planned designs take. */
+private fun takenKeys(planned: List<PlannedDesign>): Set<String> = planned.flatMap { it.kids }.map { it.hung.key }.toSet()
+
+/** The id a thing is named by: an epic's id, or a contract's. */
+private fun idOf(hung: Hung): String = when (hung) {
+    is EpicNode -> hung.epic.id
+    is ContractNode -> hung.contract.id
+}
+
+/**
+ * Draws each item no design took: under its drawn row, folded when it is an ended epic of a row in the tree, or on its
+ * own row when no conversation it names is drawn.
+ */
+private fun placeItems(slots: Slots, items: List<Item>, taken: Set<String>, behind: Set<Conversation>) {
+    for (item in items) {
+        if (item.hung.key in taken) continue
+        val row = item.row
+        val hung = item.hung
+        if (row == null) {
+            slots.own(item.place, hung, ended = item.ended)
+        } else if (hung is EpicNode && item.ended && row !in behind) {
+            slots.conversation(row, ended = false).folded.add(hung)
+        } else {
+            slots.conversation(row, ended = row in behind).hung.add(hung)
+        }
     }
 }
 
-/** Whether a conversation's id is the one an epic or contract names. An empty id names nothing. */
-private fun steers(conversation: Conversation, id: String): Boolean =
-    conversation.id.isNotEmpty() && conversation.id == id
+/**
+ * Draws each planned design: on its conversation's row, wherever serve places that row, or on its own row in the project
+ * of its first kid, behind the ended line only when every kid has ended.
+ */
+private fun placeDesigns(slots: Slots, planned: List<PlannedDesign>, behind: Set<Conversation>) {
+    for (design in planned) {
+        val row = design.row
+        if (row != null) {
+            slots.conversation(row, ended = row in behind).designs.add(design.block)
+        } else {
+            slots.ownDesign(design.kids.first().place, design.block, ended = design.kids.all { it.ended })
+        }
+    }
+}
 
 /**
- * The tree the inbox or the archived view draws from the rows and epics: conversations grouped by project, with what
- * steers each hung under it, the ended line behind each project, and both ranked.
+ * Places the archived view or the inbox, and returns the tree the view draws from the rows, epics, contracts and designs:
+ * conversations grouped by project, with what steers each hung under it, each design a block under the conversation
+ * that works it, the ended line behind each project, and both ranked.
  */
 internal fun inboxTree(
     panes: List<Pane>,
@@ -281,8 +367,10 @@ internal fun inboxTree(
     contracts: List<ContractRow>,
     host: String,
     view: TreeView,
+    designs: List<DesignRow> = emptyList(),
 ): List<Project> {
-    val conversations = panes.filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) }.map { pane ->
+    val drawn = panes.filterNot { it.session.startsWith(SHELL_SESSION_PREFIX) }.filter { drawsAsConversation(it) }
+    val conversations = drawn.map { pane ->
         val archived = archivedOf(pane, archivedIds)
         // The convo's pane carries the archived flag a tmux pane takes from Sessions.List, so readers of the tree need no
         // archivedIds of their own.
@@ -291,8 +379,8 @@ internal fun inboxTree(
     val index = Index(host, details, epics, contracts, conversations)
     val slots = Slots()
     when (view) {
-        TreeView.INBOX -> placeInbox(index, slots)
-        TreeView.ARCHIVED -> placeArchived(index, slots)
+        TreeView.INBOX -> placeInbox(index, slots, designs)
+        TreeView.ARCHIVED -> placeArchived(index, slots, designs)
     }
     return slots.projects()
 }
@@ -306,6 +394,12 @@ internal fun waits(hung: Hung): Boolean = when (hung) {
     is ContractNode -> hung.contract.state == CONTRACT_PROPOSED
 }
 
+/**
+ * Whether a pane draws as a conversation: a headless session always does, and a tmux pane only while a Claude session is
+ * bound to it or claude runs in it unbound. A plain terminal draws no row.
+ */
+internal fun drawsAsConversation(pane: Pane): Boolean = pane.headless || pane.claudeSession.isNotEmpty() || pane.unbound
+
 /** Whether a pane is archived: a headless session by its own flag, a tmux pane by its orrery_id's place in [archivedIds]. */
 internal fun archivedOf(pane: Pane, archivedIds: Set<String>): Boolean =
     if (pane.headless) pane.archived else pane.orreryId.isNotEmpty() && pane.orreryId in archivedIds
@@ -313,9 +407,9 @@ internal fun archivedOf(pane: Pane, archivedIds: Set<String>): Boolean =
 /** Whether a pane waits on you: it is waiting, not archived, and its owner has not put its question off. */
 internal fun waitsOnYou(pane: Pane): Boolean = pane.state == STATE_WAITING && !pane.archived && !pane.putOff
 
-/** Whether a conversation waits on you: its own row waits, or something hung under it does. */
+/** Whether a conversation waits on you: its own row waits, or something hung under it or under its designs does. */
 internal fun convoWaits(convo: Convo): Boolean =
-    convo.pane?.let { waitsOnYou(it) } == true || convo.hung.any { waits(it) }
+    convo.pane?.let { waitsOnYou(it) } == true || convo.allHung.any { waits(it) }
 
 private fun rankOf(convo: Convo): Int = when {
     convoWaits(convo) -> RANK_WAITING
@@ -324,9 +418,9 @@ private fun rankOf(convo: Convo): Int = when {
     else -> RANK_REST
 }
 
-/** A row's change: its pane's, or for a stand-in its newest hung thing's. */
+/** A row's change: its pane's, or for a row with no pane its newest thing under it, design kids included. */
 private fun changedOf(convo: Convo): Long =
-    convo.pane?.changed ?: convo.hung.maxOfOrNull { changedOfHung(it) } ?: 0L
+    convo.pane?.changed ?: convo.allHung.maxOfOrNull { changedOfHung(it) } ?: 0L
 
 private fun changedOfHung(hung: Hung): Long = when (hung) {
     is EpicNode -> hung.epic.changed

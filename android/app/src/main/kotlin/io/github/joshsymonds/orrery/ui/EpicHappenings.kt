@@ -109,7 +109,7 @@ private fun HappenedRow(index: Int, entry: EpicHistoryRow, steps: List<StepRow>,
             Text(
                 clockOf(entry.time),
                 modifier = Modifier.testTag("happened-at:$index"),
-                style = OrreryTokens.Type.small,
+                style = OrreryTokens.Type.code,
             )
             Text(entry.sentence, modifier = Modifier.weight(1f), style = OrreryTokens.Type.small)
         }

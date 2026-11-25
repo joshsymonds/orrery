@@ -192,7 +192,9 @@ func TestSessionTitleWritesOnceFromTheFirstPrompt(t *testing.T) {
 }
 
 // TestSessionTitleBlankOrFailedReplyStoresNothing covers R3: a failed call, a blank title, a reply that is not an
-// object and a failed write each leave the session untitled, and no later tick of the same start calls for it again.
+// object and a failed write each leave the session untitled, and a wake before the session's deadline fires calls for it
+// no more: a failed call or reply waits out its deadline (see callRetries), and a failed write keeps the title for the
+// retry to write.
 func TestSessionTitleBlankOrFailedReplyStoresNothing(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -230,8 +232,8 @@ func TestSessionTitleBlankOrFailedReplyStoresNothing(t *testing.T) {
 	}
 }
 
-// TestSessionTitleSecondStartRetriesAnUntitledSessionOnce covers R3: a start retries a session a failed call left
-// untitled, and a tick of that start calls for it no more.
+// TestSessionTitleSecondStartRetriesAnUntitledSessionOnce covers R3: a start calls at once for a session a failed call
+// left untitled, and once that call succeeds a wake calls for it no more.
 func TestSessionTitleSecondStartRetriesAnUntitledSessionOnce(t *testing.T) {
 	t.Parallel()
 	st := &titleFakeStore{untitled: []store.UntitledSession{{ID: "e-gamma", Dir: "/work/gamma", FirstPrompt: "p"}}}

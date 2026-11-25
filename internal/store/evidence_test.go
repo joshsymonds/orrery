@@ -92,14 +92,10 @@ func laterVerdict() EvidenceVerdict {
 	}
 }
 
-// captureRun, grantRun, judgeRun and verdictRun are the four guarded writes on a run, each with a valid argument
-// that differs from the values runAt stores.
+// captureRun, judgeRun and verdictRun are the three guarded writes on a run, each with a valid argument that differs from
+// the values runAt stores.
 func captureRun(ctx context.Context, s *Store, id string) error {
 	return s.RecordEvidenceCapture(ctx, id, laterCapture())
-}
-
-func grantRun(ctx context.Context, s *Store, id string) error {
-	return s.SetEvidenceGrant(ctx, id, "grant-9", "holder-9")
 }
 
 func judgeRun(ctx context.Context, s *Store, id string) error {
@@ -110,7 +106,7 @@ func verdictRun(ctx context.Context, s *Store, id string) error {
 	return s.RecordEvidenceVerdict(ctx, id, laterVerdict())
 }
 
-// runAt adds run id and moves it to state: capturing, judging after its capture, or ended after its verdict.
+// runAt adds run id and moves it to state: waiting, judging after its capture, or ended after its verdict.
 func runAt(t *testing.T, s *Store, id, state string) {
 	t.Helper()
 	ctx := context.Background()
@@ -118,7 +114,7 @@ func runAt(t *testing.T, s *Store, id, state string) {
 		t.Fatalf("AddEvidenceRun %s: %v", id, err)
 	}
 	switch state {
-	case runCapturing:
+	case RunWaiting:
 		return
 	case runJudging, runEnded:
 	default:
@@ -175,15 +171,9 @@ func TestEvidenceRunReadsBackAtEachStep(t *testing.T) {
 	}
 	want := EvidenceRun{
 		ID: id, Epic: runEpic, Item: "R1", Revision: "abc1234", Phase: "red", Source: "captured",
-		State: "capturing", Spec: runItem(), Created: runCreatedAt(),
+		State: "waiting", Spec: runItem(), Created: runCreatedAt(),
 	}
 	assertRun(t, s, id, want, "after AddEvidenceRun")
-
-	if err := s.SetEvidenceGrant(ctx, id, "grant-7", "holder-2"); err != nil {
-		t.Fatalf("SetEvidenceGrant: %v", err)
-	}
-	want.Grant, want.Holder = "grant-7", "holder-2"
-	assertRun(t, s, id, want, "after SetEvidenceGrant")
 
 	capture := runCapture()
 	if err := s.RecordEvidenceCapture(ctx, id, capture); err != nil {
@@ -248,11 +238,9 @@ func TestEvidenceWritesRefusedInWrongStateChangeNothing(t *testing.T) {
 	}{
 		{"second capture record", runJudging, captureRun},
 		{"capture after verdict", runEnded, captureRun},
-		{"grant after capture", runJudging, grantRun},
-		{"grant after verdict", runEnded, grantRun},
-		{"judge before capture", runCapturing, judgeRun},
+		{"judge before capture", RunWaiting, judgeRun},
 		{"judge after verdict", runEnded, judgeRun},
-		{"verdict before capture", runCapturing, verdictRun},
+		{"verdict before capture", RunWaiting, verdictRun},
 		{"second verdict", runEnded, verdictRun},
 	}
 	for _, tc := range refused {
@@ -280,7 +268,7 @@ func TestEvidenceWritesToUnknownRunAreErrNoEvidenceRun(t *testing.T) {
 	s := openEpicStore(t)
 	const id = "run-missing"
 	writes := map[string]func(ctx context.Context, s *Store, id string) error{
-		"capture": captureRun, "grant": grantRun, "judge": judgeRun, "verdict": verdictRun,
+		"capture": captureRun, "judge": judgeRun, "verdict": verdictRun,
 	}
 	for name, write := range writes {
 		if err := write(ctx, s, id); !errors.Is(err, ErrNoEvidenceRun) {
@@ -383,7 +371,7 @@ func TestOpenEvidenceRunsListsCapturingAndJudgingOnly(t *testing.T) {
 		id    string
 		state string
 	}{
-		{"run-a-capturing", runCapturing},
+		{"run-a-capturing", RunWaiting},
 		{"run-b-judging", runJudging},
 		{"run-c-ended", runEnded},
 	}
@@ -392,7 +380,7 @@ func TestOpenEvidenceRunsListsCapturingAndJudgingOnly(t *testing.T) {
 		if err := s.AddEvidenceRun(ctx, run); err != nil {
 			t.Fatalf("AddEvidenceRun %s: %v", st.id, err)
 		}
-		if st.state == runCapturing {
+		if st.state == RunWaiting {
 			continue
 		}
 		if err := s.RecordEvidenceCapture(ctx, st.id, runCapture()); err != nil {

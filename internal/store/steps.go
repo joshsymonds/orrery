@@ -87,6 +87,8 @@ type StepAdd struct {
 	Task         string
 	Purpose      string
 	Caller       EpicCaller
+	// Host is the host the step's work lives on. A step with an epic takes its epic's host instead.
+	Host string
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -233,6 +235,7 @@ type StepRow struct {
 	LoopStageFrom   time.Time
 	Caller          string
 	Lines           StepLines
+	Host            string
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -252,6 +255,18 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	if err != nil {
 		return fmt.Errorf("resolve caller of step %s: %w", op.ID, err)
 	}
+	// A step takes its epic's host. A step may name an epic no store holds, since steps carry no foreign key to epics, and
+	// such a step keeps its own host.
+	host := op.Host
+	if op.Epic != "" {
+		epicHost, hostErr := epicHostOf(ctx, queries, op.Epic)
+		if hostErr != nil && !errors.Is(hostErr, ErrNoEpic) {
+			return fmt.Errorf("read host of step %s: %w", op.ID, hostErr)
+		}
+		if hostErr == nil {
+			host = epicHost
+		}
+	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
@@ -259,7 +274,8 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		Owned: string(owned), Unowned: boolInt(op.Unowned), Gate: string(gate), GateName: op.GateName,
 		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
-		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller, Purpose: op.Purpose,
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller, Host: host,
+		Purpose: op.Purpose,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -389,7 +405,7 @@ func (op StepEnd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 
 // Step returns the step row with id. It returns an error matching ErrNoStep when no step has that id.
 func (s *Store) Step(ctx context.Context, id string) (StepRow, error) {
-	row, err := sqlcgen.New(s.db).GetStep(ctx, id)
+	row, err := sqlcgen.New(s.read).GetStep(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StepRow{}, fmt.Errorf("step %s: %w", id, ErrNoStep)
 	}
@@ -417,7 +433,7 @@ func (s *Store) SetStepPurpose(ctx context.Context, id, purpose string) error {
 // its output, whether it is at or before the step's latest return, and whether the session's awaited flag is set.
 // It returns false, and no error, when there is no such turn end, so the turn the last prompt started is still running.
 func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, error) {
-	row, err := sqlcgen.New(s.db).GetStepTurnEnd(ctx, id)
+	row, err := sqlcgen.New(s.read).GetStepTurnEnd(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return StepTurnEnd{}, false, nil
 	}
@@ -436,7 +452,7 @@ func (s *Store) StepBlocks(ctx context.Context, id string, limit int) ([]StepBlo
 	if limit < 1 {
 		return nil, fmt.Errorf("blocks of step %s: limit %d must be at least 1", id, limit)
 	}
-	rows, err := sqlcgen.New(s.db).ListStepBlocks(ctx, sqlcgen.ListStepBlocksParams{ID: id, Count: int64(limit)})
+	rows, err := sqlcgen.New(s.read).ListStepBlocks(ctx, sqlcgen.ListStepBlocksParams{ID: id, Count: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("read blocks of step %s: %w", id, err)
 	}
@@ -457,7 +473,7 @@ func (s *Store) StepBlocks(ctx context.Context, id string, limit int) ([]StepBlo
 
 // OpenSteps returns every step row with no end, ordered by id.
 func (s *Store) OpenSteps(ctx context.Context) ([]StepRow, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenSteps(ctx)
+	rows, err := sqlcgen.New(s.read).ListOpenSteps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open steps: %w", err)
 	}
@@ -466,7 +482,7 @@ func (s *Store) OpenSteps(ctx context.Context) ([]StepRow, error) {
 
 // LimitedSteps returns the open step rows whose loop is limited, ordered by start time then id.
 func (s *Store) LimitedSteps(ctx context.Context) ([]StepRow, error) {
-	rows, err := sqlcgen.New(s.db).ListLimitedSteps(ctx)
+	rows, err := sqlcgen.New(s.read).ListLimitedSteps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list limited steps: %w", err)
 	}
@@ -476,7 +492,7 @@ func (s *Store) LimitedSteps(ctx context.Context) ([]StepRow, error) {
 // RunningCallerSteps returns the steps still running whose caller is the sessions row caller, ordered by start time
 // then id.
 func (s *Store) RunningCallerSteps(ctx context.Context, caller string) ([]StepRow, error) {
-	rows, err := sqlcgen.New(s.db).ListRunningCallerSteps(ctx, caller)
+	rows, err := sqlcgen.New(s.read).ListRunningCallerSteps(ctx, caller)
 	if err != nil {
 		return nil, fmt.Errorf("list running caller steps: %w", err)
 	}
@@ -487,7 +503,7 @@ func (s *Store) RunningCallerSteps(ctx context.Context, caller string) ([]StepRo
 // empty and to rows whose task is task when task is not empty, ordered by start time then id. A read narrowed to an
 // epic searches the steps by their epic and task labels; only a read not narrowed to an epic reads the whole table.
 func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
-	queries := sqlcgen.New(s.db)
+	queries := sqlcgen.New(s.read)
 	var rows []sqlcgen.Step
 	var err error
 	switch {
@@ -614,6 +630,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopStage:       row.LoopStage,
 		LoopStageFrom:   stageFrom,
 		Caller:          row.Caller,
+		Host:            row.Host,
 		Lines: StepLines{
 			Counted: row.LinesCounted != 0, Files: row.LinesFiles, Added: row.LinesAdded, Removed: row.LinesRemoved,
 		},

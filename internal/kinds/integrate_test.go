@@ -31,7 +31,8 @@ func batchNode(revision, result string, refsChecked bool) Node {
 }
 
 // integrateEpic returns an epic at base-1 stored at base-1, with the Done gates just check and just lint, the
-// Requirements R1 and R2 that name evidence items, and R3 that names none.
+// Requirements R1 and R2 that name evidence items, and R3 that names none. Its task T1, the one composedOne composes,
+// claims R1 and contributes to R2, so a batch of it captures both.
 func integrateEpic() store.EpicRow {
 	return store.EpicRow{
 		Base:       "base-1",
@@ -42,6 +43,15 @@ func integrateEpic() store.EpicRow {
 			{ID: "R2", Text: "lint is clean", Item: evidenceItem("lint is clean")},
 			{ID: "R3", Text: "the docs read well"},
 		},
+		Tasks: []store.EpicTask{batchTask(1, []string{"R1"}, []string{"R2"})},
+	}
+}
+
+// batchTask returns the done task seq that the integrate run at batchPath claimed, claiming requirements and
+// contributing to contributes.
+func batchTask(seq int64, requirements, contributes []string) store.EpicTask {
+	return store.EpicTask{
+		Seq: seq, Status: taskDone, Batch: batchPath, Requirements: requirements, Contributes: contributes,
 	}
 }
 
@@ -723,6 +733,145 @@ func TestMetAtBase(t *testing.T) {
 			t.Parallel()
 			if got := MetAtBase(node, tc.rows); !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("MetAtBase() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIntegrateCapturesOnlyTheRequirementsItsBatchTouched decides a batch whose one composed task, T1, claims R2 while
+// R1 belongs to a task another batch integrated. Only R2 is captured at the candidate. R1 is no cause and reads green
+// when it is green at the stored base, and not yet green when it is not. A result whose composed tasks do not decode
+// captures every Requirement that names an item.
+func TestIntegrateCapturesOnlyTheRequirementsItsBatchTouched(t *testing.T) {
+	t.Parallel()
+	epic := integrateEpic()
+	epic.Tasks = []store.EpicTask{
+		batchTask(1, []string{"R2"}, nil),
+		{Seq: 2, Status: taskDone, Batch: "plan/S0/integrate", Requirements: []string{"R1"}},
+	}
+	earlier := store.NodeRun{
+		ID: "earlier-run", Kind: "integrate", Outcome: outcomePassed, Revision: "base-1", Attempt: 1,
+	}
+	earlierR1 := store.EvidenceRun{
+		ID: store.NodeWorkID("earlier-run", 1, "capture R1"), Phase: evidence.PhaseGreen,
+		State: runEnded, Verdict: evidence.VerdictHolds, Passed: true,
+	}
+	const undecodable = `{"base":"base-1","candidate":"cand-1","composed":["c1"],"leftOut":[]}`
+	cases := []decideCase{
+		{
+			"only the Requirement the batch's task claims is captured",
+			batchNode(testRev, composedOne, false),
+			Rows{Epic: epic, Checks: gatesPassed()},
+			Action{Kind: ActCapture, IDs: []string{workID("capture R2")}, Items: []string{"R2"}},
+		},
+		{
+			"a Requirement the batch left alone keeps its green at the stored base",
+			batchNode(testRev, composedOne, true),
+			Rows{
+				Epic: epic, Checks: gatesPassed(), Runs: []store.NodeRun{earlier},
+				Evidence: []store.EvidenceRun{earlierR1, greenCapture("capture R2", true)},
+			},
+			Action{Kind: ActAdvance, Output: "R1 green at the stored base base-1; no task of this batch changes it, " +
+				"so it was not captured again\nR2 green\nR3 not yet green"},
+		},
+		{
+			"a Requirement the batch left alone that is not green at the stored base is no cause",
+			batchNode(testRev, composedOne, true),
+			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{greenCapture("capture R2", true)}},
+			Action{Kind: ActAdvance, Output: "R1 not yet green\nR2 green\nR3 not yet green"},
+		},
+		{
+			"a result whose composed tasks do not decode captures every Requirement",
+			batchNode(testRev, undecodable, false),
+			Rows{Epic: epic, Checks: gatesPassed()},
+			Action{
+				Kind:  ActCapture,
+				IDs:   []string{workID("capture R1"), workID("capture R2")},
+				Items: []string{"R1", "R2"},
+			},
+		},
+	}
+	checkDecisions(t, Integrate{}, cases)
+}
+
+// TestGreenAtCarriesWhatABatchDidNotCapture reads green at candidates whose integrate runs captured only part of the
+// Requirements. A Requirement a run did not capture is green when it is green at the base the run's result names, down
+// a chain of such bases; one the run captured and that did not pass is not, whatever the base held; and bases that lead
+// back to each other end the walk.
+func TestGreenAtCarriesWhatABatchDidNotCapture(t *testing.T) {
+	t.Parallel()
+	passed := func(id, revision, base string) store.NodeRun {
+		result := ""
+		if base != "" {
+			result = `{"base":"` + base + `","candidate":"` + revision + `","composed":[{"task":1,"commit":"c1"}],` +
+				`"leftOut":[]}`
+		}
+		return store.NodeRun{
+			ID: id, Kind: "integrate", Outcome: outcomePassed, Revision: revision, Attempt: 1, Result: result,
+		}
+	}
+	capture := func(run, requirement string, ok bool) store.EvidenceRun {
+		verdict := evidence.VerdictFails
+		if ok {
+			verdict = evidence.VerdictHolds
+		}
+		return store.EvidenceRun{
+			ID: store.NodeWorkID(run, 1, "capture "+requirement), Phase: evidence.PhaseGreen,
+			State: runEnded, Verdict: verdict, Passed: ok,
+		}
+	}
+	cases := []struct {
+		name     string
+		runs     []store.NodeRun
+		evidence []store.EvidenceRun
+		revision string
+		want     map[string]bool
+	}{
+		{
+			"an uncaptured Requirement carries its green from the run's base",
+			[]store.NodeRun{passed("first", "base-1", ""), passed("second", "cand-1", "base-1")},
+			[]store.EvidenceRun{capture("first", "R1", true), capture("second", "R2", true)},
+			"cand-1",
+			map[string]bool{"R1": true, "R2": true},
+		},
+		{
+			"green carries down a chain of bases",
+			[]store.NodeRun{
+				passed("first", "base-1", ""), passed("second", "cand-1", "base-1"),
+				passed("third", "cand-2", "cand-1"),
+			},
+			[]store.EvidenceRun{capture("first", "R1", true), capture("second", "R2", true)},
+			"cand-2",
+			map[string]bool{"R1": true, "R2": true},
+		},
+		{
+			"a captured Requirement that did not pass is not green, though its base held it",
+			[]store.NodeRun{passed("first", "base-1", ""), passed("second", "cand-1", "base-1")},
+			[]store.EvidenceRun{capture("first", "R1", true), capture("second", "R1", false)},
+			"cand-1",
+			map[string]bool{},
+		},
+		{
+			"an uncaptured Requirement not green at the base is not green",
+			[]store.NodeRun{passed("first", "base-1", ""), passed("second", "cand-1", "base-1")},
+			[]store.EvidenceRun{capture("second", "R2", true)},
+			"cand-1",
+			map[string]bool{"R2": true},
+		},
+		{
+			"bases that lead back to each other end the walk",
+			[]store.NodeRun{passed("first", "cand-1", "cand-2"), passed("second", "cand-2", "cand-1")},
+			nil,
+			"cand-1",
+			map[string]bool{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rows := Rows{Epic: integrateEpic(), Runs: tc.runs, Evidence: tc.evidence}
+			if got := GreenAt(rows, tc.revision); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("GreenAt() = %v, want %v", got, tc.want)
 			}
 		})
 	}

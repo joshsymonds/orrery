@@ -443,8 +443,7 @@ type Step struct {
 	End string `protobuf:"bytes,7,opt,name=end,proto3" json:"end,omitempty"`
 	// The step's status: the done value its return carried, or the status it ended with.
 	Status string `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
-	// The step's latest result, as its return carried it. Empty in a ListSteps answer, which carries summary,
-	// red_evidence and green_evidence instead.
+	// The step's latest result, as its return carried it. Empty in a ListSteps answer, which carries summary instead.
 	Result string `protobuf:"bytes,9,opt,name=result,proto3" json:"result,omitempty"`
 	// The checks the step's returns ran, in the rounds they ran in.
 	Checks []*StepCheck `protobuf:"bytes,10,rep,name=checks,proto3" json:"checks,omitempty"`
@@ -483,17 +482,12 @@ type Step struct {
 	// caller had no row.
 	Caller string `protobuf:"bytes,26,opt,name=caller,proto3" json:"caller,omitempty"`
 	// The string summary of the step's latest result. Empty when the result is not a JSON object, has no summary, or has
-	// one that is not a string. A key the result holds more than once is read at its last value, here and in
-	// red_evidence and green_evidence.
+	// one that is not a string. A key the result holds more than once is read at its last value.
 	Summary string `protobuf:"bytes,27,opt,name=summary,proto3" json:"summary,omitempty"`
-	// Whether the step's latest result is a JSON object whose red_evidence is a string that, trimmed of white space, is
-	// not empty and does not start with NOT RUN in any case.
-	RedEvidence bool `protobuf:"varint,28,opt,name=red_evidence,json=redEvidence,proto3" json:"red_evidence,omitempty"`
-	// Whether the step's latest result is a JSON object whose green_evidence is a string that, trimmed of white space, is
-	// not empty and does not start with NOT RUN in any case.
-	GreenEvidence bool `protobuf:"varint,29,opt,name=green_evidence,json=greenEvidence,proto3" json:"green_evidence,omitempty"`
+	// The orrery name of the host the step lives on.
+	Host string `protobuf:"bytes,30,opt,name=host,proto3" json:"host,omitempty"`
 	// What the step is for, as stored at its start; empty when none is stored.
-	Purpose       string `protobuf:"bytes,30,opt,name=purpose,proto3" json:"purpose,omitempty"`
+	Purpose       string `protobuf:"bytes,31,opt,name=purpose,proto3" json:"purpose,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -717,18 +711,11 @@ func (x *Step) GetSummary() string {
 	return ""
 }
 
-func (x *Step) GetRedEvidence() bool {
+func (x *Step) GetHost() string {
 	if x != nil {
-		return x.RedEvidence
+		return x.Host
 	}
-	return false
-}
-
-func (x *Step) GetGreenEvidence() bool {
-	if x != nil {
-		return x.GreenEvidence
-	}
-	return false
+	return ""
 }
 
 func (x *Step) GetPurpose() string {
@@ -1789,7 +1776,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x11StepStatusRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
 	"\x12StepStatusResponse\x12*\n" +
-	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xe3\x06\n" +
+	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xd7\x06\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -1819,10 +1806,9 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x12gate_limit_seconds\x18\x18 \x01(\x03R\x10gateLimitSeconds\x129\n" +
 	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\x12\x16\n" +
 	"\x06caller\x18\x1a \x01(\tR\x06caller\x12\x18\n" +
-	"\asummary\x18\x1b \x01(\tR\asummary\x12!\n" +
-	"\fred_evidence\x18\x1c \x01(\bR\vredEvidence\x12%\n" +
-	"\x0egreen_evidence\x18\x1d \x01(\bR\rgreenEvidence\x12\x18\n" +
-	"\apurpose\x18\x1e \x01(\tR\apurpose\"\x7f\n" +
+	"\asummary\x18\x1b \x01(\tR\asummary\x12\x12\n" +
+	"\x04host\x18\x1e \x01(\tR\x04host\x12\x18\n" +
+	"\apurpose\x18\x1f \x01(\tR\apurposeJ\x04\b\x1c\x10\x1dJ\x04\b\x1d\x10\x1eR\fred_evidenceR\x0egreen_evidence\"\x7f\n" +
 	"\x15ReadStepResultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\x12\x12\n" +

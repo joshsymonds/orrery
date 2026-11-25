@@ -55,25 +55,25 @@ export function PaneStrip({
         </span>
       )}
       {host?.other === true && <span class="other">on another host: no meters</span>}
-      {stats.map((stat, index) => (
-        <Meter key={index} stat={stat} series={(index % seriesCount) + 1} />
-      ))}
+      {stats.length > 0 && (
+        <span class="meters">
+          {stats.map((stat, index) => (
+            <Meter key={index} stat={stat} series={(index % seriesCount) + 1} />
+          ))}
+        </span>
+      )}
       {context !== undefined && <ContextMeter context={context} />}
     </div>
   );
 }
 
-// Meter draws one host stat: its name, a bar at its percent when it has one, and its value, in the series the stat takes
-// from its place among the host's stats and at its level.
+// Meter draws one host stat: its name, its bar, and its value, in the series the stat takes from its place among the
+// host's stats and at its level. The bar is filled to its percent; a stat with no percent draws an empty bar line.
 function Meter({ stat, series }: { stat: HostStat; series: number }): JSX.Element {
   return (
     <span class={`meter series-${series} level-${stat.level}`}>
       <span class="name">{stat.label}</span>
-      {stat.percent !== undefined && (
-        <span class="bar">
-          <i style={{ width: `${stat.percent}%` }} />
-        </span>
-      )}
+      <span class="bar">{stat.percent !== undefined && <i style={{ width: `${stat.percent}%` }} />}</span>
       <span class="value">{stat.value}</span>
     </span>
   );

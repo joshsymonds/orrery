@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -97,10 +97,27 @@ test("TokenLint: font-size fails on its line, named by file and line", () => {
   assert.match(reasonsAt(problems, 2), /font-size/);
 });
 
-test("TokenLint: a font-family other than Orrery Mono fails on its line, and Orrery Mono passes", () => {
-  const problems = lintCss("fixture.css", ".a {\n  font-family: monospace;\n  font-family: \"Orrery Mono\";\n}\n");
-  assert.deepEqual(located(problems), ["fixture.css:2"]);
+test("TypeFaces: a font-family of Inter or of Orrery Mono passes", () => {
+  const problems = lintCss("fixture.css", '.a {\n  font-family: "Inter";\n  font-family: "Orrery Mono";\n}\n');
+  assert.deepEqual(problems, []);
+});
+
+test("TypeFaces: a font-family other than Inter or Orrery Mono fails on its line, named by file and line", () => {
+  const problems = lintCss("fixture.css", '.a {\n  font-family: monospace;\n  font-family: "Comic Sans MS";\n}\n');
+  assert.deepEqual(located(problems), ["fixture.css:2", "fixture.css:3"]);
   assert.match(reasonsAt(problems, 2), /font-family/);
+  assert.match(reasonsAt(problems, 3), /font-family/);
+});
+
+test("TypeFaces: an @font-face naming another family fails on its line, and the Inter and Orrery Mono faces pass", () => {
+  const problems = lintCss(
+    "fixture.css",
+    '@font-face { font-family: "Inter"; src: url("inter.ttf") format("truetype"); font-weight: 400; }\n' +
+      '@font-face { font-family: "Comic Sans MS"; src: url("comic.ttf") format("truetype"); font-weight: 400; }\n' +
+      '@font-face { font-family: "Orrery Mono"; src: url("mono.ttf") format("truetype"); font-weight: 400; }\n',
+  );
+  assert.deepEqual(located(problems), ["fixture.css:2"]);
+  assert.match(reasonsAt(problems, 2), /@font-face names a family other than Inter or Orrery Mono/);
 });
 
 test("TokenLint: line-height fails on its line, named by file and line", () => {
@@ -225,6 +242,27 @@ test("TokenLint: @container on 760 and on 899 fails, since a container answers o
   assert.deepEqual(located(problems), ["fixture.css:1", "fixture.css:2"]);
   assert.match(reasonsAt(problems, 1), /760px is not a container breakpoint token/);
   assert.match(reasonsAt(problems, 2), /899px is not a container breakpoint token/);
+});
+
+test("MeterGrid: an @container query at 136px passes, read from the meterCellLine token in tokens.json", () => {
+  const { layout } = JSON.parse(readFileSync(join(repo, "web/visual/system/tokens.json"), "utf8")) as {
+    layout: { meterCellLine: number };
+  };
+  assert.equal(layout.meterCellLine, 136);
+  const problems = lintCss(
+    "fixture.css",
+    `@container meter (width < ${layout.meterCellLine}px) { .a { display: none; } }\n`,
+  );
+  assert.deepEqual(problems, []);
+});
+
+test("MeterGrid: an @container query at another width, 137px, fails on its line, and its reason names meterCellLine", () => {
+  const problems = lintCss("fixture.css", "@container meter (width < 137px) { .a { display: none; } }\n");
+  assert.deepEqual(located(problems), ["fixture.css:1"]);
+  assert.match(
+    reasonsAt(problems, 1),
+    /137px is not a container breakpoint token: use breakpointHeadNarrow or meterCellLine/,
+  );
 });
 
 test("TokenLint: @font-face lines are exempt, so a face's raw weight passes", () => {

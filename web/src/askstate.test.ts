@@ -28,6 +28,7 @@ function paneRow(init: MessageInitShape<typeof PaneSchema>): Row {
     host: "box",
     session: "work",
     cwd: "/work/api",
+    claudeSession: "claude-1",
     state: "waiting",
     summary: "Plan the import",
     changed: 1794700000n,

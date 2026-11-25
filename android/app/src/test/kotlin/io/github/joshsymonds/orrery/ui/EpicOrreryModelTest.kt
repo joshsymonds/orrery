@@ -13,7 +13,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
+import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import org.junit.Assert.assertEquals
@@ -47,6 +47,8 @@ class EpicOrreryModelTest {
 
     // A labelled step of task T1, running in stage turn unless the arguments say otherwise.
     private fun step(
+        id: String = "step",
+        task: String = "T1",
         end: String = "",
         stage: String = "turn",
         stageStarted: Long = 0L,
@@ -54,16 +56,17 @@ class EpicOrreryModelTest {
         limited: Boolean = false,
         limitKind: String = "",
         readOnly: Boolean = false,
+        role: String = "",
         doing: String = "",
     ): StepRow = StepRow(
-        id = "step",
-        task = "T1",
+        id = id,
+        task = task,
         agent = "builder",
         end = end,
         status = "",
         held = held,
         started = 100L,
-        ended = 0L,
+        ended = if (end == "") 0L else 160L,
         doing = doing,
         checks = emptyList(),
         reason = "",
@@ -72,23 +75,52 @@ class EpicOrreryModelTest {
         limited = limited,
         limitKind = limitKind,
         readOnly = readOnly,
+        role = role,
         summary = "",
     )
 
-    // The build task T1 at a status and build stage, requiring R1.
-    private fun buildTask(status: String, stage: String): EpicBuildTaskRow = EpicBuildTaskRow(
+    // An ended evidence run with the given id and phase.
+    private fun run(id: String, phase: String) = EvidenceRunRow(
+        id = id,
+        phase = phase,
+        source = "captured",
+        state = "ended",
+        exit = 0,
+        timedOut = false,
+        notCaptured = "",
+        verdict = "",
+        judgeReason = "",
+        passed = true,
+        revision = "",
+        created = 0L,
+        ended = 0L,
+        logBytes = 0L,
+        stderrBytes = 0L,
+        artifacts = emptyList(),
+    )
+
+    // The build task T1, requiring R1, at the place and tone serve computed for it.
+    private fun buildTask(
+        place: String,
+        tone: String,
+        status: String = "open",
+        stage: String = "",
+        red: EvidenceRunRow? = null,
+        green: EvidenceRunRow? = null,
+    ): EpicBuildTaskRow = EpicBuildTaskRow(
         id = "T1",
         title = "Parser",
         status = status,
         stage = stage,
-        red = null,
-        green = null,
+        red = red,
+        green = green,
         requirements = listOf("R1"),
+        place = place,
+        tone = tone,
     )
 
     private fun detail(
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
-        tasks: List<EpicTaskRow> = emptyList(),
         steps: List<StepRow> = emptyList(),
     ): EpicDetail = EpicDetail(
         epic = EpicRow(
@@ -100,67 +132,94 @@ class EpicOrreryModelTest {
             live = true,
             runningSteps = emptyList(),
             endedSteps = 0,
-            problem = "",
         ),
-        tasks = tasks,
-        slices = emptyList(),
         steps = steps,
         buildTasks = buildTasks,
     )
 
-    // The record task of a detail that has one build task T1, at the given status and stage, with the given steps.
-    private fun taskOf(status: String, stage: String = "", vararg steps: StepRow): RecordTask {
-        val tasks = recordTasksOf(detail(buildTasks = listOf(buildTask(status, stage)), steps = steps.toList()))
+    // The one record task of a detail with the one build task.
+    private fun taskOf(build: EpicBuildTaskRow, vararg steps: StepRow): RecordTask {
+        val tasks = recordTasksOf(detail(buildTasks = listOf(build), steps = steps.toList()))
         assertEquals(1, tasks.size)
         return tasks[0]
     }
 
+    // The record task of a detail that has one build task T1, at the given place and tone, with the given steps.
+    private fun taskOf(place: String, tone: String, vararg steps: StepRow): RecordTask =
+        taskOf(buildTask(place, tone), *steps)
+
     @Test
-    fun aBuildTaskRunningInItsStageSitsInTheRingItsStageNames() {
+    fun aTaskSitsInTheRingServesPlaceNames() {
         val cases = listOf(
             "red" to RingPlace.RED,
             "implement" to RingPlace.IMPLEMENT,
-            "orchestrate" to RingPlace.IMPLEMENT,
             "green" to RingPlace.GREEN,
             "review" to RingPlace.REVIEW,
-            "verify" to RingPlace.REVIEW,
+            "integrate" to RingPlace.INTEGRATE,
         )
-        for ((stage, ring) in cases) {
-            val task = taskOf("open", stage, step())
-            assertEquals(stage, ring, task.place)
-            assertEquals(stage, WedgeTone.RUN, task.tone)
-            // With no step yet, the stage alone places the task, running.
-            val staged = taskOf("open", stage)
-            assertEquals("$stage with no step", ring, staged.place)
-            assertEquals("$stage with no step", WedgeTone.RUN, staged.tone)
+        for ((place, ring) in cases) {
+            val task = taskOf(place, "run")
+            assertEquals(place, ring, task.place)
+            assertEquals(place, false, task.integrated)
+            assertEquals(place, WedgeTone.RUN, task.tone)
         }
     }
 
     @Test
-    fun aTaskWithNoBuildStageSitsInTheRingOfItsRunningStepsPhaseOrItsDispatch() {
-        assertEquals(RingPlace.IMPLEMENT, taskOf("open", "", step()).place)
-        assertEquals(RingPlace.GREEN, taskOf("open", "", step(stage = "checks")).place)
-        assertEquals(RingPlace.REVIEW, taskOf("open", "", step(readOnly = true)).place)
-        assertEquals(RingPlace.IMPLEMENT, taskOf("dispatched", "").place)
+    fun aTaskReadsItsPlaceAndToneFromServeNotFromItsStepsStageOrStatus() {
+        // Its steps, build stage and status would each have placed it elsewhere; serve's place and tone stand.
+        val task = taskOf(
+            buildTask("review", "mine", status = "done", stage = "red"),
+            step(stage = "checks", limited = true),
+        )
+        assertEquals(RingPlace.REVIEW, task.place)
+        assertEquals(false, task.integrated)
+        assertEquals(WedgeTone.MINE, task.tone)
+        assertEquals(listOf(CellTone.OK, CellTone.OK, CellTone.OK, CellTone.MINE, CellTone.NONE), task.cells)
+    }
+
+    @Test
+    fun aPlaceOrToneServeDoesNotNameReadsAsPlannedAndPlan() {
+        for (place in listOf("", "orbiting")) {
+            val task = taskOf(place, "run")
+            assertEquals(place, null, task.place)
+            assertEquals(place, false, task.integrated)
+            assertEquals(place, List(RINGS) { CellTone.NONE }, task.cells)
+            assertEquals(place, "not started", task.words)
+        }
+        val toneless = taskOf("green", "")
+        assertEquals(WedgeTone.PLAN, toneless.tone)
+        assertEquals(listOf(CellTone.OK, CellTone.OK, CellTone.PLAN, CellTone.NONE, CellTone.NONE), toneless.cells)
     }
 
     @Test
     fun anAcceptedTaskSitsAtIntegrateWithAcceptedCellsAndWords() {
-        val gated = taskOf("gated")
+        val gated = taskOf("integrate", "acc")
         assertEquals(RingPlace.INTEGRATE, gated.place)
         assertEquals(false, gated.integrated)
         assertEquals(WedgeTone.ACC, gated.tone)
         assertEquals(listOf(CellTone.OK, CellTone.OK, CellTone.OK, CellTone.OK, CellTone.ACC), gated.cells)
         assertEquals("accepted · waits to integrate", gated.words)
+    }
 
-        val ended = taskOf("open", "red", step(end = "done"))
-        assertEquals(RingPlace.INTEGRATE, ended.place)
-        assertEquals(WedgeTone.ACC, ended.tone)
+    @Test
+    fun aTaskWhoseImplementerEndedGoalUnmetAndWhoseReviewerEndedDoneIsAcceptedNotFailed() {
+        val task = taskOf(
+            buildTask("integrate", "acc", status = "done", stage = "review"),
+            step(id = "implementer", end = "goal_unmet", role = "implementer"),
+            step(id = "reviewer", end = "done", readOnly = true, role = "reviewer"),
+        )
+        assertEquals(RingPlace.INTEGRATE, task.place)
+        assertEquals(false, task.integrated)
+        assertEquals(WedgeTone.ACC, task.tone)
+        assertEquals(listOf(CellTone.OK, CellTone.OK, CellTone.OK, CellTone.OK, CellTone.ACC), task.cells)
+        assertEquals("accepted · waits to integrate", task.words)
     }
 
     @Test
     fun anIntegratedTaskIsDoneWithFiveOkCells() {
-        val task = taskOf("done")
+        val task = taskOf("integrated", "ok")
+        assertEquals(RingPlace.INTEGRATE, task.place)
         assertEquals(true, task.integrated)
         assertEquals(WedgeTone.OK, task.tone)
         assertEquals(List(RINGS) { CellTone.OK }, task.cells)
@@ -169,14 +228,12 @@ class EpicOrreryModelTest {
 
     @Test
     fun aPlannedTaskHasNoRingAndFiveNoneCells() {
-        for (status in listOf("open", "pending")) {
-            val task = taskOf(status)
-            assertEquals(status, null, task.place)
-            assertEquals(status, false, task.integrated)
-            assertEquals(status, WedgeTone.PLAN, task.tone)
-            assertEquals(status, List(RINGS) { CellTone.NONE }, task.cells)
-            assertEquals(status, "not started", task.words)
-        }
+        val task = taskOf("planned", "plan")
+        assertEquals(null, task.place)
+        assertEquals(false, task.integrated)
+        assertEquals(WedgeTone.PLAN, task.tone)
+        assertEquals(List(RINGS) { CellTone.NONE }, task.cells)
+        assertEquals("not started", task.words)
     }
 
     @Test
@@ -202,41 +259,58 @@ class EpicOrreryModelTest {
     }
 
     @Test
+    fun aRunningTaskAtImplementDrawsOkThenRunThenNothingWithNoHoles() {
+        val task = taskOf("implement", "run", step(doing = "writing the parser"))
+        assertEquals(listOf(CellTone.OK, CellTone.RUN, CellTone.NONE, CellTone.NONE, CellTone.NONE), task.cells)
+        assertEquals("implement · writing the parser", task.words)
+    }
+
+    @Test
+    fun aRetryingTaskWhoseLatestStepEndedGoalUnmetWithNothingRunningIsRunningNotFailed() {
+        val task = taskOf("implement", "run", step(end = "goal_unmet", doing = "writing the parser"))
+        assertEquals(RingPlace.IMPLEMENT, task.place)
+        assertEquals(WedgeTone.RUN, task.tone)
+        assertEquals(listOf(CellTone.OK, CellTone.RUN, CellTone.NONE, CellTone.NONE, CellTone.NONE), task.cells)
+        assertEquals("implement", task.words)
+        assertEquals(0L, task.since)
+    }
+
+    @Test
+    fun aGapIsBadAtItsPlaceAndSaysFailed() {
+        val task = taskOf(buildTask("green", "bad", status = "gap", stage = "green"))
+        assertEquals(RingPlace.GREEN, task.place)
+        assertEquals(WedgeTone.BAD, task.tone)
+        assertEquals(listOf(CellTone.OK, CellTone.OK, CellTone.BAD, CellTone.NONE, CellTone.NONE), task.cells)
+        assertEquals("green · failed", task.words)
+    }
+
+    @Test
     fun aLimitedTaskWaitsOnAUsageLimitOrOnItsKindOfLimit() {
-        val plain = taskOf("open", "", step(limited = true))
+        val plain = taskOf("implement", "limited", step(limited = true))
         assertEquals(RingPlace.IMPLEMENT, plain.place)
         assertEquals(WedgeTone.LIMITED, plain.tone)
         assertEquals("waits on a usage limit", plain.words)
         assertEquals(listOf(CellTone.OK, CellTone.LIMITED, CellTone.NONE, CellTone.NONE, CellTone.NONE), plain.cells)
 
-        val weekly = taskOf("open", "", step(limited = true, limitKind = "weekly"))
+        val weekly = taskOf("implement", "limited", step(limited = true, limitKind = "weekly"))
         assertEquals("waits on the weekly limit", weekly.words)
     }
 
     @Test
     fun aHeldTaskIsMineAndSaysHeld() {
-        val task = taskOf("open", "", step(held = true))
+        val task = taskOf("implement", "mine", step(held = true))
         assertEquals(WedgeTone.MINE, task.tone)
         assertEquals("implement · held", task.words)
         assertEquals(listOf(CellTone.OK, CellTone.MINE, CellTone.NONE, CellTone.NONE, CellTone.NONE), task.cells)
     }
 
     @Test
-    fun aTaskWhoseLatestStepEndedOtherwiseIsBadAndSaysFailed() {
-        val task = taskOf("open", "", step(end = "failed"))
-        assertEquals(RingPlace.IMPLEMENT, task.place)
-        assertEquals(WedgeTone.BAD, task.tone)
-        assertEquals("implement · failed", task.words)
-        assertEquals(listOf(CellTone.OK, CellTone.BAD, CellTone.NONE, CellTone.NONE, CellTone.NONE), task.cells)
-    }
-
-    @Test
     fun aRunningTaskSaysItsRingAndItsDoingOrItsRingAlone() {
-        val doing = taskOf("open", "", step(doing = "writing the parser"))
+        val doing = taskOf("implement", "run", step(doing = "writing the parser"))
         assertEquals(WedgeTone.RUN, doing.tone)
         assertEquals("implement · writing the parser", doing.words)
 
-        val bare = taskOf("open", "red")
+        val bare = taskOf("red", "run")
         assertEquals(RingPlace.RED, bare.place)
         assertEquals("red", bare.words)
         assertEquals(listOf(CellTone.RUN, CellTone.NONE, CellTone.NONE, CellTone.NONE, CellTone.NONE), bare.cells)
@@ -244,35 +318,43 @@ class EpicOrreryModelTest {
 
     @Test
     fun aRunningTasksSinceIsItsStageStartAndZeroWhenNothingRuns() {
-        assertEquals(175L, taskOf("open", "", step(stageStarted = 175L)).since)
+        assertEquals(175L, taskOf("implement", "run", step(stageStarted = 175L)).since)
         // A running step whose stage has no start reads from the step's own start.
-        assertEquals(100L, taskOf("open", "", step()).since)
-        assertEquals(0L, taskOf("open", "red").since)
-        assertEquals(0L, taskOf("open", "", step(end = "done", stageStarted = 175L)).since)
+        assertEquals(100L, taskOf("implement", "run", step()).since)
+        assertEquals(0L, taskOf("red", "run").since)
+        assertEquals(0L, taskOf("integrate", "acc", step(end = "done", stageStarted = 175L)).since)
+    }
+
+    @Test
+    fun anEvidenceJudgeStepBelongsToTheBuildTaskWhoseRedOrGreenRunItJudges() {
+        val build = buildTask("green", "run", red = run("run-red", "red"), green = run("run-green", "green"))
+        val judging = step(
+            id = "judge",
+            task = "evidence-run-green",
+            stage = "judge",
+            stageStarted = 150L,
+            readOnly = true,
+            doing = "judging the green run",
+        )
+        val tasks = recordTasksOf(detail(buildTasks = listOf(build), steps = listOf(judging)))
+
+        assertEquals("T1", tasks.taskOfStep("evidence-run-green")?.task)
+        assertEquals("T1", tasks.taskOfStep("evidence-run-red")?.task)
+        assertEquals("T1", tasks.taskOfStep("T1")?.task)
+        assertEquals(null, tasks.taskOfStep("evidence-run-other"))
+        assertEquals(null, tasks.taskOfStep("T2"))
+        // The judge step is the task's running step: its words and its since read from it.
+        assertEquals("green · judging the green run", tasks[0].words)
+        assertEquals(150L, tasks[0].since)
     }
 
     @Test
     fun recordTasksAreTheTasksWedgesOfPicksWithTheirTitlesRequirementsAndStates() {
-        val built = detail(
-            buildTasks = listOf(buildTask("open", "")),
-            tasks = listOf(EpicTaskRow(effort = 1, slug = "old", subject = "Old", status = "done", requirements = emptyList())),
-        )
+        val built = detail(buildTasks = listOf(buildTask("planned", "plan")))
         assertEquals(wedgesOf(built).map { it.task }, recordTasksOf(built).map { it.task })
         assertEquals(listOf("T1"), recordTasksOf(built).map { it.task })
         assertEquals("Parser", recordTasksOf(built)[0].title)
         assertEquals(listOf("R1"), recordTasksOf(built)[0].requirements)
-
-        val record = detail(
-            tasks = listOf(
-                EpicTaskRow(effort = 1, slug = "first", subject = "First task", status = "done", requirements = listOf("R2", "R3")),
-                EpicTaskRow(effort = 1, slug = "second", subject = "Second", status = "pending", requirements = emptyList()),
-            ),
-        )
-        assertEquals(wedgesOf(record).map { it.task }, recordTasksOf(record).map { it.task })
-        assertEquals(listOf("First task", "Second"), recordTasksOf(record).map { it.title })
-        assertEquals(listOf("R2", "R3"), recordTasksOf(record)[0].requirements)
-        assertEquals(listOf(RingPlace.INTEGRATE, null), recordTasksOf(record).map { it.place })
-        assertEquals(listOf(true, false), recordTasksOf(record).map { it.integrated })
     }
 
     @Test

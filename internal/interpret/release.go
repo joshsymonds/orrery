@@ -13,27 +13,21 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// release carries out one work action of a release run: the prepare of its candidate, the release slot taken or freed,
-// a stop, the epic's ending, a Done gate check or a capture at the candidate, the start of a round of the release
-// integrator, of a release step, of a release reviewer or of the judge, the record of a candidate, a round of the release
-// integrator, a release step, a release reviewer or the judge, or the replan that sends the release back to planning and
-// the resume once that plan has ended.
+// release carries out one work action of a release run: the prepare of its candidate, the begin of the release of a
+// clean epic, a stop, the epic's ending, the start of the release integrator's round, of a release step, of a release
+// reviewer or of the judge, the record of a candidate, of the release integrator's round, of a release step, of a
+// release reviewer or of the judge, or the replan that sends the release back to planning and the resume once that
+// plan has ended.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
 		return r.prepareRelease(ctx, epic, act)
-	case kinds.ActTake:
-		return r.takeSlot(ctx, epic, at)
-	case kinds.ActFree:
-		return r.freeSlot(ctx, epic)
+	case kinds.ActBegin:
+		return r.beginRelease(ctx, epic, at)
 	case kinds.ActStop:
 		return r.stopRelease(ctx, epic, act, at)
 	case kinds.ActEnding:
 		return r.endEpic(ctx, epic, act, at)
-	case kinds.ActStart:
-		return r.start(ctx, epic, act)
-	case kinds.ActCapture:
-		return r.capture(ctx, epic, act)
 	case kinds.ActIntegrator:
 		return r.startIntegrator(ctx, epic, act, at)
 	case kinds.ActStep:
@@ -51,7 +45,7 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 }
 
-// recordRelease records the run act names: the candidate, the judge, a round of the release integrator, a release
+// recordRelease records the run act names: the candidate, the judge, the release integrator's round, a release
 // reviewer's review, or else a release step, which its label names.
 func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if len(act.Items) == 0 {
@@ -104,15 +98,15 @@ func releaseReviewOf(act Action, at time.Time) (store.ReleaseRun, error) {
 }
 
 // startReleaseReview starts the release reviewer act names, read-only at the candidate act names, over the change from the
-// epic's change base. A reviewer or start refused for good records the review failed at once, and the release stops at it
-// on its next decision.
+// epic's base. A reviewer or start refused for good records the review failed at once, and the release stops at it on
+// its next decision.
 func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	run, err := releaseReviewOf(act, at)
 	if err != nil {
 		return err
 	}
 	id := act.IDs[0]
-	start, err := r.reviewers.Start(ctx, epic, run.Step, changeBase(epic), run.Head, nil, nil)
+	start, err := r.reviewers.Start(ctx, epic, run.Step, epic.Base, run.Head, nil, nil)
 	if err != nil {
 		if !refusedForGood(err) {
 			return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)
@@ -174,19 +168,10 @@ func releaseReviewVerdict(row store.StepRow) (bool, string) {
 	return row.End == releaseStoppedEnd, releaseEndReason("review", row)
 }
 
-// takeSlot takes the release slot of epic's repository for epic. When another epic holds the slot nothing changes, and
-// the holder shows in the epic's rows.
-func (r *Runner) takeSlot(ctx context.Context, epic store.EpicRow, at time.Time) error {
-	if _, err := r.store.TakeReleaseSlot(ctx, epic.ID, at); err != nil {
-		return fmt.Errorf("take release slot of epic %s: %w", epic.ID, err)
-	}
-	return nil
-}
-
-// freeSlot frees the release slot epic holds.
-func (r *Runner) freeSlot(ctx context.Context, epic store.EpicRow) error {
-	if err := r.store.FreeReleaseSlot(ctx, epic.ID); err != nil {
-		return fmt.Errorf("free release slot of epic %s: %w", epic.ID, err)
+// beginRelease moves the clean epic to releasing, so its release runs at once.
+func (r *Runner) beginRelease(ctx context.Context, epic store.EpicRow, at time.Time) error {
+	if err := r.store.StartRelease(ctx, epic.ID, at); err != nil {
+		return fmt.Errorf("begin release of epic %s: %w", epic.ID, err)
 	}
 	return nil
 }
@@ -217,9 +202,9 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 
 // recordCandidate stores the candidate of the run's attempt as passed, after the one it replaces when it was prepared
 // again. Its Start is the tip the candidate was made from and its Head the candidate, which is the merge the release
-// integrator committed when the action names that revision. Its Commits name the candidate when it is behind the
-// target, since then the candidate is the merge the release made. The run's release integrator worktree, when it has
-// one, is removed first: the merge it holds is pinned.
+// integrator committed when the action names that revision. Its Commits name the candidate when the tip is behind the
+// target, since then the candidate is the merge the release integrator made. The run's release integrator worktree,
+// when it has one, is removed first: the merge it holds is pinned.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
@@ -248,7 +233,11 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 func (r *Runner) verifyCandidate(
 	ctx context.Context, epic store.EpicRow, act Action, head string, at time.Time,
 ) (bool, error) {
-	contained, err := candidateContainsOrigin(ctx, epic, head)
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return false, fmt.Errorf("check candidate %s of epic %s: %w", head, epic.ID, err)
+	}
+	contained, err := candidateContainsOrigin(ctx, host, epic, head)
 	if err != nil {
 		reason := fmt.Sprintf("candidate %s could not be checked against origin's main: %v", head, err)
 		if stopErr := r.store.StopRelease(ctx, epic.ID, act.Path, act.Run.Attempt, reason, at); stopErr != nil {

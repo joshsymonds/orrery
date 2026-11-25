@@ -389,10 +389,30 @@ public interface EpicStepOrBuilder extends
 
   /**
    * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
+
+  /**
+   * <pre>
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @return The purpose.
    */
   java.lang.String getPurpose();
@@ -401,7 +421,7 @@ public interface EpicStepOrBuilder extends
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @return The bytes for purpose.
    */
   com.google.protobuf.ByteString

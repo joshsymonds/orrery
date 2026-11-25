@@ -26,7 +26,7 @@ const (
 	releaseTestBase = "0123456789abcdef0123456789abcdef01234567"
 )
 
-// stoppedReleaseEpic creates epicServiceID clean at repo, based at releaseTestBase, and takes repo's release slot. Its
+// stoppedReleaseEpic creates epicServiceID clean at repo, based at releaseTestBase, and starts its release. Its
 // release node run stops at publish, the second step, which failed after the first step passed.
 func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	t.Helper()
@@ -45,8 +45,8 @@ func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic clean: %v", err)
 	}
-	if _, err := st.TakeReleaseSlot(ctx, epicServiceID, now); err != nil {
-		t.Fatalf("TakeReleaseSlot: %v", err)
+	if err := st.StartRelease(ctx, epicServiceID, now); err != nil {
+		t.Fatalf("StartRelease: %v", err)
 	}
 	run := store.NodeRun{Path: "release", ID: "id-release", Node: "release", Kind: "release", Attempt: 1}
 	if err := st.StartNodes(ctx, epicServiceID, []store.NodeRun{run}, nil, time.Unix(turnStarted, 0)); err != nil {
@@ -162,7 +162,7 @@ func TestEpicReleaseStoreRefusalIsFailedPrecondition(t *testing.T) {
 		"release step 2 of epic "+epicServiceID+" is undo-none and failed; name it to run it again")
 }
 
-func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
+func TestEpicGetShowsReleaseRuns(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	repo := stepGitTestRepo(t)
@@ -180,9 +180,6 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 			Reason: "publish rejected", At: turnFreed,
 		},
 	})
-	if slot := stopped.GetReleaseSlot(); slot != epicServiceID {
-		t.Fatalf("release_slot = %q in GetEpic, want the holder %s", slot, epicServiceID)
-	}
 	wantProtos(t, "GetEpic release proof", stopped.GetReleaseProof(), []*v1.EpicReleaseProof{
 		{
 			Position: 1, Step: "push tag", Target: "origin", Undo: "delete tag", State: store.ReleasePassed,
@@ -202,9 +199,6 @@ func TestEpicGetShowsReleaseRunsAndSlotHolder(t *testing.T) {
 	waiting, err := client.GetEpic(ctx, connect.NewRequest(&v1.GetEpicRequest{Id: waitingID}))
 	if err != nil {
 		t.Fatalf("GetEpic %s: %v", waitingID, err)
-	}
-	if slot := waiting.Msg.GetEpic().GetReleaseSlot(); slot != epicServiceID {
-		t.Fatalf("release_slot of waiting %s = %q, want the holder %s", waitingID, slot, epicServiceID)
 	}
 	if runs := waiting.Msg.GetEpic().GetReleases(); len(runs) != 0 {
 		t.Fatalf("releases of waiting %s = %d runs, want none", waitingID, len(runs))

@@ -68,7 +68,6 @@ class EpicMarkTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
     )
 
@@ -78,8 +77,6 @@ class EpicMarkTest {
         buildTasks: List<EpicBuildTaskRow> = emptyList(),
     ) = EpicDetail(
         epic = epic(),
-        tasks = emptyList(),
-        slices = emptyList(),
         steps = emptyList(),
         requirements = requirements,
         buildTasks = buildTasks,
@@ -89,7 +86,7 @@ class EpicMarkTest {
     private fun epicNode(detail: EpicDetail = detail()) = EpicNode(epic(), detail, contract = null)
 
     private fun convo(node: EpicNode) =
-        Convo(key = "session:s1", pane = null, standIn = StandIn.NONE, again = false, hung = listOf(node))
+        Convo(key = "session:s1", pane = null, hung = listOf(node), folded = emptyList())
 
     private fun markOf(tag: String) =
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().config[EpicMarkKey]
@@ -132,7 +129,9 @@ class EpicMarkTest {
 
     @Test
     fun `EpicMark in the inbox row is 32 across`() {
-        composeRule.setContent { ConvoRowItem(convo(epicNode()), now = NOW, onOpen = {}, onLongPress = {}) }
+        composeRule.setContent {
+            ConvoRowItem(convo(epicNode()), now = NOW, foldOpen = false, onFold = {}, onOpen = {}, onLongPress = {})
+        }
 
         val mark = composeRule.onNodeWithTag("epicmark:$EPIC_ID", useUnmergedTree = true)
         mark.assertWidthIsEqualTo(32.dp)
@@ -164,7 +163,7 @@ class EpicMarkTest {
         val card = workCardOf(node, NOW)
         composeRule.setContent {
             Column {
-                ConvoRowItem(convo(node), now = NOW, onOpen = {}, onLongPress = {})
+                ConvoRowItem(convo(node), now = NOW, foldOpen = false, onFold = {}, onOpen = {}, onLongPress = {})
                 WorkCard(card, onOpen = {})
                 NoticeLeadMark(NoticeLead.Mark(epicMarkOf(fiveStates, "running")), EPIC_ID)
             }
@@ -186,7 +185,16 @@ class EpicMarkTest {
             buildTask("T2", "csv-writer", stage = "", requirement = "R2"),
         )
         val building = detail(requirements = requirements, buildTasks = buildTasks)
-        composeRule.setContent { ConvoRowItem(convo(epicNode(building)), now = NOW, onOpen = {}, onLongPress = {}) }
+        composeRule.setContent {
+            ConvoRowItem(
+                convo(epicNode(building)),
+                now = NOW,
+                foldOpen = false,
+                onFold = {},
+                onOpen = {},
+                onLongPress = {},
+            )
+        }
 
         val mark = markOf("epicmark:$EPIC_ID")
         assertEquals(listOf("R1", "R2", "R3"), mark.rim.map { it.id })

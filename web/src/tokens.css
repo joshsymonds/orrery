@@ -145,24 +145,28 @@
 
   /* type: one font shorthand per level, and the label's tracking */
   --o-font-mono: "Orrery Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --o-font-inter: "Inter", system-ui, sans-serif;
   --o-font-weight-regular: 400;
   --o-font-weight-bold: 700;
   --o-type-label: 700 12px/16px var(--o-font-mono);
   --o-type-label-size: 12px;
   --o-type-label-line: 16px;
   --o-type-label-tracking: 0.06em;
-  --o-type-small: 400 13px/20px var(--o-font-mono);
+  --o-type-small: 400 13px/18px var(--o-font-inter);
   --o-type-small-size: 13px;
-  --o-type-small-line: 20px;
-  --o-type-body: 400 15px/24px var(--o-font-mono);
+  --o-type-small-line: 18px;
+  --o-type-body: 400 15px/22px var(--o-font-inter);
   --o-type-body-size: 15px;
-  --o-type-body-line: 24px;
-  --o-type-title: 700 18px/28px var(--o-font-mono);
+  --o-type-body-line: 22px;
+  --o-type-title: 700 18px/24px var(--o-font-inter);
   --o-type-title-size: 18px;
-  --o-type-title-line: 28px;
-  --o-type-display: 700 28px/36px var(--o-font-mono);
+  --o-type-title-line: 24px;
+  --o-type-display: 700 28px/34px var(--o-font-inter);
   --o-type-display-size: 28px;
-  --o-type-display-line: 36px;
+  --o-type-display-line: 34px;
+  --o-type-code: 400 13px/18px var(--o-font-mono);
+  --o-type-code-size: 13px;
+  --o-type-code-line: 18px;
 
   /* space */
   --o-space-2: 2px;
@@ -202,19 +206,25 @@
   --o-layout-inbox-width: 340px;
   --o-layout-inbox-width-narrow: 316px;
   --o-layout-rail-width: 64px;
-  --o-layout-read-measure-ch: 88ch;
+  --o-layout-read-measure-ch: 70ch;
   --o-layout-gutter-ch: 6ch;
   --o-layout-page-measure: 1120px;
   --o-layout-page-pad-desk: 24px;
   --o-layout-page-pad-phone: 16px;
   --o-layout-turn-gap: 32px;
   --o-layout-item-gap: 12px;
+  --o-layout-meter-cell: 160px;
+  --o-layout-meter-cell-line: 136px;
 
   /* elevation */
   --o-elevation-overlay: 0px 8px 24px color-mix(in srgb, #11111b 60%, transparent);
   --o-elevation-side: 8px 0px 24px color-mix(in srgb, #11111b 60%, transparent);
   --o-elevation-side-end: -8px 0px 24px color-mix(in srgb, #11111b 60%, transparent);
   --o-scrim: color-mix(in srgb, var(--o-palette-crust) 60%, transparent);
+
+  /* ground: a tint at its alpha over its surface, drawn behind a thing */
+  --o-ground-open: color-mix(in srgb, var(--o-role-focus) 35%, var(--o-surface-side));
+  --o-ground-open-hover: color-mix(in srgb, var(--o-role-focus) 45%, var(--o-surface-side));
 
   /* layers, low to high */
   --o-z-page: 0;
@@ -230,14 +240,18 @@
   --o-move-layout: 280ms cubic-bezier(0.2, 0, 0, 1);
   --o-move-drill: 320ms cubic-bezier(0.2, 0, 0, 1);
   --o-move-leave: 200ms cubic-bezier(0.4, 0, 1, 1);
+  --o-move-rise: 450ms cubic-bezier(0.3, 0, 0.1, 1);
+  --o-move-fold: 280ms cubic-bezier(0.4, 0, 1, 1);
+  --o-delay-rise: 120ms;
   --o-loop-spin: 1100ms;
   --o-loop-pulse: 1800ms;
   --o-loop-blink: 1100ms;
   --o-pulse-low: 0.25;
   --o-distance-drill: 16px;
+  --o-distance-rise: 48px;
 }
 
-/* with reduced motion every move is one linear step of this length and every loop holds still */
+/* with reduced motion every move is one linear step of this length, every delay is also 0, and every loop holds still */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --o-move-press: 100ms linear;
@@ -245,5 +259,8 @@
     --o-move-layout: 100ms linear;
     --o-move-drill: 100ms linear;
     --o-move-leave: 100ms linear;
+    --o-move-rise: 100ms linear;
+    --o-move-fold: 100ms linear;
+    --o-delay-rise: 0ms;
   }
 }

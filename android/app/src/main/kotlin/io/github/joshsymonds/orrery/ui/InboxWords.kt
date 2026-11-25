@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -49,9 +50,24 @@ internal fun titleLineOf(words: EpicRowWords): String =
 internal fun thirdLineOf(words: EpicRowWords): String =
     if (words.blocker.isNotEmpty()) QUESTION_LEAD + words.blocker else words.newest
 
-/** A conversation's second line at [now], in unix seconds; a stand-in row's words when it has no pane. */
+/** The words an unbound pane's row says, with the command the owner runs to bind it again. */
+internal const val UNBOUND_COMMAND = "claude --resume"
+internal const val UNBOUND_LINE = "Not bound to a conversation. Restart it with $UNBOUND_COMMAND."
+
+/** A design's name as its tab draws it: its title, or its id when the title is blank. */
+internal fun designNameOf(design: DesignRow): String = design.title.ifBlank { design.id }
+
+/** A design's count beside its tab: "1 contract", or "N contracts" for any other number. */
+internal fun designCountOf(design: DesignRow): String =
+    if (design.contracts.size == 1) "1 contract" else "${design.contracts.size} contracts"
+
+/** A design's first line in its well: "design · " and its state as served. */
+internal fun designStateLineOf(design: DesignRow): String = "design · ${design.state}"
+
+/** A conversation's second line at [now], in unix seconds; a row with no pane has none, its own row draws its thing. */
 internal fun convoLineOf(convo: Convo, now: Long): String {
-    val pane = convo.pane ?: return standInWords(convo.standIn)
+    val pane = convo.pane ?: return ""
+    if (pane.unbound) return UNBOUND_LINE
     return when (pane.state) {
         "" -> TERMINAL_WORDS
         STATE_WAITING -> waitingLine(pane)
@@ -108,7 +124,7 @@ private fun stateWordOf(listed: EpicRow, detail: EpicDetail?): String {
 // The track part a phase is in: planning or building while accepted, building while built, reviewing or correcting,
 // releasing while clean, releasing or stopped, and report once released or closed. Null for any other phase.
 internal fun trackPartOf(phase: String, detail: EpicDetail): String? = when (phase) {
-    "accepted" -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+    "accepted" -> if (detail.buildTasks.isEmpty()) "planning" else "building"
     "built", "reviewing", "correcting" -> "building"
     "clean", "releasing", "stopped" -> RELEASING
     "released", "done", "met_at_base", "ended_with_gaps", "closed_superseded", "closed_shipped", "closed_abandoned" ->
@@ -126,7 +142,7 @@ private fun blockerWordsOf(listed: EpicRow, detail: EpicDetail?, now: Long): Str
         NeedKind.RELEASE -> detail.releaseProof.firstOrNull { it.state == RELEASE_FAILED }
             ?.let { "Release step ${it.position} failed: ${it.reason}" }.orEmpty()
         NeedKind.PARK -> detail.parked
-        NeedKind.OTHER -> blockerOf(detail)?.text.orEmpty()
+        NeedKind.OTHER -> otherBlockerOf(detail)?.text.orEmpty()
     }
 }
 
@@ -151,12 +167,6 @@ private fun workingLine(pane: Pane, now: Long): String {
 
 // A running tool's clock, minutes and seconds: "0:46", "12:05".
 private fun clockText(seconds: Long): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-
-private fun standInWords(standIn: StandIn): String = when (standIn) {
-    StandIn.UNLISTED -> "its conversation is not listed"
-    StandIn.ARCHIVED -> "its conversation is archived"
-    StandIn.NONE -> ""
-}
 
 // An elapsed time since a stamp: "49 min" while live, "49 min ago" once ended. A stamp of zero reads none, and a clock
 // behind the stamp reads zero.

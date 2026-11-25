@@ -40,6 +40,7 @@ import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
+import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -108,12 +109,27 @@ class DockSendBoxTest {
     }
 
     @Test
-    fun editorDrawsInOrreryMono() {
+    fun editorDrawsInInter() {
         setBox()
 
-        val orreryMono = ResourcesCompat.getFont(composeRule.activity, R.font.orrery_mono_regular)
-        assertNotNull(orreryMono)
-        assertSame(orreryMono, editField().typeface)
+        val inter = ResourcesCompat.getFont(composeRule.activity, R.font.inter_regular)
+        assertNotNull(inter)
+        assertSame(inter, editField().typeface)
+    }
+
+    @Test
+    fun editorDrawsAtTheBodyLineHeightWithNoMultiplier() {
+        setBox()
+
+        val field = editField()
+        val bodyLineHeightPx = composeRule.density.run { OrreryTokens.Type.body.lineHeight.roundToPx() }
+        assertEquals(bodyLineHeightPx, field.lineHeight)
+        assertEquals(1f, field.lineSpacingMultiplier, 0f)
+        assertEquals(
+            (bodyLineHeightPx - field.paint.getFontMetricsInt(null)).toFloat(),
+            field.lineSpacingExtra,
+            0f,
+        )
     }
 
     @Test

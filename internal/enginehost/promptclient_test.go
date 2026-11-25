@@ -38,7 +38,7 @@ func promptsWithClient(t *testing.T, history store.EngineHistory) []promptWithCl
 // that client.
 func TestPromptClientStartAndSayStoreTheClient(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi", Client: "orrery-android"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -67,7 +67,7 @@ func TestPromptClientStartAndSayStoreTheClient(t *testing.T) {
 // gave a client store their prompts with no client, though the session's own prompt has one.
 func TestPromptClientDeliveriesStoreNoClient(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi", Client: "orrery-android"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

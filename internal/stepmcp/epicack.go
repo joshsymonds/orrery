@@ -79,26 +79,21 @@ func answerChange(req *v1.AnswerEpicRequest, decision *v1.EpicDecision) string {
 		decision.GetId(), req.GetQuestion(), req.GetChoice())
 }
 
-// resumeChange returns what epic_resume resumed: the count of the limited steps it resumed and, when any, their ids,
-// then the count of the steps a full step cap left limited and, when any, their ids.
-func resumeChange(resumed, stillLimited []string) string {
+// resumeChange returns what epic_resume resumed: the count of the limited steps it resumed and, when any, their ids.
+func resumeChange(resumed []string) string {
 	change := fmt.Sprintf("resumed %d limited steps", len(resumed))
 	if len(resumed) > 0 {
 		change += ": " + joinList(resumed)
 	}
-	change += fmt.Sprintf("; %d left limited by the step cap", len(stillLimited))
-	if len(stillLimited) > 0 {
-		change += ": " + joinList(stillLimited)
-	}
 	return change
 }
 
-// stopChange returns what epic_stop did: it paused a running turn, or it freed the release slot the epic held.
+// stopChange returns what epic_stop did: it paused a running turn, or it stopped the release, so no step starts.
 func stopChange(epic *v1.StoredEpic) string {
 	if epic.GetPaused() {
 		return "stopped its running turn and paused it"
 	}
-	return "stopped its release and freed the release slot"
+	return "stopped its release, so no further step starts"
 }
 
 // retryChange returns what epic_retry did: it reran the named node, or it ended the epic's park.

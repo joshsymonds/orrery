@@ -110,8 +110,7 @@ class SessionScreenStepTest {
                 .setChanged(NOW)
                 .setLive(true)
                 .setSource("orreryd")
-                .setEndedSteps(0)
-                .setProblem(""),
+                .setEndedSteps(0),
         )
         .addSteps(
             EpicStep.newBuilder()
@@ -127,9 +126,11 @@ class SessionScreenStepTest {
             EpicBuildTask.newBuilder()
                 .setId(TASK_ID)
                 .setTitle(STEP_TITLE)
-                .setStatus("dispatched")
+                .setStatus("open")
                 .setStage("implement")
-                .addRequirements("R1"),
+                .addRequirements("R1")
+                .setPlace("implement")
+                .setTone(if (held) "mine" else "run"),
         )
         .build()
 

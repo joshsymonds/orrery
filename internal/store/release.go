@@ -13,9 +13,11 @@ import (
 
 // The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
 // position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
-// was prepared again, a round of the release integrator, which finished a merge of origin's commit that conflicted, a
-// replan, which sends the release back to planning for a change to its candidate that a blocked round asked for, and a
-// review, which records whether a release reviewer held the candidate before the first release step started from it.
+// was prepared again, a round of the release integrator, which made and verified a merge of origin's commit, a replan,
+// which sends the release back to planning for a change to its candidate that a blocked round or a refusing review
+// asked for, a review, which records whether a release reviewer held the candidate before the first release step
+// started from it, and a stop, which records that the owner stopped the release at an attempt, so no further step of it
+// starts.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
@@ -25,11 +27,12 @@ const (
 	ReleasePartIntegrator = "integrator"
 	ReleasePartReplan     = "replan"
 	ReleasePartReview     = "review"
+	ReleasePartStop       = "stop"
 )
 
-// The phases an epic's release moves through: clean until it takes the release slot, releasing while it holds the
-// slot, and stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean
-// ends in, and EndEpic stores the epic's stored base as its review's clean revision then.
+// The phases an epic's release moves through: clean until its release starts, releasing while its release runs, and
+// stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean ends in, and
+// EndEpic stores the epic's stored base as its review's clean revision then.
 const (
 	PhaseClean     = "clean"
 	PhaseReleasing = "releasing"
@@ -133,73 +136,20 @@ func appendRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, r
 	return recordRelease(ctx, queries, epic, run)
 }
 
-// TakeReleaseSlot takes the release slot of epic's repository for epic, in one write, and returns the slot's holder
-// after the write. An epic in clean, releasing or stopped takes the slot when it is free, or keeps it when it already
-// holds it, and only a clean epic that holds it moves to releasing. When another epic holds the slot nothing changes
-// and that epic is returned. An epic in any other phase takes nothing. It returns an error matching ErrNoEpic when no
-// epic has the id.
-func (s *Store) TakeReleaseSlot(ctx context.Context, epic string, at time.Time) (string, error) {
-	var holder string
-	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		row, err := queries.GetEpic(ctx, epic)
-		if errors.Is(err, sql.ErrNoRows) {
+// StartRelease moves epic from clean to releasing, in one write, so its release runs at once. An epic in any other
+// phase is left as it is. It returns an error matching ErrNoEpic when no epic has the id.
+func (s *Store) StartRelease(ctx context.Context, epic string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := queries.GetEpic(ctx, epic); errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
-		}
-		if err != nil {
+		} else if err != nil {
 			return fmt.Errorf("get epic %s: %w", epic, err)
 		}
-		if takesReleaseSlot(row.Phase) {
-			if err = queries.InsertEpicReleaseSlot(ctx, sqlcgen.InsertEpicReleaseSlotParams{
-				Repository: row.Repository, Epic: epic,
-			}); err != nil {
-				return fmt.Errorf("take release slot of epic %s: %w", epic, err)
-			}
-		}
-		if holder, err = releaseSlotHolder(ctx, queries, row.Repository); err != nil {
-			return err
-		}
-		if holder == epic && row.Phase == PhaseClean {
-			if err = queries.StartEpicRelease(
-				ctx,
-				sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
-			); err != nil {
-				return fmt.Errorf("start release of epic %s: %w", epic, err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return holder, nil
-}
-
-// takesReleaseSlot reports whether an epic in phase may take the release slot of its repository.
-func takesReleaseSlot(phase string) bool {
-	return phase == PhaseClean || phase == PhaseReleasing || phase == PhaseStopped
-}
-
-// releaseSlotHolder returns the epic that holds the release slot of repository, ReleaseSlotOutsidePrefix and the label of
-// an outside holder, or "" when the slot is free.
-func releaseSlotHolder(ctx context.Context, queries *sqlcgen.Queries, repository string) (string, error) {
-	row, err := queries.GetEpicReleaseSlotHolder(ctx, repository)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("read release slot of %s: %w", repository, err)
-	}
-	if row.HolderKind == ReleaseSlotOutside {
-		return ReleaseSlotOutsidePrefix + row.Label, nil
-	}
-	return row.Epic, nil
-}
-
-// FreeReleaseSlot frees the release slot epic holds, in one write. A slot another epic holds is left as it is.
-func (s *Store) FreeReleaseSlot(ctx context.Context, epic string) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := queries.FreeEpicReleaseSlot(ctx, epic); err != nil {
-			return fmt.Errorf("free release slot of epic %s: %w", epic, err)
+		if err := queries.StartEpicRelease(
+			ctx,
+			sqlcgen.StartEpicReleaseParams{PhaseAt: at.Unix(), ID: epic},
+		); err != nil {
+			return fmt.Errorf("start release of epic %s: %w", epic, err)
 		}
 		return nil
 	})
@@ -229,23 +179,15 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 }
 
 // releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
-// release_owner_stop when epic holds no release slot or a release reviewer refused its candidate at attempt,
-// release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
+// release_owner_stop when the owner stopped the release at attempt or a release reviewer refused its candidate at
+// attempt, release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
 func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
-	head, err := epicHead(ctx, queries, epic)
-	if err != nil {
-		return "", err
-	}
-	holder, err := releaseSlotHolder(ctx, queries, head.Repository)
-	if err != nil {
-		return "", err
-	}
-	if holder != epic {
-		return ParkClassReleaseOwnerStop, nil
-	}
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
 		return "", err
+	}
+	if ownerStoppedAt(runs, attempt) {
+		return ParkClassReleaseOwnerStop, nil
 	}
 	if slices.ContainsFunc(runs, func(run ReleaseRun) bool {
 		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
@@ -268,6 +210,13 @@ func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string
 		}
 	}
 	return ParkClassReleaseStep, nil
+}
+
+// ownerStoppedAt reports whether runs hold the owner's stop of the release at attempt: a stop run of that attempt.
+func ownerStoppedAt(runs []ReleaseRun, attempt int64) bool {
+	return slices.ContainsFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartStop && run.Attempt == attempt
+	})
 }
 
 // releaseParkSubject is the subject of the park a stopped release makes: the release, whatever its node path.
@@ -331,8 +280,8 @@ type ReleaseProof struct {
 // ReleaseProofs returns each contract release step of flow's epic in contract order, with the state its release runs
 // give it. For a position p, the step passed when a release run of part `release` at p passed, the latest passed run
 // deciding. Otherwise it is running when the running release node run has a work step for `release p` with no end. Its
-// work step is the one under the run's id, attempt and part. Otherwise it failed when a release run at p did not pass,
-// the highest-attempt run deciding. Otherwise it is waiting.
+// work step is the one ReleaseStepWorkID names for the run and p. Otherwise it failed when a release run at p did not
+// pass, the highest-attempt run deciding. Otherwise it is waiting.
 func ReleaseProofs(flow EpicFlow) []ReleaseProof {
 	proofs := make([]ReleaseProof, 0, len(flow.Epic.ReleaseSteps))
 	for i, step := range flow.Epic.ReleaseSteps {
@@ -383,15 +332,48 @@ func highestAttempt(runs []ReleaseRun, keep func(ReleaseRun) bool) (ReleaseRun, 
 	return best, found
 }
 
+// ReleaseGatedID returns the id the work of the release node run runID runs under at generation: runID itself at
+// generation 0, and an id that carries the generation after it at any later one, so the release integrator, reviewers
+// and first step of the candidate a candidate prepared again replaces cannot decide its own.
+func ReleaseGatedID(runID string, generation int64) string {
+	if generation > 0 {
+		return fmt.Sprintf("%s-generation-%d", runID, generation)
+	}
+	return runID
+}
+
+// ReleaseGeneration returns the generation of the candidate attempt holds: how many candidates of attempt origin's main
+// was found not in, each a verify run of attempt that did not pass. Each is a candidate the attempt has prepared again.
+func ReleaseGeneration(runs []ReleaseRun, attempt int64) int64 {
+	var count int64
+	for _, run := range runs {
+		if run.Part == ReleasePartVerify && !run.Passed && run.Attempt == attempt {
+			count++
+		}
+	}
+	return count
+}
+
+// ReleaseStepWorkID returns the id the release step at position is recorded under, for the release node run run whose
+// release runs are runs. Step 1 is recorded under the run's id at generation 0, and under the id ReleaseGatedID gives
+// the run at the generation of its candidate once that candidate was prepared again. Every other step is recorded under
+// the run's id.
+func ReleaseStepWorkID(run NodeRun, runs []ReleaseRun, position int64) string {
+	id := run.ID
+	if position == 1 {
+		id = ReleaseGatedID(run.ID, ReleaseGeneration(runs, run.Attempt))
+	}
+	return NodeWorkID(id, run.Attempt, fmt.Sprintf("release %d", position))
+}
+
 // runningStep reports whether a running release node run of flow's epic has the work step for `release position` at
 // its attempt, and that step has no end yet.
 func runningStep(flow EpicFlow, position int64) bool {
-	label := fmt.Sprintf("release %d", position)
 	for _, run := range flow.Runs {
 		if run.Kind != releaseKind || run.State != NodeRunning {
 			continue
 		}
-		id := NodeWorkID(run.ID, run.Attempt, label)
+		id := ReleaseStepWorkID(run, flow.Releases, position)
 		for _, step := range flow.Steps {
 			if step.ID == id && step.End == "" {
 				return true

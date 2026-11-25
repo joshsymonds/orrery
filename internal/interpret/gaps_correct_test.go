@@ -25,7 +25,7 @@ type pendingTrigger struct {
 // pendingTriggersOf returns the pending triggers of the test epic in id order, read from the store's file at path.
 func pendingTriggersOf(t *testing.T, path string) []pendingTrigger {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

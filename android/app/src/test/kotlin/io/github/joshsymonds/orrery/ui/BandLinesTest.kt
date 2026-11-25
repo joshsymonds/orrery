@@ -18,7 +18,6 @@ private fun epic(id: String, slug: String, steering: String = "", live: Boolean 
     live = live,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     steering = steering,
 )
 
@@ -30,8 +29,6 @@ private fun detail(
     steps: List<StepRow> = emptyList(),
 ) = EpicDetail(
     epic = epic,
-    tasks = emptyList(),
-    slices = emptyList(),
     steps = steps,
     questions = questions,
     parked = parked,

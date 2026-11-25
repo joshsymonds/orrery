@@ -7,8 +7,16 @@
 
   // epic registers one epic scenario for both frames. At the desk the conversation that steers the epic stays in the
   // middle and the epic is the panel its tile on the right rail opens; under 1250 the panel lies over the conversation.
+  // epicKinds names the host kinds an epic scenario draws: the page's title row (the epic), its Now table (each running
+  // step), and at the desk the conversation that steers it (the session), which an open inbox draws with every kind.
+  const epicKinds = (e, o) => {
+    // A page that could not be read draws no Now table, so no step.
+    const steps = e.running && e.running.length && !e.unavailable ? ['step'] : [];
+    if ((o.inboxState || 'rail') === 'docked') return ['session', 'epic', 'step'];
+    return o.desk === null ? ['epic', ...steps] : ['session', 'epic', ...steps];
+  };
   const epic = (id, name, note, e, o = {}) => O.scenario({
-    id, group: o.group || 'Epic', title: name, note, differs: o.differs, widths: o.widths,
+    id, group: o.group || 'Epic', title: name, note: `${note}${O.hostsNote(epicKinds(e, o))}`, differs: o.differs, widths: o.widths,
     desk: o.desk === null ? undefined : () => O.desk({ inboxState: o.inboxState || 'rail', open: id, side: 'panel', over: o.over,
       pages: [(o.convo || rotaConvo)({ panel: O.sidePanel({ label: 'rota-export', tone: 'attention', page: O.epicPage(e, { record: true, close: o.back || 'convo-epic', notices: o.notices, menu: o.menu }) }) })] }),
     phone: o.phone === null ? undefined : () => O.screen(o.phoneScreen ? o.phoneScreen() : O.epicPage(e), { over: o.phoneOver ? o.phoneOver() : undefined }),
@@ -37,7 +45,7 @@
 
   epic('epic-release-failed', 'A release that stopped at a step with no undo', `Only you can say the failed step is safe to pass. ${NEEDS_SERVER}`, E.releaseFailed);
 
-  epic('epic-slot', 'Waiting its turn to release', 'One epic releases at a time in a repository. Waiting is grey and says who holds the slot.', E.slot);
+  epic('epic-slot', 'Releasing beside another epic', 'Every clean epic releases at once, so this one does not wait for orbit-labels, which is releasing in the same repository. The summary says so, and nothing is asked.', E.slot);
 
   epic('epic-shipped', 'A released epic', 'An ended epic is the same page with the Report filled in, opened at the Report.', E.shipped);
 
@@ -52,11 +60,17 @@
 
   epic('epic-command-error', 'An epic command that failed', 'The error is on the epic\'s page, under its title row. Today it is a line in the inbox\'s head, which is hidden here.', { ...E.building, cmdError: 'Pause did not land: the server did not answer. The epic is still running.' }, { group: 'Empty, loading, error' });
 
-  epic('epic-problem', 'An epic the engine cannot read cleanly', 'The engine\'s own problem with the epic is one line at the top, in red.', { ...E.building, problem: 'The epic’s workflow file did not load: workflow.yaml line 14, unknown node kind “gatee”.' }, { group: 'Empty, loading, error' });
-
   epic('epic-loading', 'An epic before its first answer', 'Loading and failed are different states with different words; today both read "epic unavailable".', { ...E.building, unavailable: 'loading the epic…', loading: true }, { group: 'Empty, loading, error' });
 
   epic('epic-unavailable', 'An epic that could not be read', 'With the way to try again.', { ...E.building, unavailable: 'The server could not read this epic.' }, { group: 'Empty, loading, error' });
+
+  // An epic whose steps run on two hosts. The conversation that steers it is the buoys', on the epic's host.
+  const buoyConvo = (o = {}) => O.convoPage({
+    title: { toggle: true, waiting: 6, cmds: O.convoCmds(), dir: 'buoys', here: 'Poll the buoy feeds once a minute', strip: W.strip(W.ctx.low, { host: 'sextant' }) },
+    work: W.workBuoy, on: 'buoy-alerts', panel: o.panel, items: W.buoyTalk, dock: { state: 'done', what: '· 6m ago', name: 'buoys' },
+  });
+  epic('epic-hosts', 'An epic whose steps run on two hosts', 'An epic names the host it runs on, and each of its steps names its own, which can be another. Here the epic runs on sextant, where its poller runs beside the feeds; its gap check runs on lantern. The title row names the epic’s host, and the Now table names each step’s.', W.epic.hosts,
+    { convo: buoyConvo, differs: ['The web under 760 does not differ on this screen: the epic’s host is in its title row, and each step names its own host in the Now table.'] });
 
   // ---------- the conversation that steers an epic ----------
 
@@ -199,7 +213,7 @@
   });
 
   const contract = (id, name, note, o) => O.scenario({
-    id, group: 'Contract', title: name, note,
+    id, group: 'Contract', title: name, note: `${note}${O.hostsNote(['session'])}`,
     desk: () => O.desk({ inboxState: 'rail', open: id, side: 'panel', pages: [tideConvo(o.about, O.sidePanel({ label: 'tide-alerts contract', tone: 'attention', page: O.subPage({ label: 'contract', record: true, close: 'convo-contract', ...o.page(false) }) }))] }),
     phone: () => O.screen(O.subPage({ label: 'contract', ...o.page(true) }), { over: o.phoneOver ? o.phoneOver() : undefined }),
   });
@@ -297,7 +311,7 @@
   const BAND = () => O.band({ pin: { ...W.rotaPin, blocker: '', go: 'epic-building' }, tasks: W.epicTasks, cur: 'export-cli' });
 
   const phasePage = (open, at, o) => ({
-    label: 'task', back: 'epic-building', band: BAND(), crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }], here: 'export-cli',
+    label: 'task', back: 'epic-building', band: BAND(), host: 'halyard', crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }], here: 'export-cli',
     state: o.state || O.pill(`${at} · ${o.time}`, at === 'integrate' ? 'engine' : 'live', at === 'integrate' ? {} : { state: 'working' }),
     cmds: o.cmds !== undefined ? o.cmds : `${O.btn('Interrupt', { class: 'stopper', icon: 'stop', tip: 'Hold this step where it is', tipSide: 'left' })}${O.btn('Stop…', { variant: 'quiet' })}`,
     touchCmds: o.cmds !== undefined ? o.cmds : `${O.btn('Interrupt', { class: 'stopper', icon: 'stop' })}${O.iconBtn('more', 'Stop this step…')}`,
@@ -306,7 +320,7 @@
   });
   // The conversation that steers the epic stays in the middle beside its tasks' records too: the words never move.
   const phase = (id, name, note, open, at, o = {}) => O.scenario({
-    id, group: 'Phase and worker', title: name, note,
+    id, group: 'Phase and worker', title: name, note: `${note}${O.hostsNote(['session', 'epic', 'step'])}`,
     desk: () => O.desk({ inboxState: 'rail', open: id, side: 'panel', pages: [rotaConvo({ panel: O.sidePanel({ label: 'export-cli', tone: 'attention', page: O.subPage({ ...phasePage(open, at, { time: '2:41', ...o }), record: true, up: 'epic-building', close: 'convo-epic' }) }) })] }),
     phone: () => O.screen(O.subPage(phasePage(open, at, { time: '2:41', ...o }))),
   });
@@ -328,8 +342,8 @@
     { k: 'checks', at: '14:36', round: 2, checks: [{ name: 'tests', ok: true }, { name: 'lint', ok: true }, { name: 'owned files', ok: true }], note: 'All three checks pass.' },
   ];
   const worker = (id, name, note, dock, o = {}) => O.convoScenario({
-    id, group: 'Phase and worker', name, note,
-    title: { back: 'phase-implement', crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }, { t: 'export-cli', go: 'phase-implement' }], here: 'Worker session', cmds: '', strip: W.strip(W.ctx.low) },
+    id, group: 'Phase and worker', name, note, hosts: ['step', 'epic'],
+    title: { back: 'phase-implement', crumbs: [{ t: 'lighthouse' }, { t: 'rota-export', go: 'epic-building' }, { t: 'export-cli', go: 'phase-implement' }], here: 'Worker session', cmds: '', strip: W.strip(W.ctx.low, { host: 'halyard' }) },
     desk: { title: { toggle: true } }, band: BAND(), items: o.items || WORKER, dock, phone: { over: o.phoneOver },
   });
   worker('worker-running', 'A worker\'s session, running', 'A worker\'s conversation uses the same four shapes: its brief folded to a line, check rounds as blocks. The dock is a step\'s: a message is a nudge, and the placeholder says it interrupts the turn first.',

@@ -260,9 +260,12 @@ test("HistorySentences: each line's time is drawn in the mono family at the smal
   ];
   await withRender(<JustHappened entries={entries} steps={[]} />, (container) => {
     assert.equal(textOf(container, "section.happen.just span.at"), clock(100n));
-    assert.equal(styleDeclaration(".epic-page .happen .at", "font"), "var(--o-type-small)");
+    // The time's type is the code level, the mono family at the small size: the small level itself is Inter.
+    assert.equal(styleDeclaration(".epic-page .happen .at", "font"), "var(--o-type-code)");
     const tokens = readTokens();
-    assert.match(tokens, /--o-type-small: 400 13px\/20px var\(--o-font-mono\);/);
+    assert.match(tokens, /--o-type-code: 400 13px\/18px var\(--o-font-mono\);/);
+    assert.match(tokens, /--o-type-small-size: 13px;/);
+    assert.match(tokens, /--o-font-mono: "Orrery Mono", /);
   });
 });
 
@@ -276,9 +279,10 @@ test("HistorySentences: the section's head is round 6's .sec head, with the retr
     assert.equal(icon.querySelector("path")?.getAttribute("d"), "M3.2 8a4.8 4.8 0 1 0 1.5-3.5M3 3v3.2h3.2");
     assert.equal(styleDeclaration('.happen.just > .sec[data-hue="1"]', "--hue"), "var(--o-series-1)");
     assert.equal(styleDeclaration(".happen.just > .sec > .icon", "color"), "var(--hue)");
-    const sheet = readFileSync(join(process.cwd(), "web/src/style.css"), "utf8");
-    assert.doesNotMatch(sheet, /^\.sec\[data-hue/m, "no base .sec rule takes the head's hue, so no other section is tinted");
-    assert.doesNotMatch(sheet, /^\.sec > \.icon/m, "no base .sec rule colours an icon, so no other section's icon is tinted");
+    // The base .sec rules are round 6's, which give every section its own data-hue: hue 1 is series 1 there too, and the
+    // base icon takes its section's hue, so the head's hue and icon read the same under either rule.
+    assert.equal(styleDeclaration('.sec[data-hue="1"]', "--hue"), "var(--o-series-1)");
+    assert.equal(styleDeclaration(".sec > .icon", "color"), "var(--hue)");
   });
 });
 

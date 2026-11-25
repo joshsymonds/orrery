@@ -187,11 +187,6 @@ test("EpicWords: at phone width Just happened sets its time apart from its text"
   assert.equal(declaredValue(phone, ".epic-page .happen .at", "margin-right"), "var(--o-space-12)");
 });
 
-test("EpicWords: at phone width the problem line wraps and does not ellipsis", () => {
-  assert.equal(declaredValue(phone, ".problem", "white-space"), "normal");
-  assert.equal(declaredValue(phone, ".problem", "text-overflow"), "clip");
-});
-
 test("EpicWords: at phone width the track's stages take the full column, so a name reads whole", () => {
   assert.equal(declaredValue(phone, ".epic-page .stage", "padding-right"), "0");
 });
@@ -217,37 +212,73 @@ test("EpicCommands: a confirm sheet's Stop is drawn in the bad role, apart from 
 
 test("EpicRecord: in the desk's panel the epic page's title row stays pinned at the card's top edge, under the panel's controls", () => {
   const desk = rulesUnder(css, "(min-width: 760px)");
-  const row = ".rcard > section.page > .epic-page > .title-row";
+  const row = ".held-card > .held-body > section.page > .epic-page > .title-row";
   assert.equal(declaredValue(desk, row, "position"), "sticky");
   assert.equal(declaredValue(desk, row, "top"), "calc(-1 * var(--o-space-16))");
   assert.equal(declaredValue(desk, row, "padding-top"), "var(--o-space-16)");
   assert.equal(declaredValue(desk, row, "margin-top"), "calc(-1 * var(--o-space-16))");
   assert.equal(declaredValue(desk, row, "z-index"), "var(--o-z-sticky)");
   assert.equal(declaredValue(desk, row, "background"), "var(--o-surface-side)");
+  assert.equal(declaredValue(desk, row, "background"), declaredValue(rules, ".held-card", "background"), "the row is drawn in the held card's own surface");
   assert.equal(declaredValue(rules, ".panel-ctl", "z-index"), "var(--o-z-flyout)", "the panel's controls sit above its pinned title row");
   assert.equal(declaredValue(desk, ".epic-page > .title-row", "position"), undefined, "no page-wide pin outside the panel");
+});
+
+// outsideMedia is the stylesheet with the blocks of one query cut out, so a value is read as the widths outside that query read it.
+function outsideMedia(sheet: string, query: string): string {
+  const opener = `@media ${query} {`;
+  let rest = sheet;
+  let from = rest.indexOf(opener);
+  while (from !== -1) {
+    let depth = 1;
+    let end = from + opener.length;
+    while (depth > 0) {
+      depth += rest[end] === "{" ? 1 : rest[end] === "}" ? -1 : 0;
+      end += 1;
+    }
+    rest = rest.slice(0, from) + rest.slice(end);
+    from = rest.indexOf(opener);
+  }
+  return rest;
+}
+
+test("EpicPageLook: at the desk the epic page's sticky title row takes the card's own surface, so it reads as part of the card", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  const card = declaredValue(rules, ".held-card", "background");
+  assert.equal(card, "var(--o-surface-side)", "the held card is drawn in the side surface");
+  assert.equal(declaredValue(desk, ".held-card > .held-body > section.page > .epic-page > .title-row", "background"), card);
+});
+
+test("EpicPageLook: at the desk the epic page's sections sit 32 apart", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  assert.equal(declaredValue(desk, ".epic-page", "gap"), "var(--o-space-32)");
+});
+
+test("EpicPageLook: under 760px the epic page's sections sit 24 apart, the base gap no phone rule overrides", () => {
+  assert.equal(declaredValue(phone, ".epic-page", "gap"), undefined, "no phone rule sets the epic page's gap");
+  assert.equal(declaredValue(rulesOf(outsideMedia(css, "(min-width: 760px)")), ".epic-page", "gap"), "var(--o-space-24)");
 });
 
 test("EpicRecord: the Tasks section sets the chart beside the task table, wrapping the table under it when narrow", () => {
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "display"), "flex");
   assert.equal(declaredValue(rules, ".epic-page section.tasks", "flex-wrap"), "wrap");
-  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec-head", "flex"), "1 1 100%");
+  assert.equal(declaredValue(rules, ".epic-page section.tasks > .sec", "flex"), "1 1 100%");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .orrery-fig", "flex"), "0 0 var(--o-size-orrery-full)");
   assert.equal(declaredValue(rules, ".epic-page section.tasks > .tbl", "flex"), "1 1 56ch");
 });
 
 test("EpicRecord: a door's label keeps one line and never shrinks, and no inherited wrap breaks it inside a word", () => {
-  assert.equal(declaredValue(rules, ".epic-page .door > span:first-child", "white-space"), "nowrap");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:first-child", "flex"), "none");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:first-of-type", "white-space"), "nowrap");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:first-of-type", "flex"), "none");
   assert.equal(declaredValue(rules, ".epic-page .door", "overflow-wrap"), "normal");
 });
 
 test("EpicRecord: a door's line takes the rest of its row and ellipsizes on one line, and the door stays within its row", () => {
   assert.equal(declaredValue(rules, ".epic-page .door", "max-width"), "100%");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "min-width"), "0");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "overflow"), "hidden");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "text-overflow"), "ellipsis");
-  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-child)", "white-space"), "nowrap");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "min-width"), "0");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "overflow"), "hidden");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "text-overflow"), "ellipsis");
+  assert.equal(declaredValue(rules, ".epic-page .door > span:not(:first-of-type)", "white-space"), "nowrap");
 });
 
 test("EpicCommands: an epic the server could not read says so in the bad role, apart from the quiet loading line", () => {
@@ -371,4 +402,38 @@ test("TitleRow: the plain crumb rule yields to a crumb's own class, so a project
   assert.equal(declaredValue(rules, ".crumb", "font"), undefined);
   assert.equal(declaredValue(rules, ":where(.crumb)", "color"), "var(--o-ink-2)");
   assert.equal(declaredValue(rules, ":where(.crumb)", "font"), "inherit");
+});
+
+// outsideDesk is the stylesheet with its desk blocks cut out, so a phone value is never read from a desk rule.
+function outsideDesk(sheet: string): string {
+  const opener = "@media (min-width: 760px) {";
+  let rest = sheet;
+  let from = rest.indexOf(opener);
+  while (from !== -1) {
+    let depth = 1;
+    let end = from + opener.length;
+    while (depth > 0) {
+      depth += rest[end] === "{" ? 1 : rest[end] === "}" ? -1 : 0;
+      end += 1;
+    }
+    rest = rest.slice(0, from) + rest.slice(end);
+    from = rest.indexOf(opener);
+  }
+  return rest;
+}
+
+test("EpicPageLook: at the desk the epic page's sticky title row takes the card's own background, so it reads as part of the card", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  const row = ".held-card > .held-body > section.page > .epic-page > .title-row";
+  assert.equal(declaredValue(rules, ".held-card", "background"), "var(--o-surface-side)");
+  assert.equal(declaredValue(desk, row, "background"), declaredValue(rules, ".held-card", "background"));
+});
+
+test("EpicPageLook: at the desk the epic page's sections sit 32 apart", () => {
+  const desk = rulesUnder(css, "(min-width: 760px)");
+  assert.equal(declaredValue(desk, ".epic-page", "gap"), "var(--o-space-32)");
+});
+
+test("EpicPageLook: under 760px the epic page's sections sit 24 apart", () => {
+  assert.equal(declaredValue(rulesOf(outsideDesk(css)), ".epic-page", "gap"), "var(--o-space-24)");
 });

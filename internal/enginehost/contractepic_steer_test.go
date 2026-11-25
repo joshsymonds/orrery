@@ -48,7 +48,7 @@ func TestContractEpicSteererIsTheContractConversation(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m, path := newTestManager(t, 3, fakeClaudePath(t))
+			m, path := newTestManager(t, fakeClaudePath(t))
 			client := steererSetClient(t, m)
 			writer := startedConversation(t, m)
 			other := startedConversation(t, m)
@@ -93,7 +93,7 @@ func TestContractEpicSteererStartsOneSessionWhenWriterIsGone(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m, path := newTestManager(t, 2, fakeClaudePath(t))
+			m, path := newTestManager(t, fakeClaudePath(t))
 			client := steererSetClient(t, m)
 			c := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
 			proposeAcceptedBy(t, concreteStore(t, m), c.Contract, goneWriter)

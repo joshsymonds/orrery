@@ -20,9 +20,9 @@ if (first === undefined || second === undefined || third === undefined) {
   throw new Error("the fixtures hold fewer than three rows");
 }
 
-// convo is a conversation of row, drawn in a project; again marks a conversation drawn a second time behind the ended line.
-function convo(row: Row, again = false): Convo {
-  return { key: row.key, row, standIn: "", again, hung: [] };
+// convo is a conversation of row, drawn in a project, with nothing hung or folded under it.
+function convo(row: Row): Convo {
+  return { key: row.key, row, hung: [], folded: [] };
 }
 
 // makeProject is the lighthouse project with the conversations and ended conversations given.
@@ -127,12 +127,12 @@ test("InboxTree Dir: folded with nothing waiting, the head draws no waiting coun
     assert.equal(textOf(container, ".dir-head .end > span:not(.is-attention)"), "1");
   }));
 
-test("InboxTree Dir: the conversation count is each conversation the project holds once, a drawn-again one included once", () =>
+test("InboxTree Dir: the conversation count is each conversation the project holds once, in the tree and behind the ended line", () =>
   withDir(
     {
       project: makeProject({
         convos: [convo(first), convo(second)],
-        ended: [convo(second, true), convo(third)],
+        ended: [convo(third)],
       }),
       folded: true,
     },

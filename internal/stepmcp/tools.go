@@ -23,9 +23,12 @@ import (
 type Option func(*serverOptions)
 
 // serverOptions is what the options of NewServer set. A nil crons leaves the cron tools to answer each call with a tool
-// error.
+// error, a nil designs leaves the design tools to answer each call with a tool error, and a nil stage leaves the stage
+// tools to answer each call with a tool error.
 type serverOptions struct {
-	crons enginev1connect.CronsClient
+	crons   enginev1connect.CronsClient
+	designs enginev1connect.DesignsClient
+	stage   enginev1connect.StageClient
 }
 
 // WithCrons returns the option that makes the cron tools call crons.
@@ -35,8 +38,23 @@ func WithCrons(crons enginev1connect.CronsClient) Option {
 	}
 }
 
+// WithDesigns returns the option that makes the design tools call designs.
+func WithDesigns(designs enginev1connect.DesignsClient) Option {
+	return func(opts *serverOptions) {
+		opts.designs = designs
+	}
+}
+
+// WithStage returns the option that makes the stage tools call stage.
+func WithStage(stage enginev1connect.StageClient) Option {
+	return func(opts *serverOptions) {
+		opts.stage = stage
+	}
+}
+
 // NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics, whose contract
-// tools call contracts, whose evidence tools call evidence and whose cron tools call the crons that opts set.
+// tools call contracts, whose evidence tools call evidence, whose cron tools call the crons that opts set, whose
+// design tools call the designs that opts set and whose stage tools call the stage that opts set.
 func NewServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
@@ -48,18 +66,21 @@ func NewServer(
 	for _, opt := range opts {
 		opt(&set)
 	}
-	return newServer(steps, epics, contracts, evidence, set.crons, rpcretry.SystemClock{})
+	return newServer(steps, epics, contracts, evidence, set.crons, set.designs, set.stage, rpcretry.SystemClock{})
 }
 
 // newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
-// tools call epics, whose contract tools call contracts, whose evidence tools call evidence and whose cron tools call
-// crons. A tool name that two tools share is an error.
+// tools call epics, whose contract tools call contracts, whose evidence tools call evidence, whose cron tools call
+// crons, whose design tools call designs, whose stage tools call stage, and whose record tools call stage and
+// contracts. A tool name that two tools share is an error.
 func newServer(
 	steps enginev1connect.StepsClient,
 	epics enginev1connect.EpicsClient,
 	contracts enginev1connect.ContractsClient,
 	evidence enginev1connect.EvidenceClient,
 	crons enginev1connect.CronsClient,
+	designs enginev1connect.DesignsClient,
+	stage enginev1connect.StageClient,
 	clock rpcretry.Clock,
 ) (*Server, error) {
 	stepList, err := stepTools(steps, clock)
@@ -82,7 +103,19 @@ func newServer(
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	tools := slices.Concat(stepList, epicList, contractList, evidenceList, cronList)
+	designList, err := designTools(designs)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	stageList, err := stageTools(stage)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	recordList, err := recordTools(stage, contracts)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	tools := slices.Concat(stepList, epicList, contractList, evidenceList, cronList, designList, stageList, recordList)
 	names := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		if names[tool.Name] {

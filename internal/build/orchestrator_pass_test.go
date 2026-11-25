@@ -147,7 +147,7 @@ func TestOrchestratePassAfterARestartFindsTheStepByItsDerivedID(t *testing.T) {
 	if n := f.startCount(orchID(0, 0)); n != 1 {
 		t.Fatalf("orchestrator started %d times across the restart, want once", n)
 	}
-	check, err := ReadoptCheck(f.store)(f.ctx, store.StepRow{
+	check, err := ReadoptCheck(f.store, nil)(f.ctx, store.StepRow{
 		ID: orchID(0, 0), Schema: OrchestratorSchema, Epic: passEpic, Task: "T1",
 	})
 	if err != nil || check == nil {
@@ -159,7 +159,7 @@ func TestOrchestratePassAfterARestartFindsTheStepByItsDerivedID(t *testing.T) {
 	if want := []string{"after_tasks[0]: T1 is this task"}; !slices.Equal(got, want) {
 		t.Errorf("restored check = %q, want %q", got, want)
 	}
-	if _, err := ReadoptCheck(f.store)(f.ctx, store.StepRow{
+	if _, err := ReadoptCheck(f.store, nil)(f.ctx, store.StepRow{
 		ID: "x", Schema: OrchestratorSchema, Epic: passEpic, Task: "T9",
 	}); err == nil {
 		t.Error("ReadoptCheck of a row naming no task = nil error, want one")
@@ -217,8 +217,13 @@ func TestOrchestratePassFailKeepsTheLongerFailureAndRecordsTheDecision(t *testin
 	if got := f.pendingTriggers(); len(got) != 0 {
 		t.Errorf("pending triggers = %v, want none: a climb to rung 2 adds no trigger", got)
 	}
-	if d := f.epic().Decisions; len(d) == 0 || d[len(d)-1].Text != "T1 fail: the code says so" {
-		t.Errorf("decisions = %+v, want the fail recorded", d)
+	if d := f.epic().Decisions; len(d) == 0 || d[len(d)-1].Text != "T1 fail: the code says so" ||
+		d[len(d)-1].ID != "T1-request-1" {
+		t.Errorf("decisions = %+v, want the fail recorded as T1-request-1", d)
+	}
+	if task.Build.Decisions != before.Decisions+1 {
+		t.Errorf("build decisions = %d, want %d: the fail counts as a decision, so the next one takes T1-request-2",
+			task.Build.Decisions, before.Decisions+1)
 	}
 	ladderClimbKeepsWorktrees(f, worktree)
 }

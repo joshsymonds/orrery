@@ -262,6 +262,38 @@ test("AskAnswer: a settled question draws the settled line, with its project and
   });
 });
 
+test("SteererHolds: an open question its steerer holds draws the steerer's quiet line and no Ask", async (t) => {
+  const held = { ...openQuestion, steererHeld: true };
+  const fake = new FakeEpics(epicReading([held]));
+  await withRing(questionEvent, fake.calls(polledView(epicReading([held]))), async (container) => {
+    await settle(t, () => container.querySelector(".inote.quiet") !== null, "the steerer's line is drawn");
+    assert.equal(
+      container.querySelector(".inote.quiet")?.textContent,
+      "Its steerer holds this question, and answers it or escalates it to you: Which index should it add?",
+    );
+    assertNone(container.querySelector(".ask"), "a steerer-held question draws an Ask");
+    assertNone(container.querySelector(".opt, .btn, textarea"), "a steerer-held question draws an answer control");
+  });
+});
+
+test("SteererHolds: an open question its steerer escalated draws the Ask, with its escalation line", async (t) => {
+  const escalated = {
+    ...openQuestion,
+    steererHeld: false,
+    escalated: BigInt(ringNow - 60),
+    escalationBy: "conversation",
+    escalationSession: "sess-steer",
+    escalationReason: "the owner picks the index",
+  };
+  const fake = new FakeEpics(epicReading([escalated]));
+  await withRing(questionEvent, fake.calls(polledView(epicReading([escalated]))), async (container) => {
+    await settle(t, () => container.querySelector(".ask:not(.folded)") !== null, "the escalated question's Ask is drawn");
+    assert.equal(container.querySelector(".ask .chip.attention")?.textContent, "escalated");
+    assert.equal(container.querySelector(".ask .inote")?.textContent, "escalated by session sess-steer: the owner picks the index");
+    assert.ok(container.querySelector(".ask .btn.primary") !== null, "the escalated question draws no confirm");
+  });
+});
+
 test("EventRing: a question event whose epic cannot be read draws neither the Ask nor the settled line", async (t) => {
   const fake = new FakeEpics(new Error("the epic is gone"));
   await withRing(questionEvent, fake.calls(), async (container) => {

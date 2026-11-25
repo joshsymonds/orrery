@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * EpicsGetResponse carries one epic with its tasks and its steps.
+ * EpicsGetResponse carries one epic with its steps and the parts its database holds for it.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.EpicsGetResponse}
@@ -19,9 +19,7 @@ public  final class EpicsGetResponse extends
     // @@protoc_insertion_point(message_implements:orrery.v1.EpicsGetResponse)
     EpicsGetResponseOrBuilder {
   private EpicsGetResponse() {
-    tasks_ = emptyProtobufList();
     steps_ = emptyProtobufList();
-    slices_ = emptyProtobufList();
     requirements_ = emptyProtobufList();
     nodes_ = emptyProtobufList();
     buildTasks_ = emptyProtobufList();
@@ -104,144 +102,6 @@ public  final class EpicsGetResponse extends
   private void clearEpic() {
     epic_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
-  }
-
-  public static final int TASKS_FIELD_NUMBER = 2;
-  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> tasks_;
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  @java.lang.Override
-  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> getTasksList() {
-    return tasks_;
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskOrBuilder> 
-      getTasksOrBuilderList() {
-    return tasks_;
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  @java.lang.Override
-  public int getTasksCount() {
-    return tasks_.size();
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  @java.lang.Override
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask getTasks(int index) {
-    return tasks_.get(index);
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskOrBuilder getTasksOrBuilder(
-      int index) {
-    return tasks_.get(index);
-  }
-  private void ensureTasksIsMutable() {
-    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> tmp = tasks_;
-    if (!tmp.isModifiable()) {
-      tasks_ =
-          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
-     }
-  }
-
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void setTasks(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-    java.util.Objects.requireNonNull(value);
-    ensureTasksIsMutable();
-    tasks_.set(index, value);
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void addTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-    java.util.Objects.requireNonNull(value);
-    ensureTasksIsMutable();
-    tasks_.add(value);
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void addTasks(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-    java.util.Objects.requireNonNull(value);
-    ensureTasksIsMutable();
-    tasks_.add(index, value);
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void addAllTasks(
-      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> values) {
-    ensureTasksIsMutable();
-    com.google.protobuf.AbstractMessageLite.addAll(
-        values, tasks_);
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void clearTasks() {
-    tasks_ = emptyProtobufList();
-  }
-  /**
-   * <pre>
-   * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-   */
-  private void removeTasks(int index) {
-    ensureTasksIsMutable();
-    tasks_.remove(index);
   }
 
   public static final int STEPS_FIELD_NUMBER = 3;
@@ -382,161 +242,11 @@ public  final class EpicsGetResponse extends
     steps_.remove(index);
   }
 
-  public static final int SLICES_FIELD_NUMBER = 4;
-  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> slices_;
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> getSlicesList() {
-    return slices_;
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSliceOrBuilder> 
-      getSlicesOrBuilderList() {
-    return slices_;
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public int getSlicesCount() {
-    return slices_.size();
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  @java.lang.Override
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index) {
-    return slices_.get(index);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSliceOrBuilder getSlicesOrBuilder(
-      int index) {
-    return slices_.get(index);
-  }
-  private void ensureSlicesIsMutable() {
-    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> tmp = slices_;
-    if (!tmp.isModifiable()) {
-      slices_ =
-          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
-     }
-  }
-
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void setSlices(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.set(index, value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addSlices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.add(value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addSlices(
-      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-    java.util.Objects.requireNonNull(value);
-    ensureSlicesIsMutable();
-    slices_.add(index, value);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void addAllSlices(
-      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> values) {
-    ensureSlicesIsMutable();
-    com.google.protobuf.AbstractMessageLite.addAll(
-        values, slices_);
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void clearSlices() {
-    slices_ = emptyProtobufList();
-  }
-  /**
-   * <pre>
-   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-   * steps and steps with no task label add none.
-   * </pre>
-   *
-   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-   */
-  private void removeSlices(int index) {
-    ensureSlicesIsMutable();
-    slices_.remove(index);
-  }
-
   public static final int REQUIREMENTS_FIELD_NUMBER = 5;
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> requirements_;
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -547,8 +257,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -559,8 +268,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -571,8 +279,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -583,8 +290,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -603,8 +309,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -617,8 +322,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -630,8 +334,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -644,8 +347,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -658,8 +360,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -669,8 +370,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-   * first-named order, carrying id and state only.
+   * The epic's requirements in contract order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -684,7 +384,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode> nodes_;
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -695,7 +395,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -706,7 +406,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -717,7 +417,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -728,7 +428,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -747,7 +447,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -760,7 +460,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -772,7 +472,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -785,7 +485,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -798,7 +498,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -808,7 +508,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+   * The epic's workflow node runs in the engine's order.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -822,7 +522,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask> buildTasks_;
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -833,7 +533,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -844,7 +544,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -855,7 +555,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -866,7 +566,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -885,7 +585,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -898,7 +598,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -910,7 +610,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -923,7 +623,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -936,7 +636,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -946,7 +646,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+   * The epic's planned tasks, in the order they were planned.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -960,7 +660,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> questions_;
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -971,7 +671,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -982,7 +682,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -993,7 +693,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1004,7 +704,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1023,7 +723,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1036,7 +736,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1048,7 +748,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1061,7 +761,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1074,7 +774,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1084,7 +784,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * The epic's open questions, in the order they were asked.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -1098,7 +798,7 @@ public  final class EpicsGetResponse extends
   private io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract contract_;
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -1109,7 +809,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -1120,7 +820,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -1132,7 +832,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -1151,7 +851,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
    * </pre>
    *
    * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -1165,7 +865,7 @@ public  final class EpicsGetResponse extends
   private boolean paused_;
   /**
    * <pre>
-   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * Whether the epic is paused, so its planner starts no turn.
    * </pre>
    *
    * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -1177,7 +877,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * Whether the epic is paused, so its planner starts no turn.
    * </pre>
    *
    * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -1189,7 +889,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * Whether the epic is paused, so its planner starts no turn.
    * </pre>
    *
    * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -1203,7 +903,7 @@ public  final class EpicsGetResponse extends
   private java.lang.String parked_;
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -1215,7 +915,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -1228,7 +928,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -1242,7 +942,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -1253,7 +953,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * Why the epic is parked; empty when it is not parked.
    * </pre>
    *
    * <code>string parked = 11 [json_name = "parked"];</code>
@@ -1270,8 +970,7 @@ public  final class EpicsGetResponse extends
   private java.lang.String summary_;
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -1283,8 +982,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -1297,8 +995,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -1312,8 +1009,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -1324,8 +1020,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-   * epic.
+   * The epic's summary paragraph, written once from its contract; empty until it is written.
    * </pre>
    *
    * <code>string summary = 12 [json_name = "summary"];</code>
@@ -1342,8 +1037,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicLedgerFinding> ledger_;
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1354,8 +1048,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1366,8 +1059,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1378,8 +1070,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1390,8 +1081,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1410,8 +1100,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1424,8 +1113,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1437,8 +1125,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1451,8 +1138,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1465,8 +1151,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1476,8 +1161,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-   * epic.
+   * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -1491,8 +1175,8 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseRun> releases_;
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1503,8 +1187,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1515,8 +1199,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1527,8 +1211,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1539,8 +1223,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1559,8 +1243,8 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1573,8 +1257,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1586,8 +1270,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1600,8 +1284,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1614,8 +1298,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1625,8 +1309,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-   * before its release and for a record epic.
+   * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+   * release.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -1640,7 +1324,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReviewVerdict> reviews_;
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1651,7 +1335,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1662,7 +1346,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1673,7 +1357,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1684,7 +1368,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1703,7 +1387,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1716,7 +1400,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1728,7 +1412,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1741,7 +1425,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1754,7 +1438,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1764,7 +1448,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+   * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -1916,8 +1600,8 @@ public  final class EpicsGetResponse extends
   private java.lang.String repository_;
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -1929,8 +1613,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -1943,8 +1627,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -1958,8 +1642,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -1970,8 +1654,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-   * head's workspace. Empty when neither names one.
+   * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+   * names none.
    * </pre>
    *
    * <code>string repository = 17 [json_name = "repository"];</code>
@@ -1988,8 +1672,7 @@ public  final class EpicsGetResponse extends
   private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicReleaseProof> releaseSteps_;
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2000,8 +1683,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2012,8 +1694,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2024,8 +1705,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2036,8 +1716,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2056,8 +1735,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2070,8 +1748,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2083,8 +1760,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2097,8 +1773,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2111,8 +1786,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2122,8 +1796,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-   * record epic.
+   * The epic's release steps in contract order, each with the state its release runs give it.
    * </pre>
    *
    * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -2137,7 +1810,7 @@ public  final class EpicsGetResponse extends
   private io.github.joshsymonds.orrery.gen.orrery.v1.EpicReport report_;
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -2148,7 +1821,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -2159,7 +1832,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -2171,7 +1844,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -2190,7 +1863,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+   * The epic's report, unset until the epic ends and writes it.
    * </pre>
    *
    * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -2204,8 +1877,8 @@ public  final class EpicsGetResponse extends
   private boolean plannerParked_;
   /**
    * <pre>
-   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+   * parked and when the owner holds its park. The parked reason is still in parked.
    * </pre>
    *
    * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -2217,8 +1890,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+   * parked and when the owner holds its park. The parked reason is still in parked.
    * </pre>
    *
    * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -2230,8 +1903,8 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-   * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+   * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+   * parked and when the owner holds its park. The parked reason is still in parked.
    * </pre>
    *
    * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -2245,8 +1918,7 @@ public  final class EpicsGetResponse extends
   private java.lang.String supersededBy_;
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -2258,8 +1930,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -2272,8 +1943,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -2287,8 +1957,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -2299,8 +1968,7 @@ public  final class EpicsGetResponse extends
   }
   /**
    * <pre>
-   * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-   * a record epic.
+   * The epic a close named as its replacement; empty when its close named none and when it is not closed.
    * </pre>
    *
    * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -2313,14 +1981,61 @@ public  final class EpicsGetResponse extends
 
   }
 
-  public static final int CENTRE_FIELD_NUMBER = 22;
+  public static final int STEERER_PARKED_FIELD_NUMBER = 22;
+  private boolean steererParked_;
+  /**
+   * <pre>
+   * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+   * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+   * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+   * waits on the owner. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @return The steererParked.
+   */
+  @java.lang.Override
+  public boolean getSteererParked() {
+    return steererParked_;
+  }
+  /**
+   * <pre>
+   * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+   * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+   * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+   * waits on the owner. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   * @param value The steererParked to set.
+   */
+  private void setSteererParked(boolean value) {
+    
+    steererParked_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+   * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+   * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+   * waits on the owner. The parked reason is still in parked.
+   * </pre>
+   *
+   * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+   */
+  private void clearSteererParked() {
+
+    steererParked_ = false;
+  }
+
+  public static final int CENTRE_FIELD_NUMBER = 23;
   private java.lang.String centre_;
   /**
    * <pre>
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @return The centre.
    */
   @java.lang.Override
@@ -2332,7 +2047,7 @@ public  final class EpicsGetResponse extends
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @return The bytes for centre.
    */
   @java.lang.Override
@@ -2345,7 +2060,7 @@ public  final class EpicsGetResponse extends
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @param value The centre to set.
    */
   private void setCentre(
@@ -2359,7 +2074,7 @@ public  final class EpicsGetResponse extends
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    */
   private void clearCentre() {
 
@@ -2370,7 +2085,7 @@ public  final class EpicsGetResponse extends
    * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
    * </pre>
    *
-   * <code>string centre = 22 [json_name = "centre"];</code>
+   * <code>string centre = 23 [json_name = "centre"];</code>
    * @param value The bytes for centre to set.
    */
   private void setCentreBytes(
@@ -2380,14 +2095,14 @@ public  final class EpicsGetResponse extends
 
   }
 
-  public static final int NEWEST_FIELD_NUMBER = 23;
+  public static final int NEWEST_FIELD_NUMBER = 24;
   private java.lang.String newest_;
   /**
    * <pre>
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @return The newest.
    */
   @java.lang.Override
@@ -2399,7 +2114,7 @@ public  final class EpicsGetResponse extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @return The bytes for newest.
    */
   @java.lang.Override
@@ -2412,7 +2127,7 @@ public  final class EpicsGetResponse extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @param value The newest to set.
    */
   private void setNewest(
@@ -2426,7 +2141,7 @@ public  final class EpicsGetResponse extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    */
   private void clearNewest() {
 
@@ -2437,7 +2152,7 @@ public  final class EpicsGetResponse extends
    * The sentence of the epic's newest history entry; empty when it has none.
    * </pre>
    *
-   * <code>string newest = 23 [json_name = "newest"];</code>
+   * <code>string newest = 24 [json_name = "newest"];</code>
    * @param value The bytes for newest to set.
    */
   private void setNewestBytes(
@@ -2532,7 +2247,7 @@ public  final class EpicsGetResponse extends
 
   /**
    * <pre>
-   * EpicsGetResponse carries one epic with its tasks and its steps.
+   * EpicsGetResponse carries one epic with its steps and the parts its database holds for it.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.EpicsGetResponse}
@@ -2616,156 +2331,6 @@ public  final class EpicsGetResponse extends
      */
     public Builder clearEpic() {  copyOnWrite();
       instance.clearEpic();
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    @java.lang.Override
-    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> getTasksList() {
-      return java.util.Collections.unmodifiableList(
-          instance.getTasksList());
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    @java.lang.Override
-    public int getTasksCount() {
-      return instance.getTasksCount();
-    }/**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    @java.lang.Override
-    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask getTasks(int index) {
-      return instance.getTasks(index);
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder setTasks(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-      copyOnWrite();
-      instance.setTasks(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder setTasks(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask.Builder builderForValue) {
-      copyOnWrite();
-      instance.setTasks(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder addTasks(io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-      copyOnWrite();
-      instance.addTasks(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder addTasks(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask value) {
-      copyOnWrite();
-      instance.addTasks(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder addTasks(
-        io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask.Builder builderForValue) {
-      copyOnWrite();
-      instance.addTasks(builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder addTasks(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask.Builder builderForValue) {
-      copyOnWrite();
-      instance.addTasks(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder addAllTasks(
-        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask> values) {
-      copyOnWrite();
-      instance.addAllTasks(values);
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder clearTasks() {
-      copyOnWrite();
-      instance.clearTasks();
-      return this;
-    }
-    /**
-     * <pre>
-     * The tasks of the epic's efforts, effort number ascending and file order within each effort.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicTask tasks = 2 [json_name = "tasks"];</code>
-     */
-    public Builder removeTasks(int index) {
-      copyOnWrite();
-      instance.removeTasks(index);
       return this;
     }
 
@@ -2921,170 +2486,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> getSlicesList() {
-      return java.util.Collections.unmodifiableList(
-          instance.getSlicesList());
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public int getSlicesCount() {
-      return instance.getSlicesCount();
-    }/**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    @java.lang.Override
-    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index) {
-      return instance.getSlices(index);
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder setSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.setSlices(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder setSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.setSlices(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.addSlices(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice value) {
-      copyOnWrite();
-      instance.addSlices(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.addSlices(builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addSlices(
-        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.Builder builderForValue) {
-      copyOnWrite();
-      instance.addSlices(index,
-          builderForValue.build());
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder addAllSlices(
-        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> values) {
-      copyOnWrite();
-      instance.addAllSlices(values);
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder clearSlices() {
-      copyOnWrite();
-      instance.clearSlices();
-      return this;
-    }
-    /**
-     * <pre>
-     * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
-     * steps and steps with no task label add none.
-     * </pre>
-     *
-     * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
-     */
-    public Builder removeSlices(int index) {
-      copyOnWrite();
-      instance.removeSlices(index);
-      return this;
-    }
-
-    /**
-     * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3096,8 +2498,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3107,8 +2508,7 @@ public  final class EpicsGetResponse extends
       return instance.getRequirementsCount();
     }/**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3119,8 +2519,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3133,8 +2532,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3148,8 +2546,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3161,8 +2558,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3175,8 +2571,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3189,8 +2584,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3204,8 +2598,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3218,8 +2611,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3231,8 +2623,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's requirements in contract order. A record epic's requirements are the ids its tasks name, in
-     * first-named order, carrying id and state only.
+     * The epic's requirements in contract order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
@@ -3245,7 +2636,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3257,7 +2648,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3267,7 +2658,7 @@ public  final class EpicsGetResponse extends
       return instance.getNodesCount();
     }/**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3278,7 +2669,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3291,7 +2682,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3305,7 +2696,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3317,7 +2708,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3330,7 +2721,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3343,7 +2734,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3357,7 +2748,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3370,7 +2761,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3382,7 +2773,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's workflow node runs in the engine's order, empty for a record epic.
+     * The epic's workflow node runs in the engine's order.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicNode nodes = 6 [json_name = "nodes"];</code>
@@ -3395,7 +2786,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3407,7 +2798,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3417,7 +2808,7 @@ public  final class EpicsGetResponse extends
       return instance.getBuildTasksCount();
     }/**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3428,7 +2819,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3441,7 +2832,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3455,7 +2846,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3467,7 +2858,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3480,7 +2871,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3493,7 +2884,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3507,7 +2898,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3520,7 +2911,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3532,7 +2923,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
+     * The epic's planned tasks, in the order they were planned.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicBuildTask build_tasks = 7 [json_name = "buildTasks"];</code>
@@ -3545,7 +2936,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3557,7 +2948,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3567,7 +2958,7 @@ public  final class EpicsGetResponse extends
       return instance.getQuestionsCount();
     }/**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3578,7 +2969,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3591,7 +2982,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3605,7 +2996,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3617,7 +3008,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3630,7 +3021,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3643,7 +3034,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3657,7 +3048,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3670,7 +3061,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3682,7 +3073,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * The epic's open questions, in the order they were asked.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
@@ -3695,7 +3086,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3706,7 +3097,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3717,7 +3108,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3729,7 +3120,7 @@ public  final class EpicsGetResponse extends
       }
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3742,7 +3133,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3754,7 +3145,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * The epic's accepted contract, absent when it has none. Its Requirements are in requirements.
      * </pre>
      *
      * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
@@ -3766,7 +3157,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * Whether the epic is paused, so its planner starts no turn.
      * </pre>
      *
      * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -3778,7 +3169,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * Whether the epic is paused, so its planner starts no turn.
      * </pre>
      *
      * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -3792,7 +3183,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * Whether the epic is paused, so its planner starts no turn.
      * </pre>
      *
      * <code>bool paused = 10 [json_name = "paused"];</code>
@@ -3806,7 +3197,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * Why the epic is parked; empty when it is not parked.
      * </pre>
      *
      * <code>string parked = 11 [json_name = "parked"];</code>
@@ -3818,7 +3209,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * Why the epic is parked; empty when it is not parked.
      * </pre>
      *
      * <code>string parked = 11 [json_name = "parked"];</code>
@@ -3831,7 +3222,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * Why the epic is parked; empty when it is not parked.
      * </pre>
      *
      * <code>string parked = 11 [json_name = "parked"];</code>
@@ -3846,7 +3237,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * Why the epic is parked; empty when it is not parked.
      * </pre>
      *
      * <code>string parked = 11 [json_name = "parked"];</code>
@@ -3859,7 +3250,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * Why the epic is parked; empty when it is not parked.
      * </pre>
      *
      * <code>string parked = 11 [json_name = "parked"];</code>
@@ -3875,8 +3266,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-     * epic.
+     * The epic's summary paragraph, written once from its contract; empty until it is written.
      * </pre>
      *
      * <code>string summary = 12 [json_name = "summary"];</code>
@@ -3888,8 +3278,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-     * epic.
+     * The epic's summary paragraph, written once from its contract; empty until it is written.
      * </pre>
      *
      * <code>string summary = 12 [json_name = "summary"];</code>
@@ -3902,8 +3291,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-     * epic.
+     * The epic's summary paragraph, written once from its contract; empty until it is written.
      * </pre>
      *
      * <code>string summary = 12 [json_name = "summary"];</code>
@@ -3918,8 +3306,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-     * epic.
+     * The epic's summary paragraph, written once from its contract; empty until it is written.
      * </pre>
      *
      * <code>string summary = 12 [json_name = "summary"];</code>
@@ -3932,8 +3319,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
-     * epic.
+     * The epic's summary paragraph, written once from its contract; empty until it is written.
      * </pre>
      *
      * <code>string summary = 12 [json_name = "summary"];</code>
@@ -3949,8 +3335,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -3962,8 +3347,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -3973,8 +3357,7 @@ public  final class EpicsGetResponse extends
       return instance.getLedgerCount();
     }/**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -3985,8 +3368,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -3999,8 +3381,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4014,8 +3395,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4027,8 +3407,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4041,8 +3420,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4055,8 +3433,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4070,8 +3447,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4084,8 +3460,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4097,8 +3472,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's end-of-epic review ledger in ledger order; empty before its review freezes and for a record
-     * epic.
+     * The epic's end-of-epic review ledger in ledger order; empty before its review freezes.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicLedgerFinding ledger = 13 [json_name = "ledger"];</code>
@@ -4111,8 +3485,8 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4124,8 +3498,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4135,8 +3509,8 @@ public  final class EpicsGetResponse extends
       return instance.getReleasesCount();
     }/**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4147,8 +3521,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4161,8 +3535,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4176,8 +3550,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4189,8 +3563,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4203,8 +3577,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4217,8 +3591,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4232,8 +3606,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4246,8 +3620,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4259,8 +3633,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty
-     * before its release and for a record epic.
+     * The epic's release runs in the order orreryd reads them (by attempt, then part, then position); empty before its
+     * release.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseRun releases = 14 [json_name = "releases"];</code>
@@ -4273,7 +3647,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4285,7 +3659,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4295,7 +3669,7 @@ public  final class EpicsGetResponse extends
       return instance.getReviewsCount();
     }/**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4306,7 +3680,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4319,7 +3693,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4333,7 +3707,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4345,7 +3719,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4358,7 +3732,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4371,7 +3745,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4385,7 +3759,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4398,7 +3772,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4410,7 +3784,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The verdicts of the orreryd epic's epic-stage reviewers by position; empty before its review and for a record epic.
+     * The verdicts of the epic's epic-stage reviewers by position; empty before its review.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReviewVerdict reviews = 15 [json_name = "reviews"];</code>
@@ -4573,8 +3947,8 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-     * head's workspace. Empty when neither names one.
+     * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+     * names none.
      * </pre>
      *
      * <code>string repository = 17 [json_name = "repository"];</code>
@@ -4586,8 +3960,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-     * head's workspace. Empty when neither names one.
+     * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+     * names none.
      * </pre>
      *
      * <code>string repository = 17 [json_name = "repository"];</code>
@@ -4600,8 +3974,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-     * head's workspace. Empty when neither names one.
+     * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+     * names none.
      * </pre>
      *
      * <code>string repository = 17 [json_name = "repository"];</code>
@@ -4616,8 +3990,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-     * head's workspace. Empty when neither names one.
+     * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+     * names none.
      * </pre>
      *
      * <code>string repository = 17 [json_name = "repository"];</code>
@@ -4630,8 +4004,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The absolute path of the git repository the epic belongs to: the orreryd contract's repository, else the record
-     * head's workspace. Empty when neither names one.
+     * The absolute path of the git repository the epic belongs to: its contract's repository. Empty when the contract
+     * names none.
      * </pre>
      *
      * <code>string repository = 17 [json_name = "repository"];</code>
@@ -4647,8 +4021,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4660,8 +4033,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4671,8 +4043,7 @@ public  final class EpicsGetResponse extends
       return instance.getReleaseStepsCount();
     }/**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4683,8 +4054,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4697,8 +4067,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4712,8 +4081,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4725,8 +4093,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4739,8 +4106,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4753,8 +4119,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4768,8 +4133,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4782,8 +4146,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4795,8 +4158,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's release steps in contract order, each with the state its release runs give it; empty for a
-     * record epic.
+     * The epic's release steps in contract order, each with the state its release runs give it.
      * </pre>
      *
      * <code>repeated .orrery.v1.EpicReleaseProof release_steps = 18 [json_name = "releaseSteps"];</code>
@@ -4809,7 +4171,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4820,7 +4182,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4831,7 +4193,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4843,7 +4205,7 @@ public  final class EpicsGetResponse extends
       }
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4856,7 +4218,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4868,7 +4230,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic's report, unset until the epic ends and writes it, and for a record epic.
+     * The epic's report, unset until the epic ends and writes it.
      * </pre>
      *
      * <code>.orrery.v1.EpicReport report = 19 [json_name = "report"];</code>
@@ -4880,8 +4242,8 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+     * parked and when the owner holds its park. The parked reason is still in parked.
      * </pre>
      *
      * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -4893,8 +4255,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+     * parked and when the owner holds its park. The parked reason is still in parked.
      * </pre>
      *
      * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -4908,8 +4270,8 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * Whether the orreryd epic is parked and the planner holds the park, so the owner is not asked about it; false when it
-     * is not parked, when the owner holds its park, and for a record epic. The parked reason is still in parked.
+     * Whether the epic is parked and the planner holds the park, so the owner is not asked about it; false when it is not
+     * parked and when the owner holds its park. The parked reason is still in parked.
      * </pre>
      *
      * <code>bool planner_parked = 20 [json_name = "plannerParked"];</code>
@@ -4923,8 +4285,7 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
-     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-     * a record epic.
+     * The epic a close named as its replacement; empty when its close named none and when it is not closed.
      * </pre>
      *
      * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -4936,8 +4297,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-     * a record epic.
+     * The epic a close named as its replacement; empty when its close named none and when it is not closed.
      * </pre>
      *
      * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -4950,8 +4310,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-     * a record epic.
+     * The epic a close named as its replacement; empty when its close named none and when it is not closed.
      * </pre>
      *
      * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -4966,8 +4325,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-     * a record epic.
+     * The epic a close named as its replacement; empty when its close named none and when it is not closed.
      * </pre>
      *
      * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -4980,8 +4338,7 @@ public  final class EpicsGetResponse extends
     }
     /**
      * <pre>
-     * The orreryd epic a close named as its replacement; empty when its close named none, when it is not closed, and for
-     * a record epic.
+     * The epic a close named as its replacement; empty when its close named none and when it is not closed.
      * </pre>
      *
      * <code>string superseded_by = 21 [json_name = "supersededBy"];</code>
@@ -4997,10 +4354,59 @@ public  final class EpicsGetResponse extends
 
     /**
      * <pre>
+     * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+     * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+     * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+     * waits on the owner. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @return The steererParked.
+     */
+    @java.lang.Override
+    public boolean getSteererParked() {
+      return instance.getSteererParked();
+    }
+    /**
+     * <pre>
+     * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+     * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+     * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+     * waits on the owner. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @param value The steererParked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSteererParked(boolean value) {
+      copyOnWrite();
+      instance.setSteererParked(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the epic is parked and its steerer holds the park, so the owner is not asked about it: the park opens a
+     * question, a steering session hears the epic, and the steerer has not escalated the park's question. The owner is
+     * asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
+     * waits on the owner. The parked reason is still in parked.
+     * </pre>
+     *
+     * <code>bool steerer_parked = 22 [json_name = "steererParked"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSteererParked() {
+      copyOnWrite();
+      instance.clearSteererParked();
+      return this;
+    }
+
+    /**
+     * <pre>
      * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
      * </pre>
      *
-     * <code>string centre = 22 [json_name = "centre"];</code>
+     * <code>string centre = 23 [json_name = "centre"];</code>
      * @return The centre.
      */
     @java.lang.Override
@@ -5012,7 +4418,7 @@ public  final class EpicsGetResponse extends
      * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
      * </pre>
      *
-     * <code>string centre = 22 [json_name = "centre"];</code>
+     * <code>string centre = 23 [json_name = "centre"];</code>
      * @return The bytes for centre.
      */
     @java.lang.Override
@@ -5025,7 +4431,7 @@ public  final class EpicsGetResponse extends
      * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
      * </pre>
      *
-     * <code>string centre = 22 [json_name = "centre"];</code>
+     * <code>string centre = 23 [json_name = "centre"];</code>
      * @param value The centre to set.
      * @return This builder for chaining.
      */
@@ -5040,7 +4446,7 @@ public  final class EpicsGetResponse extends
      * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
      * </pre>
      *
-     * <code>string centre = 22 [json_name = "centre"];</code>
+     * <code>string centre = 23 [json_name = "centre"];</code>
      * @return This builder for chaining.
      */
     public Builder clearCentre() {
@@ -5053,7 +4459,7 @@ public  final class EpicsGetResponse extends
      * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
      * </pre>
      *
-     * <code>string centre = 22 [json_name = "centre"];</code>
+     * <code>string centre = 23 [json_name = "centre"];</code>
      * @param value The bytes for centre to set.
      * @return This builder for chaining.
      */
@@ -5069,7 +4475,7 @@ public  final class EpicsGetResponse extends
      * The sentence of the epic's newest history entry; empty when it has none.
      * </pre>
      *
-     * <code>string newest = 23 [json_name = "newest"];</code>
+     * <code>string newest = 24 [json_name = "newest"];</code>
      * @return The newest.
      */
     @java.lang.Override
@@ -5081,7 +4487,7 @@ public  final class EpicsGetResponse extends
      * The sentence of the epic's newest history entry; empty when it has none.
      * </pre>
      *
-     * <code>string newest = 23 [json_name = "newest"];</code>
+     * <code>string newest = 24 [json_name = "newest"];</code>
      * @return The bytes for newest.
      */
     @java.lang.Override
@@ -5094,7 +4500,7 @@ public  final class EpicsGetResponse extends
      * The sentence of the epic's newest history entry; empty when it has none.
      * </pre>
      *
-     * <code>string newest = 23 [json_name = "newest"];</code>
+     * <code>string newest = 24 [json_name = "newest"];</code>
      * @param value The newest to set.
      * @return This builder for chaining.
      */
@@ -5109,7 +4515,7 @@ public  final class EpicsGetResponse extends
      * The sentence of the epic's newest history entry; empty when it has none.
      * </pre>
      *
-     * <code>string newest = 23 [json_name = "newest"];</code>
+     * <code>string newest = 24 [json_name = "newest"];</code>
      * @return This builder for chaining.
      */
     public Builder clearNewest() {
@@ -5122,7 +4528,7 @@ public  final class EpicsGetResponse extends
      * The sentence of the epic's newest history entry; empty when it has none.
      * </pre>
      *
-     * <code>string newest = 23 [json_name = "newest"];</code>
+     * <code>string newest = 24 [json_name = "newest"];</code>
      * @param value The bytes for newest to set.
      * @return This builder for chaining.
      */
@@ -5151,12 +4557,8 @@ public  final class EpicsGetResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "epic_",
-            "tasks_",
-            io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask.class,
             "steps_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep.class,
-            "slices_",
-            io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.class,
             "requirements_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.class,
             "nodes_",
@@ -5183,15 +4585,15 @@ public  final class EpicsGetResponse extends
             "report_",
             "plannerParked_",
             "supersededBy_",
+            "steererParked_",
             "centre_",
             "newest_",
           };
           java.lang.String info =
-              "\u0000\u0017\u0000\u0001\u0001\u0017\u0017\u0000\f\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009" +
-              "\u0001\n\u0007\u000b\u0208\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011" +
-              "\u0208\u0012\u001b\u0013\u1009\u0002\u0014\u0007\u0015\u0208\u0016\u0208\u0017\u0208" +
-              "";
+              "\u0000\u0016\u0000\u0001\u0001\u0018\u0016\u0000\n\u0000\u0001\u1009\u0000\u0003" +
+              "\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0001\n\u0007\u000b\u0208" +
+              "\f\u0208\r\u001b\u000e\u001b\u000f\u001b\u0010\u001b\u0011\u0208\u0012\u001b\u0013" +
+              "\u1009\u0002\u0014\u0007\u0015\u0208\u0016\u0007\u0017\u0208\u0018\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -37,7 +37,7 @@ type moveEnv struct {
 // newMoveEnv returns the moveEnv of an epic created by a headless conversation started in a new git repository.
 func newMoveEnv(t *testing.T) moveEnv {
 	t.Helper()
-	m, _ := newTestManager(t, 4, fakeClaudePath(t))
+	m, _ := newTestManager(t, fakeClaudePath(t))
 	st := concreteStore(t, m)
 	panes := &movePanes{}
 	client := newEpicsClient(t, serveEpicsWith(t, st, panes))

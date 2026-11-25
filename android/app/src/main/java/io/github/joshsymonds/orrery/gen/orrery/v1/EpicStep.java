@@ -33,6 +33,7 @@ public  final class EpicStep extends
     role_ = "";
     summary_ = "";
     verdicts_ = emptyProtobufList();
+    host_ = "";
     purpose_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
@@ -1432,14 +1433,81 @@ public  final class EpicStep extends
     verdicts_.remove(index);
   }
 
-  public static final int PURPOSE_FIELD_NUMBER = 23;
+  public static final int HOST_FIELD_NUMBER = 23;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the step lives on.
+   * </pre>
+   *
+   * <code>string host = 23 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
+  }
+
+  public static final int PURPOSE_FIELD_NUMBER = 24;
   private java.lang.String purpose_;
   /**
    * <pre>
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @return The purpose.
    */
   @java.lang.Override
@@ -1451,7 +1519,7 @@ public  final class EpicStep extends
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @return The bytes for purpose.
    */
   @java.lang.Override
@@ -1464,7 +1532,7 @@ public  final class EpicStep extends
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @param value The purpose to set.
    */
   private void setPurpose(
@@ -1478,7 +1546,7 @@ public  final class EpicStep extends
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    */
   private void clearPurpose() {
 
@@ -1489,7 +1557,7 @@ public  final class EpicStep extends
    * What the step is for, as stored at its start; empty when none is stored yet.
    * </pre>
    *
-   * <code>string purpose = 23 [json_name = "purpose"];</code>
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
    * @param value The bytes for purpose to set.
    */
   private void setPurposeBytes(
@@ -3063,10 +3131,79 @@ public  final class EpicStep extends
 
     /**
      * <pre>
+     * The orrery name of the host the step lives on.
+     * </pre>
+     *
+     * <code>string host = 23 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the step lives on.
+     * </pre>
+     *
+     * <code>string host = 23 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the step lives on.
+     * </pre>
+     *
+     * <code>string host = 23 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the step lives on.
+     * </pre>
+     *
+     * <code>string host = 23 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the step lives on.
+     * </pre>
+     *
+     * <code>string host = 23 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
      * What the step is for, as stored at its start; empty when none is stored yet.
      * </pre>
      *
-     * <code>string purpose = 23 [json_name = "purpose"];</code>
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
      * @return The purpose.
      */
     @java.lang.Override
@@ -3078,7 +3215,7 @@ public  final class EpicStep extends
      * What the step is for, as stored at its start; empty when none is stored yet.
      * </pre>
      *
-     * <code>string purpose = 23 [json_name = "purpose"];</code>
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
      * @return The bytes for purpose.
      */
     @java.lang.Override
@@ -3091,7 +3228,7 @@ public  final class EpicStep extends
      * What the step is for, as stored at its start; empty when none is stored yet.
      * </pre>
      *
-     * <code>string purpose = 23 [json_name = "purpose"];</code>
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
      * @param value The purpose to set.
      * @return This builder for chaining.
      */
@@ -3106,7 +3243,7 @@ public  final class EpicStep extends
      * What the step is for, as stored at its start; empty when none is stored yet.
      * </pre>
      *
-     * <code>string purpose = 23 [json_name = "purpose"];</code>
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
      * @return This builder for chaining.
      */
     public Builder clearPurpose() {
@@ -3119,7 +3256,7 @@ public  final class EpicStep extends
      * What the step is for, as stored at its start; empty when none is stored yet.
      * </pre>
      *
-     * <code>string purpose = 23 [json_name = "purpose"];</code>
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
      * @param value The bytes for purpose to set.
      * @return This builder for chaining.
      */
@@ -3170,13 +3307,14 @@ public  final class EpicStep extends
             "summary_",
             "verdicts_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.class,
+            "host_",
             "purpose_",
           };
           java.lang.String info =
-              "\u0000\u0017\u0000\u0000\u0001\u0017\u0017\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0018\u0000\u0000\u0001\u0018\u0018\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0007\u0007\u0002\b\u0002\t\u0208\n\u001b" +
               "\u000b\u0208\f\u0208\r\u0002\u000e\u0208\u000f\u0002\u0010\u0007\u0011\u0208\u0012" +
-              "\u0002\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u001b\u0017\u0208";
+              "\u0002\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u001b\u0017\u0208\u0018\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

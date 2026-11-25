@@ -78,7 +78,7 @@ func TestHistorySentenceEveryKindReadsAsASentence(t *testing.T) {
 	t.Parallel()
 	stored, steps, runs := sentenceFixture()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsHistory(t, client, "repoa/sentences", "", 0).GetEntries()
 	requireSentences(t, got, []string{
@@ -110,7 +110,7 @@ func TestHistorySentenceGroupsNodeRunsOfOnePhase(t *testing.T) {
 		{Id: "loose", Item: "R3", Phase: "red", Created: historyAt(200)},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsHistory(t, client, "repoa/grouped", "", 0).GetEntries()
 	requireSentences(t, got, []string{
@@ -164,7 +164,7 @@ func TestHistorySentenceFoldsJudgeStepsRedAndGreen(t *testing.T) {
 		},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsHistory(t, client, "repoa/judged", "", 0).GetEntries()
 	requireSentences(t, got, []string{
@@ -194,7 +194,7 @@ func TestHistorySentenceRedWordings(t *testing.T) {
 		},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsHistory(t, client, "repoa/wordings", "", 0).GetEntries()
 	requireSentences(t, got, []string{
@@ -223,7 +223,7 @@ func TestHistorySentenceStepPurposeFallbacks(t *testing.T) {
 		{Id: "orphan", Epic: "repoa/labels", ReadOnly: true, Started: historyAt(40)},
 	}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{})
 
 	got := epicsHistory(t, client, "repoa/labels", "", 0).GetEntries()
 	requireSentences(t, got, []string{
@@ -245,7 +245,7 @@ func TestHistorySentenceGetNewestIsTheNewestSentence(t *testing.T) {
 	t.Parallel()
 	stored, steps, runs := sentenceFixture()
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := stepDataServe(t, t.TempDir(), &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
+	client := stepDataServe(t, &epicsFake{steps: steps}, store, &evidenceRunsFake{runs: runs})
 
 	got := epicsGet(t, client, "repoa/sentences")
 	const want = "Red evidence: R1 failed at base, as expected"

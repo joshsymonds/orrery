@@ -27,23 +27,24 @@ type EpicSummaryStore interface {
 }
 
 // EpicSummariesConfig configures EpicSummaries. Store reads the epics and stores their summaries, Haiku makes each
-// summary call, NewTimer arms the one retry a refused write or a failed read waits on, and Logger logs a failed read,
-// call or write. A nil NewTimer wraps time.NewTimer, and a nil Logger discards. Passed is a test seam: when set, Run
-// calls it after each pass. Production leaves it nil.
+// summary call, NewTimer arms the one retry a refused write or a failed read waits on, AfterFunc arms the deadline a
+// failed call waits out before it is made again (see callRetries), and Logger logs a failed read, call or write. A nil
+// NewTimer wraps time.NewTimer, a nil AfterFunc wraps time.AfterFunc, and a nil Logger discards. Passed is a test seam:
+// when set, Run calls it after each pass. Production leaves it nil.
 type EpicSummariesConfig struct {
-	Store    EpicSummaryStore
-	Haiku    haikuCaller
-	NewTimer func(time.Duration) (<-chan time.Time, func() bool)
-	Logger   *slog.Logger
-	Passed   func()
+	Store     EpicSummaryStore
+	Haiku     haikuCaller
+	NewTimer  func(time.Duration) (<-chan time.Time, func() bool)
+	AfterFunc func(time.Duration, func()) func() bool
+	Logger    *slog.Logger
+	Passed    func()
 }
 
-// EpicSummaries writes the summary of each stored epic that has none. It keeps the ids it has tried since it started,
-// so each epic gets at most one call per start, and the summaries whose write the store refused, which a retry writes
-// again.
+// EpicSummaries writes the summary of each stored epic that has none. An epic whose call failed is called for again once
+// its wait ends (see callRetries), and the summaries whose write the store refused are kept for a retry to write again.
 type EpicSummaries struct {
 	cfg      EpicSummariesConfig
-	tried    map[string]bool
+	calls    *callRetries
 	unstored unstoredWrites[string]
 	wakes    *housekeepWake
 	// fullOwed is set until a read of every epic without a summary succeeds. It is set at start, so the start reads all
@@ -57,7 +58,7 @@ func NewEpicSummaries(cfg EpicSummariesConfig) *EpicSummaries {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	return &EpicSummaries{
-		cfg: cfg, tried: make(map[string]bool), unstored: unstoredWrites[string]{},
+		cfg: cfg, calls: newCallRetries(cfg.AfterFunc), unstored: unstoredWrites[string]{},
 		wakes: newHousekeepWake(cfg.NewTimer), fullOwed: true,
 	}
 }
@@ -69,8 +70,10 @@ func (e *EpicSummaries) Wake(epic string) {
 }
 
 // Run writes the summaries at start, over every epic, and then on each wake and each retry, until ctx ends. A pass
-// whose write or read the store refused arms one retry, and a clean pass arms none.
+// whose write or read the store refused arms one retry, and a clean pass arms none. Run stops each failed call's
+// deadline still armed when it returns.
 func (e *EpicSummaries) Run(ctx context.Context) {
+	defer e.calls.stop()
 	e.wakes.run(ctx, func(ctx context.Context, retry bool) bool {
 		owed := e.pass(ctx, retry)
 		if e.cfg.Passed != nil {
@@ -98,8 +101,8 @@ func (e *EpicSummaries) pass(ctx context.Context, retry bool) bool {
 	return e.fullOwed || len(e.unstored) > 0
 }
 
-// fullPass summarizes each stored epic that has no summary and that this start has not tried, one call at a time, in id
-// order. A failed read is logged and leaves the full read owed.
+// fullPass summarizes each stored epic that has no summary, whose call is ready (see callRetries) and that has no summary
+// kept for a retry to write, one call at a time, in id order. A failed read is logged and leaves the full read owed.
 func (e *EpicSummaries) fullPass(ctx context.Context) {
 	rows, err := e.cfg.Store.UnsummarizedEpics(ctx)
 	if err != nil {
@@ -111,49 +114,55 @@ func (e *EpicSummaries) fullPass(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if e.tried[row.ID] {
+		if !e.calls.ready(row.ID) || e.unstored.holds(row.ID) {
 			continue
 		}
-		e.tried[row.ID] = true
 		e.summarize(ctx, row)
 	}
 }
 
-// wokenEpic reads the epic with id and summarizes it when it has no summary and this start has not tried it. An epic no
-// longer stored is dropped, and a failed read is logged and kept for the retry.
+// wokenEpic reads the epic with id and summarizes it when it has no summary, its call is ready and no summary of it is
+// kept for a retry to write. An epic no longer
+// stored, or summarized already, is dropped with any failure of its call, and a failed read is logged and kept for the
+// retry.
 func (e *EpicSummaries) wokenEpic(ctx context.Context, id string) {
-	if e.tried[id] {
+	if !e.calls.ready(id) || e.unstored.holds(id) {
 		return
 	}
 	row, err := e.cfg.Store.Epic(ctx, id)
 	switch {
 	case errors.Is(err, store.ErrNoEpic):
+		e.calls.forget(id)
 		return
 	case err != nil:
 		e.cfg.Logger.ErrorContext(ctx, "read epic", "epic", id, "error", err)
 		e.wakes.keep(id)
 		return
 	case row.Summary != "":
+		e.calls.forget(id)
 		return
 	}
-	e.tried[id] = true
 	e.summarize(ctx, row)
 }
 
 // summarize calls Haiku for the summary of row and stores it when the reply has a non-empty summary. A failed call or
-// reply is logged and leaves the summary empty. The write ignores ctx's cancellation, so a stop that lands after a reply
+// reply is logged, leaves the summary empty and holds the epic's next call until its wait ends, when its deadline wakes
+// the epic. A good reply forgets the epic's failures. The write ignores ctx's cancellation, so a stop that lands after a reply
 // still stores it, and a write the store refuses is logged and kept for a retry to write again.
 func (e *EpicSummaries) summarize(ctx context.Context, row store.EpicRow) {
 	raw, err := e.cfg.Haiku.Call(ctx, epicSummarySchema, epicSummaryInstruction+"\n\n"+epicSummaryText(row))
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "summarize epic", "epic", row.ID, "error", err)
+		e.calls.failed(row.ID, func() { e.Wake(row.ID) })
 		return
 	}
 	summary, err := epicSummaryOf(raw)
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "invalid epic summary", "epic", row.ID, "error", err)
+		e.calls.failed(row.ID, func() { e.Wake(row.ID) })
 		return
 	}
+	e.calls.forget(row.ID)
 	if err = e.cfg.Store.SetEpicSummary(context.WithoutCancel(ctx), row.ID, summary); err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "store epic summary; kept for a retry", "epic", row.ID, "error", err)
 		e.unstored[row.ID] = summary

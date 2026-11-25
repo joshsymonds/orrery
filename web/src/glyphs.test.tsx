@@ -55,6 +55,31 @@ test("Glyphs: a StateGlyph of a state it does not know draws idle", () =>
     assert.equal(glyph.getAttribute("aria-label"), "idle");
   }));
 
+// shapes is a glyph's drawing: the markup of each shape it draws, without its title.
+function shapes(glyph: Element): string {
+  return [...glyph.children]
+    .filter((child) => child.localName !== "title")
+    .map((child) => child.outerHTML)
+    .join("");
+}
+
+test("Glyphs: a StateGlyph of a broken state names it broken and draws its own drawing, apart from failed's cross and idle's ring", async () => {
+  let brokenShapes = "";
+  await drawn(<StateGlyph state="broken" />, (container) => {
+    const glyph = one(container, "svg.glyph");
+    assert.equal(glyph.getAttribute("data-state"), "broken");
+    assert.equal(glyph.getAttribute("aria-label"), "broken");
+    assert.equal(one(glyph, "title").textContent, "broken");
+    brokenShapes = shapes(glyph);
+  });
+  await drawn(<StateGlyph state="failed" />, (container) => {
+    assert.notEqual(shapes(one(container, "svg.glyph")), brokenShapes, "failed keeps its own drawing");
+  });
+  await drawn(<StateGlyph state="idle" />, (container) => {
+    assert.notEqual(shapes(one(container, "svg.glyph")), brokenShapes, "broken is not the idle ring");
+  });
+});
+
 // epicOf is an epic's detail in centre, with one requirement per state in states, named R1, R2 and so on in order.
 function epicOf(centre: string, states: readonly string[]): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {

@@ -18,6 +18,7 @@ function defineIcons<const T extends Record<string, IconPath>>(icons: T): T {
 // ICONS is every icon by name, with its path data.
 const ICONS = defineIcons({
   back: { d: "M10 3 5 8l5 5" },
+  foldBack: { d: "M13.5 8H6M9 5 6 8l3 3M2.75 3v10" },
   chevronRight: { d: "M6 3l5 5-5 5" },
   chevronDown: { d: "M3 6l5 5 5-5" },
   chevronUp: { d: "M3 10l5-5 5 5" },
@@ -86,12 +87,14 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
   interrupted: "cut off",
   interrupting: "interrupting",
   failed: "failed",
+  broken: "broken",
   stopped: "stopped",
   idle: "idle",
 };
 
 // stateDrawing draws a state's ring. Held and limited share a drawing and differ in colour: held waits on you, limited
-// waits on a usage limit and asks nothing. Any state it does not name draws the idle ring.
+// waits on a usage limit and asks nothing. Broken is a ring cracked through, which a failed row and an unbound pane draw;
+// failed keeps its ring with a cross. Any state it does not name draws the idle ring.
 function stateDrawing(state: string): JSX.Element {
   switch (state) {
     case "working":
@@ -136,6 +139,13 @@ function stateDrawing(state: string): JSX.Element {
         <>
           <circle cx="8" cy="8" r="6.25" />
           <path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" />
+        </>
+      );
+    case "broken":
+      return (
+        <>
+          <circle cx="8" cy="8" r="6.25" />
+          <path d="M7.2 4.4l1.6 2.7-1.8 1.5 1.6 3" />
         </>
       );
     case "stopped":

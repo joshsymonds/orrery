@@ -96,7 +96,6 @@ class StepRowsTest {
         live = true,
         runningSteps = steps,
         endedSteps = 0,
-        problem = "",
         phaseAt = NOW - 49 * 60,
     )
 
@@ -116,22 +115,19 @@ class StepRowsTest {
         val epic = epic(steps)
         val detail = EpicDetail(
             epic = epic,
-            tasks = emptyList(),
-            slices = emptyList(),
             steps = steps,
             questions = emptyList(),
         )
         val convo = Convo(
             key = CONVO_KEY,
             pane = paneOf(),
-            standIn = StandIn.NONE,
-            again = false,
             hung = listOf(EpicNode(epic, detail, contract = null)),
+            folded = emptyList(),
         )
         composeRule.setContent {
             MaterialTheme {
                 Column {
-                    ConvoRowItem(convo = convo, now = NOW, onOpen = {}, onLongPress = {})
+                    ConvoRowItem(convo = convo, now = NOW, foldOpen = false, onFold = {}, onOpen = {}, onLongPress = {})
                     StepRows(lines = stepLinesOf(detail), tasks = emptyList(), now = NOW)
                     if (history.isNotEmpty()) {
                         JustHappened(entries = history, steps = steps, onOpenStep = {})

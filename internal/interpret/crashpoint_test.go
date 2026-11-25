@@ -265,7 +265,7 @@ func (w *crashWorld) triggers(t *testing.T) []crashTrigger {
 // in order.
 func (w *crashWorld) query(t *testing.T, text string, scan func(rows *sql.Rows) error) {
 	t.Helper()
-	db, err := sql.Open("sqlite", w.dbPath)
+	db, err := sql.Open("sqlite3", w.dbPath)
 	if err != nil {
 		t.Fatalf("open store file: %v", err)
 	}

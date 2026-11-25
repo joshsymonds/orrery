@@ -124,7 +124,9 @@ const verifyingStep = create(EpicStepSchema, {
 });
 
 // exportCliBuild is export-cli's build task in the building state, with the fields change names replaced.
-function exportCliBuild(change: Partial<Pick<EpicBuildTask, "stage" | "green" | "reviews">>): EpicBuildTask {
+function exportCliBuild(
+  change: Partial<Pick<EpicBuildTask, "status" | "stage" | "green" | "reviews" | "place" | "tone">>,
+): EpicBuildTask {
   const build = rotaBuilding.get.buildTasks.find((candidate) => candidate.id === "T2");
   if (build === undefined) {
     throw new Error("the rota-export fixture holds no build task T2");
@@ -240,19 +242,26 @@ export function taskRecordStories(bases: TaskRecordBases): Record<TaskRecordScen
     unansweredNudge: { ...implementing, steps: { nudge: "unanswered" } },
     green: withGet(
       bases.building,
-      rotaWith([judged, verifyingStep], exportCliBuild({ stage: "green", green: judgingRun() })),
+      rotaWith([judged, verifyingStep], exportCliBuild({ stage: "green", green: judgingRun(), place: "green" })),
     ),
     review: withGet(
       bases.building,
       rotaWith(
         [judged, verifyingStep],
-        exportCliBuild({ stage: "verify", green: passedGreen, reviews: [floorReview, securityReview] }),
+        exportCliBuild({
+          stage: "verify", green: passedGreen, reviews: [floorReview, securityReview], place: "review",
+        }),
       ),
     ),
     integrate: {
       ...withGet(
         bases.building,
-        rotaWith([judged], exportCliBuild({ stage: "", green: passedGreen, reviews: [floorReview] })),
+        rotaWith(
+          [judged],
+          exportCliBuild({
+            status: "done", stage: "", green: passedGreen, reviews: [floorReview], place: "integrate", tone: "acc",
+          }),
+        ),
       ),
       sessionStreams: new Map([...bases.building.sessionStreams, [implementStep, endedImplement(bases)]]),
     },

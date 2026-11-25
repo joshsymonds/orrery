@@ -85,7 +85,7 @@ func (op EnginePromptsDiscard) applyEngine(ctx context.Context, queries *sqlcgen
 // the order they were sent. A prompt is matched to its engine_prompt event by write id, and a prompt with no state is
 // absent. It reads the writer's database, as EnginePromptSent does.
 func (s *Store) PromptStates(ctx context.Context, id string) ([]PromptState, error) {
-	rows, err := sqlcgen.New(s.db).ListPromptStates(ctx, id)
+	rows, err := sqlcgen.New(s.read).ListPromptStates(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("list prompt states of engine session %s: %w", id, err)
 	}
@@ -96,12 +96,12 @@ func (s *Store) PromptStates(ctx context.Context, id string) ([]PromptState, err
 // reads the store file as Snapshot does, and returns an error matching ErrUnavailable when the file is missing or the
 // database is busy.
 func (r *Reader) PromptStates(ctx context.Context, id string) ([]PromptState, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	rows, err := sqlcgen.New(db).ListPromptStates(ctx, id)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
@@ -125,7 +125,7 @@ type PromptWrite struct {
 // session with that prompt id. It reports false with no error when the session has no such prompt. It reads the
 // writer's database, as EnginePromptSent does.
 func (s *Store) PromptWrite(ctx context.Context, id, promptID string) (PromptWrite, bool, error) {
-	row, err := sqlcgen.New(s.db).GetPromptWrite(ctx, sqlcgen.GetPromptWriteParams{SessionID: id, PromptID: promptID})
+	row, err := sqlcgen.New(s.read).GetPromptWrite(ctx, sqlcgen.GetPromptWriteParams{SessionID: id, PromptID: promptID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return PromptWrite{}, false, nil
 	}
@@ -155,7 +155,7 @@ func (s *Store) PromptsOfWrites(ctx context.Context, id string, writeIDs []strin
 	if err != nil {
 		return nil, fmt.Errorf("encode write ids of engine session %s: %w", id, err)
 	}
-	rows, err := sqlcgen.New(s.db).ListPromptsOfWrites(ctx, sqlcgen.ListPromptsOfWritesParams{
+	rows, err := sqlcgen.New(s.read).ListPromptsOfWrites(ctx, sqlcgen.ListPromptsOfWritesParams{
 		ID: id, WriteIds: string(list),
 	})
 	if err != nil {

@@ -13,10 +13,10 @@ func TestControlZeroTimeoutIsTheDefault(t *testing.T) {
 	if defaultControlTimeout != 10*time.Second {
 		t.Fatalf("defaultControlTimeout = %v, want 10s", defaultControlTimeout)
 	}
-	if got := newControlServer(nil, 0, "", nil).timeout; got != defaultControlTimeout {
+	if got := newControlServer(nil, 0, "", nil, "", nil).timeout; got != defaultControlTimeout {
 		t.Errorf("timeout with none given = %v, want defaultControlTimeout %v", got, defaultControlTimeout)
 	}
-	if got := newControlServer(nil, time.Second, "", nil).timeout; got != time.Second {
+	if got := newControlServer(nil, time.Second, "", nil, "", nil).timeout; got != time.Second {
 		t.Errorf("timeout given 1s = %v, want 1s", got)
 	}
 }

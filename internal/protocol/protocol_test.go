@@ -53,6 +53,7 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionClaudeSession", protocol.OptionClaudeSession, "@orrery_claude_session"},
 		{"OptionTranscript", protocol.OptionTranscript, "@orrery_transcript"},
 		{"OptionTool", protocol.OptionTool, "@orrery_tool"},
+		{"OptionHeld", protocol.OptionHeld, "@orrery_held"},
 		{"SessionsAsk", protocol.SessionsAsk, "sessions"},
 		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
@@ -63,6 +64,26 @@ func TestFrozenNames(t *testing.T) {
 	for _, tc := range cases {
 		if tc.got != tc.want {
 			t.Errorf("%s = %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+func TestIdle(t *testing.T) {
+	cases := []struct {
+		state protocol.State
+		held  bool
+		want  bool
+	}{
+		{protocol.StateDone, false, true},
+		{protocol.StateWorking, true, true},
+		{protocol.StateWorking, false, false},
+		{protocol.StateWaiting, true, false},
+		{protocol.StateWaiting, false, false},
+		{"", false, false},
+	}
+	for _, tc := range cases {
+		if got := protocol.Idle(tc.state, tc.held); got != tc.want {
+			t.Errorf("Idle(%q, %t) = %t, want %t", tc.state, tc.held, got, tc.want)
 		}
 	}
 }
@@ -93,7 +114,7 @@ func TestPaneJSONKeys(t *testing.T) {
 		t.Fatalf("marshal zero Pane: %v", err)
 	}
 	want := []string{
-		"activity", "changed", "claude_session", "command", "context", "cwd", "host", "id",
+		"activity", "changed", "claude_session", "command", "context", "cwd", "held", "host", "id",
 		"label", "pane", "question", "seen", "session", "state", "summary", "tool", "window",
 	}
 	if got := sortedKeys(t, data); !slices.Equal(got, want) {
@@ -120,6 +141,7 @@ func TestPaneWireFormat(t *testing.T) {
 		ClaudeSession: "example-claude-session",
 		Activity:      1700000300,
 		Tool:          `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`,
+		Held:          true,
 	}
 	data, err := json.Marshal(pane)
 	if err != nil {
@@ -130,7 +152,7 @@ func TestPaneWireFormat(t *testing.T) {
 		`"summary":"waiting on review","label":"proj","changed":100,"seen":200,` +
 		`"question":"ship it?","context":"example-context",` +
 		`"activity":1700000300,"tool":"{\"id\":\"toolu_example\",\"name\":\"Bash\",` +
-		`\"input\":\"go test ./...\",\"start\":1700000400}",` +
+		`\"input\":\"go test ./...\",\"start\":1700000400}","held":true,` +
 		`"claude_session":"example-claude-session"}`
 	if string(data) != want {
 		t.Errorf("Pane JSON =\n%s\nwant\n%s", data, want)

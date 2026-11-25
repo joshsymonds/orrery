@@ -348,9 +348,8 @@ func TestReviewStartGivesTestParsimonyTheDoneGateChecksAtTheFrozenRevision(t *te
 	}
 }
 
-// TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors: a start the step cap refuses ends the pass's starts with no
-// error, so the unit after it is not started. Any other start error is returned, and the units after it are not started.
-func TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors(t *testing.T) {
+// TestReviewStartReturnsStartErrors: a start error is returned, and the units after it are not started.
+func TestReviewStartReturnsStartErrors(t *testing.T) {
 	t.Parallel()
 	other := errors.New("spawn claude: no such file")
 	cases := []struct {
@@ -360,8 +359,8 @@ func TestReviewStartStopsAtStepCapAndReturnsOtherStartErrors(t *testing.T) {
 		wantCalls  int
 		wantErr    error
 	}{
-		{name: "cap refusal on the second unit", refuseFrom: 2, err: enginehost.ErrCapReached, wantCalls: 2},
-		{name: "other error on the first unit", refuseFrom: 1, err: other, wantCalls: 1, wantErr: other},
+		{name: "error on the first unit", refuseFrom: 1, err: other, wantCalls: 1, wantErr: other},
+		{name: "error on the second unit", refuseFrom: 2, err: other, wantCalls: 2, wantErr: other},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -462,18 +461,15 @@ func TestClosureStartWithoutFrozenReviewStartsNothing(t *testing.T) {
 	}
 }
 
-// TestReviewStartReadsTheChangeFromTheSyncedCommit: an epic whose stored base merged origin's main in a sync is reviewed
-// over the change from origin's commit it synced, not from its base, so the reviewers and verifiers read the epic's own
-// change and not origin's. A closure verifier still runs over the frozen revision.
-func TestReviewStartReadsTheChangeFromTheSyncedCommit(t *testing.T) {
+// TestReviewStartReadsTheChangeFromTheEpicsBase: the reviewers and verifiers of a review run start over the change from
+// the epic's base at the frozen revision, so they read the epic's own change.
+func TestReviewStartReadsTheChangeFromTheEpicsBase(t *testing.T) {
 	t.Parallel()
-	const synced = "synced-origin"
 	ctx := context.Background()
 	s := openRunStore(t)
 	createRunEpic(t, s, store.EpicWorkflow{})
 	run := reviewWorkFrozenRun(t, s)
 	epic := epicOf(t, s)
-	epic.Synced = synced
 	reviewers := &reviewWorkReviewers{}
 	steps := &reviewWorkSteps{fakeSteps: fakeSteps{store: s}}
 	runner := reviewWorkRunner(s, steps, reviewers, reviewWorkGetenv(t))
@@ -492,21 +488,21 @@ func TestReviewStartReadsTheChangeFromTheSyncedCommit(t *testing.T) {
 		t.Fatalf("work: %v", err)
 	}
 
-	wantCalls := []reviewWorkCall{{name: "security", base: synced, revision: reviewWorkFrozen}}
+	wantCalls := []reviewWorkCall{{name: "security", base: runBase, revision: reviewWorkFrozen}}
 	if !reflect.DeepEqual(reviewers.calls, wantCalls) {
 		t.Errorf("reviewer starts = %+v, want %+v", reviewers.calls, wantCalls)
 	}
 	if len(steps.calls) != 2 {
 		t.Fatalf("step starts = %d, want 2", len(steps.calls))
 	}
-	verify := epicVerifierStart(epic, synced, reviewWorkFrozen, finding, verifyID, reviewWorkVerifierAgent)
+	verify := epicVerifierStart(epic, runBase, reviewWorkFrozen, finding, verifyID, reviewWorkVerifierAgent)
 	verify.Task = "review"
 	if got := reviewWorkComparable(steps.calls[1:]); !reflect.DeepEqual(got, reviewWorkComparable(
 		[]enginehost.StepStart{verify},
 	)) {
-		t.Errorf("verifier start = %+v, want it over the change from %s", got, synced)
+		t.Errorf("verifier start = %+v, want it over the change from %s", got, runBase)
 	}
-	if !strings.Contains(steps.calls[1].Prompt, synced) {
-		t.Errorf("verifier prompt = %q, want it to name %s", steps.calls[1].Prompt, synced)
+	if !strings.Contains(steps.calls[1].Prompt, runBase) {
+		t.Errorf("verifier prompt = %q, want it to name %s", steps.calls[1].Prompt, runBase)
 	}
 }

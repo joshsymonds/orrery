@@ -1,7 +1,7 @@
 import { elapsed } from "./dockwords";
 import type { EpicBuildTask, EpicsGetResponse, EpicStep, EpicTaskReview, EvidenceRun } from "./gen/orrery/v1/epics_pb";
-import { durationText, type SliceState, type Tone } from "./phases";
-import { PLACES, type RecordTask, type RingPlace } from "./record";
+import { durationText, PLACES, type RingPlace, type SliceState, type Tone } from "./phases";
+import type { RecordTask } from "./record";
 
 // A task's five stage rows, as the record's stages read them: each row's state, its summary, its end (a passed row's
 // time or the now row's clock) and, on the now row, its tone. Times are unix seconds.
@@ -22,6 +22,8 @@ export interface TaskStages {
 
 // The words an evidence run says while it runs and once it has ended.
 interface RunWords {
+  waiting: string;
+  gathering: string;
   capturing: string;
   judging: string;
   passed: string;
@@ -29,6 +31,8 @@ interface RunWords {
 }
 
 const RED_WORDS: RunWords = {
+  waiting: "waiting for the gatherer",
+  gathering: "being gathered",
   capturing: "capturing the failing test",
   judging: "a judge is reading the red run",
   passed: "the test fails before any change",
@@ -36,6 +40,8 @@ const RED_WORDS: RunWords = {
 };
 
 const GREEN_WORDS: RunWords = {
+  waiting: "waiting for the gatherer",
+  gathering: "being gathered",
   capturing: "capturing the green run",
   judging: "a judge is reading the green run",
   passed: "the test passes on the change",
@@ -77,9 +83,15 @@ function stateOf(cell: string): SliceState {
   return cell === "none" ? "ahead" : "now";
 }
 
-// The summary of an evidence run: what it is doing, and once ended what it found, with judged to hold when its judge
-// held.
+// The summary of an evidence run: what it is doing (waiting for the gatherer, being gathered, a judge reading it), and
+// once ended what it found, with judged to hold when its judge held.
 function runSummaryOf(words: RunWords, run: EvidenceRun | undefined): string {
+  if (run?.state === "waiting") {
+    return words.waiting;
+  }
+  if (run?.state === "gathering") {
+    return words.gathering;
+  }
   if (run?.state === "judging") {
     return words.judging;
   }

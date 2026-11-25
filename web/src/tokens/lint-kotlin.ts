@@ -50,7 +50,19 @@ const rules: Rule[] = [
   { pattern: /\bdurationMillis\s*=\s*\d[\w.]*/, why: "a literal duration; take the timing from Move.spec" },
   { pattern: /\btween\(\s*\d[\w.]*/, why: "a literal duration; take the timing from Move.spec" },
   { pattern: /\btween\(/, why: "outside ui/theme; callers take Move.spec", applies: outsideTheme },
-  { pattern: /\bFontFamily\.(?:Monospace|Default)\b/, why: "a system font family; take the type from a token" },
+  {
+    pattern: /\bFontFamily\.(?:SansSerif|Serif|Cursive|Monospace|Default)\b/,
+    why: "a system font family; take the type from a token",
+  },
+  {
+    pattern: /\bFontFamily\(/,
+    why: "a font family built outside ui/theme; take Orrery Mono or Inter from the theme",
+    applies: outsideTheme,
+  },
+  {
+    pattern: /\bR\.font\.(?!(?:orrery_mono|inter)_)\w+/,
+    why: "a font resource other than orrery_mono_* or inter_*; the faces are Orrery Mono and Inter",
+  },
   {
     pattern: /\bMaterialTheme\.(?:typography|colorScheme)\b/,
     why: "outside ui/theme; read the tokens, not the theme",

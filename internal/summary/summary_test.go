@@ -867,7 +867,9 @@ func TestSummarizerThrottle(t *testing.T) {
 	run(62*time.Second, true, 3)
 }
 
-func TestSummarizerCap(t *testing.T) {
+// TestSummarizerRunsEachPaneAtOnce checks that a request for each of three panes starts its run at once, while the
+// runs of the others are still held, and that each pane gets its summary once they are released.
+func TestSummarizerRunsEachPaneAtOnce(t *testing.T) {
 	r := newRig(t, nil, 0)
 	r.place(t, "reply", validReply)
 	r.hold(t)
@@ -878,14 +880,14 @@ func TestSummarizerCap(t *testing.T) {
 		r.s.Request(t.Context(), exampleRequest(pane, true, transcript, "Example last message"))
 	}
 
-	// Request decides at once whether a request starts or waits, so no run beyond the cap can start later while the
-	// held runs are in flight.
-	if n := r.s.InFlight(); n != summary.MaxRuns {
-		t.Fatalf("runs in flight while held = %d, want %d", n, summary.MaxRuns)
+	// Request decides at once whether a request starts or waits, so every pane's run is in flight before any is
+	// released.
+	if n := r.s.InFlight(); n != len(panes) {
+		t.Fatalf("runs in flight while held = %d, want %d", n, len(panes))
 	}
-	waitRunning(t, r.bin, summary.MaxRuns)
-	if started, _ := countRuns(t, r.bin); started != summary.MaxRuns {
-		t.Fatalf("runs started while held = %d, want %d", started, summary.MaxRuns)
+	waitRunning(t, r.bin, len(panes))
+	if started, _ := countRuns(t, r.bin); started != len(panes) {
+		t.Fatalf("runs started while held = %d, want %d", started, len(panes))
 	}
 
 	r.release(t)

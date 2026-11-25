@@ -114,7 +114,7 @@ test("RowWords: no text says steps ended, and a full block's fold line counts on
   const epic = epicOf({ runningSteps: steps, endedSteps: 3 });
   const detail = create(EpicsGetResponseSchema, {
     epic,
-    tasks: [{ effort: 1, slug: "t0", subject: "t0", status: "pending" }],
+    buildTasks: [{ id: "t0", status: "pending" }],
   });
   return drawn(nodeOf(epic, detail), (container) => {
     assert.equal(textOf(container, ".fold-line"), "1 more · 1 not started");

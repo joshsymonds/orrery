@@ -452,7 +452,17 @@ const taskGap = "gap"
 // taskDone is the status of a task that is accepted.
 const taskDone = "done"
 
-// taskLines returns each task as `- Tseq [status] title`, then the lines taskspec.Lines gives for its spec version,
+// taskHead returns task's head line, `- Tseq [status] title`, with ` (split from Tn)` after the title when the task was
+// split from the task of seq n, as a descendant of a split is.
+func taskHead(task store.EpicTask) string {
+	head := fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title)
+	if task.SplitFrom != 0 {
+		head += fmt.Sprintf(" (split from T%d)", task.SplitFrom)
+	}
+	return head
+}
+
+// taskLines returns each task's head line, taskHead, then the lines taskspec.Lines gives for its spec version,
 // each indented two spaces, when the task's current version is past version 1, then one rungLine for each rung of its
 // ladder in rung order, then its deliverable, files, requirements, contributes, test_changes, gate, and its evidence
 // item as compact JSON, then the guard's last refusal of its build when there is one, then the gate-needed changes its
@@ -464,7 +474,7 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("encode evidence of T%d: %w", task.Seq, err)
 		}
-		lines = append(lines, fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title))
+		lines = append(lines, taskHead(task))
 		for _, line := range taskspec.Lines(task) {
 			lines = append(lines, "  "+line)
 		}
@@ -495,11 +505,11 @@ func taskLines(tasks []store.EpicTask) ([]string, error) {
 
 // summaryTaskLines returns the Tasks section of a turn that claimed triggers, each task as a summary of its state. A
 // task a trigger names renders in full, as taskLines renders it: a trigger names task n when its id, split on ':' and
-// '-', has the token Tn. A done task no trigger names is one line, `- Tn [done] title`. Any other task no trigger names
-// renders its head line, its rungs, its files, requirements and contributes, and when it failed or gapped, its
-// failure's first line and the files its implementer named as needed, as failedLines gives them. It renders no
-// deliverable, evidence, version lines, test changes, guard refusal or gate-needed changes unless a trigger names it.
-// It returns an error when a task a trigger names cannot be encoded.
+// '-', has the token Tn. A done task no trigger names is one line, its head line from taskHead. Any other task no
+// trigger names renders its head line, its rungs, its files, requirements and contributes, and when it failed or
+// gapped, its failure's first line and the files its implementer named as needed, as failedLines gives them. It
+// renders no deliverable, evidence, version lines, test changes, guard refusal or gate-needed changes unless a trigger
+// names it. It returns an error when a task a trigger names cannot be encoded.
 func summaryTaskLines(tasks []store.EpicTask, triggers []store.EpicTrigger) ([]string, error) {
 	tokens := triggerTokens(triggers)
 	lines := make([]string, 0, 8*len(tasks))
@@ -512,11 +522,10 @@ func summaryTaskLines(tasks []store.EpicTask, triggers []store.EpicTrigger) ([]s
 			lines = append(lines, full...)
 			continue
 		}
+		lines = append(lines, taskHead(task))
 		if task.Status == taskDone {
-			lines = append(lines, fmt.Sprintf("- T%d [done] %s", task.Seq, task.Title))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title))
 		for _, rung := range task.Rungs {
 			lines = append(lines, rungLine(rung))
 		}

@@ -56,8 +56,8 @@ fun TaskTable(tasks: List<RecordTask>, now: Long, onOpenPhase: ((task: String, p
 
 /**
  * The running steps of an epic as rows: each glyph names its state, then the label (the step's purpose, else its task,
- * else its role), what the step does, the pips of the step's task when it has one, and how long its stage has run as of
- * [now].
+ * else its role), what the step does, the pips of the task in [tasks] the step belongs to by [taskOfStep] when it has a
+ * task (five not reached when none does), and how long its stage has run as of [now].
  */
 @Composable
 fun StepRows(lines: List<StepLine>, tasks: List<RecordTask>, now: Long) {
@@ -68,9 +68,12 @@ fun StepRows(lines: List<StepLine>, tasks: List<RecordTask>, now: Long) {
     }
 }
 
-/** The five cells of a step's task among [tasks], five not reached when the task is not among them. */
+/**
+ * The five cells of the task among [tasks] a step labelled [task] belongs to by [taskOfStep], five not reached when none
+ * does.
+ */
 internal fun stepCellsOf(task: String, tasks: List<RecordTask>): List<CellTone> =
-    tasks.find { it.task == task }?.cells ?: RingPlace.entries.map { CellTone.NONE }
+    tasks.taskOfStep(task)?.cells ?: RingPlace.entries.map { CellTone.NONE }
 
 /** Elapsed seconds as m:ss, or h:mm:ss from an hour. Never negative. */
 internal fun elapsedClock(seconds: Long): String {

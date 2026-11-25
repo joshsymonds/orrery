@@ -159,8 +159,8 @@ func TestReleaseReviewerHoldsLetStepOneStart(t *testing.T) {
 }
 
 // TestReleaseReviewerRefusalStopsAsOwnerStop: a release reviewer that refuses the candidate, or that cannot start, records
-// its review failed with its reason. The release stops there as an owner stop naming that reason, and the first step does
-// not start.
+// its review failed with its reason. In a workflow with no plan that can make a change to the candidate, the release stops
+// there as an owner stop naming that reason, and the first step does not start.
 func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -214,13 +214,59 @@ func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
 			if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 				t.Errorf("epic phase = %q, want stopped", phase)
 			}
-			requireOwnerPark(t, w.s, store.ParkClassReleaseOwnerStop, tc.reason)
+			requireQuestionPark(t, w.s, store.ParkClassReleaseOwnerStop, tc.reason)
 			for _, call := range w.fakes.steps.calls {
 				if call.ID == w.stepID(1) {
 					t.Errorf("step starts = %+v, want the first release step never started", w.fakes.steps.calls)
 				}
 			}
 		})
+	}
+}
+
+// refuseReview ends the release reviewer's step of the release run's current attempt with a finding whose claim is
+// releaseClaim, and passes.
+func (w replanWorld) refuseReview() {
+	w.t.Helper()
+	w.endStep(w.reviewID(), "gate_failed", "done", map[string]any{
+		"status":   "done",
+		"findings": []map[string]string{{"claim": releaseClaim}},
+		"results":  []map[string]string{{"result": "fails"}},
+	})
+	if logged := w.pass(); logged != "" {
+		w.t.Fatalf("pass logged: %s", logged)
+	}
+}
+
+// TestReleaseReviewerRefusalReplans: in a workflow with a plan that can make the change, a release reviewer that refused
+// the candidate with findings sends the release back to planning with its reason, and the first release step never
+// starts. The candidate is the clean merge of origin's main the release integrator made. The replan records the epic's
+// branch tip the candidate was made from, so once a replan leaves that branch where it was, the reviewer's refusal of
+// the candidate the integrator makes again stops the release.
+func TestReleaseReviewerRefusalReplans(t *testing.T) {
+	t.Parallel()
+	const refusal = "the release reviewer refused the candidate: " + releaseClaim
+	w := newCleanReplanWorld(t, defaultReleaseReviewer(t, true)...)
+	w.runner.reviewers = &releaseReviewers{}
+	w.pass()
+	w.integrateClean(w.integratorID())
+	w.refuseReview()
+	w.requireReplannedAt(w.tip, refusal)
+
+	turn, _ := w.claimReplanTurn()
+	w.completeReplanTurn(turn, "complete")
+	again := runAt(t, w.s, releaseNodePath)
+	if again.Attempt != 1 || decodeMerge(t, again.Result).Origin != w.origin {
+		t.Fatalf("release run = %+v, want attempt 1 merging origin's commit %s again", again, w.origin)
+	}
+	w.integrateClean(w.integratorID())
+	w.refuseReview()
+	w.requireReleaseStopped(refusal+"; the epic's branch has not moved since the last replan", 1)
+	firstSteps := []string{store.NodeWorkID(again.ID, 0, "release 1"), store.NodeWorkID(again.ID, 1, "release 1")}
+	for _, call := range w.fakes.steps.calls {
+		if slices.Contains(firstSteps, call.ID) {
+			t.Errorf("step starts = %+v, want the first release step never started", w.fakes.steps.calls)
+		}
 	}
 }
 

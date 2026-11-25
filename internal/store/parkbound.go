@@ -23,7 +23,7 @@ func taskSubject(seq int64) string {
 
 // plannerParked reports whether an epic parked with reason, of class, holds a planner park: one the planner answers.
 func plannerParked(reason, class string) bool {
-	return reason != "" && !ParkClass(class).OwnerHeld()
+	return reason != "" && !ParkClass(class).OpensQuestion()
 }
 
 // parkChainOf returns the chain a planner park of class with subject joins: the chain of the epic's latest park row with
@@ -134,7 +134,7 @@ func parkPlanner(
 	return 0, setPark(ctx, queries, epic, park, class)
 }
 
-// boundPark stores park as the retry_bound park of epic in the caller's write. It opens the owner question an owner park
+// boundPark stores park as the retry_bound park of epic in the caller's write. It opens the park question a question park
 // opens, whose text is boundQuestionText: park, then the reasons of the earlier parks of chain, then each action taken or
 // refused on chain. The question's text is also added as a tell. held is the seq of the planner park the epic holds, which
 // the question does not list as earlier, or 0 when park is not stored yet. boundPark returns the seq of the question.

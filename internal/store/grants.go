@@ -91,7 +91,7 @@ func (s *Store) EndGrant(ctx context.Context, id string) error {
 // Grants returns every live grant ordered by grant time then id, each with its members in the order AddGrant
 // stored them. The grants and their members are read in one read transaction, so they come from one snapshot.
 func (s *Store) Grants(ctx context.Context) ([]GrantRow, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, fmt.Errorf("begin grants read: %w", err)
 	}

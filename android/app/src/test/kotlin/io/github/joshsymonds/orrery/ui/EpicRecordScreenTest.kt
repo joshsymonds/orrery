@@ -42,7 +42,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicHistoryEntry
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
-import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest
@@ -128,7 +127,6 @@ class EpicRecordScreenTest {
         questions: List<EpicQuestion> = emptyList(),
         contract: EpicContract? = null,
         summary: String = "",
-        problem: String = "",
         outcome: String = "",
         live: Boolean = true,
         paused: Boolean = false,
@@ -136,9 +134,7 @@ class EpicRecordScreenTest {
         plannerParked: Boolean = false,
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
-        tasks: List<EpicTask> = emptyList(),
         steering: String = "",
-        source: String = "orreryd",
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
             .setId(EPIC_ID)
@@ -149,9 +145,8 @@ class EpicRecordScreenTest {
             .setLive(live)
             .addAllRunningSteps(steps.filter { it.end.isEmpty() })
             .setEndedSteps(steps.count { it.end.isNotEmpty() })
-            .setProblem(problem)
             .setPhaseAt(phaseAt)
-            .setSource(source)
+            .setSource("orreryd")
             .setSteering(steering)
         val response = EpicsGetResponse.newBuilder()
             .setEpic(epic)
@@ -160,7 +155,6 @@ class EpicRecordScreenTest {
             .addAllRequirements(requirements)
             .addAllQuestions(questions)
             .addAllBuildTasks(buildTasks)
-            .addAllTasks(tasks)
             .setSummary(summary)
             .setPaused(paused)
             .setParked(parked)
@@ -346,14 +340,13 @@ class EpicRecordScreenTest {
     }
 
     @Test
-    fun epicRecordOrderForABuildingEpicIsProblemSummaryTrackNowHappenedTasksRequirements() {
+    fun epicRecordOrderForABuildingEpicIsSummaryTrackNowHappenedTasksRequirements() {
         val listState = LazyListState()
         val step = step("example-step-1", "example-task-1", "example-agent")
         FakeOrreryServer().use { server ->
             serve(
                 server,
                 body(
-                    problem = "Example problem.",
                     contract = contract(),
                     summary = "Example summary.",
                     outcome = "built",
@@ -366,7 +359,7 @@ class EpicRecordScreenTest {
             setScreen(server, listState = listState)
             awaitLoaded()
 
-            val names = listOf("problem", "summary", "track", "now", "happened", "tasks", "requirements")
+            val names = listOf("summary", "track", "now", "happened", "tasks", "requirements")
             val indexes = names.map { sectionIndex(listState, it) }
             assertTrue("expected the sections in order, got $indexes", indexes.zipWithNext().all { (a, b) -> a < b })
         }
@@ -391,40 +384,8 @@ class EpicRecordScreenTest {
             sectionIndex(listState, "summary")
             sectionIndex(listState, "track")
             sectionIndex(listState, "requirements")
-            assertEquals(0, countNodes(hasTestTag("epic-section:problem")))
             assertEquals(0, countNodes(hasTestTag("epic-section:happened")))
             assertEquals(0, countNodes(hasTestTag("epic-section:tasks")))
-        }
-    }
-
-    @Test
-    fun epicRecordARecordEpicDrawsOnlyNowAndTasks() {
-        val listState = LazyListState()
-        FakeOrreryServer().use { server ->
-            serve(
-                server,
-                body(
-                    source = "record",
-                    contract = contract(),
-                    summary = "Example summary.",
-                    tasks = listOf(
-                        EpicTask.newBuilder()
-                            .setSlug("example-task-1")
-                            .setSubject("Example task")
-                            .setStatus("working")
-                            .build(),
-                    ),
-                    requirements = listOf(requirement("R1", "Example requirement one.", "check")),
-                ),
-            )
-            setScreen(server, listState = listState)
-            awaitLoaded()
-
-            sectionIndex(listState, "tasks")
-            assertEquals(0, countNodes(hasTestTag("epic-section:summary")))
-            assertEquals(0, countNodes(hasTestTag("epic-section:track")))
-            assertEquals(0, countNodes(hasTestTag("epic-section:happened")))
-            assertEquals(0, countNodes(hasTestTag("epic-section:requirements")))
         }
     }
 
@@ -749,15 +710,12 @@ class EpicRecordScreenTest {
     }
 
     @Test
-    fun epicRecordTheProblemIsDrawnInItsSectionWithNoNoticeOrReadLine() {
-        val listState = LazyListState()
+    fun epicRecordAReadEpicDrawsNoNoticeOrReadLine() {
         FakeOrreryServer().use { server ->
-            serve(server, body(problem = "Example problem.", outcome = "built"))
-            setScreen(server, listState = listState)
+            serve(server, body(outcome = "built"))
+            setScreen(server)
             awaitLoaded()
 
-            sectionIndex(listState, "problem")
-            assertEquals(1, countIn("epic-section:problem", hasTestTag("epic-problem") and hasText("Example problem.")))
             assertEquals(0, countNodes(hasTestTag("epic-notice")))
             assertEquals(0, countNodes(hasText("The server could not read this epic.")))
             assertEquals(0, countNodes(hasText("loading the epic…")))
@@ -869,7 +827,7 @@ class EpicRecordScreenTest {
     @Test
     fun epicCommandsAnEndedEpicDrawsNoMore() {
         FakeOrreryServer().use { server ->
-            serve(server, body(source = "record", live = false))
+            serve(server, body(live = false))
             setScreen(server)
             awaitLoaded()
 
@@ -885,31 +843,6 @@ class EpicRecordScreenTest {
     @Test
     fun epicCommandsAnOrrerydEpicInReleasingOffersStopAndNotPause() {
         assertTrackPhaseOffersStopNotPause("releasing")
-    }
-
-    @Test
-    fun epicCommandsARecordEpicWithNoOutcomeOffersItsCommands() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(source = "record", outcome = ""))
-            setScreen(server)
-            awaitLoaded()
-
-            clickTag("epic-more")
-            awaitTag("epic-sheet-pause")
-            assertEquals(1, countNodes(hasTestTag("epic-sheet-stop")))
-            assertEquals(0, countNodes(hasTestTag("epic-sheet-resume")))
-        }
-    }
-
-    @Test
-    fun epicCommandsARecordEpicWithAnOutcomeOffersNoCommands() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(source = "record", outcome = "built"))
-            setScreen(server)
-            awaitLoaded()
-
-            assertEquals(0, countNodes(hasTestTag("epic-more")))
-        }
     }
 
     /** Opens the More sheet of a live orreryd epic in [outcome]: it offers Stop, and does not offer Pause. */
@@ -1177,7 +1110,7 @@ class EpicRecordScreenTest {
             setScreen(server)
             composeRule.awaitUntil { countNodes(hasText("The server could not read this epic.")) > 0 }
 
-            server.respond(EPICS_GET, body(outcome = "built", problem = "Loaded after retry"))
+            server.respond(EPICS_GET, body(outcome = "built", summary = "Loaded after retry"))
             composeRule.onNodeWithText("Try again").performClick()
 
             awaitLoaded()
@@ -1202,24 +1135,22 @@ class EpicRecordScreenTest {
                 .assertTextEquals("Pause did not land: epic is closed.")
             assertEquals(0, countNodes(hasText("loading the epic…")))
             assertEquals(0, countNodes(hasText("The server could not read this epic.")))
-            assertEquals(0, countNodes(hasTestTag("epic-problem")))
         }
     }
 
     @Test
-    fun epicCommandsTheLoadingLineIsDrawnAloneWithNoProblemNoNoticeAndNoReadLine() {
+    fun epicCommandsTheLoadingLineIsDrawnAloneWithNoNoticeAndNoReadLine() {
         val release = CountDownLatch(1)
         FakeOrreryServer().use { server ->
             server.route(EPICS_GET) {
                 release.await()
-                Reply.Message(body(outcome = "built", problem = "Example problem."), 0L)
+                Reply.Message(body(outcome = "built"), 0L)
             }
             server.respond(EPICS_HISTORY, historyOf())
             setScreen(server)
             try {
                 awaitTag("title-back")
                 assertEquals(1, countNodes(hasText("loading the epic…")))
-                assertEquals(0, countNodes(hasText("Example problem.")))
                 assertEquals(0, countNodes(hasTestTag("epic-notice")))
                 assertEquals(0, countNodes(hasText("The server could not read this epic.")))
             } finally {
@@ -1240,7 +1171,6 @@ class EpicRecordScreenTest {
             assertEquals(0, countNodes(hasText("loading the epic…")))
             assertEquals(0, countNodes(hasTestTag("epic-notice")))
             assertEquals(0, countNodes(hasTestTag("epic-section:now")))
-            assertEquals(0, countNodes(hasTestTag("epic-problem")))
         }
     }
 

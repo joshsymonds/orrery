@@ -220,7 +220,7 @@ test("EpicReport: the sentence, why, both doors and the replacement are drawn fr
         gaps: false,
       },
     });
-    assert.equal(textOf(container, 'section.report[aria-label="Report"] > header.sec-head h3'), "Report");
+    assert.equal(textOf(container, 'section.report[aria-label="Report"] > .sec > .name'), "Report");
     assert.equal(textOf(container, ".now-sentence"), "Closed as superseded.");
     assert.equal(textOf(container, ".report-why"), "The lamp epic took over the work.");
     assert.equal(textOf(container, ".door.shipped"), "shipped rota-1, rota-2");

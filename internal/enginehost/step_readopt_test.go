@@ -76,8 +76,6 @@ func newRigManager(t *testing.T, rig stepsRig, writer *Writer) *Manager {
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     rig.environ,
-		Cap:         1,
-		StepCap:     1,
 		Writer:      writer,
 		Now:         fixedClock,
 		Notifier:    &fakeSink{},
@@ -206,7 +204,7 @@ func (f *stepCtlFixture) startScopedGate(t *testing.T, steps *Steps, root string
 		if _, err := os.Stat(dir); err != nil {
 			return
 		}
-		if err := gateEnd(ctx, dir); err != nil {
+		if err := gateEnd(ctx, gateTestHost(), dir); err != nil {
 			t.Errorf("end gate holder %s: %v", dir, err)
 		}
 	})
@@ -346,7 +344,7 @@ func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
 	if restarted.StepLive(id) {
 		t.Errorf("step %s is live after the restart, though its holder ended", id)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	if restarted.expectsStep(id) {
 		t.Errorf("step %s still has an observer after the restart", id)
 	}
@@ -395,7 +393,7 @@ func TestReadoptStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T) {
 	if !stepStartGone(wt) {
 		t.Errorf("worktree %s still exists after the restart", wt)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 }
 
 func TestStepsCloseWithGateScopeLeavesGateRunning(t *testing.T) {

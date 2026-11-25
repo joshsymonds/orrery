@@ -6,8 +6,7 @@ package orrery.engine.v1;
 // 0600, and never on the public orrery serve API.
 service Engine {
   // Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
-  // exists and its process is spawned. A start past the session cap is refused with a reason. A start that names an
-  // existing session's id returns that id and starts nothing.
+  // exists and its process is spawned. A start that names an existing session's id returns that id and starts nothing.
   rpc Start(StartRequest) returns (StartResponse);
 
   // Say sends a text message to a session's conversation.
@@ -71,6 +70,10 @@ message StartRequest {
 
   // The client that sent the request, such as orrery-android. Empty means none.
   string client = 5;
+
+  // The orrery name of the host the session runs on, a host hosts.toml names or the controller's own. Empty means the
+  // controller's.
+  string host = 6;
 }
 
 // StartResponse names the started session.

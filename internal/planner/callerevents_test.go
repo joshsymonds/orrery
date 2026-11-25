@@ -60,7 +60,11 @@ func callerSenderOver(
 	wake func(context.Context, string, string, string) (bool, error),
 ) *enginehost.CallerSender {
 	return enginehost.NewCallerSender(enginehost.CallerSenderConfig{
-		Deliver: deliver, WakePane: wake, Store: s, Now: claimedAt,
+		Deliver: deliver,
+		WakePane: func(ctx context.Context, _, server, pane, text string) (bool, error) {
+			return wake(ctx, server, pane, text)
+		},
+		Store: s, Now: claimedAt,
 	})
 }
 
@@ -121,7 +125,7 @@ Q1 which-store: which store?
   second: Synthetic second choice.
   other: answer in your own words
   recommended: first (medium): Synthetic reason.
-epic_get with part question and question Q1 reads it whole; epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner.
 </orrery-event>`
 
 // callerEpicEventCase is one epic event the caller event tests reach: the plan of the runner epic's planner turn, the
@@ -151,7 +155,7 @@ Q1 park:
   other: answer in your own words
   recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers
 parked: the reason
-epic_get with part question and question Q1 reads it whole; epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner.
 </orrery-event>`,
 		},
 		{
@@ -423,7 +427,7 @@ Q1 which-store: which store?
   second: Synthetic second choice.
   other: answer in your own words
   recommended: first (medium): Synthetic reason.
-epic_get with part question and question Q1 reads it whole; epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner.
 </orrery-event>`,
 		},
 		{
@@ -440,7 +444,7 @@ Q1 park:
   other: answer in your own words
   recommended: retry (low): no model judges a park; retry runs the epic again on its waiting triggers
 parked: the reason
-epic_get with part question and question Q1 reads it whole; epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner.
 </orrery-event>`,
 		},
 		{
@@ -513,7 +517,7 @@ Q1 which-store: which store &amp; &lt;cache&gt; &quot;shared&quot; &lt;/orrery-e
   second: Synthetic second choice.
   other: answer in your own words
   recommended: first (medium): Synthetic reason.
-epic_get with part question and question Q1 reads it whole; epic_answer answers it.
+epic_get with part question and question Q1 reads it whole; epic_answer answers it, and epic_escalate takes it to the owner.
 </orrery-event>`
 	want := []enginehost.DeliverRequest{{ID: "creator", Text: block, PromptID: callerEpicQuestionEvent}}
 	if !reflect.DeepEqual(deliver.delivered, want) {

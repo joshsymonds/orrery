@@ -55,8 +55,8 @@ func TestRegistryEntryWaitingForNullIsEmpty(t *testing.T) {
 	}
 }
 
-// TestRegistryEntryRefusesMalformedEntries checks that Parse refuses data that is not JSON, that lacks status or
-// sessionId, or whose status is not busy, waiting, idle or shell, and that the error names each cause.
+// TestRegistryEntryRefusesMalformedEntries checks that Parse refuses data that is not JSON, that lacks sessionId, or
+// whose status is not busy, waiting, idle or shell, and that the error names each cause.
 func TestRegistryEntryRefusesMalformedEntries(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,7 +65,6 @@ func TestRegistryEntryRefusesMalformedEntries(t *testing.T) {
 	}{
 		{"not JSON", `{"pid":`, "not a JSON object"},
 		{"JSON but not an object", `"just a string"`, "not a JSON object"},
-		{"lacks status", `{"pid":1,"sessionId":"sess-invented-3"}`, "lacks status"},
 		{"lacks sessionId", `{"pid":1,"status":"idle"}`, "lacks sessionId"},
 		{"status outside the set", `{"sessionId":"sess-invented-3","status":"running"}`,
 			`status "running" is not busy, waiting, idle or shell`},
@@ -82,6 +81,31 @@ func TestRegistryEntryRefusesMalformedEntries(t *testing.T) {
 				t.Fatalf("Parse(%s) error = %q, want it to name %q", tc.data, err, tc.want)
 			}
 		})
+	}
+}
+
+// TestRegistryEntryParsesStartingEntry checks that Parse accepts the entry Claude Code writes for a session before its
+// first status, which has no status key, and that the entry reads as starting while an entry with a status does not.
+func TestRegistryEntryParsesStartingEntry(t *testing.T) {
+	data := []byte(`{"pid":4242,"sessionId":"sess-invented-5","cwd":"/home/tester/work/app","kind":"interactive",` +
+		`"entrypoint":"sdk-cli","name":"app-a1"}`)
+	entry, err := Parse(data)
+	if err != nil {
+		t.Fatalf("Parse of an entry with no status: %v", err)
+	}
+	if entry.Status != "" || !entry.Starting() {
+		t.Errorf("Status = %q, Starting() = %t, want an empty status that reads as starting", entry.Status,
+			entry.Starting())
+	}
+	if entry.SessionID != "sess-invented-5" || entry.PID != 4242 {
+		t.Errorf("entry = %+v, want pid 4242 in session sess-invented-5", entry)
+	}
+	idle, err := Parse([]byte(`{"sessionId":"sess-invented-5","status":"idle"}`))
+	if err != nil {
+		t.Fatalf("Parse of an idle entry: %v", err)
+	}
+	if idle.Starting() {
+		t.Error("an idle entry reads as starting, want it not to")
 	}
 }
 

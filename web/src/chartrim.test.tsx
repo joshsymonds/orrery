@@ -8,9 +8,9 @@ import { act } from "preact/test-utils";
 import { type EpicRequirement, EpicRequirementSchema } from "./gen/orrery/v1/epics_pb";
 import { CENTRE } from "./orbits";
 import { Orrery } from "./orrery";
-import type { Phase, Tone } from "./phases";
+import type { Phase, TaskPlace, Tone } from "./phases";
 import { Pips } from "./pips";
-import { type RecordTask, type TaskPlace, cellsOf } from "./record";
+import { type RecordTask, cellsOf } from "./record";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const DEG = Math.PI / 180;
@@ -35,6 +35,7 @@ function taskOf(name: string, names: string[], place: TaskPlace = "planned"): Re
     cells: cellsOf(place, tone),
     words: `${name} words`,
     since: 0,
+    labels: [name],
   };
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/childproc"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
@@ -158,6 +159,28 @@ func (s *claudeSession) finishTurn(t *testing.T, lastMessage string) {
 	t.Helper()
 	s.appendTranscript(t, assistantTextLine(t, lastMessage))
 	s.setStatus(t, paneregistry.StatusIdle, "")
+}
+
+// holdTurn is what the end of a turn leaves in the session while a background agent it started still runs: the reply that
+// ends the turn at at, and the entry left busy, as Claude Code leaves it while that agent runs. It reads the pane held.
+func (s *claudeSession) holdTurn(t *testing.T, lastMessage string, at time.Time) {
+	t.Helper()
+	s.appendTranscript(t, endedReplyLine(t, lastMessage, at))
+	s.setStatus(t, paneregistry.StatusBusy, "")
+}
+
+// endedReplyLine returns a transcript line of an assistant reply at at whose only block is text and whose message ends
+// its turn, as the last line of a finished reply carries stop_reason end_turn.
+func endedReplyLine(t *testing.T, text string, at time.Time) string {
+	t.Helper()
+	return transcriptLine(t, map[string]any{
+		"type":      "assistant",
+		"timestamp": at.UTC().Format(time.RFC3339),
+		"message": map[string]any{
+			"role": "assistant", "stop_reason": "end_turn",
+			"content": []any{map[string]any{"type": "text", "text": text}},
+		},
+	})
 }
 
 // transcriptLine returns value encoded as one transcript line, with its newline.

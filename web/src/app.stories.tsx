@@ -48,7 +48,7 @@ const otherWords = "Vendor the Lisbon rule as a fixture file; do not touch go.mo
 // panesList is the procedure the inbox's rows wait on: held, it leaves the inbox loading; failed, it leaves the inbox
 // saying the server did not answer.
 const panesList = "orrery.v1.Panes/List";
-// phoneWidth is the width under which the layout is the phone's: the groups are a strip and the epic is a page.
+// phoneWidth is the width under which the layout is the phone's: the work is in the title row and the epic is a page.
 const phoneWidth = 760;
 
 const inbox: Address = { view: "inbox", entry: null };
@@ -373,11 +373,11 @@ export const Page: Stories = {
       address={inbox}
       after={async (root) => {
         await clickWhen(root, 'button.fold[aria-label="Fold orrery"]');
-        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line');
+        await clickWhen(root, 'section.dir[aria-label="tidepool"] button.steers-fold');
         await nextRound();
-        // At 1600 the inbox column scrolls inside itself. The ended line opened under tidepool is brought to the column's
-        // top, and orrery's folded card, which sits below it, is then brought into view, so both show.
-        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.fold-line')).scrollIntoView({ block: "start" });
+        // At 1600 the inbox column scrolls inside itself. The ended epic opened under tidepool's conversation is brought to
+        // the column's top, and orrery's folded card, which sits below it, is then brought into view, so both show.
+        (await drawnWhen(root, 'section.dir[aria-label="tidepool"] button.steers-fold')).scrollIntoView({ block: "start" });
         (await drawnWhen(root, 'section.dir[aria-label="orrery"]')).scrollIntoView({ block: "nearest" });
       }}
     />
@@ -446,8 +446,8 @@ export const Page: Stories = {
           section.scrollIntoView(),
         );
         await whenDrawn(root, ".cmdbar", "Nothing is left to settle.", () => {});
-        // The panel's page is what scrolls, so the title row is brought back into view there.
-        await whenDrawn(root, ".rcard .title-row", "", (title) => {
+        // The held card's body (.held-body) is what scrolls, so the title row is brought back into view there.
+        await whenDrawn(root, ".held-card .title-row", "", (title) => {
           title.scrollIntoView({ block: "nearest" });
         });
       }}
@@ -539,7 +539,7 @@ export const Page: Stories = {
   ),
   "work-rail": () => <PageStory address={sessionAt(buoySession)} />,
   "work-rail-group": () => (
-    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, "button.tile-w.group")} />
+    <PageStory address={paneAt("%22")} after={(root) => clickWhen(root, ".title-row .wlink-more")} />
   ),
   "work-empty": () => <PageStory address={paneAt("%13")} />,
   "dock-running": () => <PageStory address={sessionAt(buoySession, "agents")} />,
@@ -608,7 +608,6 @@ export const Page: Stories = {
       }}
     />
   ),
-  "epic-problem": () => epicScenario(epicAt(rota, { kind: "epic" }), "problem"),
   "epic-loading": () => epicScenario(epicAt(tideCache, { kind: "epic" }), "loading"),
   "epic-unavailable": () => epicScenario(epicAt(rota, { kind: "epic" }), "unavailable"),
   "convo-working": () => <PageStory address={convoWorkingAt} fixture={createFixtureTransport(convoWorkingSlices)} />,

@@ -134,7 +134,7 @@ func (d *DuePass) Pass(ctx context.Context) {
 
 // pass is Pass. It also returns the earliest moment a pass is next needed, and whether there is one: the moment of each
 // row still before its time, and now plus dueRetry for each row it leaves due on a gate or a logged error, or when the
-// read fails. A row the step cap refuses has no moment, since a freed slot wakes the pass.
+// read fails.
 func (d *DuePass) pass(ctx context.Context) (time.Time, bool) {
 	defer d.calls.enter()()
 	now := d.cfg.Now()
@@ -179,15 +179,13 @@ func (m *dueMoment) add(moment time.Time) {
 	}
 }
 
-// resumeStep resumes the limited step of row for the reset row names. A refusal by the step cap leaves the row due until a
-// wake, and reports no retry. A refusal by the step's gate leaves the row due for a retry, which it reports, and so does
-// any other error, which is logged. A step that is not limited at that reset, has ended, or has no row is closed with no
+// resumeStep resumes the limited step of row for the reset row names. A refusal by the step's gate leaves the row due for
+// a retry, which it reports, and so does any other error, which is logged. A step that is not limited at that reset, has ended, or has no row is closed with no
 // resume. A successful resume is closed by its own write.
 func (d *DuePass) resumeStep(ctx context.Context, row store.DueResume) (retry bool) {
 	err := d.cfg.Steps.AutoResume(ctx, row.Target, row.Resets)
 	switch {
 	case err == nil:
-	case errors.Is(err, ErrCapReached):
 	case errors.Is(err, ErrStepGating):
 		return true
 	case errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrStepNotRunning), errors.Is(err, store.ErrNoStep):

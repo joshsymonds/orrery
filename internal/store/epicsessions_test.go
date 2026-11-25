@@ -44,7 +44,7 @@ func openEpicCallStore(t *testing.T) (*store.Store, string) {
 // epicSessionRowCount returns the number of rows of epic_sessions in the store file at path.
 func epicSessionRowCount(t *testing.T, path string) int {
 	t.Helper()
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open raw handle: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestEpicSessionsLeaveOutRemovedSessions(t *testing.T) {
 
 	// orrery-1's pane is gone from the server, so its sessions row is removed and its call must not be listed.
 	gone := time.Unix(start.Unix()+120, 0)
-	if err := s.SyncServer(ctx, "-L orrery", []store.Pane{{ID: "orrery-2", Pane: "%2"}}, gone); err != nil {
+	if err := s.SyncServer(ctx, "", "-L orrery", []store.Pane{{ID: "orrery-2", Pane: "%2"}}, gone); err != nil {
 		t.Fatalf("SyncServer: %v", err)
 	}
 

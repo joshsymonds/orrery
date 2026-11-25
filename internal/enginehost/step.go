@@ -15,6 +15,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -89,6 +91,11 @@ const stepDefaultModelLimit = 60 * time.Minute
 // head, ancestry and clean checks and its gate run as they do for an owned step. The row stores it, so a re-adopted
 // step skips the check too.
 //
+// Scratch, set on a read-only start, runs the step as a read-only step does, in a detached worktree at Revision that is
+// removed when the step ends, except that the worktree takes no checkout fingerprint. The agent may therefore write in
+// it without its return failing the checkout check, and nothing it writes reaches a branch or the Workspace. A writing
+// start that sets Scratch is refused with an error matching ErrBadOwned, and nothing is stored.
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
@@ -104,6 +111,7 @@ type StepStart struct {
 	Workspace   string
 	Revision    string
 	ReadOnly    bool
+	Scratch     bool
 	Owned       []string
 	Unowned     bool
 	GateName    string
@@ -121,8 +129,9 @@ type StepStart struct {
 
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
 // the rate limits their sessions were rejected with, the running steps a caller started, the listings of the steps a
-// caller started, and the sessions row a caller names, which Start checks a caller against before it stores a step. It
-// also stores a step's purpose once, when the step has none (see SetStepPurpose). *store.Store satisfies it.
+// caller started, the sessions row a caller names, which Start checks a caller against before it stores a step, and the
+// host the stored epic a step starts under lives on. It also stores a step's purpose once, when the step has none (see
+// SetStepPurpose). *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	SetStepPurpose(ctx context.Context, id, purpose string) error
@@ -136,6 +145,7 @@ type StepStore interface {
 	RunningCallerSteps(ctx context.Context, caller string) ([]store.StepRow, error)
 	CallerStepListings(ctx context.Context, caller, epic string) ([]store.StepListing, error)
 	CallerSession(ctx context.Context, caller store.EpicCaller) (string, bool, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -146,8 +156,7 @@ type StepStore interface {
 // time.Now when nil. NewTimer arms each started step's deadline timer, a timer that sends on its channel once after a
 // duration and returns the timer's stop; a nil NewTimer wraps time.NewTimer.
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
-// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. GateScopeMemory is that
-// scope's memory cap in bytes, and zero takes holder.DefaultScopeMemory. With GateScope set, Close
+// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
 // leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
@@ -159,24 +168,28 @@ type StepStore interface {
 // can wake to deliver it. A nil Stored does nothing.
 // EpicWake, when set, is called with the epic of each stored end or hold whose step has an epic, after Stored, so a caller
 // can wake that epic's flow. A nil EpicWake does nothing.
+// Hosts resolves the host names steps are stamped with to the Host their git and worktrees run on. A nil Hosts is
+// hostexec.LocalHosts, which every name resolves to the local host.
 type StepsConfig struct {
-	Sessions        stepSessions
-	Store           StepStore
-	Writer          *Writer
-	Pools           PoolCommands
-	Worktrees       string
-	Environ         []string
-	Logger          *slog.Logger
-	Haiku           *Haiku
-	Now             func() time.Time
-	NewTimer        func(time.Duration) (<-chan time.Time, func() bool)
-	GateStateDir    string
-	GateScope       string
-	GateScopeMemory int64
-	ReadoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	ReadoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	Stored          func()
-	EpicWake        func(epic string)
+	Sessions     stepSessions
+	Store        StepStore
+	Writer       *Writer
+	Pools        PoolCommands
+	Worktrees    string
+	Environ      []string
+	Logger       *slog.Logger
+	Haiku        *Haiku
+	Now          func() time.Time
+	NewTimer     func(time.Duration) (<-chan time.Time, func() bool)
+	GateStateDir string
+	GateScope    string
+	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	Stored       func()
+	EpicWake     func(epic string)
+	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
+	Host  string
+	Hosts hostexec.Hosts
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -194,23 +207,24 @@ type StepAdopter interface {
 // the StepsConfig Stored callback, epicWake is the StepsConfig EpicWake callback, and subs holds each subscription Subscribe
 // registered and Close has not removed.
 type Steps struct {
-	sessions        stepSessions
-	store           StepStore
-	writer          *Writer
-	pools           PoolCommands
-	worktrees       string
-	environ         []string
-	logger          *slog.Logger
-	haiku           *Haiku
-	now             func() time.Time
-	newTimer        func(time.Duration) (<-chan time.Time, func() bool)
-	gateStateDir    string
-	gateScope       string
-	gateScopeMemory int64
-	readoptCheck    func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
-	readoptGate     func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
-	stored          func()
-	epicWake        func(epic string)
+	sessions     stepSessions
+	store        StepStore
+	writer       *Writer
+	pools        PoolCommands
+	worktrees    string
+	environ      []string
+	logger       *slog.Logger
+	haiku        *Haiku
+	now          func() time.Time
+	newTimer     func(time.Duration) (<-chan time.Time, func() bool)
+	gateStateDir string
+	gateScope    string
+	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
+	stored       func()
+	epicWake     func(epic string)
+	host         string
+	hosts        hostexec.Hosts
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -239,38 +253,40 @@ func NewSteps(cfg StepsConfig) *Steps {
 		}
 	}
 	steps := &Steps{
-		sessions:        cfg.Sessions,
-		store:           cfg.Store,
-		writer:          cfg.Writer,
-		pools:           cfg.Pools,
-		worktrees:       cfg.Worktrees,
-		environ:         cfg.Environ,
-		logger:          logger,
-		haiku:           cfg.Haiku,
-		now:             cfg.Now,
-		newTimer:        newTimer,
-		gateStateDir:    cfg.GateStateDir,
-		gateScope:       cfg.GateScope,
-		gateScopeMemory: cfg.GateScopeMemory,
-		readoptCheck:    cfg.ReadoptCheck,
-		readoptGate:     cfg.ReadoptGate,
-		stored:          cfg.Stored,
-		epicWake:        cfg.EpicWake,
-		loops:           map[string]context.CancelFunc{},
-		causes:          map[string]context.CancelCauseFunc{},
-		runs:            map[string]*stepRun{},
-		adopted:         map[string]*stepRun{},
-		starting:        map[string]bool{},
-		subs:            map[*StepSubscription]bool{},
+		sessions:     cfg.Sessions,
+		store:        cfg.Store,
+		writer:       cfg.Writer,
+		pools:        cfg.Pools,
+		worktrees:    cfg.Worktrees,
+		environ:      cfg.Environ,
+		logger:       logger,
+		haiku:        cfg.Haiku,
+		now:          cfg.Now,
+		newTimer:     newTimer,
+		gateStateDir: cfg.GateStateDir,
+		gateScope:    cfg.GateScope,
+		readoptCheck: cfg.ReadoptCheck,
+		readoptGate:  cfg.ReadoptGate,
+		stored:       cfg.Stored,
+		epicWake:     cfg.EpicWake,
+		host:         cfg.Host,
+		hosts:        cfg.Hosts,
+		loops:        map[string]context.CancelFunc{},
+		causes:       map[string]context.CancelCauseFunc{},
+		runs:         map[string]*stepRun{},
+		adopted:      map[string]*stepRun{},
+		starting:     map[string]bool{},
+		subs:         map[*StepSubscription]bool{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps
 }
 
-// Start checks start and its caller, resolves its gate, which an agent gate turns into the step's agent, schema and
-// prompt, and checks the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id
-// when it names none, and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only
-// step's worktree is removed then too. A writing step runs in start.Workspace. A read-only step gets a detached
+// Start checks start and its caller, resolves its host, the epic's stored host or the Steps' own when the epic is
+// unstored, then its gate on that host, which an agent gate turns into the step's agent, schema and prompt, and checks
+// the schema. It then resolves its revision on that host, and starts the step under start.ID, or under a fresh id when
+// it names none, and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only step's
+// worktree is removed then too. A writing step runs in start.Workspace on its host. A read-only step gets a detached
 // worktree at its start commit under the worktrees directory, which is removed when the step ends. Its checkout is
 // fingerprinted before its agent starts, and a git error there refuses the start the same way. A folder whose stamp
 // cannot be read refuses the start the same way. The step's monitor and judge calls carry the env of the stamp in
@@ -282,23 +298,17 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := s.checkStart(ctx, start); err != nil {
 		return "", err
 	}
-	start, gate, err := s.resolveStart(ctx, start)
+	hostName, host, err := s.startHost(ctx, start.Epic)
 	if err != nil {
 		return "", err
 	}
-	if !start.ReadOnly {
-		err = checkWritingWorkspace(ctx, start.Workspace)
-		if err != nil {
-			return "", err
-		}
-	}
-	revision := start.Revision
-	if revision == "" {
-		revision = "HEAD"
-	}
-	commit, err := stepGitResolve(ctx, start.Workspace, revision)
+	start, gate, err := s.resolveStart(ctx, host, start)
 	if err != nil {
-		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
+		return "", err
+	}
+	commit, err := s.startPlace(ctx, host, start)
+	if err != nil {
+		return "", err
 	}
 	id, release, err := s.startID(ctx, start.ID)
 	if err != nil {
@@ -323,24 +333,25 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
 		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
 		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
-		Purpose: start.Purpose, Caller: start.Caller,
+		Purpose: start.Purpose, Caller: start.Caller, Host: hostName,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
-		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, unowned: start.Unowned,
+		logger: s.logger, host: host, writing: !start.ReadOnly, start: commit, owned: start.Owned,
+		unowned:   start.Unowned,
 		gate:      gate.argv,
 		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
-		stateDir: s.gateStateDir, scope: s.gateScope, scopeMemory: s.gateScopeMemory, returnCheck: start.ReturnCheck,
+		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
 		publish: s.publish,
 		wake:    s.stored,
 	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
-		Schema: start.Schema, Epic: start.Epic,
+		Schema: start.Schema,
 	}
 	if start.ReadOnly {
-		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {
+		if err = s.addReadOnlyStep(ctx, host, start, id, commit, &add, &cfg); err != nil {
 			return s.refuseStart(ctx, id, cfg.cleanup, err)
 		}
 		step.Dir = cfg.dir
@@ -362,22 +373,26 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	return id, nil
 }
 
-// addReadOnlyStep adds the detached worktree of the read-only step id at commit, under the worktrees directory. It records
-// the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends. cfg's cleanup is
-// set only once the worktree exists, so a caller that refuses the start on the error removes exactly what was added.
+// addReadOnlyStep adds the detached worktree of the read-only step id on host at commit, under the worktrees directory.
+// It records the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends. A
+// scratch step records no state, so its checkout is never compared. cfg's cleanup is set only once the worktree exists,
+// so a caller that refuses the start on the error removes exactly what was added.
 func (s *Steps) addReadOnlyStep(
-	ctx context.Context, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
+	ctx context.Context, host hostexec.Host, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
 ) error {
 	wt := filepath.Join(s.worktrees, id)
-	if err := addStepWorktree(ctx, start.Workspace, wt, commit); err != nil {
+	if err := addStepWorktree(ctx, host, start.Workspace, wt, commit); err != nil {
 		return err
 	}
 	add.Worktree = wt
 	cfg.cleanup = func(ctx context.Context) error {
-		return removeStepWorktree(ctx, start.Workspace, wt)
+		return removeStepWorktree(ctx, host, start.Workspace, wt)
 	}
 	cfg.dir = wt
-	checkout, err := stepGitCheckout(ctx, wt)
+	if start.Scratch {
+		return nil
+	}
+	checkout, err := stepGitCheckout(ctx, host, wt)
 	if err != nil {
 		return fmt.Errorf("fingerprint worktree %s: %w", wt, err)
 	}
@@ -386,10 +401,67 @@ func (s *Steps) addReadOnlyStep(
 	return nil
 }
 
-// resolveStart resolves start's gate and returns start as the step runs it, with the gate. An agent gate sets start's
-// agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its error and no start.
-func (s *Steps) resolveStart(ctx context.Context, start StepStart) (StepStart, stepGate, error) {
-	gate, err := s.resolveStepGate(ctx, start)
+// startPlace returns the commit start's revision resolves to on host, the Host start runs on. A writing start's
+// workspace must be a linked worktree on that host, which checkWritingWorkspace checks.
+func (s *Steps) startPlace(ctx context.Context, host hostexec.Host, start StepStart) (string, error) {
+	if !start.ReadOnly {
+		err := checkWritingWorkspace(ctx, host, start.Workspace)
+		if err != nil {
+			return "", err
+		}
+	}
+	revision := start.Revision
+	if revision == "" {
+		revision = "HEAD"
+	}
+	commit, err := stepGitResolve(ctx, host, start.Workspace, revision)
+	if err != nil {
+		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
+	}
+	return commit, nil
+}
+
+// startHost returns the name of the host a start under epic runs on, and the Host of that name. The epic's stored host
+// names it when epic is set and stored. An epic that is not stored, and a start with no epic, take the Steps' own host
+// name. Any other read error is returned wrapped.
+func (s *Steps) startHost(ctx context.Context, epic string) (string, hostexec.Host, error) {
+	name := s.host
+	if epic != "" {
+		stored, err := s.store.EpicHost(ctx, epic)
+		if err != nil && !errors.Is(err, store.ErrNoEpic) {
+			return "", nil, fmt.Errorf("read host of epic %s: %w", epic, err)
+		}
+		if err == nil {
+			name = stored
+		}
+	}
+	host, err := s.hostNamed(name)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, host, nil
+}
+
+// hostNamed returns the Host named name on the Steps' Hosts. A Steps with no Hosts, which a Steps built without
+// NewSteps has, resolves every name to the local host, as hostexec.LocalHosts does. A name that resolves to no Host is
+// returned wrapped with the name.
+func (s *Steps) hostNamed(name string) (hostexec.Host, error) {
+	hosts := s.hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
+	host, err := hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("find host %q: %w", name, err)
+	}
+	return host, nil
+}
+
+// resolveStart resolves start's gate on host and returns start as the step runs it, with the gate. An agent gate sets
+// start's agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its error and no
+// start.
+func (s *Steps) resolveStart(ctx context.Context, host hostexec.Host, start StepStart) (StepStart, stepGate, error) {
+	gate, err := s.resolveStepGate(ctx, host, start)
 	if err != nil {
 		return StepStart{}, stepGate{}, err
 	}
@@ -436,7 +508,7 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
-	home, err := stampHome(s.environ)
+	home, err := holderhost.StampHome(s.environ)
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
@@ -538,6 +610,9 @@ func checkStepStart(start StepStart) error {
 	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {
 		return fmt.Errorf("%w: a writing step needs owned_paths", ErrBadOwned)
 	}
+	if start.Scratch && !start.ReadOnly {
+		return fmt.Errorf("%w: a scratch step must be read-only", ErrBadOwned)
+	}
 	for _, path := range start.Owned {
 		if !filepath.IsLocal(path) {
 			return fmt.Errorf("%w: %q is not a relative path inside the repository", ErrBadOwned, path)
@@ -624,14 +699,14 @@ type stepGate struct {
 // resolveStepGate returns the gate start runs. A CommandGate or an AgentGate is the gate as the start gives it, checked
 // by dataCommandGate or dataAgentGate, and no file is read for it. A CommandGate is checked first, so it also refuses a
 // start that sets an AgentGate. A start without GateName runs no gate, and GatesFile set without GateName is refused. A
-// named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. An agent gate returns
-// here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace declares
-// loaded with it. It is refused with an error matching ErrBadGate when GatesFile is not absolute, when the name does not
-// resolve, when the pool files do not load, and when a need is for a pool no pool file declares. The resolved argv is
-// used as the gate's definition gives it; nothing is looked up on PATH.
-func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
+// named gate is resolved once on host, from start.GatesFile or else the project file for start.Workspace. An agent gate
+// returns here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace
+// declares loaded with it, on host. It is refused with an error matching ErrBadGate when GatesFile is not absolute,
+// when the name does not resolve, when the pool files do not load, and when a need is for a pool no pool file declares.
+// The resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
+func (s *Steps) resolveStepGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
 	if start.CommandGate != nil {
-		return s.dataCommandGate(ctx, start)
+		return s.dataCommandGate(ctx, host, start)
 	}
 	if start.AgentGate != nil {
 		return dataAgentGate(start)
@@ -646,7 +721,7 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 		return stepGate{}, fmt.Errorf("%w: gates file %s is not an absolute path", ErrBadGate, start.GatesFile)
 	}
 	getenv := stepGetenv(s.environ)
-	resolved, err := gates.Resolve(ctx, start.GateName, start.GatesFile, start.Workspace, getenv)
+	resolved, err := gates.Resolve(ctx, host, start.GateName, start.GatesFile, start.Workspace, getenv)
 	if err != nil {
 		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
 	}
@@ -655,7 +730,9 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 			name: start.GateName, source: resolved.Source, limit: resolved.Limit, agent: &resolved.Gate,
 		}, nil
 	}
-	grant, err := stepGrant(ctx, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv)
+	grant, err := stepGrant(
+		ctx, host, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv,
+	)
 	if err != nil {
 		return stepGate{}, err
 	}
@@ -672,7 +749,7 @@ const stepGateSourceData = "data"
 // an error matching ErrBadGate when start also sets AgentGate, GateName or GatesFile, when start is read-only, and when
 // the gate has no name, no argv, an agent or assertions, or a limit under a second. Its needs are granted from the pools
 // the workspace's pool files declare, as a named gate's are, and a need for a pool no pool file declares is refused.
-func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate, error) {
+func (s *Steps) dataCommandGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
 	gate := *start.CommandGate
 	switch {
 	case start.AgentGate != nil || start.GateName != "" || start.GatesFile != "":
@@ -693,7 +770,7 @@ func (s *Steps) dataCommandGate(ctx context.Context, start StepStart) (stepGate,
 			"%w: command gate %s limit %s is under a second", ErrBadGate, gate.Name, gate.Limit,
 		)
 	}
-	grant, err := stepGrant(ctx, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
+	grant, err := stepGrant(ctx, host, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
 		stepGetenv(s.environ))
 	if err != nil {
 		return stepGate{}, err
@@ -732,13 +809,19 @@ func dataAgentGate(start StepStart) (stepGate, error) {
 	return stepGate{name: gate.Name, source: stepGateSourceData, limit: gate.Limit, agent: &gate}, nil
 }
 
-// stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool file
-// for workspace declares, with needs and argv as the command. It is refused with an error matching ErrBadGate when the pool
-// files do not load, or when a need is for a pool no pool file declares, which the error names gateName for.
+// stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool
+// file for workspace declares on host, with needs and argv as the command. It is refused with an error matching
+// ErrBadGate when the pool files do not load, or when a need is for a pool no pool file declares, which the error names
+// gateName for.
 func stepGrant(
-	ctx context.Context, workspace, gateName string, argv []string, needs []grants.Need, getenv func(string) string,
+	ctx context.Context,
+	host hostexec.Host,
+	workspace, gateName string,
+	argv []string,
+	needs []grants.Need,
+	getenv func(string) string,
 ) (grants.Request, error) {
-	project, defs, err := pools.Load(ctx, workspace, getenv)
+	project, defs, err := pools.Load(ctx, host, workspace, getenv)
 	if err != nil {
 		return grants.Request{}, fmt.Errorf("%w: %w", ErrBadGate, err)
 	}

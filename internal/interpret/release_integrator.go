@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -16,13 +15,14 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// integratorRole is the role text of the release integrator: the writing step that finishes a merge of origin's commit
-// into the release tip that conflicts, and commits it.
+// integratorRole is the role text of the release integrator: the writing step that merges origin's commit into a release
+// tip that lacks it, resolves any conflicts, runs the verifications the merged tree needs, and commits the merge.
 //
 //go:embed integrator.md
 var integratorRole string
@@ -32,15 +32,16 @@ var integratorRole string
 const roleIntegrator = "integrator"
 
 // integratorPart names the directory of a release run's integrator worktree: store.NodeWorkID of the run's id, its
-// attempt and this part. Every round of the attempt runs in that one worktree.
+// attempt and this part. The round of each generation of the attempt runs in that one directory, in a worktree added
+// afresh.
 const integratorPart = "integrator"
 
 // integratorStepName is the step a release integrator's release run records.
 const integratorStepName = "release integrator"
 
 // IntegratorSchema is the schema the release integrator returns: its status, the merge commit, how each conflicted path
-// was resolved, each change outside the conflicts, the checks it ran, each path it stopped on with the side its decision
-// is on, and an account of the merge.
+// was resolved, each change outside the conflicts, each command it ran to verify the merged tree with its result, each
+// path it stopped on with the side its decision is on, and an account of the merge.
 const IntegratorSchema = `{
   "title": "Release integrator return",
   "type": "object",
@@ -115,9 +116,13 @@ type integratorReturn struct {
 		Took string `json:"took"`
 		Kept string `json:"kept"`
 	} `json:"resolutions"`
-	OtherChanges []integratorChange     `json:"-"`
-	Unresolved   []integratorUnresolved `json:"unresolved"`
-	Evidence     string                 `json:"evidence"`
+	OtherChanges []integratorChange `json:"-"`
+	Checks       []struct {
+		Command string `json:"command"`
+		Result  string `json:"result"`
+	} `json:"checks"`
+	Unresolved []integratorUnresolved `json:"unresolved"`
+	Evidence   string                 `json:"evidence"`
 }
 
 // otherChangesKey is the key of the changes a release integrator's return lists outside the conflicts, which
@@ -160,30 +165,25 @@ type integratorUnresolved struct {
 	Side      string `json:"side"`
 }
 
-// sideCandidate is the side of an unresolved path whose decision is a change to the epic's own candidate.
-const sideCandidate = "candidate"
-
-// candidateSide reports whether ret, a blocked return, stopped only on decisions that are changes to the epic's own
-// candidate: it names at least one unresolved path, and every one is on the candidate's side. Such a return sends the
-// release back to planning; any other blocked return stops it.
-func candidateSide(ret integratorReturn) bool {
-	return len(ret.Unresolved) > 0 && !slices.ContainsFunc(ret.Unresolved, func(path integratorUnresolved) bool {
-		return path.Side != sideCandidate
-	})
+// namesDecisions reports whether ret, a blocked return, names at least one unresolved path, on either side. Such a
+// return sends the release back to planning with its decisions; a blocked return that names none stops it.
+func namesDecisions(ret integratorReturn) bool {
+	return len(ret.Unresolved) > 0
 }
 
-// integratorMerge is the merge a release integrator finishes: the repository, the worktree the merge is in, the release
-// tip, origin's commit and the paths that conflict.
+// integratorMerge is the merge a release integrator makes: the repository, the worktree the merge is in, the release
+// tip, origin's commit and the paths git's merge of the two conflicts in, none for a clean merge.
 type integratorMerge struct {
 	repo, worktree, tip, origin string
 	conflicts                   []string
 }
 
-// The limits of what the prompt of a release integrator lists: the commits of each side, and the commits of each side
-// that touched one conflicted path.
+// The limits of what the prompt of a release integrator lists: the commits of each side, the commits of each side that
+// touched one conflicted path, and the paths each side changed.
 const (
-	integratorLogLimit  = 200
-	integratorPathLimit = 20
+	integratorLogLimit    = 200
+	integratorPathLimit   = 20
+	integratorChangeLimit = 200
 )
 
 // integratorMarkers matches, as a git grep -E pattern, the conflict-marker lines no path the merge commit changes may
@@ -199,43 +199,47 @@ func (r *Runner) integratorDir(run store.NodeRun) (string, error) {
 	return r.releaseStepDir(store.NodeWorkID(run.ID, run.Attempt, integratorPart))
 }
 
-// removeIntegrator removes the release integrator worktree of run, whose Result names the merge it finished. A Result
-// whose merge did not conflict ran no integrator, and a runner with no state directory added no worktree, so neither
-// has one to remove.
+// removeIntegrator removes the release integrator worktree of run, whose Result names the merge it made. A Result that
+// merges no origin commit ran no integrator, and a runner with no state directory added no worktree, so neither has one
+// to remove.
 func (r *Runner) removeIntegrator(ctx context.Context, epic store.EpicRow, run store.NodeRun) error {
-	if !mergeConflicted(run) || r.stateDir == "" {
+	if !mergesOrigin(run) || r.stateDir == "" {
 		return nil
 	}
 	dir, err := r.integratorDir(run)
 	if err != nil {
 		return err
 	}
-	if err = build.RemoveWorktrees(ctx, epic.Repository, dir); err != nil {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return err
+	}
+	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove release integrator worktree of epic %s: %w", epic.ID, err)
 	}
 	return nil
 }
 
-// mergeConflicted reports whether run's Result records a merge of origin's commit that conflicts. A Result that does
-// not decode records none: the release kind stops the run on it.
-func mergeConflicted(run store.NodeRun) bool {
+// mergesOrigin reports whether run's Result records a merge of origin's commit into the release tip, which the release
+// integrator makes, whether git's merge of the two conflicts or not. A Result that does not decode records none: the
+// release kind stops the run on it.
+func mergesOrigin(run store.NodeRun) bool {
 	result, err := kinds.ParseReleaseResult(run.Result)
-	return err == nil && len(result.Conflicts) > 0
+	return err == nil && result.Origin != ""
 }
 
 // startIntegrator starts the round of the release integrator act names, as an unowned writing step in the run's
-// integrator worktree. The first round adds the worktree afresh at the release tip and starts the merge of origin's
-// commit there with merge.conflictStyle zdiff3, leaving its conflicts in place (startMerge). A later round starts from
-// the merge commit the round before it made, which must still be the worktree's HEAD. The step is labeled with the
-// epic and the run's path, and carries the integrator's return check (integratorCheck). A role, worktree, merge, prompt
-// or return check that fails, or a start refused for good, records the round as failed at once, and the release stops
-// at it on its next decision.
+// integrator worktree. The worktree is added afresh at the release tip, and the merge of origin's commit is started
+// there with merge.conflictStyle zdiff3, leaving any conflicts in place (startMerge). The step is labeled with the epic
+// and the run's path, and carries the integrator's return check (integratorCheck). A role, worktree, merge, prompt or
+// return check that fails, or a start refused for good, records the round as failed at once, and the release stops at
+// it on its next decision.
 func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[0], 10, 64)
 	if err != nil {
 		return releaseRefused(act)
 	}
-	id, head := act.IDs[0], act.Items[1]
+	id := act.IDs[0]
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
 		return fmt.Errorf("read result of node %s: %w", act.Path, err)
@@ -253,19 +257,18 @@ func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Ac
 	if err != nil {
 		return fail(err)
 	}
-	if head == "" {
-		err = startMerge(ctx, merge, dir)
-	} else {
-		err = keptMerge(ctx, merge, head)
-	}
+	host, err := r.hostOf(epic)
 	if err != nil {
 		return fail(err)
 	}
-	prompt, err := r.integratorPrompt(ctx, epic, merge, result.Branch, head, act.Output)
+	if err = startMerge(ctx, host, merge, dir); err != nil {
+		return fail(err)
+	}
+	prompt, err := r.integratorPrompt(ctx, host, epic, merge, result.Branch)
 	if err != nil {
 		return fail(err)
 	}
-	check, err := integratorCheck(ctx, merge)
+	check, err := integratorCheck(ctx, host, merge)
 	if err != nil {
 		return fail(err)
 	}
@@ -285,17 +288,16 @@ func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Ac
 }
 
 // failIntegrator records the round of the release integrator at position as a failed run of act's attempt, with the
-// conflict merge names and the reason the round did not start.
+// merge it makes (integratorReason) and the reason the round did not start.
 func (r *Runner) failIntegrator(
 	ctx context.Context, epic store.EpicRow, act Action, position int64, merge integratorMerge, at time.Time,
 	cause error,
 ) error {
 	run := store.ReleaseRun{
 		Part: store.ReleasePartIntegrator, Position: position, Attempt: act.Run.Attempt, Step: integratorStepName,
-		Start: merge.tip,
-		Reason: conflictMessage(merge.tip, merge.origin, merge.conflicts) +
-			"; the release integrator did not start: " + cause.Error(),
-		At: at,
+		Start:  merge.tip,
+		Reason: integratorReason(merge) + "; the release integrator did not start: " + cause.Error(),
+		At:     at,
 	}
 	if err := r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release integrator of epic %s: %w", epic.ID, err)
@@ -305,37 +307,45 @@ func (r *Runner) failIntegrator(
 
 // startMerge adds the worktree of merge afresh under dir, detached at the release tip, after removing any worktree an
 // earlier start left there, and runs the merge of origin's commit in it with merge.conflictStyle zdiff3 and neither a
-// fast-forward nor a commit. The merge's conflicts stay in place: git's exit for a merge that conflicts is no error. A
-// merge that is not in progress afterwards is an error.
-func startMerge(ctx context.Context, merge integratorMerge, dir string) error {
-	if err := build.RemoveWorktrees(ctx, merge.repo, dir); err != nil {
+// fast-forward nor a commit. A clean merge stops before its commit, and a merge that conflicts leaves its conflicts in
+// place: git's exit for a merge that conflicts is no error. A merge that is not in progress afterwards is an error.
+func startMerge(ctx context.Context, host hostexec.Host, merge integratorMerge, dir string) error {
+	if err := build.RemoveWorktrees(ctx, host, merge.repo, dir); err != nil {
 		return fmt.Errorf("remove the worktree an earlier start left: %w", err)
 	}
-	if err := build.AddWorktree(ctx, merge.repo, merge.worktree, merge.tip); err != nil {
+	if err := build.AddWorktree(ctx, host, merge.repo, merge.worktree, merge.tip); err != nil {
 		return fmt.Errorf("add the release integrator worktree: %w", err)
 	}
-	_, err := gitOutput(ctx, merge.worktree, "-c", "merge.conflictStyle=zdiff3", "merge", "--no-ff", "--no-commit",
-		merge.origin)
-	var exit *exec.ExitError
-	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != mergeConflict) {
+	_, err := gitOutput(
+		ctx,
+		host,
+		merge.worktree,
+		"-c",
+		"merge.conflictStyle=zdiff3",
+		"merge",
+		"--no-ff",
+		"--no-commit",
+		merge.origin,
+	)
+	var gitErr *hostexec.GitError
+	if err != nil && (!errors.As(err, &gitErr) || gitErr.ExitCode != mergeConflict) {
 		return err
 	}
-	if _, err = gitOutput(ctx, merge.worktree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
+	if _, err = gitOutput(ctx, host, merge.worktree, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); err != nil {
 		return fmt.Errorf("the merge of origin's commit %s is not in progress in %s: %w", merge.origin, merge.worktree,
 			err)
 	}
 	return nil
 }
 
-// keptMerge checks that the worktree of merge still holds head, the merge commit the last round made, as its HEAD.
-func keptMerge(ctx context.Context, merge integratorMerge, head string) error {
-	got, err := gitOutput(ctx, merge.worktree, "rev-parse", "--verify", "HEAD^{commit}")
+// pinIntegrator pins head, the commit of the release integrator's merge, under run's release ref on the epic's host.
+func (r *Runner) pinIntegrator(ctx context.Context, epic store.EpicRow, run store.NodeRun, head string) error {
+	host, err := r.hostOf(epic)
 	if err != nil {
-		return fmt.Errorf("the worktree %s of the last round cannot be read: %w", merge.worktree, err)
+		return fmt.Errorf("pin release integrator merge: %w", err)
 	}
-	if got = strings.TrimSpace(got); got != head {
-		return fmt.Errorf("the worktree %s is at %s, not at %s, the merge the last round made", merge.worktree, got,
-			head)
+	if err = build.Pin(ctx, host, epic.Repository, runPin(epic, run), head); err != nil {
+		return fmt.Errorf("pin release integrator merge: %w", err)
 	}
 	return nil
 }
@@ -343,9 +353,10 @@ func keptMerge(ctx context.Context, merge integratorMerge, head string) error {
 // recordIntegrator records the round of the release integrator act names once its step's end is stored. The round
 // passes only when the step ended done and its commit passes the engine's checks again (integratorFailures); the commit
 // is then pinned under the run's release ref and recorded as the round's head. A round that does not pass is recorded
-// failed: a blocked return with its report (blockedReason), and any other end with the conflict and how the step ended.
-// A blocked return whose every unresolved path is on the candidate's side (candidateSide) asks for a replan, which the
-// store records with the round (store.Store.RecordIntegratorRound).
+// failed: a blocked return with its report (blockedReason), and any other end with the merge (integratorReason) and
+// how the step ended.
+// A blocked return that names at least one unresolved path, on either side (namesDecisions), asks for a replan, which
+// the store records with the round (store.Store.RecordIntegratorRound).
 func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[1], 10, 64)
 	if err != nil {
@@ -375,32 +386,41 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 	replan := false
 	switch {
 	case row.End == releaseDone && decodeReason == "":
-		head, failures, checkErr := integratorCommit(ctx, merge, ret)
+		head, failures, checkErr := r.integratorCommitOf(ctx, epic, merge, ret)
 		if checkErr != nil {
 			return checkErr
 		}
 		if len(failures) > 0 {
-			run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) +
-				"; the release integrator's commit was refused: " + strings.Join(failures, "; ")
+			run.Reason = integratorReason(merge) + "; the release integrator's commit was refused: " +
+				strings.Join(failures, "; ")
 			break
 		}
-		if err = build.Pin(ctx, epic.Repository, runPin(epic, act.Run), head); err != nil {
-			return fmt.Errorf("pin release integrator merge: %w", err)
+		if pinErr := r.pinIntegrator(ctx, epic, act.Run, head); pinErr != nil {
+			return pinErr
 		}
 		run.Head, run.Commits, run.Passed = head, []string{head}, true
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":
 		run.Reason = blockedReason(merge, ret)
-		replan = candidateSide(ret)
+		replan = namesDecisions(ret)
 	case row.End == releaseDone:
-		run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) + "; " + decodeReason
+		run.Reason = integratorReason(merge) + "; " + decodeReason
 	default:
-		run.Reason = conflictMessage(merge.tip, merge.origin, merge.conflicts) + "; " +
-			releaseEndReason("release integrator", row)
+		run.Reason = integratorReason(merge) + "; " + releaseEndReason("release integrator", row)
 	}
 	if err = r.store.RecordIntegratorRound(ctx, epic.ID, run, replan); err != nil {
 		return fmt.Errorf("record release integrator of epic %s: %w", epic.ID, err)
 	}
 	return nil
+}
+
+// integratorReason is the merge a round of the release integrator of merge makes, as the reason of a round that did not
+// pass opens with it: the merge of origin's commit into the release tip, with the paths it conflicts in when git's
+// merge of the two conflicts (conflictMessage). A clean merge is not named as conflicting.
+func integratorReason(merge integratorMerge) string {
+	if len(merge.conflicts) == 0 {
+		return fmt.Sprintf("merge of origin's commit %s into %s", merge.origin, merge.tip)
+	}
+	return conflictMessage(merge.tip, merge.origin, merge.conflicts)
 }
 
 // stepReturned is the end of a step that returned a status other than its done value, and releaseBlocked the status
@@ -410,28 +430,41 @@ const (
 	releaseBlocked = "blocked"
 )
 
-// integratorCommit resolves the commit the done return ret names in the worktree of merge, and runs the engine's checks
-// on it again before it is pinned. It returns the commit and each check it fails.
-func integratorCommit(ctx context.Context, merge integratorMerge, ret integratorReturn) (string, []string, error) {
-	tree, err := mergeTreeOf(ctx, merge)
+// integratorCommitOf is integratorCommit on the host the epic lives on.
+func (r *Runner) integratorCommitOf(
+	ctx context.Context, epic store.EpicRow, merge integratorMerge, ret integratorReturn,
+) (string, []string, error) {
+	host, err := r.hostOf(epic)
+	if err != nil {
+		return "", nil, fmt.Errorf("check the release integrator's commit: %w", err)
+	}
+	return integratorCommit(ctx, host, merge, ret)
+}
+
+// integratorCommit resolves the commit the done return ret names in the worktree of merge on host, and runs the engine's
+// checks on it again before it is pinned. It returns the commit and each check it fails.
+func integratorCommit(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, ret integratorReturn,
+) (string, []string, error) {
+	tree, err := mergeTreeOf(ctx, host, merge)
 	if err != nil {
 		return "", nil, err
 	}
-	failures := integratorFailures(ctx, merge, tree, ret)
+	failures := integratorFailures(ctx, host, merge, tree, ret)
 	if len(failures) > 0 {
 		return "", failures, nil
 	}
-	head, err := gitOutput(ctx, merge.worktree, "rev-parse", "--verify", "HEAD^{commit}")
+	head, err := gitOutput(ctx, host, merge.worktree, "rev-parse", "--verify", "HEAD^{commit}")
 	if err != nil {
 		return "", nil, err
 	}
 	return strings.TrimSpace(head), nil, nil
 }
 
-// mergeTreeOf returns the tree git's merge of origin's commit into the release tip writes, with the conflicted paths
-// holding their conflict markers.
-func mergeTreeOf(ctx context.Context, merge integratorMerge) (string, error) {
-	out, _, err := mergeTree(ctx, merge.repo, merge.tip, merge.origin)
+// mergeTreeOf returns the tree git's merge of origin's commit into the release tip writes on host, with the conflicted
+// paths holding their conflict markers.
+func mergeTreeOf(ctx context.Context, host hostexec.Host, merge integratorMerge) (string, error) {
+	out, _, err := mergeTree(ctx, host, merge.repo, merge.tip, merge.origin)
 	if err != nil {
 		return "", err
 	}
@@ -439,11 +472,13 @@ func mergeTreeOf(ctx context.Context, merge integratorMerge) (string, error) {
 	return tree, nil
 }
 
-// integratorCheck returns the return check of a release integrator step that finishes merge. Each return is checked for
-// its shape (integratorShape), and a done return's commit is checked by integratorFailures. Each failure is one line,
-// which the step loop sends back to the integrator. The tree git's own merge writes is computed once, here.
-func integratorCheck(ctx context.Context, merge integratorMerge) (func(json.RawMessage) []string, error) {
-	tree, err := mergeTreeOf(ctx, merge)
+// integratorCheck returns the return check of a release integrator step on host that finishes merge. Each return is
+// checked for its shape (integratorShape), and a done return's commit is checked by integratorFailures. Each failure is
+// one line, which the step loop sends back to the integrator. The tree git's own merge writes is computed once, here.
+func integratorCheck(
+	ctx context.Context, host hostexec.Host, merge integratorMerge,
+) (func(json.RawMessage) []string, error) {
+	tree, err := mergeTreeOf(ctx, host, merge)
 	if err != nil {
 		return nil, err
 	}
@@ -457,13 +492,14 @@ func integratorCheck(ctx context.Context, merge integratorMerge) (func(json.RawM
 		if ret.Status != releaseDone {
 			return failures
 		}
-		return append(failures, integratorFailures(checkCtx, merge, tree, ret)...)
+		return append(failures, integratorFailures(checkCtx, host, merge, tree, ret)...)
 	}, nil
 }
 
 // integratorShape returns the lines on which the shape of ret fails. A done return names its commit, has exactly one
-// resolution for each conflicted path and none for any other path, leaves unresolved empty and gives evidence. A
-// blocked return names no commit, and gives unresolved or evidence.
+// resolution for each conflicted path and none for any other path, so a clean merge has none, lists at least one
+// command it ran to verify the merged tree, leaves unresolved empty and gives evidence. A blocked return names no
+// commit, and gives unresolved or evidence.
 func integratorShape(ret integratorReturn, conflicts []string) []string {
 	if ret.Status != releaseDone {
 		var failures []string
@@ -500,6 +536,9 @@ func integratorShape(ret integratorReturn, conflicts []string) []string {
 				resolution.Path))
 		}
 	}
+	if len(ret.Checks) == 0 {
+		failures = append(failures, "checks: a done return lists each command it ran to verify the merged tree")
+	}
 	if len(ret.Unresolved) > 0 {
 		failures = append(failures, "unresolved: a done return stopped on no path, so it must be empty")
 	}
@@ -510,29 +549,41 @@ func integratorShape(ret integratorReturn, conflicts []string) []string {
 }
 
 // integratorFailures returns the lines on which the commit a done return ret names fails the engine's checks, in the
-// worktree of merge, against tree, the tree git's own merge writes. HEAD is the commit. The commit's parents are
+// worktree of merge on host, against tree, the tree git's own merge writes. HEAD is the commit. The commit's parents are
 // exactly the release tip and then origin's commit, so it is one commit on the tip and the only one. git ls-files -u
 // lists no path. No path the commit changes from either parent holds a conflict-marker line. Every path where the
 // commit differs from tree is a conflicted path or is listed in other_changes. A check git cannot make fails with git's
 // error.
-func integratorFailures(ctx context.Context, merge integratorMerge, tree string, ret integratorReturn) []string {
-	commit, err := gitOutput(ctx, merge.worktree, "rev-parse", "--verify", "--end-of-options", ret.Commit+"^{commit}")
+func integratorFailures(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, tree string, ret integratorReturn,
+) []string {
+	commit, err := gitOutput(
+		ctx,
+		host,
+		merge.worktree,
+		"rev-parse",
+		"--verify",
+		"--end-of-options",
+		ret.Commit+"^{commit}",
+	)
 	if err != nil {
 		return []string{fmt.Sprintf("commit: %q does not name a commit: %v", ret.Commit, err)}
 	}
 	commit = strings.TrimSpace(commit)
 	var failures []string
-	head, err := gitOutput(ctx, merge.worktree, "rev-parse", "--verify", "HEAD^{commit}")
+	head, err := gitOutput(ctx, host, merge.worktree, "rev-parse", "--verify", "HEAD^{commit}")
 	switch {
 	case err != nil:
 		failures = append(failures, fmt.Sprintf("head: HEAD cannot be read: %v", err))
 	case strings.TrimSpace(head) != commit:
 		failures = append(failures, fmt.Sprintf("head: HEAD is %s, not the commit %s", strings.TrimSpace(head), commit))
 	}
-	for _, check := range []func(context.Context, integratorMerge, string, string, integratorReturn) string{
+	for _, check := range []func(
+		context.Context, hostexec.Host, integratorMerge, string, string, integratorReturn,
+	) string{
 		parentsFailure, unmergedFailure, markerFailure, unlistedFailure,
 	} {
-		if failure := check(ctx, merge, commit, tree, ret); failure != "" {
+		if failure := check(ctx, host, merge, commit, tree, ret); failure != "" {
 			failures = append(failures, failure)
 		}
 	}
@@ -540,8 +591,10 @@ func integratorFailures(ctx context.Context, merge integratorMerge, tree string,
 }
 
 // parentsFailure names a commit whose parents are not exactly the release tip and then origin's commit.
-func parentsFailure(ctx context.Context, merge integratorMerge, commit, _ string, _ integratorReturn) string {
-	out, err := gitOutput(ctx, merge.worktree, "rev-list", "--parents", "-n", "1", commit)
+func parentsFailure(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, commit, _ string, _ integratorReturn,
+) string {
+	out, err := gitOutput(ctx, host, merge.worktree, "rev-list", "--parents", "-n", "1", commit)
 	if err != nil {
 		return fmt.Sprintf("parents: %v", err)
 	}
@@ -555,8 +608,10 @@ func parentsFailure(ctx context.Context, merge integratorMerge, commit, _ string
 }
 
 // unmergedFailure names the paths git ls-files -u lists in the worktree.
-func unmergedFailure(ctx context.Context, merge integratorMerge, _, _ string, _ integratorReturn) string {
-	paths, err := unmergedPaths(ctx, merge.worktree)
+func unmergedFailure(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, _, _ string, _ integratorReturn,
+) string {
+	paths, err := unmergedPaths(ctx, host, merge.worktree)
 	if err != nil {
 		return fmt.Sprintf("unmerged: %v", err)
 	}
@@ -566,9 +621,9 @@ func unmergedFailure(ctx context.Context, merge integratorMerge, _, _ string, _ 
 	return "unmerged: git ls-files -u lists " + listPaths(paths)
 }
 
-// unmergedPaths returns the paths git ls-files -u lists in dir, each once: the paths the index leaves unmerged.
-func unmergedPaths(ctx context.Context, dir string) ([]string, error) {
-	out, err := gitOutput(ctx, dir, "ls-files", "-u", "-z")
+// unmergedPaths returns the paths git ls-files -u lists in dir on host, each once: the paths the index leaves unmerged.
+func unmergedPaths(ctx context.Context, host hostexec.Host, dir string) ([]string, error) {
+	out, err := gitOutput(ctx, host, dir, "ls-files", "-u", "-z")
 	if err != nil {
 		return nil, err
 	}
@@ -583,19 +638,21 @@ func unmergedPaths(ctx context.Context, dir string) ([]string, error) {
 }
 
 // markerFailure names each path that commit changes from either parent and that holds a conflict-marker line at commit.
-func markerFailure(ctx context.Context, merge integratorMerge, commit, _ string, _ integratorReturn) string {
-	changed, err := changedPaths(ctx, merge.worktree, merge.tip, commit)
+func markerFailure(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, commit, _ string, _ integratorReturn,
+) string {
+	changed, err := changedPaths(ctx, host, merge.worktree, merge.tip, commit)
 	if err != nil {
 		return fmt.Sprintf("markers: %v", err)
 	}
-	fromOrigin, err := changedPaths(ctx, merge.worktree, merge.origin, commit)
+	fromOrigin, err := changedPaths(ctx, host, merge.worktree, merge.origin, commit)
 	if err != nil {
 		return fmt.Sprintf("markers: %v", err)
 	}
 	changed = append(changed, fromOrigin...)
-	out, err := gitOutput(ctx, merge.worktree, "grep", "-l", "-z", "-I", "-E", "-e", integratorMarkers, commit)
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == grepNoMatch {
+	out, err := gitOutput(ctx, host, merge.worktree, "grep", "-l", "-z", "-I", "-E", "-e", integratorMarkers, commit)
+	var gitErr *hostexec.GitError
+	if errors.As(err, &gitErr) && gitErr.ExitCode == grepNoMatch {
 		return ""
 	}
 	if err != nil {
@@ -616,8 +673,10 @@ func markerFailure(ctx context.Context, merge integratorMerge, commit, _ string,
 
 // unlistedFailure names each path where commit differs from tree, the tree git's own merge writes, that is neither a
 // conflicted path nor listed in other_changes.
-func unlistedFailure(ctx context.Context, merge integratorMerge, commit, tree string, ret integratorReturn) string {
-	differ, err := changedPaths(ctx, merge.worktree, tree, commit)
+func unlistedFailure(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, commit, tree string, ret integratorReturn,
+) string {
+	differ, err := changedPaths(ctx, host, merge.worktree, tree, commit)
 	if err != nil {
 		return fmt.Sprintf("other_changes: %v", err)
 	}
@@ -637,9 +696,9 @@ func unlistedFailure(ctx context.Context, merge integratorMerge, commit, tree st
 		", and other_changes does not list it"
 }
 
-// changedPaths returns the paths that differ between from and to, both sides of a rename included.
-func changedPaths(ctx context.Context, dir, from, to string) ([]string, error) {
-	out, err := gitOutput(ctx, dir, "diff", "--name-only", "-z", "--no-renames", from, to)
+// changedPaths returns the paths that differ between from and to in dir on host, both sides of a rename included.
+func changedPaths(ctx context.Context, host hostexec.Host, dir, from, to string) ([]string, error) {
+	out, err := gitOutput(ctx, host, dir, "diff", "--name-only", "-z", "--no-renames", from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -709,13 +768,15 @@ func cutText(text string, limit int) string {
 }
 
 // ReadoptCheck returns the return check a re-adopted release integrator step row is restored with: the check its start
-// gave it, rebuilt from the running release run the row's Task label names and the Result that run recorded. Any other
-// row gets a nil check. A release run that is not running, or whose Result names another merge, is an error, so the row
-// is not re-adopted.
+// gave it, rebuilt from the running release run the row's Task label names and the Result that run recorded, whether
+// that merge conflicts or not. Any other row gets a nil check. A release run that is not running, or whose Result
+// merges no origin commit into the row's revision, is an error, so the row is not re-adopted. The check's git runs on
+// the host the row's epic names in hosts.
 func ReadoptCheck(
 	epics interface {
 		EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	},
+	hosts hostexec.Hosts,
 ) func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 	return func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 		if row.Schema != IntegratorSchema {
@@ -735,11 +796,15 @@ func ReadoptCheck(
 		if err != nil {
 			return nil, fmt.Errorf("release run %s of epic %s: %w", row.Task, row.Epic, err)
 		}
-		if len(result.Conflicts) == 0 || result.Tip != row.Revision {
-			return nil, fmt.Errorf("release run %s of epic %s records no conflicting merge from %s", row.Task,
+		if result.Origin == "" || result.Tip != row.Revision {
+			return nil, fmt.Errorf("release run %s of epic %s records no merge of origin's commit into %s", row.Task,
 				row.Epic, row.Revision)
 		}
-		return integratorCheck(ctx, integratorMerge{
+		host, err := hosts.Host(flow.Epic.Host)
+		if err != nil {
+			return nil, fmt.Errorf("host of epic %s: %w", row.Epic, err)
+		}
+		return integratorCheck(ctx, host, integratorMerge{
 			repo: flow.Epic.Repository, worktree: row.Workspace, tip: result.Tip, origin: result.Origin,
 			conflicts: result.Conflicts,
 		})

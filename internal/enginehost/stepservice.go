@@ -151,7 +151,11 @@ func (s *stepService) ReadStepCheck(
 	if kept, ok := s.steps.(keptGateLogs); ok {
 		logs = kept
 	}
-	resp, err := readStepCheck(row, req.Msg, logs)
+	host, err := rowHostOf(s.steps, row)
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	resp, err := readStepCheck(ctx, host, row, req.Msg, logs)
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
@@ -301,8 +305,9 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 	return step, nil
 }
 
-// listingMessage returns the Step message of row, a step's listing, with held as its held flag and no result. Ended is
-// zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry it.
+// listingMessage returns the Step message of row, a step's listing, with held as its held flag, its host and no result.
+// Ended is zero while the step runs. A check or verdict round outside uint32 is an error, since the reply cannot carry
+// it.
 func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
@@ -356,8 +361,7 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 		Verdicts:         verdicts,
 		Caller:           row.Caller,
 		Summary:          row.Summary,
-		RedEvidence:      row.RedEvidence,
-		GreenEvidence:    row.GreenEvidence,
+		Host:             row.Host,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()
@@ -375,8 +379,6 @@ func listingMessage(row store.StepListing, held bool) (*v1.Step, error) {
 func stepCommandError(err error) error {
 	code := connect.CodeInternal
 	switch {
-	case errors.Is(err, ErrCapReached):
-		code = connect.CodeResourceExhausted
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),

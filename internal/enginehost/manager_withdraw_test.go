@@ -64,7 +64,7 @@ func holdWithdrawnLine(t *testing.T, m *Manager, path, dir string) string {
 // then lists prompt p-held as cancelled, so the cancel landed on that prompt id.
 func TestWithdrawQueuedCancelRequestNamesPromptIDByItsWriteID(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id := holdWithdrawnLine(t, m, path, dir)
 
@@ -119,7 +119,7 @@ func TestWithdrawQueuedCancelRequestNamesPromptIDByItsWriteID(t *testing.T) {
 // owner's interrupt. The turn's end leaves the session done, and no turn runs for the withdrawn line.
 func TestWithdrawQueuedTurnEndLeavesSessionDoneAndRunsNoWithdrawnLine(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id := holdWithdrawnLine(t, m, path, t.TempDir())
 	if _, err := m.Withdraw(t.Context(), id, "p-held"); err != nil {
 		t.Fatalf("Withdraw: %v", err)
@@ -186,7 +186,7 @@ func TestWithdrawQueuedReadoptedSessionOwesNoPrompt(t *testing.T) {
 // that it did not cancel the line, and Withdraw returns no texts and no error.
 func TestWithdrawQueuedCancelledFalseForTakenInLineReturnsNoText(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "MIDTURN"})
 	if err != nil {
@@ -216,7 +216,7 @@ func TestWithdrawQueuedCancelledFalseForTakenInLineReturnsNoText(t *testing.T) {
 // directly after the held line: nothing Withdraw wrote lies between them.
 func TestWithdrawQueuedEmptyPromptIDWritesNothing(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id := holdWithdrawnLine(t, m, path, dir)
 
@@ -244,7 +244,7 @@ func TestWithdrawQueuedEmptyPromptIDWritesNothing(t *testing.T) {
 // returns an error matching ErrUnknownPrompt and no texts.
 func TestWithdrawQueuedUnknownPromptIsRefused(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id := holdWithdrawnLine(t, m, path, t.TempDir())
 
 	texts, err := m.Withdraw(t.Context(), id, "p-unknown")

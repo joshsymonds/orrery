@@ -18,6 +18,8 @@ const (
 	CallerKindQuestion = "question"
 	CallerKindRelease  = "release"
 	CallerKindEnd      = "end"
+	CallerKindDesign   = "design"
+	CallerKindTell     = "tell"
 )
 
 // stepEventPrefix heads the id of a step's end event: the prefix and the step id. ListCallerSteps and
@@ -42,7 +44,7 @@ type CallerStep struct {
 // CallerSteps returns the ended steps whose caller has a sessions row, and that have no caller_events mark for the
 // event "step:" followed by the step id, under the caller's row id. It orders them by ended time, then id.
 func (s *Store) CallerSteps(ctx context.Context) ([]CallerStep, error) {
-	rows, err := sqlcgen.New(s.db).ListCallerSteps(ctx)
+	rows, err := sqlcgen.New(s.read).ListCallerSteps(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list caller steps: %w", err)
 	}
@@ -77,7 +79,7 @@ func (s *Store) MarkCallerEvent(ctx context.Context, event, session string, at t
 
 // CallerEventMarked reports whether MarkCallerEvent has recorded the event as delivered to the session.
 func (s *Store) CallerEventMarked(ctx context.Context, event, session string) (bool, error) {
-	return callerEventMarkedIn(ctx, sqlcgen.New(s.db), event, session)
+	return callerEventMarkedIn(ctx, sqlcgen.New(s.read), event, session)
 }
 
 // callerEventMarkedIn reports whether a caller_events row holds event under session, as read through queries.
@@ -95,6 +97,11 @@ func callerEventMarkedIn(ctx context.Context, queries *sqlcgen.Queries, event, s
 // EpicQuestionEvent returns the id of the event of question seq of epic, which is a park or a question.
 func EpicQuestionEvent(epic string, seq int64) string {
 	return fmt.Sprintf("epic:%s:Q%d", epic, seq)
+}
+
+// EpicTellEvent returns the id of the event of tell seq of epic, which is a tell its steerer is sent.
+func EpicTellEvent(epic string, seq int64) string {
+	return fmt.Sprintf("epic:%s:tell:%d", epic, seq)
 }
 
 // EpicPhaseEvent returns the id of the event of epic's phase, which is its release or its end.
@@ -121,7 +128,8 @@ func EpicPhaseEventKind(phase string) (string, bool) {
 // A step_end carries the step: Step is its id, Agent its agent, End and Status how it ended, Brief the lines of its
 // step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, Epic the epic
 // that holds it, empty when none does, and Facts the step's facts, as StepFactsOf gives them. An epic event carries
-// Epic, the epic's id, and Title, the epic's title, and no facts.
+// Epic, the epic's id, and Title, the epic's title, and no facts. A design event carries Design, the design's log line
+// it is about, and none of the step or epic fields.
 type PendingEvent struct {
 	ID     string
 	Kind   string
@@ -133,6 +141,7 @@ type PendingEvent struct {
 	Epic   string
 	Title  string
 	Facts  StepFacts
+	Design DesignLogLine
 }
 
 // PendingCallerEvents returns the caller events still owed to session, read in one read transaction. A step end is
@@ -144,17 +153,18 @@ type PendingEvent struct {
 // no time of its own, so the epic events are not merged into the step ends by time.
 //
 // An action event is owed when session is its recipient or a move leaves or takes it, as ActionEvents lists it; those
-// events come last, after the epic events, in the order ActionEvents gives them.
+// events come after the epic events, in the order ActionEvents gives them. The design events session is owed, as
+// DesignEvents lists them, come last, after the action events.
 //
 // It returns an error matching ErrUnavailable when the store file is missing or the database is busy.
 func (r *Reader) PendingCallerEvents(ctx context.Context, session string) ([]PendingEvent, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(r.path))
+	db, closeDB, err := r.database()
 	if err != nil {
-		return nil, fmt.Errorf("open store reader: %w", err)
+		return nil, err
 	}
 	r.reach(readOpened)
 	events, err := pendingInDB(ctx, db, session, r.reach)
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := closeDB(); closeErr != nil {
 		err = errors.Join(err, fmt.Errorf("close store reader: %w", closeErr))
 	}
 	if err != nil {
@@ -227,6 +237,16 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 	}
 	for _, action := range actions {
 		events = append(events, PendingEvent{ID: action.ID, Kind: action.Kind, Epic: action.Epic, Title: action.Title})
+	}
+	designs, err := designEventsIn(ctx, queries)
+	if err != nil {
+		return nil, err
+	}
+	for _, design := range designs {
+		if design.Recipient.ID != session {
+			continue
+		}
+		events = append(events, PendingEvent{ID: design.ID, Kind: CallerKindDesign, Design: design.Line})
 	}
 	return events, nil
 }

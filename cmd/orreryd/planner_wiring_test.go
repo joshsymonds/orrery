@@ -60,9 +60,7 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 	}
 
 	opts := options{
-		socket:     filepath.Join(t.TempDir(), "orreryd.sock"),
-		sessionCap: defaultSessionCap,
-		stepCap:    defaultStepCap,
+		socket: filepath.Join(t.TempDir(), "orreryd.sock"),
 	}
 	host, err := startSessions(
 		ctx, opts, plannerWiringHost, st, &recordingRouter{}, nil, slog.New(slog.DiscardHandler), getenv,

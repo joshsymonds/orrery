@@ -11,10 +11,9 @@ import (
 )
 
 // The states a Requirement shows. The first that holds decides it, in this order: proven, failed, held, in_flight, and
-// not_reached when none does.
+// not_reached when none does. proven and failed are requirementProven and requirementFailed, which contractwork.go
+// declares with the same spellings.
 const (
-	requirementProven     = "proven"
-	requirementFailed     = "failed"
 	requirementHeld       = "held"
 	requirementInFlight   = "in_flight"
 	requirementNotReached = "not_reached"
@@ -180,17 +179,20 @@ func orreryRequirements(
 	return requirements
 }
 
-// asksOwner reports whether something asks the owner: an open question, a failed release step, a park the owner
-// holds, a held running step, or an orreryd epic that ended with gaps, which asks the owner to release it anyway or
-// close it.
+// asksOwner reports whether something asks the owner: an open question its steerer does not hold, a failed release
+// step, a park that opens a question its steerer does not hold, a held running step, or an orreryd epic that ended with
+// gaps, which asks the owner to release it anyway or close it. A question or park the steerer holds is the steerer's
+// move until it escalates it (see epicQuestionMessages and steererParked).
 func asksOwner(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) bool {
 	epic := resp.GetEpic()
 	endedWithGaps := epic.GetSource() == epicSourceOrreryd && epic.GetOutcome() == phaseEndedWithGaps
-	return len(resp.GetQuestions()) > 0 ||
+	return slices.ContainsFunc(resp.GetQuestions(), func(question *orreryv1.EpicQuestion) bool {
+		return !question.GetSteererHeld()
+	}) ||
 		slices.ContainsFunc(resp.GetReleaseSteps(), func(step *orreryv1.EpicReleaseProof) bool {
 			return step.GetState() == releaseStepFailed
 		}) ||
-		(stored.GetParked() != "" && store.ParkClass(stored.GetParkClass()).OwnerHeld()) ||
+		(stored.GetParked() != "" && store.ParkClass(stored.GetParkClass()).OpensQuestion() && !steererParked(stored)) ||
 		slices.ContainsFunc(resp.GetSteps(), func(step *orreryv1.EpicStep) bool {
 			return step.GetEnd() == "" && step.GetHeld()
 		}) ||
@@ -225,4 +227,13 @@ func epicCentre(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) st
 		return centerEndedShort
 	}
 	return centerRunning
+}
+
+// leadingLetters returns the run of ASCII letters at the start of s, which is empty when s does not start with one.
+func leadingLetters(s string) string {
+	end := 0
+	for end < len(s) && (s[end] >= 'a' && s[end] <= 'z' || s[end] >= 'A' && s[end] <= 'Z') {
+		end++
+	}
+	return s[:end]
 }

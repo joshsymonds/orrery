@@ -13,7 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// newStepCrashRig returns a crashRig whose manager runs steps, with a step cap of one and the step agents resolved under
+// newStepCrashRig returns a crashRig whose manager runs steps, with the step agents resolved under
 // its HOME. Its writer refuses from the first batch trigger accepts, as newCrashRig's does. Every holder under the rig's
 // root is cleared when the test ends.
 func newStepCrashRig(t *testing.T, trigger func([]store.EngineOp) bool) crashRig {
@@ -34,8 +34,6 @@ func newStepCrashRig(t *testing.T, trigger func([]store.EngineOp) bool) crashRig
 		Shell:       sh,
 		Claude:      fakeClaudePath(t),
 		Environ:     []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
-		Cap:         1,
-		StepCap:     1,
 		Writer:      writer,
 		Now:         fixedClock,
 		Notifier:    &fakeSink{},
@@ -66,13 +64,21 @@ func restartBeforeReconcile(t *testing.T, rig crashRig) (*Manager, *fakeSink) {
 	return newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil), sink
 }
 
-// requireStepSlots fails unless m holds steps step slots and no session slot.
-func requireStepSlots(t *testing.T, m *Manager, steps int) {
+// requireStepsHeld fails unless m holds steps steps, live or drained, and no live session that is not a step.
+func requireStepsHeld(t *testing.T, m *Manager, steps int) {
 	t.Helper()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.stepsRunning != steps || m.reserved != 0 {
-		t.Fatalf("slots = %d steps and %d sessions, want %d steps and no session", m.stepsRunning, m.reserved, steps)
+	held, sessions := len(m.kept), 0
+	for _, live := range m.sessions {
+		if live.step {
+			held++
+		} else {
+			sessions++
+		}
+	}
+	if held != steps || sessions != 0 {
+		t.Fatalf("held %d steps and %d sessions, want %d steps and no session", held, sessions, steps)
 	}
 }
 
@@ -144,7 +150,7 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 	if !restarted.StepLive(stepA) {
 		t.Fatalf("step %s is not live after the restart", stepA)
 	}
-	requireStepSlots(t, restarted, 1)
+	requireStepsHeld(t, restarted, 1)
 	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
 	if err := restarted.Continue(t.Context(), stepA, prompt); err != nil {
 		t.Fatalf("Continue of the re-adopted step: %v", err)
@@ -194,7 +200,7 @@ func TestReadoptStepWithoutExpectedObserverIsCleared(t *testing.T) {
 	if restarted.StepLive(stepA) {
 		t.Fatalf("step %s is live after the restart without an expected observer", stepA)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	requireEngineRows(t, rig.store, map[string]restartRow{
 		stepA: {state: "interrupted", reason: restartedReason},
 	})
@@ -229,7 +235,7 @@ func TestReadoptStepEndedWhileDownIsClearedNotDrained(t *testing.T) {
 	if restarted.StepLive(stepA) {
 		t.Fatalf("step %s is live after the restart, though its holder ended", stepA)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	requireUndrained(t, rig, sink, obs)
 }
 
@@ -260,6 +266,6 @@ func TestReadoptStepUnattachableHolderIsClearedNotDrained(t *testing.T) {
 	if restarted.StepLive(stepA) {
 		t.Fatalf("step %s is live after the restart, though its holder cannot be attached", stepA)
 	}
-	requireStepSlots(t, restarted, 0)
+	requireStepsHeld(t, restarted, 0)
 	requireUndrained(t, rig, sink, obs)
 }

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // projectText is a project file with a gates table, a pools table and two reviewers. The first sets the required
@@ -185,7 +187,7 @@ func TestProjectReadsTheProjectFileOfDirectory(t *testing.T) {
 	file := filepath.Join(dir, ".orrery", "project.toml")
 	writeFile(t, file, projectText)
 
-	got, err := Project(context.Background(), dir, noMachineFile(t))
+	got, err := Project(context.Background(), hostexec.NewLocal(), dir, noMachineFile(t))
 	if err != nil {
 		t.Fatalf("Project(%s): %v", dir, err)
 	}
@@ -197,7 +199,7 @@ func TestProjectReadsTheProjectFileOfDirectory(t *testing.T) {
 func TestProjectWithoutProjectFileGivesNil(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	got, err := Project(context.Background(), dir, noMachineFile(t))
+	got, err := Project(context.Background(), hostexec.NewLocal(), dir, noMachineFile(t))
 	if err != nil {
 		t.Fatalf("Project(%s): %v", dir, err)
 	}
@@ -213,7 +215,7 @@ func TestProjectRefusesUnreadableFile(t *testing.T) {
 	if err := os.MkdirAll(file, os.ModePerm); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Project(context.Background(), dir, noMachineFile(t))
+	_, err := Project(context.Background(), hostexec.NewLocal(), dir, noMachineFile(t))
 	if err == nil || !strings.Contains(err.Error(), file) {
 		t.Fatalf("Project error = %v, want an error naming %s", err, file)
 	}

@@ -43,6 +43,7 @@ private fun task(name: String, requirements: List<String>): RecordTask = RecordT
     task = name,
     title = "title of $name",
     requirements = requirements,
+    labels = setOf(name),
     place = RingPlace.IMPLEMENT,
     integrated = false,
     tone = WedgeTone.RUN,

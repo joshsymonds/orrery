@@ -29,10 +29,10 @@ func conflictEpic() store.EpicRow {
 	return epic
 }
 
-// roundWork returns the id of part of the work of round of task 2 of the test batch, which its round's checks and
-// captures run under, named by the batch's run, the task and the round.
-func roundWork(round int64, part string) string {
-	return store.NodeWorkID(fmt.Sprintf("%s-task-2-%d", testRunID, round), 1, part)
+// roundWork returns the id of part of the work of the first round of task 2 of the test batch, which that round's checks
+// and captures run under, named by the batch's run, the task and the round.
+func roundWork(part string) string {
+	return store.NodeWorkID(testRunID+"-task-2-1", 1, part)
 }
 
 // stepWork returns the id of the step of round of task seq of the test batch.
@@ -49,26 +49,26 @@ func recordedRound(round int64, verdict, head, outcome, failure string) store.In
 	}
 }
 
-// roundChecksPassed returns the Done gates of round of task 2 at its commit, passed.
-func roundChecksPassed(round int64) []store.NodeCheck {
+// roundChecksPassed returns the Done gates of the first round of task 2 at its commit, passed.
+func roundChecksPassed() []store.NodeCheck {
 	return []store.NodeCheck{
-		{ID: roundWork(round, "done 1"), State: store.NodeEnded},
-		{ID: roundWork(round, "done 2"), State: store.NodeEnded},
+		{ID: roundWork("done 1"), State: store.NodeEnded},
+		{ID: roundWork("done 2"), State: store.NodeEnded},
 	}
 }
 
-// roundCapturesPassed returns the captures of R1 and R2 of round of task 2 at its commit, passed.
-func roundCapturesPassed(round int64) []store.EvidenceRun {
+// roundCapturesPassed returns the captures of R1 and R2 of the first round of task 2 at its commit, passed.
+func roundCapturesPassed() []store.EvidenceRun {
 	return []store.EvidenceRun{
 		{
-			ID:      roundWork(round, "capture R1"),
+			ID:      roundWork("capture R1"),
 			Phase:   evidence.PhaseGreen,
 			State:   runEnded,
 			Verdict: evidence.VerdictHolds,
 			Passed:  true,
 		},
 		{
-			ID:      roundWork(round, "capture R2"),
+			ID:      roundWork("capture R2"),
 			Phase:   evidence.PhaseGreen,
 			State:   runEnded,
 			Verdict: evidence.VerdictHolds,
@@ -137,24 +137,24 @@ func TestConflictIntegratorRoundChecksAtItsCommit(t *testing.T) {
 	merged := []store.IntegrateRound{recordedRound(1, RoundMerged, "m1", "", "")}
 	gateStarted := Action{
 		Kind:     ActStart,
-		IDs:      []string{roundWork(1, "done 1")},
+		IDs:      []string{roundWork("done 1")},
 		Items:    []string{"just check"},
 		Revision: "m1",
 	}
 	captures := Action{
-		Kind: ActCapture, IDs: []string{roundWork(1, "capture R1"), roundWork(1, "capture R2")},
+		Kind: ActCapture, IDs: []string{roundWork("capture R1"), roundWork("capture R2")},
 		Items: []string{"R1", "R2"}, Revision: "m1",
 	}
 	gateFailed := []store.NodeCheck{{
-		ID: roundWork(1, "done 1"), State: store.NodeEnded, Exit: 1, Stdout: "boom",
+		ID: roundWork("done 1"), State: store.NodeEnded, Exit: 1, Stdout: "boom",
 	}}
 	notCaptured := []store.EvidenceRun{
 		{
-			ID: roundWork(1, "capture R1"), Phase: evidence.PhaseGreen, State: runEnded,
+			ID: roundWork("capture R1"), Phase: evidence.PhaseGreen, State: runEnded,
 			NotCaptured: "the capture did not start",
 		},
 		{
-			ID: roundWork(1, "capture R2"), Phase: evidence.PhaseGreen, State: runEnded,
+			ID: roundWork("capture R2"), Phase: evidence.PhaseGreen, State: runEnded,
 			Verdict: evidence.VerdictHolds, Passed: true,
 		},
 	}
@@ -168,15 +168,15 @@ func TestConflictIntegratorRoundChecksAtItsCommit(t *testing.T) {
 				Output: "Done gate just check failed on commit m1: it exited 1.\nstdout tail:\nboom",
 			}},
 		{"passed gates start the captures at the commit", batchNode("cand-1", conflictLeftOut, true),
-			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(1)}, captures},
+			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed()}, captures},
 		{"a capture that did not run fails the round with its reason", batchNode("cand-1", conflictLeftOut, true),
-			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(1), Evidence: notCaptured},
+			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(), Evidence: notCaptured},
 			Action{
 				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
 				Output: "The capture of R1 did not run on commit m1: the capture did not start.",
 			}},
 		{"a round whose checks pass composes its task at its commit", batchNode("cand-1", conflictLeftOut, true),
-			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(1), Evidence: roundCapturesPassed(1)},
+			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(), Evidence: roundCapturesPassed()},
 			Action{Kind: ActTaskIntegrator, Items: []string{TaskCompose, "1", "m1"}, Tasks: []int64{2}}},
 	}
 	checkDecisions(t, Integrate{}, cases)

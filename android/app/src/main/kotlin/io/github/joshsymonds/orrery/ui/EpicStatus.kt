@@ -24,8 +24,8 @@ sealed interface EpicBlocker {
 }
 
 /**
- * The state word of an epic, first match: its outcome as written, paused, parked, waiting, then planning or building
- * while it is live. An epic with no state gives the empty string.
+ * The state word of an epic, first match: its outcome as written, paused, parked, then planning or building while it is
+ * live. An epic with no state gives the empty string.
  */
 fun epicStateOf(detail: EpicDetail): String {
     val epic = detail.epic
@@ -33,18 +33,17 @@ fun epicStateOf(detail: EpicDetail): String {
         epic.outcome.isNotEmpty() -> epic.outcome
         detail.paused -> "paused"
         detail.parked.isNotEmpty() -> "parked"
-        epic.waiting -> "waiting"
-        epic.live -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+        epic.live -> if (detail.buildTasks.isEmpty()) "planning" else "building"
         else -> ""
     }
 }
 
 /**
- * The blocker an epic waits on, first match: its first open question, its park, then its first step that has not
- * ended and is held or limited. Null when none of them holds.
+ * The blocker an epic waits on, first match: its first open question the owner is asked (one its steerer does not
+ * hold), its park, then its first step that has not ended and is held or limited. Null when none of them holds.
  */
 fun blockerOf(detail: EpicDetail): EpicBlocker? {
-    val question = detail.questions.firstOrNull()
+    val question = detail.questions.firstOrNull { !it.steererHeld }
     if (question != null) {
         return EpicBlocker.Question(text = "waits on your answer", since = question.asked, question = question)
     }

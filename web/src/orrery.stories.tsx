@@ -8,8 +8,8 @@ import type { Stories } from "./catalog/story";
 import { gets } from "./fixtures/epics";
 import { type EpicRequirement, EpicRequirementSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import * as orrery from "./orrery";
-import { type Cell, PLACES, type RecordTask, recordTasksOf } from "./record";
-import { provenOf, wedgesOf } from "./phases";
+import { type RecordTask, recordTasksOf } from "./record";
+import { type Cell, PLACES, provenOf } from "./phases";
 
 // fixtureOf is the fixture's entry under id. The stories name only held ids, so a missing one is a broken story.
 function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Value {
@@ -22,9 +22,9 @@ function fixtureOf<Value>(entries: ReadonlyMap<string, Value>, id: string): Valu
 
 // provenIdsOf is the requirement ids an epic proves, as the chart's centre counts them.
 function provenIdsOf(detail: EpicsGetResponse): Set<string> {
-  const wedges = wedgesOf(detail);
-  const ids = [...detail.requirements.map((requirement) => requirement.id), ...wedges.flatMap((wedge) => wedge.requirements)];
-  return new Set(ids.filter((id) => provenOf(id, wedges, detail.requirements)));
+  const tasks = recordTasksOf(detail);
+  const ids = [...detail.requirements.map((requirement) => requirement.id), ...tasks.flatMap((task) => task.requirements)];
+  return new Set(ids.filter((id) => provenOf(id, tasks, detail.requirements)));
 }
 
 const followups = fixtureOf(gets, "orrery/orrery-followups");
@@ -58,6 +58,7 @@ const denseTasks: RecordTask[] = Array.from({ length: 120 }, (_, index) => {
     cells,
     words: place === "integrated" ? "done" : place === "planned" ? "not started" : place,
     since: 0,
+    labels: [`unit-${String(index + 1).padStart(3, "0")}`],
   };
 });
 

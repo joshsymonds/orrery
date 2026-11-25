@@ -61,7 +61,6 @@ private const val HEAD_TEXT_TAG = "head-text"
 private const val BAND_GOAL_TAG = "band-goal"
 private const val BAND_HIDE_TAG = "band-hide"
 private const val HEAD_METERS_TAG = "head-meters"
-private const val TILE_STRIP_TAG = "tile-strip"
 private const val COMPACT_HEAD_TAG = "compact-head"
 private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
@@ -83,7 +82,7 @@ private const val SESSION_GOAL = "synthetic goal"
 private const val REPLY_TEXT = "synthetic reply"
 private const val WAITING_TEXT = "synthetic waiting message"
 private const val QUEUED_TEXT = "synthetic queued prompt"
-/** The open header's parts: the title row, the meters, the goal, an ask line and the tiles. Each draws with the keyboard down. */
+/** The open header's parts: the title row, the meters, the goal and an ask line. Each draws with the keyboard down. */
 private val OPEN_HEADER = listOf(
     HEAD_TAG,
     HEAD_TITLE_TAG,
@@ -91,7 +90,6 @@ private val OPEN_HEADER = listOf(
     HEAD_METERS_TAG,
     BAND_GOAL_TAG,
     EPIC_LINE_TAG,
-    TILE_STRIP_TAG,
 )
 /** The header folded to its line: the title row and the folded line. Each draws with the keyboard down. */
 private val FOLDED_HEADER = listOf(HEAD_TAG, HEAD_TITLE_TAG, HEAD_TEXT_TAG, COMPACT_HEAD_TAG)
@@ -152,6 +150,7 @@ class MainActivityInsetsTest {
                     .setPane(0)
                     .setCwd("/home/user/alpha")
                     .setCommand("claude")
+                    .setClaudeSession("synthetic-claude")
                     .setState("working")
                     .setSummary("Synthetic summary.")
                     .setOrreryId(PANE_ORRERY_ID)
@@ -312,9 +311,9 @@ class MainActivityInsetsTest {
         }
     }
 
-    /** Folds the open header with the hide control at the end of its strip, once the strip has drawn its tiles. */
+    /** Folds the open header with the band's hide control, once the band has drawn it. */
     private fun foldHeader() {
-        assertDrawn(listOf(TILE_STRIP_TAG))
+        assertDrawn(listOf(BAND_HIDE_TAG))
         composeRule.onNodeWithTag(BAND_HIDE_TAG, useUnmergedTree = true).performClick()
         composeRule.waitForIdle()
     }

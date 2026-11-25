@@ -3,7 +3,7 @@ import type { ComponentChildren } from "preact";
 import type { BackgroundTask } from "./gen/orrery/v1/orrery_pb";
 import { elapsed } from "./dockwords";
 
-// SidePanel draws one opened thing as a card beside the conversation. Its top edge takes the tone of the lit tile it opened
+// SidePanel draws one opened thing as a card beside the conversation. Its top edge takes the tone of the thing it opened
 // from, and its controls are Open in a new window and Close. Every thing opens in this one frame, so it has no width or
 // kind of its own.
 export function SidePanel({

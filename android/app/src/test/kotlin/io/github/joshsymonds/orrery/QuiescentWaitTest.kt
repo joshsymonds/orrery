@@ -14,10 +14,13 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.api.FAKE_STREAM_HEADER
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.STREAM_ENDS
+import io.github.joshsymonds.orrery.api.STREAM_HOLDS
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.api.eventListenerFactory
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
@@ -346,6 +349,54 @@ class QuiescentWaitTest {
         }
 
         // With the body read nothing is in flight, so a condition that cannot hold fails at once.
+        val failure = assertThrows(AssertionError::class.java) {
+            Quiescence.awaitUntil("a condition that never holds") { false }
+        }
+        assertTrue(failure.message, failure.message!!.contains("nothing is in flight"))
+    }
+
+    @Test
+    fun aStreamThatEndsCountsAsInFlightUntilItsBodyIsReadAndAHeldOneOnlyUntilItsHeaders() {
+        // The gap PaneScreenTest.paneRefreshesEverySecondWhileVisible fell into on a loaded machine: its conversation
+        // stream's headers were in and the fake server's handler had written the end and returned, but the end's bytes
+        // had not reached the client's socket. The socket was quiet, the call's thread waited in a socket read, and the
+        // wait judged nothing in flight, so it failed with the stream's end still on its way.
+        Quiescence.install()
+        val request = Request.Builder().url("http://localhost$STREAM_PATH").build()
+        fun streamAnswer(kind: String): Response = Response.Builder()
+            .request(request)
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .header("Content-Type", "application/connect+proto")
+            .header(FAKE_STREAM_HEADER, kind)
+            .build()
+
+        val ending = OkHttpClient().newCall(request)
+        val endingListener = eventListenerFactory.create(ending)
+        endingListener.callStart(ending)
+        endingListener.responseHeadersEnd(ending, streamAnswer(STREAM_ENDS))
+        try {
+            assertTrue("an ending stream's call with its body unread is in flight", Quiescence.inFlight() != null)
+        } finally {
+            endingListener.callEnd(ending)
+        }
+        assertNothingInFlight()
+
+        val held = OkHttpClient().newCall(request)
+        val heldListener = eventListenerFactory.create(held)
+        heldListener.callStart(held)
+        try {
+            heldListener.responseHeadersEnd(held, streamAnswer(STREAM_HOLDS))
+            // A held stream waits only for its client, so with its headers in nothing is in flight.
+            assertNothingInFlight()
+        } finally {
+            heldListener.callEnd(held)
+        }
+    }
+
+    // Fails unless a wait on a condition that cannot hold fails because nothing is in flight.
+    private fun assertNothingInFlight() {
         val failure = assertThrows(AssertionError::class.java) {
             Quiescence.awaitUntil("a condition that never holds") { false }
         }

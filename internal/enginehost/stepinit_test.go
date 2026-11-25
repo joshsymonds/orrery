@@ -40,7 +40,7 @@ func TestInitNamesAgent(t *testing.T) {
 // step's agent. The step must end failed with a reason naming the agent, and its claude process must be gone.
 func TestStepStartedWithoutItsAgentInInitEndsFailed(t *testing.T) {
 	t.Parallel()
-	f := newRefusalFixture(t, 1)
+	f := newRefusalFixture(t)
 	workspace := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	start := stepStartWriting(workspace)
 	start.Prompt = "do it NOAGENT"
@@ -69,7 +69,7 @@ func TestStepStartedWithoutItsAgentInInitEndsFailed(t *testing.T) {
 // agent. The step must keep running, and its process must still be the one Stop ends.
 func TestStepWhoseInitListsItsAgentKeepsRunning(t *testing.T) {
 	t.Parallel()
-	m, _, _ := newHandOffManager(t, 1, &fakeSink{})
+	m, _, _ := newHandOffManager(t, &fakeSink{})
 	dir := t.TempDir()
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{

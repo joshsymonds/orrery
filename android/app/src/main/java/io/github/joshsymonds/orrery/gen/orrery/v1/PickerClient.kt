@@ -45,4 +45,19 @@ public class PickerClient(
     ),
   )
 
+
+  /**
+   *  Propose returns ranked host and folder proposals for a prompt over the reachable hosts.
+   */
+  override suspend fun propose(request: ProposeRequest, headers: Headers): ResponseMessage<ProposeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Picker/Propose",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ProposeRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ProposeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

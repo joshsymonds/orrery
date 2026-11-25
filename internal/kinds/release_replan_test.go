@@ -22,14 +22,13 @@ func TestReleaseReplanDecisions(t *testing.T) {
 	report := "the release integrator stopped the merge: README: side: candidate"
 	failed := integratorRound(1, "", report)
 	stopped := func(releases ...store.ReleaseRun) Rows {
-		rows := integratorRows(releases, nil, nil, nil)
+		rows := integratorRows(releases, nil)
 		rows.Epic.Phase = store.PhaseStopped
 		return rows
 	}
 	correcting := func(state string) Rows {
-		rows := integratorRows([]store.ReleaseRun{failed, replanRun(1, "tip-1", report)}, nil, nil, nil)
+		rows := integratorRows([]store.ReleaseRun{failed, replanRun(1, "tip-1", report)}, nil)
 		rows.Epic.Phase = phaseCorrecting
-		rows.Slot = ""
 		if state != "" {
 			rows.Runs = []store.NodeRun{{Path: "release/A1/fix", Kind: kindPlan, State: state}}
 		}
@@ -44,12 +43,12 @@ func TestReleaseReplanDecisions(t *testing.T) {
 	}{
 		{
 			name: "failed round with a replan of its attempt replans",
-			rows: integratorRows([]store.ReleaseRun{failed, replanRun(1, "tip-1", report)}, nil, nil, nil),
+			rows: integratorRows([]store.ReleaseRun{failed, replanRun(1, "tip-1", report)}, nil),
 			want: Action{Kind: ActReplan, Output: report},
 		},
 		{
 			name: "failed round with a replan of an earlier attempt stops",
-			rows: integratorRows([]store.ReleaseRun{replanRun(0, "tip-0", "old"), failed}, nil, nil, nil),
+			rows: integratorRows([]store.ReleaseRun{replanRun(0, "tip-0", "old"), failed}, nil),
 			want: Action{Kind: ActStop, Output: report},
 		},
 		{
@@ -87,7 +86,7 @@ func TestReleaseAfterReplanReusesNoEarlierCandidate(t *testing.T) {
 	t.Parallel()
 	epic := releasingEpic(releaseStep("tag", "none"))
 	before := Rows{
-		Epic: epic, Slot: releaseEpicID,
+		Epic:     epic,
 		Releases: []store.ReleaseRun{candidateRun(0, "old"), replanRun(1, "tip-1", "report")},
 	}
 	if got := (Release{}).Decide(releaseNode(2, "", ""), before); got.Kind != ActPrepare {

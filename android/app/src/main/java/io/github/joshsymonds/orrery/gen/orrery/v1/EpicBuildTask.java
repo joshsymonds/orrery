@@ -25,6 +25,8 @@ public  final class EpicBuildTask extends
     stage_ = "";
     requirements_ = emptyProtobufList();
     reviews_ = emptyProtobufList();
+    place_ = "";
+    tone_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -232,7 +234,8 @@ public  final class EpicBuildTask extends
   private java.lang.String stage_;
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -244,7 +247,8 @@ public  final class EpicBuildTask extends
   }
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -257,7 +261,8 @@ public  final class EpicBuildTask extends
   }
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -271,7 +276,8 @@ public  final class EpicBuildTask extends
   }
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -282,7 +288,8 @@ public  final class EpicBuildTask extends
   }
   /**
    * <pre>
-   * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+   * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+   * verify or design.
    * </pre>
    *
    * <code>string stage = 4 [json_name = "stage"];</code>
@@ -696,6 +703,185 @@ public  final class EpicBuildTask extends
     reviews_.remove(index);
   }
 
+  public static final int PLACE_FIELD_NUMBER = 9;
+  private java.lang.String place_;
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @return The place.
+   */
+  @java.lang.Override
+  public java.lang.String getPlace() {
+    return place_;
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @return The bytes for place.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPlaceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(place_);
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @param value The place to set.
+   */
+  private void setPlace(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    place_ = value;
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   */
+  private void clearPlace() {
+
+    place_ = getDefaultInstance().getPlace();
+  }
+  /**
+   * <pre>
+   * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+   * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+   * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+   * that claims it passed with it in its batch.
+   * </pre>
+   *
+   * <code>string place = 9 [json_name = "place"];</code>
+   * @param value The bytes for place to set.
+   */
+  private void setPlaceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    place_ = value.toStringUtf8();
+
+  }
+
+  public static final int TONE_FIELD_NUMBER = 10;
+  private java.lang.String tone_;
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @return The tone.
+   */
+  @java.lang.Override
+  public java.lang.String getTone() {
+    return tone_;
+  }
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @return The bytes for tone.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getToneBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tone_);
+  }
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @param value The tone to set.
+   */
+  private void setTone(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tone_ = value;
+  }
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   */
+  private void clearTone() {
+
+    tone_ = getDefaultInstance().getTone();
+  }
+  /**
+   * <pre>
+   * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+   * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+   * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+   * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+   * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+   * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+   * its id or with the evidence label of its red or green run.
+   * </pre>
+   *
+   * <code>string tone = 10 [json_name = "tone"];</code>
+   * @param value The bytes for tone to set.
+   */
+  private void setToneBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tone_ = value.toStringUtf8();
+
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1006,7 +1192,8 @@ public  final class EpicBuildTask extends
 
     /**
      * <pre>
-     * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+     * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+     * verify or design.
      * </pre>
      *
      * <code>string stage = 4 [json_name = "stage"];</code>
@@ -1018,7 +1205,8 @@ public  final class EpicBuildTask extends
     }
     /**
      * <pre>
-     * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+     * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+     * verify or design.
      * </pre>
      *
      * <code>string stage = 4 [json_name = "stage"];</code>
@@ -1031,7 +1219,8 @@ public  final class EpicBuildTask extends
     }
     /**
      * <pre>
-     * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+     * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+     * verify or design.
      * </pre>
      *
      * <code>string stage = 4 [json_name = "stage"];</code>
@@ -1046,7 +1235,8 @@ public  final class EpicBuildTask extends
     }
     /**
      * <pre>
-     * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+     * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+     * verify or design.
      * </pre>
      *
      * <code>string stage = 4 [json_name = "stage"];</code>
@@ -1059,7 +1249,8 @@ public  final class EpicBuildTask extends
     }
     /**
      * <pre>
-     * The stage the task's build is on: empty before its first unit, then red, implement, green, review or verify.
+     * The stage the task's build is on: empty before its first unit, then red, implement, orchestrate, green, review,
+     * verify or design.
      * </pre>
      *
      * <code>string stage = 4 [json_name = "stage"];</code>
@@ -1493,6 +1684,189 @@ public  final class EpicBuildTask extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+     * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+     * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+     * that claims it passed with it in its batch.
+     * </pre>
+     *
+     * <code>string place = 9 [json_name = "place"];</code>
+     * @return The place.
+     */
+    @java.lang.Override
+    public java.lang.String getPlace() {
+      return instance.getPlace();
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+     * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+     * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+     * that claims it passed with it in its batch.
+     * </pre>
+     *
+     * <code>string place = 9 [json_name = "place"];</code>
+     * @return The bytes for place.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPlaceBytes() {
+      return instance.getPlaceBytes();
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+     * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+     * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+     * that claims it passed with it in its batch.
+     * </pre>
+     *
+     * <code>string place = 9 [json_name = "place"];</code>
+     * @param value The place to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlace(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPlace(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+     * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+     * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+     * that claims it passed with it in its batch.
+     * </pre>
+     *
+     * <code>string place = 9 [json_name = "place"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlace() {
+      copyOnWrite();
+      instance.clearPlace();
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the task stands in its lifecycle of red, implement, green, review and integrate: planned while its build has
+     * no stage; the ring of its build's stage while it is open or a gap (red, implement for implement and orchestrate,
+     * green, review for review, verify and design); integrate once it is accepted; and integrated once the integrate run
+     * that claims it passed with it in its batch.
+     * </pre>
+     *
+     * <code>string place = 9 [json_name = "place"];</code>
+     * @param value The bytes for place to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlaceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPlaceBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+     * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+     * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+     * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+     * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+     * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+     * its id or with the evidence label of its red or green run.
+     * </pre>
+     *
+     * <code>string tone = 10 [json_name = "tone"];</code>
+     * @return The tone.
+     */
+    @java.lang.Override
+    public java.lang.String getTone() {
+      return instance.getTone();
+    }
+    /**
+     * <pre>
+     * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+     * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+     * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+     * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+     * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+     * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+     * its id or with the evidence label of its red or green run.
+     * </pre>
+     *
+     * <code>string tone = 10 [json_name = "tone"];</code>
+     * @return The bytes for tone.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getToneBytes() {
+      return instance.getToneBytes();
+    }
+    /**
+     * <pre>
+     * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+     * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+     * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+     * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+     * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+     * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+     * its id or with the evidence label of its red or green run.
+     * </pre>
+     *
+     * <code>string tone = 10 [json_name = "tone"];</code>
+     * @param value The tone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTone(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTone(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+     * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+     * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+     * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+     * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+     * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+     * its id or with the evidence label of its red or green run.
+     * </pre>
+     *
+     * <code>string tone = 10 [json_name = "tone"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTone() {
+      copyOnWrite();
+      instance.clearTone();
+      return this;
+    }
+    /**
+     * <pre>
+     * How the task stands at its place. ok once integrated, acc while accepted and waiting to integrate, and plan while
+     * planned. bad for a gap, and for an open task of an ended epic whose latest step ended other than done or whose build
+     * carries a failure; plan for any other open task of an ended epic. For an open task of a live epic: mine while its
+     * running step is held, limited while a usage limit holds that step, run while it runs; then mine while its build is
+     * held or its epic is paused or parked; and run otherwise, so a unit that ended goal_unmet or checks_failed while the
+     * build retries or climbs its ladder is run, not bad. A task's running step is its latest unended step labelled with
+     * its id or with the evidence label of its red or green run.
+     * </pre>
+     *
+     * <code>string tone = 10 [json_name = "tone"];</code>
+     * @param value The bytes for tone to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToneBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setToneBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicBuildTask)
   }
   @java.lang.Override
@@ -1519,10 +1893,13 @@ public  final class EpicBuildTask extends
             "green_",
             "reviews_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicTaskReview.class,
+            "place_",
+            "tone_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u021a\u0006\u1009\u0000\u0007\u1009\u0001\b\u001b";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u021a\u0006\u1009\u0000\u0007\u1009\u0001\b\u001b\t\u0208\n\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

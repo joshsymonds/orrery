@@ -86,14 +86,12 @@ class EpicScreenTest {
         questions: List<EpicQuestion> = emptyList(),
         contract: EpicContract? = null,
         summary: String = "",
-        problem: String = "",
         outcome: String = "",
         live: Boolean = true,
         paused: Boolean = false,
         parked: String = "",
         phaseAt: Long = 0L,
         buildTasks: List<EpicBuildTask> = emptyList(),
-        source: String = "orreryd",
         seen: Long = 0L,
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
@@ -105,9 +103,8 @@ class EpicScreenTest {
             .setLive(live)
             .addAllRunningSteps(steps.filter { it.end.isEmpty() })
             .setEndedSteps(steps.count { it.end.isNotEmpty() })
-            .setProblem(problem)
             .setPhaseAt(phaseAt)
-            .setSource(source)
+            .setSource("orreryd")
             .setSeen(seen)
         val response = EpicsGetResponse.newBuilder()
             .setEpic(epic)
@@ -337,16 +334,6 @@ class EpicScreenTest {
     }
 
     @Test
-    fun theTitleShowsTheProblemAsSent() {
-        FakeOrreryServer().use { server ->
-            serve(server, body(problem = "efforts/1/state.json: does not parse"))
-            setScreen(server)
-
-            awaitText("efforts/1/state.json: does not parse")
-        }
-    }
-
-    @Test
     fun unknownEpicShowsEpicNotFound() {
         FakeOrreryServer().use { server ->
             setScreen(server)
@@ -486,11 +473,6 @@ class EpicScreenTest {
     @Test
     fun aLiveEpicSendsNoSeen() {
         assertNoSeenFor(body(live = true, phaseAt = NOW - 120))
-    }
-
-    @Test
-    fun aRecordEpicSendsNoSeen() {
-        assertNoSeenFor(body(outcome = "released", live = false, phaseAt = NOW - 120, source = "record"))
     }
 
     @Test

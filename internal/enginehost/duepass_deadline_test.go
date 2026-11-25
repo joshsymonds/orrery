@@ -221,27 +221,6 @@ func TestDuePassDueDeadlineIdleArmsNothing(t *testing.T) {
 	}
 }
 
-// TestDuePassDueDeadlineCapRefusalWaitsForAFreedSlot covers R1: a row the step cap refuses arms no timer, and a wake,
-// which a freed step slot sends, resumes the row again.
-func TestDuePassDueDeadlineCapRefusalWaitsForAFreedSlot(t *testing.T) {
-	t.Parallel()
-	st, _ := openStore(t)
-	resets := time.Unix(probeResetUnix, 0)
-	addDueStep(t, st, duePassStep, resets)
-	rig := dueDeadlineStart(t, st, newDueDeadlineSteps(ErrCapReached), resets.Add(dueGrace))
-	want := dueStepCall{id: duePassStep, resets: resets.Unix()}
-
-	if call := rig.awaitCall(t); call != want {
-		t.Fatalf("AutoResume at start = %+v, want %+v", call, want)
-	}
-	rig.pass.Wake()
-	if call := rig.awaitCall(t); call != want {
-		t.Fatalf("AutoResume after the wake = %+v, want %+v", call, want)
-	}
-	rig.stop()
-	rig.requireNoTimer(t)
-}
-
 // TestDuePassDueDeadlineGateRefusalRetriesOnce covers R1: a row the step's gate refuses arms one timer for dueRetry, and
 // firing it resumes the step once more, which arms the next retry.
 func TestDuePassDueDeadlineGateRefusalRetriesOnce(t *testing.T) {

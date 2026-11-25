@@ -66,6 +66,12 @@ sealed interface ConvoEntry {
     /** The [epic] a create call made, from an accepted contract. */
     data class Created(val epic: String, val time: Long = 0L) : ConvoEntry
 
+    /**
+     * A question the Director asked about [design], [question] its key (Q and its number). It is drawn as the question's
+     * thread, which answers through the design, as round 8 draws it in the conversation (O.qthread in design.js).
+     */
+    data class DesignQuestion(val design: String, val question: String, val time: Long = 0L) : ConvoEntry
+
     /** A move of an epic, drawn as its move line. */
     data class Move(val event: MoveLineEvent, val time: Long = 0L, val promptId: String = "") : ConvoEntry
 
@@ -146,6 +152,9 @@ private val entities = mapOf("amp" to "&", "lt" to "<", "gt" to ">", "quot" to "
 // firstSentencePattern matches a body's first sentence, up to a full stop that ends a word, or else its first line.
 private val firstSentencePattern = Regex("""^[^\n]*?\.(?=\s|$)|^[^\n]*""")
 
+// questionIdPattern matches the id of a design's question, Q and its number.
+private val questionIdPattern = Regex("""Q\d+""")
+
 /** An event block as its text holds it: its kind and id, its attributes, and its body, with every value unescaped. */
 private class ParsedBlock(val kind: String, val id: String, val attributes: Map<String, String>, val body: String)
 
@@ -193,9 +202,10 @@ private fun firstSentence(body: String): String =
  * group, and the notices that fell inside the run follow the group. A shorter run keeps its calls and notices in their
  * own order. A call that writes a contract and has a result that did not fail is its own contract line, and so is an
  * epic_create call with a result that did not fail, its created line; each ends the run before it, so it never joins a
- * group. A day rule is drawn before an item whose local day, in [zone], differs from the item before it, and before the
- * first item when its day is not the day of [now] (unix seconds, the caller's clock). Any kind not named draws nothing,
- * and so does a prompt from a sender not named.
+ * group. A design item that records a question the Director asked is its design question, drawn as its thread; any
+ * other design item draws nothing. A day rule is drawn before an item whose local day, in [zone], differs from the item
+ * before it, and before the first item when its day is not the day of [now] (unix seconds, the caller's clock). Any kind
+ * not named draws nothing, and so does a prompt from a sender not named.
  */
 fun foldConversation(
     items: List<ConversationItem>,
@@ -208,7 +218,7 @@ fun foldConversation(
     val run = mutableListOf<ConvoEntry>()
 
     items.forEachIndexed { index, item ->
-        if (item.kind in DAY_KINDS && dayOpens(items, index, now, zone)) {
+        if ((item.kind in DAY_KINDS || askedQuestionOf(item) != null) && dayOpens(items, index, now, zone)) {
             flushRun(run, entries)
             entries.add(ConvoEntry.Day(item.time))
         }
@@ -251,8 +261,18 @@ private fun entryOf(item: ConversationItem): ConvoEntry? = when (item.kind) {
     "compaction" -> ConvoEntry.Compaction(item.trigger, item.tokens, item.text, item.time)
     "interrupted" -> ConvoEntry.Interrupted(item.time)
     "agent_finished" -> ConvoEntry.Task("agent", item.tool, item.text, item.notice.ifEmpty { "done" }, item.time)
+    "design" -> askedQuestionOf(item)?.let { ConvoEntry.DesignQuestion(item.design, it, item.time) }
     else -> null
 }
+
+// askedQuestionOf is the question a design item records the Director asked: the first of its ids that names a question, Q
+// and its number, on an item whose record says asked. Null for any other design item.
+private fun askedQuestionOf(item: ConversationItem): String? =
+    if (item.kind == "design" && item.designWhat == "asked") {
+        item.designIds.firstOrNull { questionIdPattern.matches(it) }
+    } else {
+        null
+    }
 
 // promptEntry is a prompt's entry by its sender: the owner's or one with no sender, the engine's, the brief, a check or
 // round-zero fold, a cron, or an event, which is read by its block. A prompt of any other sender is no entry.
@@ -383,6 +403,7 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.StepEnd -> "stepend:${entry.time}:${entry.end}:${entry.summary.hashCode()}"
     is ConvoEntry.EpicEvent -> "epicevent:${entry.time}:${entry.kind}:${entry.epic}"
     is ConvoEntry.Created -> "created:${entry.time}:${entry.epic}"
+    is ConvoEntry.DesignQuestion -> "design-question:${entry.design}:${entry.question}"
     is ConvoEntry.Move -> "move:${entry.time}:${entry.event.epic}"
     is ConvoEntry.Brief -> "brief:${entry.time}:${entry.text.hashCode()}"
     is ConvoEntry.Engine -> "engine:${entry.time}:${entry.text.hashCode()}"
@@ -421,6 +442,7 @@ internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.StepEnd -> entry.time
     is ConvoEntry.EpicEvent -> entry.time
     is ConvoEntry.Created -> entry.time
+    is ConvoEntry.DesignQuestion -> entry.time
     is ConvoEntry.Move -> entry.time
     is ConvoEntry.Brief -> entry.time
     is ConvoEntry.Engine -> entry.time

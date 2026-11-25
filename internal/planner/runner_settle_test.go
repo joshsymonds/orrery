@@ -3,13 +3,11 @@ package planner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -168,38 +166,6 @@ func TestRunnerRetriesFailTurnWriteAndFreesTrigger(t *testing.T) {
 	}
 	if len(triggers) != 1 || triggers[0].ID != "created" {
 		t.Errorf("triggers of turn 2 = %+v, want the created trigger freed and claimed again", triggers)
-	}
-}
-
-func TestRunnerRetriesFreeTurnWriteOnStepCapRefusal(t *testing.T) {
-	t.Parallel()
-	s := openRunnerStore(t)
-	createRunnerEpic(t, s)
-	steps := newFakeSteps()
-	steps.watchStore(s)
-	faulty := &faultyStore{Store: s, changes: &steps.changeNotice, write: "FreeTurn", err: errSettleWrite, failures: 1}
-	steps.startErr = fmt.Errorf("%w: 2 live steps, step cap 2", enginehost.ErrCapReached)
-	var reads atomic.Int64
-	runner := runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
-	waitFor(t, &steps.changeNotice, "turn 1 to be freed", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) >= 1 && turns[0].State == "free"
-	})
-	runner.Pass(t.Context())
-	waitFor(t, &steps.changeNotice, "turn 2 to be freed and claimed again", func() bool {
-		turns := epicOf(t, s).Turns
-		return len(turns) >= 2 && turns[1].State == "free"
-	})
-	if got := faulty.calls.Load(); got < 2 {
-		t.Errorf("FreeTurn calls = %d, want at least 2: turn 1's failed write and its retry", got)
-	}
-	epic := epicOf(t, s)
-	if turn := epic.Turns[0]; turn.State != "free" || turn.Reason != "step cap full" {
-		t.Errorf("turn 1 = state %q reason %q, want free step cap full", turn.State, turn.Reason)
-	}
-	if epic.Paused || epic.Parked != "" {
-		t.Errorf("epic Paused = %v Parked = %q, want neither: a full step cap frees without pause or park",
-			epic.Paused, epic.Parked)
 	}
 }
 

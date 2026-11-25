@@ -18,7 +18,6 @@ import {
   type EpicStep,
 } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
-import { stateOf } from "./status";
 import {
   allLimited,
   askingOf,
@@ -29,6 +28,7 @@ import {
   plannerParked,
   reachedOf,
   statePillOf,
+  steererParked,
   stepLinesOf,
   trackOf,
 } from "./recordwords";
@@ -43,7 +43,6 @@ function detail(init: DetailInit): EpicsGetResponse {
 
 // Synthetic epic identity and clock. Every test passes now, so no test reads the wall clock.
 const alpha = { id: "repo-a/alpha", repository: "repo-a", slug: "alpha", source: "orreryd" };
-const record = { id: "repo-a/notes", repository: "repo-a", slug: "notes", source: "record" };
 const now = 10_000;
 const acceptedAt = 1_700_000_000n;
 const resetsAt = 1_700_018_000n;
@@ -57,9 +56,11 @@ function orrerydIn(outcome: string, init: DetailInit = {}): EpicsGetResponse {
   });
 }
 
-// A planned build task with the given status.
+// A build task with the given status and no stage, integrated when it is done and planned otherwise, as the server
+// stands such a task.
 function build(id: string, status: string) {
-  return create(EpicBuildTaskSchema, { id, title: `Task ${id}`, status, stage: "", requirements: ["R1"] });
+  const [place, tone] = status === "done" ? ["integrated", "ok"] : ["planned", "plan"];
+  return create(EpicBuildTaskSchema, { id, title: `Task ${id}`, status, stage: "", requirements: ["R1"], place, tone });
 }
 
 // A running step of a task, limited or held or neither.
@@ -107,10 +108,6 @@ test("EpicRecord: a released epic's track ends at Report now, released", () => {
   ]);
 });
 
-test("EpicRecord: a record epic has no track", () => {
-  assert.deepEqual(trackOf(detail({ epic: record, tasks: [] })), []);
-});
-
 test("EpicRecord: a building epic reaches every section", () => {
   const d = orrerydIn("built", {
     summary: "The parser reads a file.",
@@ -142,31 +139,13 @@ test("EpicRecord: a planning epic reaches its summary, track, now and requiremen
   });
 });
 
-test("EpicRecord: a record epic reaches only its now and its tasks", () => {
-  const d = detail({
-    epic: record,
-    summary: "A summary the record never draws.",
-    requirements: [create(EpicRequirementSchema, { id: "R1", text: "It parses." })],
-    tasks: [{ slug: "t1", subject: "Parse", status: "pending", requirements: [], effort: 1 }],
-  });
-  const history = [create(EpicHistoryEntrySchema, { time: 1n, cursor: "c1" })];
-  assert.deepEqual(reachedOf(d, history), {
-    summary: false,
-    track: false,
-    now: true,
-    history: false,
-    tasks: true,
-    requirements: false,
-  });
-});
-
 test("EpicRecord: the contract door reads accepted, care and the requirement count, and is empty with no contract", () => {
   assert.equal(contractDoorOf(orrerydIn("accepted", { requirements: [] })), `accepted ${clock(acceptedAt)} · serious care · 0 requirements`);
   const withTwo = orrerydIn("accepted", {
     requirements: [create(EpicRequirementSchema, { id: "R1" }), create(EpicRequirementSchema, { id: "R2" })],
   });
   assert.equal(contractDoorOf(withTwo), `accepted ${clock(acceptedAt)} · serious care · 2 requirements`);
-  assert.equal(contractDoorOf(detail({ epic: record })), "");
+  assert.equal(contractDoorOf(detail({ epic: alpha })), "");
 });
 
 test("EpicWords: each state pill has its SPEC 8 word and tone", () => {
@@ -315,6 +294,111 @@ test("EpicAsk: an epic with nothing open and nothing limited asks nothing", () =
   assert.equal(askingOf(orrerydIn("built", { steps: [step({ limited: false })] })), null);
 });
 
+test("SteererHolds: a steerer's park is not the owner's, and does not change the state word", () => {
+  const d = orrerydIn("built", { parked: "gate failed", steererParked: true });
+  assert.equal(ownerParked(d), false);
+  assert.equal(steererParked(d), true);
+  assert.equal(plannerParked(d), false);
+  assert.deepEqual(statePillOf(d, now), { word: "building", tone: "live" });
+});
+
+test("SteererHolds: the blocker pill reads a steerer's park and a steerer-held question quietly, after what asks the owner", () => {
+  const held = create(EpicQuestionSchema, { id: "Q1", text: "Retry?", asked: 9_400n, steererHeld: true });
+  const mine = create(EpicQuestionSchema, { id: "Q2", text: "Which?", asked: 9_700n });
+  assert.deepEqual(blockerPillOf(orrerydIn("built", { parked: "gate failed", steererParked: true, questions: [held] }), now), {
+    word: "its steerer holds the park",
+    tone: "quiet",
+  });
+  assert.deepEqual(blockerPillOf(orrerydIn("built", { questions: [held] }), now), {
+    word: "asks its steerer a question · 10 min",
+    tone: "quiet",
+  });
+  assert.deepEqual(blockerPillOf(orrerydIn("built", { questions: [create(EpicQuestionSchema, { id: "Q1", steererHeld: true })] }), now), {
+    word: "asks its steerer a question",
+    tone: "quiet",
+  });
+  assert.deepEqual(blockerPillOf(orrerydIn("built", { questions: [held, mine] }), now), {
+    word: "asks you a question · 5 min",
+    tone: "attention",
+  });
+  assert.deepEqual(
+    blockerPillOf(orrerydIn("built", { parked: "gate failed", steererParked: true, steps: [step({ task: "T2", held: true })] }), now),
+    { word: "T2 held", tone: "attention" },
+  );
+  assert.deepEqual(blockerPillOf(orrerydIn("ended_with_gaps", { questions: [held] }), now), {
+    word: "release it anyway, or close it",
+    tone: "attention",
+  });
+});
+
+test("SteererHolds: a steerer's park holds a stopped release, so its pill reads the steerer's, not the step with no undo", () => {
+  const steps = [create(EpicReleaseProofSchema, { position: 1n, step: "publish", state: "failed", undo: "none" })];
+  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: steps }), now), {
+    word: "step 1 failed and cannot be undone",
+    tone: "attention",
+  });
+  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: steps, parked: "publish failed", steererParked: true }), now), {
+    word: "its steerer holds the park",
+    tone: "quiet",
+  });
+});
+
+test("SteererHolds: the sentence names a steerer's park, and a steerer-held question as its steerer's wait", () => {
+  const held = create(EpicQuestionSchema, { id: "Q1", text: "Retry?", asked: 9_400n, steererHeld: true });
+  assert.equal(
+    nowSentenceOf(orrerydIn("built", { parked: "gate failed", steererParked: true, questions: [held] })),
+    "Parked. Its steerer holds the question; nothing is asked of you unless it escalates it.",
+  );
+  assert.equal(nowSentenceOf(orrerydIn("built", { questions: [held] })), "It waits on its steerer's answer.");
+  assert.equal(
+    nowSentenceOf(
+      orrerydIn("built", { buildTasks: [build("T1", "pending")], steps: [step({ id: "s1", task: "T1" })], questions: [held] }),
+    ),
+    "One task is being worked on, and one waits on its steerer.",
+  );
+  assert.equal(
+    nowSentenceOf(
+      orrerydIn("built", {
+        buildTasks: [build("T1", "pending"), build("T2", "pending")],
+        steps: [step({ id: "s1", task: "T1" }), step({ id: "s2", task: "T2" })],
+        questions: [held],
+      }),
+    ),
+    "2 tasks are being worked on, and one waits on its steerer.",
+  );
+  const mine = create(EpicQuestionSchema, { id: "Q2", text: "Which?", asked: 9_700n });
+  assert.equal(nowSentenceOf(orrerydIn("built", { questions: [held, mine] })), "It waits on your answer.");
+});
+
+test("SteererHolds: a steerer's park and a steerer-held question are quiet lines, and the owner's question asks ahead of them", () => {
+  const held = create(EpicQuestionSchema, { id: "Q1", text: "Retry the gate?", asked: 9_400n, steererHeld: true });
+  assert.deepEqual(askingOf(orrerydIn("built", { parked: "gate failed", steererParked: true, questions: [held] })), {
+    kind: "steerer",
+    line: "Its steerer holds this park, and answers it or escalates it to you: gate failed",
+  });
+  assert.deepEqual(askingOf(orrerydIn("built", { questions: [held] })), {
+    kind: "steerer",
+    line: "Its steerer holds this question, and answers it or escalates it to you: Retry the gate?",
+  });
+  const mine = create(EpicQuestionSchema, { id: "Q2", text: "Which?", asked: 9_700n });
+  const d = orrerydIn("built", { questions: [held, mine], parked: "gate failed", steererParked: true });
+  const asking = askingOf(d);
+  assert.equal(asking?.kind === "question" ? asking.question : undefined, d.questions[1]);
+  assert.deepEqual(askingOf(orrerydIn("built", { questions: [held], steps: [step({ limited: true })] })), {
+    kind: "steerer",
+    line: "Its steerer holds this question, and answers it or escalates it to you: Retry the gate?",
+  });
+});
+
+test("SteererHolds: a steerer-held question does not make Build ask", () => {
+  const held = create(EpicQuestionSchema, { id: "Q1", text: "Retry?", steererHeld: true });
+  const d = orrerydIn("built", { buildTasks: [build("T1", "done"), build("T2", "pending")], questions: [held] });
+  assert.deepEqual(trackOf(d)[1], stage("Build", "now", "live", "1 of 2 tasks done"));
+  const mine = create(EpicQuestionSchema, { id: "Q2", text: "Which?" });
+  const asks = orrerydIn("built", { buildTasks: [build("T1", "done"), build("T2", "pending")], questions: [held, mine] });
+  assert.deepEqual(trackOf(asks)[1], stage("Build", "now", "attention", "1 of 2 tasks done · 1 waits on you"));
+});
+
 test("EpicRecord: a reviewing epic has Build done and Review now, and a correcting epic reads correcting", () => {
   const reviewing = orrerydIn("reviewing", { buildTasks: [build("T1", "done")] });
   assert.deepEqual(trackOf(reviewing), [
@@ -413,12 +497,6 @@ test("EpicRecord: a contract accepted at zero reads accepted with no time, in th
   });
   assert.deepEqual(trackOf(d)[0], stage("Contract", "done", "ok", "accepted"));
   assert.equal(contractDoorOf(d), "accepted · serious care · 0 requirements");
-});
-
-test("EpicWords: a record epic's state pill is the state word of status.ts stateOf, quiet", () => {
-  const d = detail({ epic: { ...record, outcome: "released" } });
-  assert.equal(stateOf(d), "released");
-  assert.deepEqual(statePillOf(d, now), { word: stateOf(d), tone: "quiet" });
 });
 
 // A release step at its position, in the given state, with the undo it was given.

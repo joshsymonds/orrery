@@ -1,5 +1,5 @@
 import type { EpicsGetResponse, EpicStep, EpicStepCheck, EpicTaskReview, EvidenceRun } from "./gen/orrery/v1/epics_pb";
-import { placementOf, tasksOf } from "./phases";
+import { tasksOf } from "./phases";
 
 // The tone of a line or a chip: live while a step runs, attention when it is held, ok, bad, neutral, accepted, or quiet.
 export type BodyTone = "live" | "attention" | "ok" | "bad" | "neutral" | "accepted" | "quiet";
@@ -265,7 +265,7 @@ export function stageBodiesOf(detail: EpicsGetResponse, task: string): StageBodi
     },
     review: reviewOf(build?.reviews ?? [], steps),
     integrate:
-      placementOf(record, steps).place === "integrated"
+      record.place === "integrated"
         ? { text: "Merged.", tone: "ok" }
         : { text: "Every gate took it. It waits for its merge.", tone: "accepted" },
   };

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -144,10 +143,11 @@ func (a amendSteps) Status(_ context.Context, id string) (store.StepRow, error) 
 	return row, nil
 }
 
-// TestAmendEvidenceRPCIsTheOwnersAlone amends R1 with a new conclusion from the step of the epic's running turn, from an
-// implementer step labeled with the epic, from a step of another epic and from no session. The two steps of the epic are
-// refused and store nothing, since the planner amends through its action; the other two are the owner's and are stored.
-func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
+// TestAmendEvidenceRPCRefusesStepsOfTheEpic amends R1 with a new conclusion from the step of the epic's running turn, from
+// an implementer step labeled with the epic, from a step of another epic and from no session. The two steps of the epic
+// are refused and store nothing, since the planner amends through its action; the other two are the owner's and are
+// stored.
+func TestAmendEvidenceRPCRefusesStepsOfTheEpic(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, _ := openPlannerStore(t)
@@ -178,8 +178,8 @@ func TestAmendEvidenceRPCIsTheOwnersAlone(t *testing.T) {
 	for _, session := range []string{"step-1", "step-impl"} {
 		_, err = amend(session)
 		wantConnectError(t, err, connect.CodeFailedPrecondition, "step "+session+" of epic "+epicServiceID+
-			" may not amend its evidence; the planner amends through its amend_evidence action, and the owner "+
-			"through this call")
+			" may not amend its evidence; the planner amends through its amend_evidence action, and the owner and "+
+			"the conversation that steers the epic through this call")
 	}
 	if amendments := getEpicOK(t, client).GetAmendments(); len(amendments) != 0 {
 		t.Fatalf("amendments after the steps' calls = %v, want none", amendments)
@@ -236,6 +236,7 @@ func TestEvidenceRunAmendmentRunsTheAmendedItemOnceUnderID(t *testing.T) {
 	if !reflect.DeepEqual(started.Spec, spec) {
 		t.Fatalf("started run spec = %+v, want the amended item %+v", started.Spec, spec)
 	}
+	evidenceRunAttach(t, ev, st, started)
 	got := evidenceRunSettled(t, engineOf(ev), st, evidenceTaskRunID)
 	again, err := ev.RunAmendment(t.Context(), evidenceTaskRunID, evidenceRunEpic, "R1", spec, head,
 		evidence.PhaseRed)
@@ -273,40 +274,4 @@ func TestEvidenceRunAmendmentRefusesABadRequest(t *testing.T) {
 		}
 	}
 	evidenceRunWantNoRuns(t, st)
-}
-
-// TestEvidenceResumeDrivesAnAmendmentRunByItsOwnItem resumes an amendment's red run that a restart left capturing before
-// its capture launched. The run is captured by the item it keeps, the amendment's, not the item its Requirement holds,
-// and is judged once.
-func TestEvidenceResumeDrivesAnAmendmentRunByItsOwnItem(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	held, amended := filepath.Join(dir, "held"), filepath.Join(dir, "amended")
-	repo := stepGitTestRepo(t)
-	head := stepGitTestCommit(t, repo, map[string]string{
-		"capture.sh": "echo run >> " + held + "\nexit 1\n",
-		"amended.sh": "echo run >> " + amended + "\nexit 1\n",
-	})
-	st := epicTestStore(t)
-	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	spec := evidenceRunItem()
-	spec.Capture, spec.Conclusion = []string{"/bin/sh", "amended.sh"}, "the amended build passes"
-	evidenceReadoptAdd(t, st, "amendment-red", head, evidence.PhaseRed, spec)
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-
-	if err := ev.Resume(t.Context()); err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-
-	got := evidenceRunSettled(t, engineOf(ev), st, "amendment-red")
-	if !reflect.DeepEqual(got.Spec, spec) || got.Judges != 1 {
-		t.Fatalf("run = spec %+v judges %d, want the amended item judged once", got.Spec, got.Judges)
-	}
-	if n := evidenceReadoptLines(t, amended); n != 1 {
-		t.Errorf("amended capture ran %d times, want once", n)
-	}
-	if n := evidenceReadoptLines(t, held); n != 0 {
-		t.Errorf("the Requirement's own capture ran %d times, want never", n)
-	}
 }

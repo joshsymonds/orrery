@@ -49,10 +49,10 @@ const amendmentNamespace = "orrery-amendment"
 const amendmentReruns = EnvironmentReruns
 
 // ErrAmendmentDeferred reports that an amendment whose red run passed is not applied yet, because an evidence,
-// integrate or sync node run of its epic has its work under way, or its release captures a merge of its release
-// integrator. That work captures the Requirement's item under ids the item does not name, so the item stays as it is
-// until the work ends, and the amendment is settled again on a later pass.
-var ErrAmendmentDeferred = errors.New("amendment waits for an evidence, integrate, sync or release capture under way")
+// integrate or sync node run of its epic has its work under way. That work captures the Requirement's item under ids
+// the item does not name, so the item stays as it is until the work ends, and the amendment is settled again on a
+// later pass.
+var ErrAmendmentDeferred = errors.New("amendment waits for an evidence, integrate or sync capture under way")
 
 // Amendment is what an amendment asks for: the Requirement it amends, by its id, the evidence item it asks the
 // Requirement to hold, and why.
@@ -173,7 +173,7 @@ func startAmendment(
 	if err != nil {
 		return EvidenceAmendment{}, err
 	}
-	if endedPhase(head.Phase) {
+	if EndedPhase(head.Phase) {
 		return EvidenceAmendment{}, RefusalError(fmt.Sprintf(
 			"epic %s is %s, an ended phase, and takes no evidence amendment", epic, head.Phase))
 	}
@@ -231,12 +231,12 @@ func epicRequirement(ctx context.Context, queries *sqlcgen.Queries, epic, id str
 
 // amendmentRefusal returns why start may not amend requirement of epic, or "" when it may: a Requirement dropped as
 // already met at the base, an item evidence.Check refuses, with each of its lines, an item the Requirement already holds,
-// whatever empty lists it gives as null or [], an amendment by anyone but the owner that changes the conclusion or the
-// kind, which only the owner may change, a Requirement with an amendment that is checking or capturing, and an amendment
-// that keeps the conclusion and kind while evidence work of the epic is under way. A non-owner that changed the kind could
-// drop what the kind checks, such as the reproduction of a test item. An amendment that keeps them applies in the write
-// that stores it, so it is refused rather than deferred while that work runs: its new item would leave the stored runs of
-// the work stale.
+// whatever empty lists it gives as null or [], an amendment by the planner or orreryd that changes the conclusion or the
+// kind, which only the owner and the conversation that steers the epic may change, a Requirement with an amendment that is
+// checking or capturing, and an amendment that keeps the conclusion and kind while evidence work of the epic is under way.
+// A planner or orreryd amendment that changed the kind could drop what the kind checks, such as the reproduction of a test
+// item. An amendment that keeps them applies in the write that stores it, so it is refused rather than deferred while that
+// work runs: its new item would leave the stored runs of the work stale.
 func amendmentRefusal(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, requirement EpicRequirement, start amendStart,
 ) (string, error) {
@@ -251,13 +251,13 @@ func amendmentRefusal(
 	if evidence.Current(listsAsNull(requirement.Item), listsAsNull(start.Item)) {
 		return fmt.Sprintf("%s already holds this item", id), nil
 	}
-	if start.amender != AmenderOwner && start.Item.Conclusion != requirement.Item.Conclusion {
+	if !mayAmendClaim(start.amender) && start.Item.Conclusion != requirement.Item.Conclusion {
 		return fmt.Sprintf(
 			"the %s may not change the conclusion of %s; only the owner amends a conclusion",
 			start.amender, id,
 		), nil
 	}
-	if start.amender != AmenderOwner && start.Item.Kind != requirement.Item.Kind {
+	if !mayAmendClaim(start.amender) && start.Item.Kind != requirement.Item.Kind {
 		return fmt.Sprintf("the %s may not change the kind of %s; only the owner amends a kind", start.amender, id), nil
 	}
 	open, err := queries.CountOpenRequirementAmendments(ctx, sqlcgen.CountOpenRequirementAmendmentsParams{
@@ -278,9 +278,16 @@ func amendmentRefusal(
 	}
 	if working > 0 {
 		return fmt.Sprintf("%s keeps its conclusion and kind, so it applies at once, which waits for the evidence, "+
-			"integrate, sync or release run under way to end", id), nil
+			"integrate or sync run under way to end", id), nil
 	}
 	return "", nil
+}
+
+// mayAmendClaim reports whether an amendment by amender may change the conclusion or kind of a Requirement: the owner's,
+// and a conversation's, since only the conversation that steers the epic can make one (see controlMaker). The planner's
+// and orreryd's may not.
+func mayAmendClaim(amender string) bool {
+	return amender == AmenderOwner || amender == AmenderConversation
 }
 
 // claimChanged reports whether item changes what the Requirement claims, its conclusion or its kind, from prior, the item
@@ -364,7 +371,7 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 
 // OpenAmendments returns the amendments of every epic that are checking or capturing, ordered by epic, then seq.
 func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error) {
-	rows, err := sqlcgen.New(s.db).ListOpenEpicAmendments(ctx)
+	rows, err := sqlcgen.New(s.read).ListOpenEpicAmendments(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list open amendments: %w", err)
 	}
@@ -378,8 +385,8 @@ func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error)
 // A checking amendment is settled by its red run. A red run that a restart lost, or that exited for its environment, is
 // run again under the next attempt, at most amendmentReruns times. A red run that passed, which is a red judged fails
 // at the epic's base, applies the amendment (see applyAmendment), unless an evidence, integrate or sync node run of the
-// epic has work under way, or its release captures a merge of its release integrator: then nothing is written and the
-// error matches ErrAmendmentDeferred. Any other red run refuses it (see refuseAmendment).
+// epic has work under way: then nothing is written and the error matches ErrAmendmentDeferred. Any other red run
+// refuses it (see refuseAmendment).
 //
 // A capturing amendment is settled once its green run, and its reproduction check when it has one, have ended. A run or
 // check that a restart lost, or that exited for its environment, runs both again under the next attempt, at most
@@ -487,12 +494,9 @@ func redRefusal(amendment EvidenceAmendment, run EvidenceRun) string {
 
 // applyAmendment applies amendment in the caller's write, whose proof is the account its decision gives of why it may
 // apply: its red run passed, or it keeps the conclusion and kind (see applyUnchanged). It returns ErrAmendmentDeferred,
-// having written nothing, while an evidence, integrate or sync node run of the epic has a revision and is running, or
-// while its release node run is running, the epic is releasing, and the latest round of its release integrator that
-// passed at the run's attempt made a merge that is not yet a candidate of that attempt: the release walks that merge's
-// Done gates and captures until it records the merge as its candidate (see CountWorkingEvidenceNodeRuns). A release
-// run doing anything else, such as waiting on the plan its replan started, which waits on the amendment in turn, holds
-// nothing back. Otherwise the Requirement takes the new item, a decision records the amendment,
+// having written nothing, while an evidence, integrate or sync node run of the epic has a revision and is running (see
+// CountWorkingEvidenceNodeRuns). A release run captures nothing, so it holds nothing back, the one whose replan's plan
+// waits on the amendment among them. Otherwise the Requirement takes the new item, a decision records the amendment,
 // and a planner action that asked for it is marked taken. When the epic's stored base has moved past its base, the
 // amendment moves to capturing, with its green run and, for a test item, its reproduction named at the stored base.
 // Otherwise it is applied at once, and the next integrate captures the new item at its candidate.

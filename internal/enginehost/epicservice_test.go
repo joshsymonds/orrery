@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/contracttext"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -154,7 +155,7 @@ func fullEpicRequest(repo, id string) *epicCreate {
 				{Step: "Synthetic release two.", Target: "Synthetic target two.", Undo: "Synthetic undo two."},
 			},
 			ReleaseThen: "Synthetic release line.",
-			Checks:      "go test ./...",
+			Checks:      "go test ./...\nQuality Bar: " + contracttext.QualityBar,
 			Base:        epicTestBase(repo),
 			Gates:       epicTestGates(),
 			DoneGates:   []string{"check"},

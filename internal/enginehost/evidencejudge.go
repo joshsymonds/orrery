@@ -141,6 +141,32 @@ func judgeSpecLines(run store.EvidenceRun, task store.EpicTask) []string {
 	return nil
 }
 
+// judgeCaptureLines returns the lines a judge prompt of run puts after judgePrompt's when run has the capture capture. They
+// name the capture by its id, its argv as a JSON array, its commit and its runner, which is "local" when it names none, and
+// the step that asked for it by its id and role. They ask the judge to decide whether that command at that commit, run by
+// that runner, could have produced the bytes named above, and to fail the run when the output does not fit that command. It
+// returns an error when the argv cannot be encoded.
+func judgeCaptureLines(run store.EvidenceRun, capture store.Capture) ([]string, error) {
+	argv, err := json.Marshal(capture.Argv)
+	if err != nil {
+		return nil, fmt.Errorf("argv of capture %s of evidence run %s: %w", capture.ID, run.ID, err)
+	}
+	runner := capture.Runner
+	if runner == "" {
+		runner = localRunnerName
+	}
+	return []string{
+		"Capture: " + capture.ID,
+		"Capture command: " + string(argv),
+		"Capture commit: " + capture.Commit,
+		"Capture runner: " + runner,
+		"Asking step: " + capture.Step,
+		"Asking role: " + capture.Role,
+		"Decide whether that command at that commit, run by that runner, could have produced those bytes. " +
+			"Fail the run when the output does not fit that command.",
+	}, nil
+}
+
 // judgeStart returns the read-only start of the judge step of run at repo. The step runs at run's revision under the
 // judge gate of run's item, with prompt, and is labeled with run's epic and the run's evidence task. The gate supplies
 // the agent, schema and done value.

@@ -8,7 +8,7 @@ Open `index.html` (the board lists every scenario), `desk.html#<id>`, `phone.htm
 arrows page through the scenarios. `shoot.mjs` shoots every desk scenario at 1600 and 1000 wide and every phone
 scenario at 412 into a temporary directory, and fails when a screen overflows its width or the page errors.
 
-128 scenarios: 114 drawn for the desk, 119 for the phone. Every one is drawn by the same components
+130 scenarios: 116 drawn for the desk, 121 for the phone. Every one is drawn by the same components
 (`js/prims.js`, `js/shell.js`, `js/convo.js`, `js/epic.js`) from one stylesheet (`css/components.css`) that reads only
 the variables `../../system/gen-tokens.mjs` writes from `../../system/tokens.json`. `lint-css.mjs` fails the sheet on a
 raw colour, length, duration, font size or opacity.
@@ -16,6 +16,49 @@ raw colour, length, duration, font size or opacity.
 It was drawn from three inventories made for it: what the web client draws today, what the Android app draws today, and
 what the server can say. Where the drawing asks for something the server does not send, it is listed under
 "Needs the server".
+
+## Revision 7: hosts (2026-11-22)
+
+The owner: every pane, session, epic and step shows the host it runs on, also when there is only one host. Where rows
+are grouped by host and folder, the host is drawn once on the card heading; everywhere else it is drawn inline, as a
+`HostLabel`. A card is one host and one folder, so the session rows under it name no host of their own.
+
+| drawn | server field | epic |
+|---|---|---|
+| a card's head in the inbox, and a project page's head | the host of its headless sessions: each session row's host | orrery-first-class-hosts |
+| a headless session's InboxRow, where it is not under a card | its session row's host | orrery-first-class-hosts |
+| a headless session's title row | its session row's host | orrery-first-class-hosts |
+| a terminal pane's title row | Pane.host | orrery-host-surfaces |
+| an EpicRow, an EpicPin, a WorkCard | Epic.host | orrery-host-relay |
+| an epic's page title row, and the epic band on a task's page (`ContextBand`) | Epic.host | orrery-host-relay |
+| a StepRow, under an epic in the inbox or as a row of its Now table | EpicStep.host | orrery-host-relay |
+| a step's page title row | EpicStep.host | orrery-host-relay |
+| a contract's WorkCard | its session row's host: the session that wrote it | orrery-first-class-hosts |
+| the head's host in `MeterStrip`, which the build epic removes with it: the conversation's host | Pane.host for a terminal pane, its session row's host for a headless session | orrery-host-surfaces, or orrery-first-class-hosts |
+| a session's InboxRow, its title row and its dock, on a host that does not answer | its session row's state reads `unreachable` (unchecked) | orrery-first-class-hosts |
+| a pane's title row and its dock, on a host that does not answer | a pane listed from stored rows is marked unreachable: `Pane.unreachable` (unchecked) | orrery-host-surfaces |
+| a card's head, on a host that does not answer | the host's `reachable` is false in `Host.Status` (unchecked) | orrery-host-surfaces |
+| an epic's step, on a host that does not answer | the step's host is not reachable in `Host.Status` (unchecked) | orrery-host-surfaces |
+| the Starter's proposals, in a dropdown under its prompt: each a folder and its host | the ranked proposals call beside `Picker.Ask`: a host and a folder each, over reachable hosts only (orrery-host-relay R5, unchecked) | orrery-host-relay |
+| the Starter's host choice, and the host a started session runs on | the host `Control.Start` takes (orrery-host-relay R4, unchecked); the choice lists reachable hosts only | orrery-host-relay |
+| the hosts view, opened from the inbox head: each host's name, its load percent, its memory percent and whether it answers | `Host.Status`'s per-host list: every host with its load percent, memory percent and reachable (orrery-host-surfaces R4, unchecked) | orrery-host-surfaces |
+
+The field names are the host epics' own, taken from their contracts and not checked against them. A scenario whose
+drawing shows a host says so in its note, with the field and the epic. The world gains two hosts, `sextant` and
+`lantern`, for `inbox-hosts` (four cards, one per host) and `epic-hosts` (an epic whose steps run on two hosts).
+
+An unreachable host is grey (`ink.3`), not stopped. Its glyph is a dashed hollow ring, and its word is "unreachable"
+beside the host, or on a row's line under a card; its dock reads "unreachable: `<host>` does not answer" and offers no
+input, queue or control. The three unreachable fields above are read from orrery-first-class-hosts R4 and
+orrery-host-surfaces R3 and R4, and their names are not checked against those contracts. `inbox-host-unreachable` and
+`pane-host-unreachable` draw it.
+
+The Starter (`start-prompt`, `start-loading`, `start-proposals`, `start-none`, `start-failed`, `start-typed-folder`) takes
+over starting a session from the `new-*` scenarios of the New panel: the prompt comes first, and the server proposes where
+it runs. The `new-*` scenarios stay, and the build epic removes them. The proposals are a dropdown under the prompt, the
+top one preselected, and each is a folder with its host. A host that does not answer is in neither the proposals nor the
+host choice. Choosing a host and typing a folder closes the list. The two fields in the table above are unchecked against
+orrery-host-relay R4 and R5.
 
 ## Revision 13: Not now, not Dismiss (2026-11-18)
 
@@ -35,7 +78,7 @@ The owner: the header should get out of the way while chatting, and be hideable 
 
 | state | the header | scenario |
 |---|---|---|
-| open | title, meters, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
+| open | title, goal, ask lines, tiles; a chevron at the end of the tiles hides the header | `dock-full` |
 | reading back | one line under the title: the rail's groups as small badges; back at the newest line, or a tap, opens it | `phone-head-scrolled` |
 | hidden by you | the same line, drawn the same, kept in every conversation until you open it (its chevron, or Hide the header in More) | `phone-head-hidden` |
 | typing | nothing: the keyboard hides the whole header, folded line and all | `android-keyboard` |
@@ -181,7 +224,7 @@ Settled with the owner:
 |---|---|
 | Type: the larger scale. | Decided: 12, 13, 15, 18, 28. |
 | Meters: the web's look is right; the phone should match. | Decided: each stat its own colour, then yellow and red, on both clients. Android drops lavender, peach, red. |
-| Host meters stay in the phone's header. | Decided, as drawn. |
+| Host meters stay in the phone's header. | The meters moved to the hosts view on both clients. The head keeps its host, as a HostLabel, and the context; `HostsView` (`hosts`, `hosts-unreachable`) draws each host's load and memory. |
 | Release and close need public calls. | Decided. The engine has them (`ReleaseEpic`, `CloseEpic` in `internal/enginehost/epicservice.go`); the public service passes them through. |
 | Verify stays a word under review. | Decided, as drawn. |
 | A contract must be a real record you can go back to, not part of a conversation. | A contract is kept from the moment it is proposed. It has versions, each with its time, its writer and what changed; a state (proposed, accepted, set aside); and the conversation that wrote it. It is found under its project, in its conversation's Work, and from its epic once accepted. `contract-versions`, `contract-set-aside`, `project` |
@@ -458,7 +501,7 @@ Drawn, and not available from the server today.
 | Release from step 2; Release it anyway; Close as… | No public call. The engine does them from a session or the CLI. |
 | A contract as a record: proposed, its versions, accepted or set aside; Accept, Keep, Strike and the decision on it | Decided (revision 5), not built. Today Gambit's brainstorm settles these in the conversation and writes the contract only once accepted. It needs a contract record the brainstorm writes to when it proposes and at each change (body, time, writing session, what changed), calls to accept, set aside and reopen, and `epic_create` to take an accepted contract. |
 | A contract Block in a conversation | No item kind marks a contract. |
-| A session's meters on another host | `Host.Status` answers for the serving host. |
+| A session's meters on another host | Every host's load, memory and reach comes from `Host.Status`'s per-host list (orrery-host-surfaces R4, unchecked). Today `Host.Status` answers for the serving host only. |
 | Interrupting, with a clock | `interrupting` is a bare flag with no time. |
 | Notices by day, read and unread | `Notices.Watch` is a stream of what is current; nothing lists what has passed. The client can keep what it has seen while it is open. |
 | Open in a new window | The web has no address per page. The routes epic in flight gives it one. |

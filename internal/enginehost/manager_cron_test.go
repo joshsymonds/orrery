@@ -21,7 +21,7 @@ func requireWoke(t *testing.T, woke <-chan string, want string) {
 
 func TestCronDeliverManagerSendsWithSenderCron(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -55,7 +55,7 @@ func TestCronDeliverManagerSendsWithSenderCron(t *testing.T) {
 
 func TestCronDeliverManagerBusyDuringTurn(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	// WAITOPEN holds its turn open until fakeclaude.open exists, so the turn is still running when the cron fire comes.
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "WAITOPEN"})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestCronDeliverManagerBusyDuringTurn(t *testing.T) {
 
 func TestCronDeliverManagerBackgroundDoesNotHold(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "BACKGROUND"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -101,7 +101,7 @@ func TestCronDeliverManagerBackgroundDoesNotHold(t *testing.T) {
 
 func TestCronDeliverManagerOpenRequestHolds(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -129,7 +129,7 @@ func TestCronDeliverManagerOpenRequestHolds(t *testing.T) {
 
 func TestCronDeliverManagerQuietHolds(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
+	m, path, clock := newIdleManager(t)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
 	if err != nil {
@@ -188,7 +188,7 @@ func TestCronDeliverManagerQuietHolds(t *testing.T) {
 
 func TestCronDeliverManagerFailedRowWaits(t *testing.T) {
 	t.Parallel()
-	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	m, path := newTestManager(t, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
@@ -232,38 +232,9 @@ func TestCronDeliverManagerFailedRowWaits(t *testing.T) {
 	}
 }
 
-func TestCronDeliverManagerCapRefuses(t *testing.T) {
-	t.Parallel()
-	m, path, clock := newIdleManager(t, 1)
-	idleDir := t.TempDir()
-	id, err := m.Start(t.Context(), StartRequest{Dir: idleDir, Prompt: "hi"})
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	waitHistory(t, engineOf(m), path, id, "the first reply done", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
-	})
-	clock.advance(defaultIdleAfter)
-	m.checkIdle(t.Context())
-	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
-		t.Fatalf("Start into the slot the idle stop freed: %v", err)
-	}
-
-	err = m.DeliverCron(t.Context(), DeliverRequest{ID: id, Text: "the cron text", PromptID: "c1"})
-	if !errors.Is(err, ErrCapReached) {
-		t.Fatalf("DeliverCron at the cap error = %v, want ErrCapReached", err)
-	}
-	if got := enginePromptsOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got, []deliveredPrompt{{Text: "hi"}}) {
-		t.Fatalf("prompts after a refused DeliverCron = %+v, want only the start's prompt", got)
-	}
-	if args := fakeArgs(t, idleDir); len(args) != 1 {
-		t.Fatalf("fake claude starts = %q, want the start only", args)
-	}
-}
-
 func TestCronDeliverManagerWakes(t *testing.T) {
 	t.Parallel()
-	m, path, clock := newIdleManager(t, 2)
+	m, path, clock := newIdleManager(t)
 	woke := make(chan string, 8)
 	m.cronWake = func(id string) { woke <- id }
 	dir := t.TempDir()
@@ -286,18 +257,18 @@ func TestCronDeliverManagerWakes(t *testing.T) {
 	}
 	requireWoke(t, woke, stalled)
 
-	// The stop of the stalled session frees its slot.
+	// The stop of the stalled session ends its process.
 	if err := m.Stop(t.Context(), stalled); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	requireWoke(t, woke, "")
 
-	// The idle stop of the first session frees its slot.
+	// The idle stop of the first session ends its process.
 	clock.advance(defaultIdleAfter)
 	m.checkIdle(t.Context())
 	requireWoke(t, woke, "")
 
-	// A cron fire to the idle-stopped session finds its directory gone, so its resume refuses and frees its slot.
+	// A cron fire to the idle-stopped session finds its directory gone, so its resume refuses.
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatalf("remove session directory: %v", err)
 	}
@@ -305,5 +276,4 @@ func TestCronDeliverManagerWakes(t *testing.T) {
 	if !errors.Is(err, ErrBadDir) {
 		t.Fatalf("DeliverCron to a session whose directory is gone error = %v, want ErrBadDir", err)
 	}
-	requireWoke(t, woke, "")
 }

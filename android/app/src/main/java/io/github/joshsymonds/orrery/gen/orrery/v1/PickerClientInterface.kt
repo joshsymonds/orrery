@@ -20,4 +20,9 @@ public interface PickerClientInterface {
    *  Run runs the action a token names, once.
    */
   public suspend fun run(request: RunRequest, headers: Headers = emptyMap()): ResponseMessage<RunResponse>
+
+  /**
+   *  Propose returns ranked host and folder proposals for a prompt over the reachable hosts.
+   */
+  public suspend fun propose(request: ProposeRequest, headers: Headers = emptyMap()): ResponseMessage<ProposeResponse>
 }

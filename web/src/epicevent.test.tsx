@@ -39,11 +39,11 @@ function eventOf(text: string): EpicEvent {
   return event;
 }
 
-// epicReading reads the epic as a live orreryd epic that holds the questions given open, with the tasks given, and paused
-// when paused is set.
+// epicReading reads the epic as a live orreryd epic that holds the questions given open, with the build tasks given, and
+// paused when paused is set.
 function epicReading(
   questions: MessageInitShape<typeof EpicQuestionSchema>[],
-  tasks: MessageInitShape<typeof EpicsGetResponseSchema>["tasks"] = [],
+  tasks: MessageInitShape<typeof EpicsGetResponseSchema>["buildTasks"] = [],
   paused = false,
 ): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
@@ -57,7 +57,7 @@ function epicReading(
       source: "orreryd",
     }),
     questions: questions.map((question) => create(EpicQuestionSchema, question)),
-    tasks,
+    buildTasks: tasks,
   });
 }
 
@@ -214,7 +214,7 @@ test("Shapes: each of an epic's question, park, release and end draws one EpicEv
 
 test("Shapes: an epic's Created draws one EpicEventBlock in the engine tone, its head led by the epic's mark before the plus icon, with the sentence and the slug link, and the link opens the epic", async (t) => {
   const opened: string[] = [];
-  await withCard(ringEpic, callsReading(epicReading([], [{ slug: "t1", status: "" }]), opened), async (container) => {
+  await withCard(ringEpic, callsReading(epicReading([], [{ id: "t1", status: "" }]), opened), async (container) => {
     await settle(t, () => container.querySelector(".epicmark") !== null, "the card reads its epic's mark");
     const block = container.querySelector(".block.epicevent");
     assert.notEqual(block, null, "the card draws one EpicEventBlock");
@@ -232,7 +232,7 @@ test("Shapes: an epic's Created draws one EpicEventBlock in the engine tone, its
 });
 
 test("Shapes: a paused epic's Created mark draws its centre in ink, and a running epic's in live, as the epic list draws them", async (t) => {
-  const tasks = [{ slug: "t1", status: "" }];
+  const tasks = [{ id: "t1", status: "" }];
   const paused = { ...epicReading([], tasks, true), centre: "paused" };
   await withCard(ringEpic, callsReading(paused, []), async (container) => {
     await settle(t, () => container.querySelector(".epicmark") !== null, "the paused card reads its epic's mark");
