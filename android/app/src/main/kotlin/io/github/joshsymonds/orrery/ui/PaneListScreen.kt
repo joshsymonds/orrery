@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
@@ -100,7 +102,8 @@ internal class TreeData(
  * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
  * read on start and every minute while started, and opens the notices through [onOpenNotices]. Under the head, the usage
  * band shows the accounts the usage reads hold, when they hold one; a tap on it opens the accounts sheet, whose Accounts
- * and routes calls [onOpenAccounts].
+ * and routes calls [onOpenAccounts]. A Use on that sheet opens the confirm sheet, whose Move makes the moves; a move that
+ * lands shows the move toast, whose Undo moves the contexts back.
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -126,6 +129,10 @@ fun PaneListScreen(
     val notices = rememberNoticeRows(client)
     val usage = rememberUsageReads(client)
     var usageOpen by remember { mutableStateOf(false) }
+    var usePlan by remember { mutableStateOf<UsePlan?>(null) }
+    var moveRefusal by remember { mutableStateOf<String?>(null) }
+    val moveToast = rememberMoveToast()
+    val scope = rememberCoroutineScope()
     var data by remember(client) { mutableStateOf<TreeData?>(null) }
     var failed by remember(client) { mutableStateOf(false) }
     var generation by remember(client) { mutableIntStateOf(0) }
@@ -152,6 +159,7 @@ fun PaneListScreen(
     val at = now()
     val accounts = usage.accounts?.takeIf { it.accounts.isNotEmpty() }
     val bandRows = accounts?.let { usageRows(it.accounts, it.routes, usage.readings.orEmpty(), at) }
+    val accountNames = accounts?.accounts.orEmpty().associate { it.id to it.name }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -235,12 +243,50 @@ fun PaneListScreen(
                     usageOpen = false
                     onOpenAccounts()
                 },
+                onUse = { row ->
+                    usageOpen = false
+                    moveRefusal = null
+                    usePlan = UsePlan(row.account, row.movingContexts, accountNames)
+                },
+            )
+        }
+        val plan = usePlan
+        val routes = accounts?.routes
+        if (plan != null && routes != null) {
+            UsageConfirmSheet(
+                plan = plan,
+                refusal = moveRefusal,
+                onCancel = {
+                    usePlan = null
+                    moveRefusal = null
+                },
+                onMove = {
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            moveContexts(client, plan.contexts, plan.target.id, routes)
+                        }
+                        if (result is MoveResult.Done && result.landed.isNotEmpty()) {
+                            usePlan = null
+                            moveRefusal = null
+                            moveToast.show(MovedEntry(result.landed, plan.target.name))
+                        } else {
+                            moveRefusal = unfinishedWordsOf(result, undo = false)
+                        }
+                        usage.read()
+                    }
+                },
             )
         }
         ArchiveToast(
             state = toast,
             client = client,
             onUndone = { generation++ },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+        MoveToast(
+            state = moveToast,
+            client = client,
+            onUndid = { scope.launch { usage.read() } },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }

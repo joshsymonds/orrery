@@ -38,6 +38,9 @@ internal const val USAGE_SHEET_ACCOUNTS_TAG = "usage-sheet-accounts"
 /** The tag of [account]'s card in the sheet, by the account's name. */
 internal fun usageCardTag(account: String): String = "usage-card:$account"
 
+/** The tag of the Use button on [account]'s card, by the account's name. */
+internal fun usageUseTag(account: String): String = "usage-use:$account"
+
 /** The tag of one window column in [account]'s card, by the window's [claim]. */
 internal fun usageSheetWindowTag(account: String, claim: String): String = "usage-sheet-window:$account:$claim"
 
@@ -46,7 +49,9 @@ internal fun usageSheetWindowTag(account: String, claim: String): String = "usag
  * side's ground, its rounded top corners and a grab bar, under its head with the title and Close. Each account in [rows]
  * is a card: its name, a line of who uses it, its plan or its limit ("limited until HH:MM"), and how long ago it was read
  * at [now] in unix seconds; then three equal window columns, each with its value, its bar and the countdown to its reset.
- * Accounts and routes calls [onOpenAccounts]. Close, a tap on the scrim, and the back gesture call [onClose].
+ * Accounts and routes calls [onOpenAccounts]. Close, a tap on the scrim, and the back gesture call [onClose]. Each card's
+ * header ends with what its row offers: a Use button calls [onUse] with the row, "in use" when every context names the
+ * account, and nothing when no context names an account.
  */
 @Composable
 internal fun UsageSheet(
@@ -54,6 +59,7 @@ internal fun UsageSheet(
     now: Long,
     onClose: () -> Unit,
     onOpenAccounts: () -> Unit,
+    onUse: (UsageRow) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onClose)
@@ -84,7 +90,7 @@ internal fun UsageSheet(
                     .background(OrreryTokens.Line.firm),
             )
             SheetHead(onClose)
-            rows.forEach { row -> AccountCard(row, now) }
+            rows.forEach { row -> AccountCard(row, now, onUse) }
             TextButton(
                 onClick = onOpenAccounts,
                 modifier = Modifier
@@ -132,9 +138,9 @@ private fun cardLineOf(row: UsageRow, now: Long): String {
     return listOf(subject, read).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
-/** One account's card: its name and line, and its three window columns, equal in width. */
+/** One account's card: its name and line, its Use or "in use" at the end of its header, and its three window columns. */
 @Composable
-private fun AccountCard(row: UsageRow, now: Long) {
+private fun AccountCard(row: UsageRow, now: Long, onUse: (UsageRow) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -149,15 +155,31 @@ private fun AccountCard(row: UsageRow, now: Long) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
-            Text(
-                row.account.name,
-                modifier = Modifier.weight(1f, fill = false),
-                style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-                color = OrreryTokens.Ink.one,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (row.limited) LimitedMark()
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
+            ) {
+                Text(
+                    row.account.name,
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = OrreryTokens.Type.body.copy(fontWeight = OrreryTokens.Font.Weight.bold),
+                    color = OrreryTokens.Ink.one,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (row.limited) LimitedMark()
+            }
+            when (row.useOffer) {
+                UseOffer.IN_USE -> Text("in use", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
+                UseOffer.USE -> TextButton(
+                    onClick = { onUse(row) },
+                    modifier = Modifier.testTag(usageUseTag(row.account.name)),
+                ) {
+                    Text("Use")
+                }
+                null -> Unit
+            }
         }
         Text(
             cardLineOf(row, now),
