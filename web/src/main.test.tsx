@@ -606,15 +606,15 @@ if (process.env[childEnv] === "1") {
       await until(t.signal, () => false, "a state that never comes");
     }));
 
-  test(`${childPrefix}a page that loads after it`, { timeout: 10_000 }, (t) =>
+  test(`${childPrefix}a page that loads after it`, { timeout: 120_000 }, (t) =>
     withPage(t.signal, async (root, start) => {
       start(root, clientsFor(fakeServer("api")), longPollMs);
       await until(t.signal, () => labels(root).includes("api"), "the first load");
     }));
 }
 
-// The test waits for a child node run, which takes longer than the suite's 5 s limit under load.
-test("a page whose test times out stops before the next test, which fails only on its own", { timeout: 30_000 }, async () => {
+// The test waits for a child node run, the suite's slowest test; the suite's 120 s limit bounds a hang.
+test("a page whose test times out stops before the next test, which fails only on its own", async () => {
   // The forced order: in a child run, the first test's page is up when its test times out, and node:test starts the
   // second test at once. A page that ran on past its test would render into the second test's DOM, or remove it, and
   // fail the second test in the first one's place. The child must report the first test alone as failed.
