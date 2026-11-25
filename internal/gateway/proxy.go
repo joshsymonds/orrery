@@ -112,8 +112,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hook points for the later steps. The pin header is set in send, beside the credential. The ledger record is
-	// started before the seat is served and finished after its relay, through g.ledger. The sigv4 seat is refused below
-	// until its own path replaces that refusal.
+	// started before the seat is served and finished after its relay, through g.ledger.
 	switch res.Seat.AuthMode {
 	case llmroutes.AuthForward:
 		// The seat's rewrites apply to the body before it is forwarded, so that the upstream receives the rewritten
@@ -126,6 +125,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, rewritten)
 	case llmroutes.AuthInject:
 		g.inject(w, r, res.Seat, body)
+	case llmroutes.AuthSigV4:
+		g.bedrock(w, r, res.Seat, body)
 	default:
 		g.abort(r.Context(), w, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
 			fmt.Errorf("%w: seat %q authenticates with %s", errNotImplemented, res.SeatID, res.Seat.AuthMode))

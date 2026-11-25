@@ -109,10 +109,11 @@ type Config struct {
 	// seat's api_key_env_file and model_map_env_file hold. Nil means os.Getenv.
 	Getenv func(string) string
 
-	// AWSCredentials exports the credentials of the named AWS profile, for sigv4 seats.
+	// AWSCredentials exports the credentials of the named AWS profile, for sigv4 seats. Nil means no credentials are
+	// exported, and then every sigv4 request is refused.
 	AWSCredentials func(ctx context.Context, profile string) (awssig.Credentials, error)
 
-	// BedrockEndpoint returns the base URL of the Bedrock runtime in region. Empty means
+	// BedrockEndpoint returns the base URL of the Bedrock runtime in region. Nil, or an empty answer, means
 	// https://bedrock-runtime.<region>.amazonaws.com.
 	BedrockEndpoint func(region string) string
 }
@@ -138,6 +139,12 @@ type Gateway struct {
 
 	// admission holds one permit for each request being served, so that no more than requestAdmissionCapacity are.
 	admission chan struct{}
+
+	// awsCredentials exports the credentials a sigv4 seat signs with. Nil refuses every sigv4 request.
+	awsCredentials func(ctx context.Context, profile string) (awssig.Credentials, error)
+
+	// bedrockEndpoint returns the base URL of the Bedrock runtime in a region. Nil means the AWS default.
+	bedrockEndpoint func(region string) string
 }
 
 // New returns a Gateway serving cfg. It refuses a Config whose Routes or Ledger is nil, an AnthropicUpstream that is
@@ -193,6 +200,9 @@ func New(cfg Config) (*Gateway, error) {
 		clock:     clock,
 		interval:  interval,
 		admission: make(chan struct{}, requestAdmissionCapacity),
+
+		awsCredentials:  cfg.AWSCredentials,
+		bedrockEndpoint: cfg.BedrockEndpoint,
 	}, nil
 }
 

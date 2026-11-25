@@ -18,8 +18,8 @@ import (
 )
 
 // The accounts, tokens and seats the reload tests serve are invented. The forward seat is alpha, and bravo is a sigv4
-// seat the gateway does not serve yet, so a request that resolves to bravo, presenting the caller key, is refused rather
-// than sent upstream.
+// seat that names no model, so a request that resolves to bravo, presenting the caller key, is refused by the gateway
+// rather than sent upstream.
 const (
 	reloadAccountOne    = "example-account-one"
 	reloadAccountTwo    = "example-account-two"
@@ -267,12 +267,12 @@ func TestGatewayReloadRoutesToChangedSeat(t *testing.T) {
 	run.fire()
 	rec := serveReload(t, gw, reloadMainPath)
 
-	// bravo is not forwarded yet, so the gateway refuses the request as bravo's, not sending it upstream as alpha's.
+	// bravo names no model, so the gateway refuses the request as bravo's own fault, not sending it upstream as alpha's.
 	if got := len(fake.requests()); got != 1 {
 		t.Errorf("the fake Anthropic received %d requests after the reload; want 1, the new seat is not forwarded", got)
 	}
-	if rec.Code != http.StatusNotImplemented {
-		t.Errorf("request after the reload got %d; want 501 from the new seat %s", rec.Code, reloadSeatNotServed)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("request after the reload got %d; want 500 from the new seat %s", rec.Code, reloadSeatNotServed)
 	}
 	if typ := errorTypeOf(t, rec.Body.Bytes()); typ != reloadErrorTypeAPI {
 		t.Errorf("request after the reload got error type %q; want %q", typ, reloadErrorTypeAPI)
