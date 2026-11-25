@@ -1,23 +1,18 @@
 import type { JSX } from "preact";
 
-import { Icon } from "./glyphs";
-import { windowClaims } from "./usagedata";
-import type { BandRow, WindowDraw } from "./usagemodel";
+import { Icon, StateGlyph } from "./glyphs";
+import type { BandRow, LastCell, WindowDraw } from "./usagemodel";
 
 // The hue class of each window column, in the order of windowClaims: 5h, 7d, and Fable for 7d_oi.
 const windowHues = ["d5", "d7", "fb"] as const;
-
-// sevenDayColumn is the window column the 7d reset is read from.
-const sevenDayColumn = windowClaims.indexOf("7d");
 
 const secondsPerMinute = 60;
 const secondsPerHour = 3600;
 const secondsPerDay = 86400;
 
-// untilText is the time from now to at in its largest whole unit: days, then hours, then minutes. It never reads under
-// a minute.
-function untilText(at: number, now: number): string {
-  const seconds = Math.max(0, at - now);
+// durationText is a span of seconds in its largest whole unit: days, then hours, then minutes. It never reads under a
+// minute.
+function durationText(seconds: number): string {
   const days = Math.floor(seconds / secondsPerDay);
   if (days > 0) {
     return `${days}d`;
@@ -27,6 +22,39 @@ function untilText(at: number, now: number): string {
     return `${hours}h`;
   }
   return `${Math.max(1, Math.floor(seconds / secondsPerMinute))}m`;
+}
+
+// untilText is the time from now to at. A time that has passed reads as none left.
+function untilText(at: number, now: number): string {
+  return durationText(Math.max(0, at - now));
+}
+
+// lastText is what a row's last column reads: the time until its limit lifts when it is limited, its age when it is
+// stale, the time to its 7d reset, or nothing. A lift with no reset reads nothing.
+function lastText(last: LastCell, now: number): string {
+  switch (last.kind) {
+    case "lifts":
+      return last.at === null ? "" : untilText(last.at, now);
+    case "age":
+      return `${durationText(Math.max(0, now - last.at))} ago`;
+    case "reset":
+      return untilText(last.at, now);
+    case "none":
+      return "";
+  }
+}
+
+// marker draws a row's mark in its name: the limited glyph in a limited account's place, and otherwise the dot, filled
+// when a context names the account.
+function marker(row: BandRow): JSX.Element {
+  if (row.limited) {
+    return (
+      <span class="limg">
+        <StateGlyph state="limited" />
+      </span>
+    );
+  }
+  return <span class="udot" />;
 }
 
 // windowCell draws one window column of a row: its value right-aligned over a bar that fills the column, in the level's
@@ -48,8 +76,10 @@ function windowCell(draw: WindowDraw | null, hue: (typeof windowHues)[number]): 
 }
 
 // UsageBand draws the usage band under the inbox head: a table with a row for each account, in the order of rows, and
-// the columns 5h, 7d and Fable, then the time to the 7d reset. An account a context names has its dot filled. A press
-// on the band is onOpen; the gear opens the accounts and routes page through onAccounts.
+// the columns 5h, 7d and Fable, then the last column. An account a context names has its dot filled. A limited account
+// has the limited glyph in its dot's place, and its last column is the time until its limit lifts. A stale account
+// that is not limited has its age in the last column, and an account with no drawn reading reads no reading yet. A
+// press on the band is onOpen; the gear opens the accounts and routes page through onAccounts.
 export function UsageBand({
   rows,
   now,
@@ -85,19 +115,20 @@ export function UsageBand({
         <span class="hd cf">Fable</span>
         <span class="hd">resets</span>
         {rows.map((row) => {
-          const reset = row.windows[sevenDayColumn]?.reset ?? null;
+          const classes = ["urow", row.inUse ? "inuse" : "", row.none ? "span" : ""].filter((name) => name !== "");
           return (
             <div
               key={row.account.id}
-              class={row.inUse ? "urow inuse" : "urow"}
+              class={classes.join(" ")}
               title={row.account.plan === "" ? row.account.name : `${row.account.name} · ${row.account.plan}`}
             >
               <span class="uname">
-                <span class="udot" />
+                {marker(row)}
                 <span class="t">{row.account.name}</span>
               </span>
               {row.windows.map((draw, index) => windowCell(draw, windowHues[index]))}
-              <span class="urs">{reset === null ? "" : untilText(reset, now)}</span>
+              <span class={row.last.kind === "age" ? "urs stale" : "urs"}>{lastText(row.last, now)}</span>
+              {row.none && <span class="note">no reading yet</span>}
             </div>
           );
         })}
