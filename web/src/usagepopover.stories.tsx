@@ -2,7 +2,8 @@
 // one story for each state a row takes, and the popover's spend foot over the fixture's invented accounts, contexts,
 // readings and seven days of seat spend, drawn with that spend and without it, as the popover draws before a Spend read
 // lands. The Use stories draw a row offering Use, a question asked in a row, and the words a refused move leaves in it.
-// Every story draws against a fixed clock, and changes nothing.
+// The narrow stories draw the popover as a sheet, under 760px: its table, a Use's question in a sheet of its own, and the
+// words a refused move leaves in that sheet. Every story draws against a fixed clock, and changes nothing.
 
 import { create } from "@bufbuild/protobuf";
 
@@ -153,6 +154,29 @@ export const UsagePopover: Stories = {
   ),
   refused: () => (
     <Popover
+      rows={bandRows(shared, now)}
+      now={now}
+      use={useCalls(shared.registry)}
+      initialUse={refused}
+      onAccounts={noop}
+      onClose={noop}
+    />
+  ),
+  "narrow-accounts": () => <Popover narrow rows={bandRows(shared, now)} now={now} onAccounts={noop} onClose={noop} />,
+  "narrow-asking": () => (
+    <Popover
+      narrow
+      rows={bandRows(shared, now)}
+      now={now}
+      use={useCalls(shared.registry)}
+      initialUse={asking}
+      onAccounts={noop}
+      onClose={noop}
+    />
+  ),
+  "narrow-refused": () => (
+    <Popover
+      narrow
       rows={bandRows(shared, now)}
       now={now}
       use={useCalls(shared.registry)}

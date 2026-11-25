@@ -9,6 +9,8 @@
 // names an account names this one. Use asks in its row which contexts move and to which account; Move makes the moves
 // through moveContexts. A move that did not finish says in its row what moved and what did not, or that it could not tell.
 // A move that set every context calls onDone, and every move calls onRead, so the page reads the routes again.
+// Under 760px, narrow, the popover is a sheet rather than a box beside the band: its table opens as a Sheet, and Use
+// asks in a Sheet of its own, in place of the question in its row. A move that ends short says its words in that Sheet.
 
 import { create } from "@bufbuild/protobuf";
 import type { JSX } from "preact";
@@ -17,6 +19,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { nothingChanged } from "./accountswrite";
 import { type Account, type RouteRegistry, RouteRegistrySchema } from "./gen/orrery/v1/accounts_pb";
 import { ageText } from "./inboxrow";
+import { Sheet } from "./sheet";
 import { windowClaims } from "./usagedata";
 import {
   type BandRow,
@@ -113,6 +116,19 @@ function askWords(plan: readonly Move[], account: string, accounts: readonly Acc
     sources.size > 1 ? `${move.context} from ${nameOf(accounts, move.from)}` : move.context,
   );
   return `Move ${listText(named)} to ${nameOf(accounts, account)}? Their sessions send their next request from it.`;
+}
+
+// sheetAskWords is what a Use sheet says under its title: the contexts that move, each with its source when they come from
+// more than one account, else the one account they all come from; then that their sessions send their next request from
+// the account.
+function sheetAskWords(plan: readonly Move[], account: string, accounts: readonly Account[]): string {
+  const sources = new Set(plan.map((move) => move.from));
+  const named = plan.map((move) =>
+    sources.size > 1 ? `${move.context} from ${nameOf(accounts, move.from)}` : move.context,
+  );
+  const from = sources.size === 1 ? ` from ${nameOf(accounts, plan[0].from)}` : "";
+  const moving = sentence(`${listText(named)} move${from}`);
+  return `${moving} Their sessions send their next request from ${nameOf(accounts, account)}.`;
 }
 
 // movedWords is the toast's words for a move that set its contexts: the contexts, and the account they now use.
@@ -243,13 +259,15 @@ function AccountRow({ row, now, use }: { row: BandRow; now: number; use: RowUse 
 // UsagePopover draws every row: the band's account names and windows at reading size, with a header over the columns and
 // the link to the accounts and routes page, then the spend foot when spend is given. Escape, and a press outside it, call
 // onClose. initialUse is the Use state the popover opens with; the stories draw a question or words with it, and the page
-// gives none.
+// gives none. narrow draws the popover as a sheet, under 760px: the table in a Sheet, and a Use's question in a Sheet of
+// its own.
 export function UsagePopover({
   rows,
   now,
   spend,
   use,
   initialUse,
+  narrow = false,
   onAccounts,
   onClose,
 }: {
@@ -258,6 +276,7 @@ export function UsagePopover({
   spend?: SpendTotals | null;
   use?: UseCalls;
   initialUse?: UseState;
+  narrow?: boolean;
   onAccounts: () => void;
   onClose: () => void;
 }): JSX.Element {
@@ -331,11 +350,12 @@ export function UsagePopover({
     };
   };
 
-  // A press in the popover is not a press on the band, which would open it again, so the popover stops it here.
-  return (
-    <div class="upop" role="dialog" aria-label="Claude accounts" ref={root} onClick={(event) => event.stopPropagation()}>
+  // table is the accounts' table: the link to the accounts and routes page, the rows, and the spend foot. The popover draws it
+  // under its title; under 760px the sheet's own title stands over it, so it has no title of its own there.
+  const table = (
+    <>
       <div class="up-head">
-        <h3 class="up-title">Claude accounts</h3>
+        {!narrow && <h3 class="up-title">Claude accounts</h3>}
         <a
           class="up-link"
           href="#/accounts"
@@ -357,6 +377,76 @@ export function UsagePopover({
         ))}
       </div>
       {spend && <SpendFoot spend={spend} />}
+    </>
+  );
+
+  // A press in the popover is not a press on the band, which would open it again, so the popover stops it here.
+  if (narrow) {
+    // Under 760px a Use asks in a Sheet of its own: while a move is asked, or has ended short, that Sheet stands in place of
+    // the table, and Cancel or Back returns to the table. The stop on the click keeps a press in a sheet from reaching the band.
+    const calls = use;
+    const asked = calls !== undefined && pending.kind !== "none" ? pending : null;
+    return (
+      <div class="upop-sheets" ref={root} onClick={(event) => event.stopPropagation()}>
+        {calls !== undefined && asked !== null ? (
+          // Escape and a press on the scrim go back to the table, except while a move is under way, which the sheet waits
+          // out.
+          <Sheet
+            title={`Move to ${nameOf(accounts, asked.account)}?`}
+            onClose={() => {
+              if (asked.kind === "words" || !asked.moving) {
+                setPending({ kind: "none" });
+              }
+            }}
+          >
+            <div class="sheet-body">
+              {asked.kind === "asking" ? (
+                <>
+                  <p class="sure">{sheetAskWords(asked.plan, asked.account, accounts)}</p>
+                  <div class="foot">
+                    <button
+                      type="button"
+                      class="btn quiet"
+                      disabled={asked.moving}
+                      onClick={() => setPending({ kind: "none" })}
+                    >
+                      <span>Cancel</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn primary"
+                      disabled={asked.moving}
+                      onClick={() => void moveTo(calls, asked.account, asked.plan)}
+                    >
+                      <span>{`Move to ${nameOf(accounts, asked.account)}`}</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p class="sure" role="status">
+                    {asked.words}
+                  </p>
+                  <div class="foot">
+                    <button type="button" class="btn quiet" onClick={() => setPending({ kind: "none" })}>
+                      <span>Back</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </Sheet>
+        ) : (
+          <Sheet title="Claude accounts" onClose={onClose}>
+            <div class="sheet-body">{table}</div>
+          </Sheet>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div class="upop" role="dialog" aria-label="Claude accounts" ref={root} onClick={(event) => event.stopPropagation()}>
+      {table}
     </div>
   );
 }

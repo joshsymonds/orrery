@@ -1786,6 +1786,7 @@ export function App({
                 onDone: usageMoved,
                 onRead: () => rereadRoutes(usage),
               }}
+              narrow={!wide}
               onAccounts={openAccounts}
               onClose={() => setUsageOpen(false)}
             />
