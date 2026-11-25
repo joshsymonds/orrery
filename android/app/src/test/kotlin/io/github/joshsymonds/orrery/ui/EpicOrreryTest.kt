@@ -12,7 +12,6 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.IntSize
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -154,15 +153,6 @@ class EpicOrreryTest {
 
         val integrated = pending.map { if (it.task == "b2") it.copy(place = WedgePlace.INTEGRATED) else it }
         assertEquals(setOf("R9"), provenIdsOf(emptyList(), integrated))
-    }
-
-    @Test
-    fun rimProvenSetReadsAWedgeWhoseIdsAreAllInTheSetAsProven() {
-        val task = chart(1, done = 0)[0].copy(requirements = listOf("R1", "R9"))
-
-        assertTrue(rimProven(task, setOf("R1", "R9")))
-        assertFalse(rimProven(task, setOf("R1")))
-        assertFalse(rimProven(chart(1, done = 0)[0], setOf("R1", "R9")))
     }
 
     private fun wedge(task: String, place: WedgePlace, requirements: List<String>): Wedge = Wedge(

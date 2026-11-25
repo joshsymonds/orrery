@@ -173,6 +173,12 @@ message EpicsGetResponse {
   // asked once the steerer escalates it. False when it is not parked, when the planner holds its park, and when the park
   // waits on the owner. The parked reason is still in parked.
   bool steerer_parked = 22;
+
+  // The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+  string centre = 23;
+
+  // The sentence of the epic's newest history entry; empty when it has none.
+  string newest = 24;
 }
 
 // EpicSession is one session that works on an epic, with its newest epic call.
@@ -426,6 +432,12 @@ message EpicHistoryEntry {
     // An action taken on the epic's steering or controls.
     EpicAction action = 9;
   }
+
+  // The entry's line as a sentence built from its stored fields.
+  string sentence = 10;
+
+  // Every run an evidence line groups, the run in evidence included; empty for any other entry.
+  repeated EvidenceRun runs = 11;
 }
 
 // EpicAction is one action taken on an orreryd epic's steering or controls, such as a move.
@@ -1096,6 +1108,9 @@ message EpicStep {
 
   // The orrery name of the host the step lives on.
   string host = 23;
+
+  // What the step is for, as stored at its start; empty when none is stored yet.
+  string purpose = 24;
 }
 
 // EpicStepCheck is one check a step ran in one round.
@@ -1156,6 +1171,9 @@ message EpicRequirement {
 
   // The conclusion the requirement's evidence is judged against.
   string conclusion = 6;
+
+  // The requirement's state: proven, failed, held, in_flight or not_reached.
+  string state = 7;
 }
 
 // EpicNodeCheck is the check a gate or command node run ran: its state, how it ended, and its output.
@@ -1240,7 +1258,7 @@ message EvidenceRun {
   // How the evidence was produced: captured or supplied.
   string source = 3;
 
-  // The run's state: capturing, judging or ended.
+  // The run's state: capturing, waiting, gathering, judging or ended.
   string state = 4;
 
   // The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
@@ -1282,6 +1300,9 @@ message EvidenceRun {
   // The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
   // sits under its requirement, node or task.
   string item = 17;
+
+  // The id of the run's judge step; empty when none.
+  string judge_step = 18;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.

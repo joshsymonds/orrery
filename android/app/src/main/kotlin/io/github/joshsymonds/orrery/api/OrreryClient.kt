@@ -254,7 +254,20 @@ data class Pane(
     val archived: Boolean = false,
     /** True while the owner has put this question off and not brought it back. */
     val putOff: Boolean = false,
+    /**
+     * Serve's ended flag for the pane's tracked session: the conversation ended and the owner has not unarchived it since.
+     */
+    val ended: Boolean = false,
+    /** Unix seconds the pane's tracked session ended, from serve's ended_at; 0 when it has not ended or is unknown. */
+    val endedAt: Long = 0L,
+    /** True when claude runs in the pane and no Claude session is bound to it. */
+    val unbound: Boolean = false,
+    /** The pane's @orrery_claude_session option, the Claude session bound to it; "" when unset. */
+    val claudeSession: String = "",
 )
+
+/** One tracked session's marks from Sessions.List: its [id], whether the owner archived it, and whether its conversation ended. */
+data class SessionMark(val id: String, val archived: Boolean, val ended: Boolean, val endedAt: Long)
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
 
@@ -560,7 +573,8 @@ data class StepVerdictRow(val round: Int, val verdict: String, val reason: Strin
  * limit of [limitKind] holds the step, and [limitResets] is when that limit resets, in unix seconds, 0 when unknown.
  * [readOnly] is whether the step is read-only, [role] is the role it plays, and
  * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
- * and [verdicts] are its done-judge verdicts, in round order.
+ * and [verdicts] are its done-judge verdicts, in round order. [purpose] is what the step is for, empty when none
+ * is stored.
  */
 data class StepRow(
     val id: String,
@@ -584,6 +598,7 @@ data class StepRow(
     val summary: String = "",
     val gateName: String = "",
     val verdicts: List<StepVerdictRow> = emptyList(),
+    val purpose: String = "",
 )
 
 /**
@@ -744,7 +759,8 @@ sealed interface ContractCallResult {
 
 /**
  * One requirement of an orreryd epic's contract: [kind] is "check" or "review". [conclusion] is what its evidence is
- * judged against, and [runs] are its evidence runs, oldest first.
+ * judged against, and [runs] are its evidence runs, oldest first. [state] is proven, failed, held, in_flight or
+ * not_reached.
  */
 data class EpicRequirementRow(
     val id: String,
@@ -753,13 +769,14 @@ data class EpicRequirementRow(
     val kind: String,
     val conclusion: String = "",
     val runs: List<EvidenceRunRow> = emptyList(),
+    val state: String = "",
 )
 
 /**
  * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
  * [passed] is whether the run passes its phase, [logBytes] and [stderrBytes] are the sizes of its stdout and stderr logs,
  * and [artifacts] are the files it kept. [item] is the requirement or task whose evidence the run shows, set by an
- * epic's history and empty elsewhere.
+ * epic's history and empty elsewhere. [judgeStep] is the id of the run's judge step, empty when none.
  */
 data class EvidenceRunRow(
     val id: String,
@@ -779,12 +796,14 @@ data class EvidenceRunRow(
     val stderrBytes: Long,
     val artifacts: List<EvidenceArtifactRow>,
     val item: String = "",
+    val judgeStep: String = "",
 )
 
 /**
  * One entry of an epic's history: [time] is its time in unix seconds and [cursor] names it for the next page. [kind] is
  * the row the entry carries, one of turn, trigger, step, evidence, decision and tell, and "" when it carries none. Only
- * the row [kind] names is set.
+ * the row [kind] names is set. [sentence] is the entry's line as a sentence built from its stored fields. [runs] are
+ * every run an evidence line groups, the run in [evidence] included; empty for any other entry.
  */
 data class EpicHistoryRow(
     val time: Long,
@@ -796,6 +815,8 @@ data class EpicHistoryRow(
     val evidence: EvidenceRunRow? = null,
     val decision: EpicDecisionRow? = null,
     val tell: EpicTellRow? = null,
+    val sentence: String = "",
+    val runs: List<EvidenceRunRow> = emptyList(),
 )
 
 /**
@@ -975,7 +996,8 @@ data class EpicContractRow(
  * [ledger] is the end-of-epic review ledger in ledger order, with each finding's closures, empty before its review
  * freezes. [releases] are the release runs in the order orreryd reads them, empty before its release. [report] is
  * what the epic shipped, null until the epic ends and writes it. [supersededBy] is the epic a close named as its
- * replacement, empty when its close named none or it is not closed.
+ * replacement, empty when its close named none or it is not closed. [centre] is the epic's centre state and [newest] is
+ * the sentence of its newest history entry, empty when it has none.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -996,6 +1018,8 @@ data class EpicDetail(
     val releases: List<EpicReleaseRunRow> = emptyList(),
     val report: EpicReportRow? = null,
     val supersededBy: String = "",
+    val centre: String = "",
+    val newest: String = "",
 )
 
 /** What a hold, nudge, stop or epic call came to: it landed, or orreryd refused it with its reason. */
@@ -1158,6 +1182,16 @@ class OrreryClient(
             call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }.sessionsList
         }
         return sessions.filter { it.archived }.map { it.id }.toSet()
+    }
+
+    /**
+     * Every tracked session with its archived and ended marks. A server with no session list gives an empty list.
+     */
+    fun sessionMarks(): List<SessionMark> {
+        val sessions = absentAsEmpty {
+            call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }.sessionsList
+        }
+        return sessions.map { SessionMark(id = it.id, archived = it.archived, ended = it.ended, endedAt = it.endedAt) }
     }
 
     /**
@@ -1370,6 +1404,8 @@ class OrreryClient(
             releases = response.releasesList.map { it.toEpicReleaseRunRow() },
             report = if (response.hasReport()) response.report.toEpicReportRow() else null,
             supersededBy = response.supersededBy,
+            centre = response.centre,
+            newest = response.newest,
         )
     }
 
@@ -2187,6 +2223,7 @@ class OrreryClient(
             kind = kind,
             conclusion = conclusion,
             runs = runsList.map { it.toEvidenceRunRow() },
+            state = state,
         )
 
     private fun EvidenceRunProto.toEvidenceRunRow(): EvidenceRunRow =
@@ -2208,13 +2245,20 @@ class OrreryClient(
             stderrBytes = stderrBytes,
             artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
             item = item,
+            judgeStep = judgeStep,
         )
 
     private fun EvidenceArtifactProto.toEvidenceArtifactRow(): EvidenceArtifactRow =
         EvidenceArtifactRow(path = path, state = state, size = size, mediaType = mediaType)
 
     private fun EpicHistoryEntryProto.toEpicHistoryRow(): EpicHistoryRow {
-        val row = EpicHistoryRow(time = time, cursor = cursor, kind = "")
+        val row = EpicHistoryRow(
+            time = time,
+            cursor = cursor,
+            kind = "",
+            sentence = sentence,
+            runs = runsList.map { it.toEvidenceRunRow() },
+        )
         return when {
             hasTurn() -> row.copy(kind = "turn", turn = turn.toEpicTurnRow())
             hasTrigger() -> row.copy(kind = "trigger", trigger = trigger.toEpicTriggerRow())
@@ -2279,6 +2323,7 @@ class OrreryClient(
             summary = summary,
             gateName = gateName,
             verdicts = verdictsList.map { it.toStepVerdictRow() },
+            purpose = purpose,
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
@@ -2468,6 +2513,8 @@ class OrreryClient(
             lastTurnEnd = lastTurnEnd,
             orreryId = orreryId,
             putOff = putOff,
+            unbound = unbound,
+            claudeSession = claudeSession,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
@@ -2492,6 +2539,8 @@ class OrreryClient(
             archived = archived,
             orreryId = id,
             putOff = putOff,
+            ended = ended,
+            endedAt = endedAt,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =

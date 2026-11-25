@@ -86,6 +86,7 @@ const history = [
   create(EpicHistoryEntrySchema, {
     cursor: "h1",
     time: 9_500n,
+    sentence: "The contract was accepted.",
     item: { case: "trigger", value: { cause: "accepted" } },
   }),
 ];
@@ -302,7 +303,7 @@ test("EpicRecord: the Tasks head counts the integrated tasks, and the chart and 
       ],
     }),
     (container) => {
-      assert.equal(textOf(container, ".tasks .sec-head span"), "1 of 2 done");
+      assert.equal(textOf(container, ".tasks .sec .n"), "1 of 2 done");
       assert.equal(container.querySelectorAll(".tasks path.cell").length, 10);
       assert.deepEqual(textsOf(container, ".tasks .tr .strong"), ["Login", "Logout"]);
     },
@@ -337,7 +338,7 @@ test("EpicRecord: the Requirements head counts the proven requirements, and the 
       ],
     }),
     (container) => {
-      assert.equal(textOf(container, ".requirements .sec-head span"), "1 of 2 proven");
+      assert.equal(textOf(container, ".requirements .sec .n"), "1 of 2 proven");
       assert.deepEqual(textsOf(container, ".requirements .tbl.reqs .tr .id"), ["R1", "R2"]);
     },
   );
@@ -388,6 +389,7 @@ test("EpicRecord: Just happened draws the newest three entries, and +n earlier s
     create(EpicHistoryEntrySchema, {
       cursor: `h${n}`,
       time: BigInt(9_000 + n * 100),
+      sentence: `entry ${n}`,
       item: { case: "tell", value: { text: `entry ${n}` } },
     }),
   );
@@ -485,6 +487,7 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
         create(EpicHistoryEntrySchema, {
           cursor: "h2",
           time: 9_600n,
+          sentence: "R1 green run · passed.",
           item: { case: "evidence", value: greenRun },
         }),
       ],
@@ -520,6 +523,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
   const move: EpicHistoryEntry = create(EpicHistoryEntrySchema, {
     time: 400n,
     cursor: "m1",
+    sentence: "moved to session sess-lamp from “Planned the rota export”, by you.",
     item: {
       case: "action",
       value: { seq: 1n, kind: "move", time: 400n, by: "owner", session: "", from: "sess-rota", to: "sess-lamp" },
@@ -531,7 +535,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
     (container) => {
       assert.equal(
         textOf(container, "section.happen.just .what"),
-        "moved to session sess-lamp from “Planned the rota export”, by you",
+        "moved to session sess-lamp from “Planned the rota export”, by you.",
       );
     },
     { history: [move], rows },
@@ -565,7 +569,7 @@ test("EpicAsk: an open question draws its Ask in Now, under the sentence", async
   await withPage(
     detail({ ...build, questions: [{ id: "Q1", text: "Which branch?", asked: 9_880n }] }),
     (container) => {
-      assert.deepEqual(labelsOf(container, "section.now"), ["h3", "now-sentence", "ask", "tbl steps"]);
+      assert.deepEqual(labelsOf(container, "section.now"), ["sec", "now-sentence", "ask", "tbl steps"]);
       assert.equal(textOf(container, ".now .ask .q"), "Which branch?");
       assert.equal(textOf(container, ".now-sentence"), "One task is being worked on, and one waits on you.");
     },
@@ -1040,7 +1044,7 @@ test("EpicReview: a reviewing epic draws its Review after the Requirements, with
   await withPage(detail(reviewed), (container) => {
     const labels = labelsOf(container, ".epic-page");
     assert.deepEqual(labels.slice(-2), ["requirements", "review"]);
-    assert.equal(textOf(container, ".review .sec-head span"), "1 reviewer · 1 finding");
+    assert.equal(textOf(container, ".review .sec .n"), "1 reviewer · 1 finding");
     assert.equal(textOf(container, '.review [data-reviewer="security"] .wide'), "The token is checked");
     assert.equal(textOf(container, '.review [data-finding="security-1"] .wide'), "Token not checked · auth.go:12");
   });
@@ -1066,8 +1070,8 @@ const releasing = {
 
 test("ReleaseTable: a releasing epic draws its Release section with its words, its steps and its Then, and offers no release", async () => {
   await withPage(detail(releasing), (container) => {
-    assert.equal(textOf(container, ".release .sec-head h3"), "Release");
-    assert.equal(textOf(container, ".release .sec-head span"), "step 2 of 2");
+    assert.equal(textOf(container, ".release .sec .name"), "Release");
+    assert.equal(textOf(container, ".release .sec .n"), "step 2 of 2");
     assert.deepEqual(textsOf(container, ".release .tr .id"), ["1", "2"]);
     assert.equal(textOf(container, ".release .then"), "Then: the tag is pushed");
     assert.equal(has(container, ".release button"), false, "a running release offers no Release from step");
@@ -1152,8 +1156,8 @@ const endedWithOpen = detail({
     { id: "t2", title: "Logout", status: "done", requirements: ["R2"], place: "integrated", tone: "ok" },
   ],
   requirements: [
-    { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },
-    { id: "R2", text: "A user signs out" },
+    { id: "R1", text: "A user signs in", runs: [redRun, greenRun], state: "proven" },
+    { id: "R2", text: "A user signs out", state: "not_reached" },
   ],
 });
 
@@ -1162,7 +1166,7 @@ test("EpicReport: an ended-with-gaps epic's task rims read proven exactly when t
     const rims = [...container.querySelectorAll(".tasks path.req")].map((rim) => rim.getAttribute("class"));
     const words = [...container.querySelectorAll(".requirements .tbl.reqs .tr .end")].map((end) => end.textContent);
     assert.deepEqual(words, ["proven", "open"]);
-    assert.deepEqual(rims, ["req proven", "req"], "each rim follows the row of the requirement its task names");
+    assert.deepEqual(rims, ["req proven", "req not_reached"], "each segment reads its requirement's server state");
   });
 });
 

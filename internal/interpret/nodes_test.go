@@ -581,7 +581,7 @@ func TestPassCarriesOutNodeWorkOnce(t *testing.T) {
 	}
 	wantSteps := []enginehost.StepStart{{
 		ID: step, Agent: "reviewer", Prompt: "Review the change.", Schema: `{"type":"object"}`, Workspace: repo,
-		Revision: head, ReadOnly: true, Epic: runEpic,
+		Revision: head, ReadOnly: true, Epic: runEpic, Purpose: "Run node review of epic-runner.",
 	}}
 	if !reflect.DeepEqual(fakes.steps.calls, wantSteps) {
 		t.Errorf("step calls = %+v, want %+v", fakes.steps.calls, wantSteps)

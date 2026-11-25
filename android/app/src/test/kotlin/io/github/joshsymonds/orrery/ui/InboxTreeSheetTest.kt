@@ -92,6 +92,7 @@ class InboxTreeSheetTest {
         pane = 0,
         cwd = ALPHA,
         command = "",
+        claudeSession = "synthetic-claude",
         state = "working",
         summary = "",
         label = "label-$TMUX_PANE",
@@ -132,6 +133,7 @@ class InboxTreeSheetTest {
         .setPane(0)
         .setCwd(cwd)
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel("label-$id")

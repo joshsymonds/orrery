@@ -80,6 +80,11 @@ const (
 	// EvidenceGetEvidenceArtifactProcedure is the fully-qualified name of the Evidence's
 	// GetEvidenceArtifact RPC.
 	EvidenceGetEvidenceArtifactProcedure = "/orrery.engine.v1.Evidence/GetEvidenceArtifact"
+	// EvidenceCaptureEvidenceProcedure is the fully-qualified name of the Evidence's CaptureEvidence
+	// RPC.
+	EvidenceCaptureEvidenceProcedure = "/orrery.engine.v1.Evidence/CaptureEvidence"
+	// EvidenceAttachEvidenceProcedure is the fully-qualified name of the Evidence's AttachEvidence RPC.
+	EvidenceAttachEvidenceProcedure = "/orrery.engine.v1.Evidence/AttachEvidence"
 )
 
 // EpicsClient is a client for the orrery.engine.v1.Epics service.
@@ -698,6 +703,10 @@ type EvidenceClient interface {
 	ListEvidence(context.Context, *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error)
 	// GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
 	GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error)
+	// CaptureEvidence runs a command at a commit under a project runner, and returns the id of the capture it made.
+	CaptureEvidence(context.Context, *connect.Request[v1.CaptureEvidenceRequest]) (*connect.Response[v1.CaptureEvidenceResponse], error)
+	// AttachEvidence attaches a capture to the evidence runs it answers, and returns those runs as stored.
+	AttachEvidence(context.Context, *connect.Request[v1.AttachEvidenceRequest]) (*connect.Response[v1.AttachEvidenceResponse], error)
 }
 
 // NewEvidenceClient constructs a client for the orrery.engine.v1.Evidence service. By default, it
@@ -729,6 +738,18 @@ func NewEvidenceClient(httpClient connect.HTTPClient, baseURL string, opts ...co
 			connect.WithSchema(evidenceMethods.ByName("GetEvidenceArtifact")),
 			connect.WithClientOptions(opts...),
 		),
+		captureEvidence: connect.NewClient[v1.CaptureEvidenceRequest, v1.CaptureEvidenceResponse](
+			httpClient,
+			baseURL+EvidenceCaptureEvidenceProcedure,
+			connect.WithSchema(evidenceMethods.ByName("CaptureEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		attachEvidence: connect.NewClient[v1.AttachEvidenceRequest, v1.AttachEvidenceResponse](
+			httpClient,
+			baseURL+EvidenceAttachEvidenceProcedure,
+			connect.WithSchema(evidenceMethods.ByName("AttachEvidence")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -737,6 +758,8 @@ type evidenceClient struct {
 	runEvidence         *connect.Client[v1.RunEvidenceRequest, v1.RunEvidenceResponse]
 	listEvidence        *connect.Client[v1.ListEvidenceRequest, v1.ListEvidenceResponse]
 	getEvidenceArtifact *connect.Client[v1.GetEvidenceArtifactRequest, v1.GetEvidenceArtifactResponse]
+	captureEvidence     *connect.Client[v1.CaptureEvidenceRequest, v1.CaptureEvidenceResponse]
+	attachEvidence      *connect.Client[v1.AttachEvidenceRequest, v1.AttachEvidenceResponse]
 }
 
 // RunEvidence calls orrery.engine.v1.Evidence.RunEvidence.
@@ -754,6 +777,16 @@ func (c *evidenceClient) GetEvidenceArtifact(ctx context.Context, req *connect.R
 	return c.getEvidenceArtifact.CallUnary(ctx, req)
 }
 
+// CaptureEvidence calls orrery.engine.v1.Evidence.CaptureEvidence.
+func (c *evidenceClient) CaptureEvidence(ctx context.Context, req *connect.Request[v1.CaptureEvidenceRequest]) (*connect.Response[v1.CaptureEvidenceResponse], error) {
+	return c.captureEvidence.CallUnary(ctx, req)
+}
+
+// AttachEvidence calls orrery.engine.v1.Evidence.AttachEvidence.
+func (c *evidenceClient) AttachEvidence(ctx context.Context, req *connect.Request[v1.AttachEvidenceRequest]) (*connect.Response[v1.AttachEvidenceResponse], error) {
+	return c.attachEvidence.CallUnary(ctx, req)
+}
+
 // EvidenceHandler is an implementation of the orrery.engine.v1.Evidence service.
 type EvidenceHandler interface {
 	// RunEvidence runs an item's evidence at a revision for one phase and returns the run.
@@ -762,6 +795,10 @@ type EvidenceHandler interface {
 	ListEvidence(context.Context, *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error)
 	// GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
 	GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error)
+	// CaptureEvidence runs a command at a commit under a project runner, and returns the id of the capture it made.
+	CaptureEvidence(context.Context, *connect.Request[v1.CaptureEvidenceRequest]) (*connect.Response[v1.CaptureEvidenceResponse], error)
+	// AttachEvidence attaches a capture to the evidence runs it answers, and returns those runs as stored.
+	AttachEvidence(context.Context, *connect.Request[v1.AttachEvidenceRequest]) (*connect.Response[v1.AttachEvidenceResponse], error)
 }
 
 // NewEvidenceHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -789,6 +826,18 @@ func NewEvidenceHandler(svc EvidenceHandler, opts ...connect.HandlerOption) (str
 		connect.WithSchema(evidenceMethods.ByName("GetEvidenceArtifact")),
 		connect.WithHandlerOptions(opts...),
 	)
+	evidenceCaptureEvidenceHandler := connect.NewUnaryHandler(
+		EvidenceCaptureEvidenceProcedure,
+		svc.CaptureEvidence,
+		connect.WithSchema(evidenceMethods.ByName("CaptureEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	evidenceAttachEvidenceHandler := connect.NewUnaryHandler(
+		EvidenceAttachEvidenceProcedure,
+		svc.AttachEvidence,
+		connect.WithSchema(evidenceMethods.ByName("AttachEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Evidence/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EvidenceRunEvidenceProcedure:
@@ -797,6 +846,10 @@ func NewEvidenceHandler(svc EvidenceHandler, opts ...connect.HandlerOption) (str
 			evidenceListEvidenceHandler.ServeHTTP(w, r)
 		case EvidenceGetEvidenceArtifactProcedure:
 			evidenceGetEvidenceArtifactHandler.ServeHTTP(w, r)
+		case EvidenceCaptureEvidenceProcedure:
+			evidenceCaptureEvidenceHandler.ServeHTTP(w, r)
+		case EvidenceAttachEvidenceProcedure:
+			evidenceAttachEvidenceHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -816,4 +869,12 @@ func (UnimplementedEvidenceHandler) ListEvidence(context.Context, *connect.Reque
 
 func (UnimplementedEvidenceHandler) GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.GetEvidenceArtifact is not implemented"))
+}
+
+func (UnimplementedEvidenceHandler) CaptureEvidence(context.Context, *connect.Request[v1.CaptureEvidenceRequest]) (*connect.Response[v1.CaptureEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.CaptureEvidence is not implemented"))
+}
+
+func (UnimplementedEvidenceHandler) AttachEvidence(context.Context, *connect.Request[v1.AttachEvidenceRequest]) (*connect.Response[v1.AttachEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.AttachEvidence is not implemented"))
 }

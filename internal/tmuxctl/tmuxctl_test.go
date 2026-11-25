@@ -531,6 +531,9 @@ func TestWritePaneOptionsExpandsFormats(t *testing.T) {
 	if command == "" {
 		t.Fatal("the pane's command reads empty")
 	}
+	if command != "sleep" {
+		t.Fatalf("the pane's command reads %q, want sleep", command)
+	}
 	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionCommand)
 	if err != nil || !ok || got != command {
 		t.Errorf("%s = (%q, %v, %v), want (%q, true, nil)", protocol.OptionCommand, got, ok, err, command)

@@ -67,13 +67,13 @@ func kickUnbuilt(t *testing.T, s *store.Store) int64 {
 // turn for the replan returns work with no task, T1's build child runs under the replan's plan.
 func TestPlanBuildsUnbuiltReplan(t *testing.T) {
 	t.Parallel()
-	t.Run("a release stopped at its done gate, resumed by its owner, whose gate then replans", func(t *testing.T) {
+	t.Run("a release its integrator stopped, resumed by its owner, whose integrator then replans", func(t *testing.T) {
 		t.Parallel()
-		w := newGateReplanWorld(t)
+		w := newReplanWorld(t)
 		w.pass()
-		w.endGateWith(store.NodeCheckEnd{NotRun: "the check did not start"})
+		w.blockWithoutPaths()
 		if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
-			t.Fatalf("epic phase = %q, want stopped at its done gate", phase)
+			t.Fatalf("epic phase = %q, want stopped by its integrator", phase)
 		}
 		turn, _ := w.claimReplanTurn()
 		w.completeReplanTurn(turn, "work", unbuiltTask())
@@ -84,10 +84,9 @@ func TestPlanBuildsUnbuiltReplan(t *testing.T) {
 			t.Fatalf("ReleaseEpic: %v", err)
 		}
 		w.pass()
-		w.endGate(1)
-		w.pass()
+		w.block("candidate")
 		if phase := w.flowOf(runEpic).Epic.Phase; phase != "correcting" {
-			t.Fatalf("epic phase = %q, want correcting: the gate that failed at attempt 1 replans", phase)
+			t.Fatalf("epic phase = %q, want correcting: the integrator that blocked at attempt 1 replans", phase)
 		}
 		replan, _ := w.claimReplanTurn()
 		w.completeReplanTurn(replan, "work")

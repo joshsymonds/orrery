@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -116,10 +117,9 @@ func TestPaneWatchWiringCreatesSessionsDir(t *testing.T) {
 	}
 }
 
-// paneWatchSessionProcess starts a process that stands for a Claude session in pane of client's tmux server. Its
-// environment is the one a session has in a pane: TMUX names the server's socket, its pid and session 0, and TMUX_PANE
-// names the pane. The process ends when the test does, and its pid is returned.
-func paneWatchSessionProcess(t *testing.T, client *tmuxctl.Client, pane string) int {
+// paneWatchSessionEnv returns the environment a Claude session has in pane of client's tmux server: TMUX names the
+// server's socket, its pid and session 0, and TMUX_PANE names the pane.
+func paneWatchSessionEnv(t *testing.T, client *tmuxctl.Client, pane string) []string {
 	t.Helper()
 	socket, err := client.Run(t.Context(), "display", "-p", "#{socket_path}")
 	if err != nil {
@@ -129,16 +129,35 @@ func paneWatchSessionProcess(t *testing.T, client *tmuxctl.Client, pane string) 
 	if err != nil {
 		t.Fatalf("display pid: %v", err)
 	}
-	cmd := exec.Command("sleep", "300")
-	cmd.Env = []string{
+	return []string{
 		"TMUX=" + strings.TrimSpace(socket) + "," + strings.TrimSpace(serverPID) + ",0",
 		"TMUX_PANE=" + pane,
 	}
+}
+
+// paneWatchSessionProcess starts a process that stands for a Claude session in pane of client's tmux server, with the
+// environment paneWatchSessionEnv gives, as paneWatchStart starts it. The process is a cat, which copies the line
+// paneWatchStart writes it back. The process ends when the test does, and its pid is returned.
+func paneWatchSessionProcess(t *testing.T, client *tmuxctl.Client, pane string) int {
+	t.Helper()
+	cmd := exec.Command("cat")
+	cmd.Env = paneWatchSessionEnv(t, client, pane)
+	return paneWatchStart(t, cmd)
+}
+
+// paneWatchStart starts cmd, a program that copies its input to its output, and returns its pid once the process has
+// finished its exec, as exectest.AwaitExec waits for it. A Claude session writes its registry entry only once it runs,
+// so the entry's process always has its environment to read. The entry of a process whose exec is still under way would
+// name a process with no environment yet, which binds no pane. The process is killed and waited for when the test ends.
+func paneWatchStart(t *testing.T, cmd *exec.Cmd) int {
+	t.Helper()
+	execed := exectest.AwaitExec(t, cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start session process: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := cmd.Process.Kill(); err != nil {
+		// A process that ended before it wrote the line back has failed the wait already, so only a live one is killed.
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			t.Errorf("kill session process: %v", err)
 		}
 		// The killed process exits with a signal, which is how it ends, so only a failure to wait is reported.
@@ -147,6 +166,7 @@ func paneWatchSessionProcess(t *testing.T, client *tmuxctl.Client, pane string) 
 			t.Errorf("wait for session process: %v", err)
 		}
 	})
+	execed()
 	return cmd.Process.Pid
 }
 
@@ -155,7 +175,44 @@ func paneWatchSessionProcess(t *testing.T, client *tmuxctl.Client, pane string) 
 // once serve has applied the update.
 func TestPaneWatchWiringEntryReachesUpdates(t *testing.T) {
 	_, client, pane := startPane(t, t.TempDir())
-	pid := paneWatchSessionProcess(t, client, pane)
+	paneWatchEntryReachesPane(t, client, pane, paneWatchSessionProcess(t, client, pane))
+}
+
+// paneWatchHeldExec is a shell program that holds its exec into a Claude session until it reads a line. It starts with
+// no session environment. Once it reads a line it execs, through env, into a shell that also has the variables its
+// arguments set, and that shell writes the line back and then waits on its input. With no line to read it execs into a
+// sleep that has no session environment, so a pid read before the line arrives never gains one.
+const paneWatchHeldExec = `read line || exec sleep 300
+exec env "$@" sh -c 'echo "$0"; read rest' "$line"`
+
+// TestPaneWatchMissedEntryWaitsForTheSessionExec checks that the stand-in session process has the environment of its
+// session once paneWatchStart returns its pid, and that the registry entry of that pid then reaches the pane. os/exec
+// returns from Start while the kernel may not yet have laid out the environment of the new program, and the pane watch
+// reads an entry written before serve starts only once, as it starts: an entry whose process has no environment yet
+// binds no pane, and nothing reads it again, so the pane never reads working. The process here holds its exec into the
+// session until it reads a line, so a pid returned before the exec has finished reads without the session's
+// environment every time.
+func TestPaneWatchMissedEntryWaitsForTheSessionExec(t *testing.T) {
+	_, client, pane := startPane(t, t.TempDir())
+	args := append([]string{"-c", paneWatchHeldExec, "sh"}, paneWatchSessionEnv(t, client, pane)...)
+	cmd := exec.Command("sh", args...)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	pid := paneWatchStart(t, cmd)
+	env, err := paneregistry.SystemProc().Environ(pid)
+	if err != nil {
+		t.Fatalf("environment of the session process: %v", err)
+	}
+	if env["TMUX_PANE"] != pane {
+		t.Fatalf("the session process %d has TMUX_PANE %q once its pid is returned, want %q",
+			pid, env["TMUX_PANE"], pane)
+	}
+	paneWatchEntryReachesPane(t, client, pane, pid)
+}
+
+// paneWatchEntryReachesPane writes a registry entry of the busy Claude session pid under an invented HOME, runs serve
+// with that HOME, and waits until pane of client's tmux server reads working.
+func paneWatchEntryReachesPane(t *testing.T, client *tmuxctl.Client, pane string, pid int) {
+	t.Helper()
 	entry, err := json.Marshal(paneregistry.Entry{
 		PID:        pid,
 		SessionID:  paneWatchSession,

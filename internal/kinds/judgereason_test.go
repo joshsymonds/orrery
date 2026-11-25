@@ -43,8 +43,8 @@ func restingRows(checks []store.NodeCheck, captured ...store.EvidenceRun) Rows {
 }
 
 // TestJudgeCarryRegressionNamesReason: a Requirement green at the stored base whose capture is judged fails names the
-// judge's reason in its regression, so the integrate fails with that line, and the release stops with it once its last
-// round fails.
+// judge's reason in its regression, so the integrate fails with that line, and a round of the task integrator fails
+// with it, as the next round reads it.
 func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 	t.Parallel()
 	t.Run("integrate", func(t *testing.T) {
@@ -55,24 +55,23 @@ func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: regressedLine},
 		}})
 	})
-	t.Run("release", func(t *testing.T) {
+	t.Run("task integrator", func(t *testing.T) {
 		t.Parallel()
-		var releases []store.ReleaseRun
-		var checks []store.NodeCheck
-		var runs []store.EvidenceRun
-		for round := int64(1); round <= integratorRounds; round++ {
-			releases = append(releases, integratorRound(round, "merge-1", ""))
-			checks = append(checks, store.NodeCheck{ID: roundWorkID(round, "done 1"), State: store.NodeEnded})
-			runs = append(runs, judgedFailing(roundWorkID(round, "capture R1")))
-		}
 		batch, green := greenBatch()
-		rows := integratorRows(releases, checks, runs, nil)
-		rows.Epic.StoredBase = "base-1"
-		rows.Runs = []store.NodeRun{batch}
-		rows.Evidence = append(rows.Evidence, green)
-		checkDecisions(t, Release{}, []decideCase{{
-			"last round's failure names the reason", releaseNode(1, "", integratorResult), rows,
-			Action{Kind: ActStop, Output: regressedLine + " at merge-1"},
+		rows := Rows{
+			Epic: conflictEpic(), Runs: []store.NodeRun{batch},
+			Rounds: []store.IntegrateRound{recordedRound(1, RoundMerged, "m1", "", "")}, Checks: roundChecksPassed(),
+			Evidence: []store.EvidenceRun{
+				judgedFailing(roundWork("capture R1")), roundCapturesPassed()[1], green,
+			},
+		}
+		checkDecisions(t, Integrate{}, []decideCase{{
+			"the round's failure names the reason", batchNode("cand-1", conflictLeftOut, true), rows,
+			Action{
+				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
+				Output: "R1 was green at the stored base base-1, and its capture on commit m1 exited 0 and was " +
+					"judged fails: the output shows TestX failing",
+			},
 		}})
 	})
 }

@@ -482,8 +482,10 @@ linters:
     misspell:
       locale: US
       # "cancelled" is the spelling the wire gives a command's lifecycle state; the session matches that string as sent.
+      # "centre" is the epic's centre field the wire names, which the generated EpicsGetResponse.Centre carries as sent.
       ignore-rules:
         - cancelled
+        - centre
 
   exclusions:
     warn-unused: false

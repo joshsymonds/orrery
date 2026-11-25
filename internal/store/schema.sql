@@ -65,7 +65,7 @@ CREATE TABLE steps (
     end_value TEXT NOT NULL,
     reason TEXT NOT NULL,
     ended INTEGER NOT NULL
-, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '');
+, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '', purpose TEXT NOT NULL DEFAULT '');
 CREATE TABLE grants (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -275,31 +275,6 @@ CREATE TABLE epic_gate_lists (
     gate TEXT NOT NULL,
     PRIMARY KEY (epic, list, position)
 );
-CREATE TABLE evidence_runs (
-    id TEXT PRIMARY KEY,
-    epic TEXT NOT NULL,
-    item TEXT NOT NULL,
-    revision TEXT NOT NULL,
-    phase TEXT NOT NULL CHECK (phase IN ('red', 'green')),
-    source TEXT NOT NULL CHECK (source IN ('captured', 'supplied')),
-    state TEXT NOT NULL CHECK (state IN ('capturing', 'judging', 'ended')),
-    spec TEXT NOT NULL,
-    grant_id TEXT NOT NULL DEFAULT '',
-    holder TEXT NOT NULL DEFAULT '',
-    exit INTEGER NOT NULL DEFAULT 0,
-    timed_out INTEGER NOT NULL DEFAULT 0,
-    not_captured TEXT NOT NULL DEFAULT '',
-    log_hash TEXT NOT NULL DEFAULT '',
-    log_bytes INTEGER NOT NULL DEFAULT 0,
-    judge_step TEXT NOT NULL DEFAULT '',
-    judges INTEGER NOT NULL DEFAULT 0,
-    verdict TEXT NOT NULL DEFAULT '' CHECK (verdict IN ('', 'holds', 'fails')),
-    judge_reason TEXT NOT NULL DEFAULT '',
-    passed INTEGER NOT NULL DEFAULT 0,
-    created INTEGER NOT NULL,
-    ended INTEGER NOT NULL DEFAULT 0
-, stderr_hash TEXT NOT NULL DEFAULT '', stderr_bytes INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX evidence_runs_epic_created ON evidence_runs (epic, created);
 CREATE TABLE evidence_artifacts (
     run TEXT NOT NULL,
     position INTEGER NOT NULL,
@@ -1105,6 +1080,98 @@ CREATE TABLE pushed_notices (
     PRIMARY KEY (host, pane, session)
 );
 CREATE INDEX notice_history_key ON notice_history (host, pane, session, epic, limit_key, alert, id);
+CREATE TABLE epic_stalls (
+    epic TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    tasks INTEGER NOT NULL,
+    runs INTEGER NOT NULL,
+    actions INTEGER NOT NULL,
+    parked INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (epic, seq)
+);
+CREATE INDEX steps_epic_open ON steps (epic, started, id) WHERE end_value = '';
+CREATE TABLE evidence_captures (
+    id TEXT PRIMARY KEY,
+    epic TEXT NOT NULL,
+    repository TEXT NOT NULL,
+    step TEXT NOT NULL,
+    role TEXT NOT NULL,
+    runner TEXT NOT NULL,
+    commit_sha TEXT NOT NULL,
+    argv TEXT NOT NULL,
+    files TEXT NOT NULL,
+    limit_seconds INTEGER NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('running', 'ended')),
+    grant_id TEXT NOT NULL DEFAULT '',
+    holder TEXT NOT NULL DEFAULT '',
+    exit INTEGER NOT NULL DEFAULT 0,
+    timed_out INTEGER NOT NULL DEFAULT 0,
+    not_captured TEXT NOT NULL DEFAULT '',
+    log_hash TEXT NOT NULL DEFAULT '',
+    log_bytes INTEGER NOT NULL DEFAULT 0,
+    stderr_hash TEXT NOT NULL DEFAULT '',
+    stderr_bytes INTEGER NOT NULL DEFAULT 0,
+    delivered INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    ended INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX evidence_captures_repository_commit ON evidence_captures (repository, commit_sha);
+CREATE TABLE evidence_capture_files (
+    capture TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('kept', 'missing', 'over_cap')),
+    hash TEXT NOT NULL DEFAULT '',
+    blob TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (capture, position)
+);
+CREATE TABLE evidence_capture_briefs (
+    capture TEXT NOT NULL,
+    run TEXT NOT NULL,
+    PRIMARY KEY (capture, run)
+);
+CREATE TABLE evidence_gatherers (
+    epic TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    step TEXT NOT NULL,
+    started INTEGER NOT NULL,
+    ended INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (epic, seq)
+);
+CREATE UNIQUE INDEX evidence_gatherers_step ON evidence_gatherers (step);
+CREATE UNIQUE INDEX evidence_gatherers_running ON evidence_gatherers (epic) WHERE ended = 0;
+CREATE TABLE evidence_runs (
+    id TEXT PRIMARY KEY,
+    epic TEXT NOT NULL,
+    item TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('red', 'green')),
+    source TEXT NOT NULL CHECK (source IN ('captured', 'supplied')),
+    state TEXT NOT NULL CHECK (state IN ('waiting', 'gathering', 'judging', 'ended')),
+    spec TEXT NOT NULL,
+    grant_id TEXT NOT NULL DEFAULT '',
+    holder TEXT NOT NULL DEFAULT '',
+    exit INTEGER NOT NULL DEFAULT 0,
+    timed_out INTEGER NOT NULL DEFAULT 0,
+    not_captured TEXT NOT NULL DEFAULT '',
+    log_hash TEXT NOT NULL DEFAULT '',
+    log_bytes INTEGER NOT NULL DEFAULT 0,
+    judge_step TEXT NOT NULL DEFAULT '',
+    judges INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '' CHECK (verdict IN ('', 'holds', 'fails')),
+    judge_reason TEXT NOT NULL DEFAULT '',
+    passed INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    ended INTEGER NOT NULL DEFAULT 0,
+    stderr_hash TEXT NOT NULL DEFAULT '',
+    stderr_bytes INTEGER NOT NULL DEFAULT 0,
+    capture TEXT NOT NULL DEFAULT '',
+    gatherer TEXT NOT NULL DEFAULT '',
+    gatherers INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX evidence_runs_epic_created ON evidence_runs (epic, created);
 CREATE VIEW step_listings AS
 SELECT
     steps.id,
@@ -1123,6 +1190,7 @@ SELECT
     steps.ended,
     steps.epic,
     steps.task,
+    steps.purpose,
     steps.gate_name,
     steps.gate_limit,
     steps.loop_limited,
@@ -1140,16 +1208,6 @@ SELECT
     ), '') ELSE '' END AS TEXT) AS summary,
     steps.host
 FROM steps;
-CREATE TABLE epic_stalls (
-    epic TEXT NOT NULL,
-    seq INTEGER NOT NULL,
-    at INTEGER NOT NULL,
-    tasks INTEGER NOT NULL,
-    runs INTEGER NOT NULL,
-    actions INTEGER NOT NULL,
-    parked INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (epic, seq)
-);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1165,6 +1223,11 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (109,10
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (110,109,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (111,110,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (112,111,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (113,112,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (114,113,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,114,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);

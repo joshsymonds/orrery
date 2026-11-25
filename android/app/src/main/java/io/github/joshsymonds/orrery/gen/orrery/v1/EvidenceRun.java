@@ -30,6 +30,7 @@ public  final class EvidenceRun extends
     revision_ = "";
     artifacts_ = emptyProtobufList();
     item_ = "";
+    judgeStep_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -236,7 +237,7 @@ public  final class EvidenceRun extends
   private java.lang.String state_;
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -248,7 +249,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -261,7 +262,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -275,7 +276,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -286,7 +287,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -1043,6 +1044,73 @@ public  final class EvidenceRun extends
 
   }
 
+  public static final int JUDGE_STEP_FIELD_NUMBER = 18;
+  private java.lang.String judgeStep_;
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The judgeStep.
+   */
+  @java.lang.Override
+  public java.lang.String getJudgeStep() {
+    return judgeStep_;
+  }
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The bytes for judgeStep.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getJudgeStepBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(judgeStep_);
+  }
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @param value The judgeStep to set.
+   */
+  private void setJudgeStep(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    judgeStep_ = value;
+  }
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   */
+  private void clearJudgeStep() {
+
+    judgeStep_ = getDefaultInstance().getJudgeStep();
+  }
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @param value The bytes for judgeStep to set.
+   */
+  private void setJudgeStepBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    judgeStep_ = value.toStringUtf8();
+
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1354,7 +1422,7 @@ public  final class EvidenceRun extends
 
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1366,7 +1434,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1379,7 +1447,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1394,7 +1462,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -1407,7 +1475,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The run's state: capturing, judging or ended.
+     * The run's state: capturing, waiting, gathering, judging or ended.
      * </pre>
      *
      * <code>string state = 4 [json_name = "state"];</code>
@@ -2201,6 +2269,75 @@ public  final class EvidenceRun extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The id of the run's judge step; empty when none.
+     * </pre>
+     *
+     * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+     * @return The judgeStep.
+     */
+    @java.lang.Override
+    public java.lang.String getJudgeStep() {
+      return instance.getJudgeStep();
+    }
+    /**
+     * <pre>
+     * The id of the run's judge step; empty when none.
+     * </pre>
+     *
+     * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+     * @return The bytes for judgeStep.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getJudgeStepBytes() {
+      return instance.getJudgeStepBytes();
+    }
+    /**
+     * <pre>
+     * The id of the run's judge step; empty when none.
+     * </pre>
+     *
+     * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+     * @param value The judgeStep to set.
+     * @return This builder for chaining.
+     */
+    public Builder setJudgeStep(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setJudgeStep(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the run's judge step; empty when none.
+     * </pre>
+     *
+     * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearJudgeStep() {
+      copyOnWrite();
+      instance.clearJudgeStep();
+      return this;
+    }
+    /**
+     * <pre>
+     * The id of the run's judge step; empty when none.
+     * </pre>
+     *
+     * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+     * @param value The bytes for judgeStep to set.
+     * @return This builder for chaining.
+     */
+    public Builder setJudgeStepBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setJudgeStepBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EvidenceRun)
   }
   @java.lang.Override
@@ -2235,11 +2372,13 @@ public  final class EvidenceRun extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact.class,
             "stderrBytes_",
             "item_",
+            "judgeStep_",
           };
           java.lang.String info =
-              "\u0000\u0011\u0000\u0000\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0012\u0000\u0000\u0001\u0012\u0012\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0004\u0006\u0007\u0007\u0208\b\u0208\t\u0208\n\u0007" +
-              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b\u0010\u0002\u0011\u0208";
+              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b\u0010\u0002\u0011\u0208\u0012" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

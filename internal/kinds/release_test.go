@@ -1,7 +1,6 @@
 package kinds
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -60,17 +59,6 @@ func candidateRun(attempt int64, head string) store.ReleaseRun {
 // judgeRun returns a judge run of the first attempt that passed or not, for reason.
 func judgeRun(passed bool, reason string) store.ReleaseRun {
 	return store.ReleaseRun{Part: store.ReleasePartJudge, Attempt: 1, Passed: passed, Reason: reason}
-}
-
-// doneCheck returns the ended check of the done gate at position i of attempt, passed or not.
-func doneCheck(attempt int64, i int, passed bool) store.NodeCheck {
-	check := store.NodeCheck{
-		ID: attemptWorkID(attempt, fmt.Sprintf("done %d", i)), State: store.NodeEnded,
-	}
-	if !passed {
-		check.Exit = 1
-	}
-	return check
 }
 
 // TestReleasePhases checks the decisions that come before any release run: a released or done epic ends passed, a clean
@@ -173,8 +161,8 @@ func TestReleaseIdlePhases(t *testing.T) {
 }
 
 // TestReleaseCandidate checks how the candidate is decided: a passed candidate of any attempt is the candidate, unless
-// this attempt found origin's main not in it, a failed one of this attempt stops, and otherwise the candidate is
-// prepared, recorded, or held by its done gates.
+// this attempt found origin's main not in it, a failed one of this attempt stops, a prepare that names origin's commit
+// hands the merge to the release integrator, and otherwise the candidate is prepared, or recorded with no done gate run.
 func TestReleaseCandidate(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{releaseStep("tag the release", "rollback")}
@@ -252,90 +240,22 @@ func TestReleaseCandidate(t *testing.T) {
 			Action{Kind: ActRecord, Items: []string{"candidate", testRev}},
 		},
 		{
-			"behind with no done gate records the candidate",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{Epic: gated()},
+			"revision not behind records the candidate without running its done gates",
+			releaseNode(1, testRev, `{"behind":false}`),
+			Rows{Epic: gated("lint", "test")},
 			Action{Kind: ActRecord, Items: []string{"candidate", testRev}},
 		},
 		{
-			"behind with a done gate that has no check starts it",
-			releaseNode(1, testRev, `{"behind":true}`),
+			"result naming origin's commit with no conflict hands the clean merge to the release integrator",
+			releaseNode(1, "", cleanResult),
 			Rows{Epic: gated("lint")},
-			Action{Kind: ActStart, IDs: []string{attemptWorkID(1, "done 1")}, Items: []string{"lint"}},
+			Action{Kind: ActIntegrator, IDs: []string{attemptWorkID(1, integratorWork)}, Items: []string{"1"}},
 		},
 		{
-			"behind starts the first done gate without a check, not the later ones",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{Epic: gated("lint", "test"), Checks: []store.NodeCheck{doneCheck(1, 1, true)}},
-			Action{Kind: ActStart, IDs: []string{attemptWorkID(1, "done 2")}, Items: []string{"test"}},
-		},
-		{
-			"behind with a running done gate gives none",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{
-				Epic: gated("lint"),
-				Checks: []store.NodeCheck{{
-					ID: attemptWorkID(1, "done 1"), State: store.NodeRunning,
-				}},
-			},
-			Action{Kind: ActNone},
-		},
-		{
-			"behind with a running done gate before a failed one gives none",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{
-				Epic: gated("lint", "test"),
-				Checks: []store.NodeCheck{
-					{ID: attemptWorkID(1, "done 1"), State: store.NodeRunning},
-					doneCheck(1, 2, false),
-				},
-			},
-			Action{Kind: ActNone},
-		},
-		{
-			"behind with a failed done gate stops naming the gate and the revision",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{Epic: gated("lint"), Checks: []store.NodeCheck{doneCheck(1, 1, false)}},
-			Action{Kind: ActStop, Output: "done gate lint did not pass at " + testRev},
-		},
-		{
-			"behind with a timed out done gate stops naming the gate and the revision",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{
-				Epic: gated("lint"),
-				Checks: []store.NodeCheck{{
-					ID: attemptWorkID(1, "done 1"), State: store.NodeEnded, TimedOut: true,
-				}},
-			},
-			Action{Kind: ActStop, Output: "done gate lint did not pass at " + testRev},
-		},
-		{
-			"behind with a done gate lost at a restart twice stops with the park's reason",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{
-				Epic: gated("lint"),
-				Checks: []store.NodeCheck{
-					{ID: attemptWorkID(1, "done 1"), State: store.NodeEnded, NotRun: store.LostAtRestart},
-					{ID: attemptWorkID(1, "done 1 rerun"), State: store.NodeEnded, NotRun: store.LostAtRestart},
-				},
-			},
-			Action{Kind: ActStop, Output: "integrate " + releaseNode(1, testRev, "").Run.Path +
-				": Done gate lint lost at a restart twice"},
-		},
-		{
-			"behind with a done check of another attempt starts the gate of this one",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{Epic: gated("lint"), Checks: []store.NodeCheck{doneCheck(2, 1, true)}},
-			Action{Kind: ActStart, IDs: []string{attemptWorkID(1, "done 1")}, Items: []string{"lint"}},
-		},
-		{
-			"behind with every done gate passed records the candidate",
-			releaseNode(1, testRev, `{"behind":true}`),
-			Rows{
-				Epic:   gated("lint", "test"),
-				Checks: []store.NodeCheck{doneCheck(1, 1, true), doneCheck(1, 2, true)},
-			},
-			Action{Kind: ActRecord, Items: []string{"candidate", testRev}},
+			"result naming origin's commit with a revision a prepare once set hands the merge to the release integrator",
+			releaseNode(1, testRev, cleanResult),
+			Rows{Epic: gated("lint")},
+			Action{Kind: ActIntegrator, IDs: []string{attemptWorkID(1, integratorWork)}, Items: []string{"1"}},
 		},
 	}
 	checkDecisions(t, Release{}, cases)

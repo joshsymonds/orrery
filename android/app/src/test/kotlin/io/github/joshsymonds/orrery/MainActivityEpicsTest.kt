@@ -125,6 +125,7 @@ class MainActivityEpicsTest {
         .setPane(0)
         .setCwd("/home/user/alpha")
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel(label)
@@ -450,7 +451,7 @@ class MainActivityEpicsTest {
 
         launch()
 
-        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
+        awaitNode(hasText("$EPIC_SLUG · 0 of 0 proven") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
         awaitNode(hasText("waits on your answer ·", substring = true) and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
     }
 
@@ -476,7 +477,7 @@ class MainActivityEpicsTest {
 
         launch()
 
-        awaitNode(hasText("0 of 0 tasks done") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
+        awaitNode(hasText("$EPIC_SLUG · 0 of 0 proven") and hasAnyAncestor(hasTestTag("hung:epic:$EPIC_ID")))
         val asked = server.requests
             .filter { it.rawPath == EPICS_GET_PATH }
             .map { EpicsGetRequest.parseFrom(it.body).id }
@@ -530,6 +531,7 @@ class MainActivityEpicsTest {
         awaitNode(hasTestTag("happened:0"))
 
         composeRule.onNodeWithTag("happened:0").performClick()
+        composeRule.onNodeWithTag("happened-open:0", useUnmergedTree = true).performClick()
 
         awaitNode(workerSession)
 

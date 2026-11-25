@@ -90,14 +90,15 @@ func (e epicsServer) List(
 // order the stored epic lists them, its release steps in the order of its release proof, its report, its open questions
 // with their labels, choices and recommendations and whether its steerer holds each, its contract with its acceptance
 // time, its summary, whether it is paused, why it is parked and whether the planner or its steerer holds the park, its
-// repository, its sessions newest call first. An id the database does not list answers not_found, and the id is never
-// joined into a path.
+// repository, its sessions newest call first. Each Requirement carries its state, and the epic its centre (see
+// epicCentre). Its newest is the sentence of its newest history entry, built as History builds it. An id the database
+// does not list answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
 ) (*connect.Response[orreryv1.EpicsGetResponse], error) {
 	id := req.Msg.GetId()
-	stored, inStore, err := e.getStored(ctx, id)
+	stored, inStore, err := e.getStoredHistory(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -118,14 +119,22 @@ func (e epicsServer) Get(
 	resp.Epic = storedEpicMessage(id, stored, stored.GetContract().GetRepository(),
 		epicOpenQuestions(stored.GetQuestions()), counts)
 	runs := e.listEvidence(ctx, id)
-	roles := storedStepRoles(stored, runs)
-	applyStoredRoles(resp.GetSteps(), roles)
-	applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
-	resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
+	applyStoredEpicRoles(resp, stored, runs)
+	resp.Requirements = orreryRequirements(stored, resp.GetSteps(), runs)
 	resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 	setStoredEpicParts(resp, stored)
 	epicLifecycles(resp, stored, labeled)
+	resp.Newest = historyNewest(epicHistoryEntries(stored, resp.GetSteps(), runs))
+	resp.Centre = epicCentre(resp, stored)
 	return connect.NewResponse(resp), nil
+}
+
+// applyStoredEpicRoles sets the roles of resp's labeled and running steps from the stored epic and its runs (see
+// storedStepRoles and applyStoredRoles).
+func applyStoredEpicRoles(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic, runs []*enginev1.EvidenceRun) {
+	roles := storedStepRoles(stored, runs)
+	applyStoredRoles(resp.GetSteps(), roles)
+	applyStoredRoles(resp.GetEpic().GetRunningSteps(), roles)
 }
 
 // setStoredEpicParts sets the parts of resp that stored alone answers: its build tasks, ledger findings, review
@@ -684,8 +693,8 @@ func epicStepMessages(steps []*enginev1.Step) []*orreryv1.EpicStep {
 // epicStepMessage converts step to its EpicStep. Each check's detail and its two tails are carried, redacted. Stdout and
 // stderr are carried only for a failed gate check, and a check that is not a gate check carries none of the four. The
 // summary is the latest result's string summary. The verdicts are the step's judge verdicts, and its host is the
-// step's. The role is implementer for a writing step; a read-only step's role comes from its stored epic, through
-// applyStoredRoles.
+// step's. The purpose is the step's stored purpose. The role is implementer for a writing step; a read-only step's role
+// comes from its stored epic, through applyStoredRoles.
 func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	checks := make([]*orreryv1.EpicStepCheck, 0, len(step.GetChecks()))
 	for _, check := range step.GetChecks() {
@@ -730,6 +739,7 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		Role:         role,
 		Summary:      redact.Text(step.GetSummary()),
 		Verdicts:     epicStepVerdictMessages(step.GetVerdicts()),
+		Purpose:      step.GetPurpose(),
 		Host:         step.GetHost(),
 	}
 }

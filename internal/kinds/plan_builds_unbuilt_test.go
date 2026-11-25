@@ -107,3 +107,24 @@ func TestPlanBuildsUnbuiltMark(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanTaskHoldsATaskItBuilt covers a task whose turn was still running when the plan started: the plan's mark
+// counted that turn, so the task's turn is at the mark, and the plan built the task once the turn stored it. The plan
+// holds it, so its settle walk integrates it, while a task of the same turn that an earlier plan built stays that plan's.
+func TestPlanTaskHoldsATaskItBuilt(t *testing.T) {
+	t.Parallel()
+	plan := store.NodeRun{Path: "release/A3/fix", Kind: kindPlan, State: store.NodeRunning, Mark: 16}
+	built := store.EpicTask{Seq: 27, Turn: 16, Status: "done"}
+	earlier := store.EpicTask{Seq: 26, Turn: 16, Status: "done"}
+	runs := []store.NodeRun{
+		plan,
+		{Path: "release/A3/fix/rebuild/T27", Kind: kindBuild, Task: 27, State: store.NodeEnded},
+		{Path: "release/A2/fix/rebuild/T26", Kind: kindBuild, Task: 26, State: store.NodeEnded},
+	}
+	if !PlanTask(built, plan, runs) {
+		t.Error("PlanTask(T27) = false, want the plan that built it to hold it")
+	}
+	if PlanTask(earlier, plan, runs) {
+		t.Error("PlanTask(T26) = true, want it the earlier plan's alone")
+	}
+}

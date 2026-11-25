@@ -33,14 +33,15 @@ const (
 // prepareRelease carries out the prepare of a release run. A run with no Result works out its candidate, records the
 // Result, and then prepares the candidate as its revision. A run whose Result is set prepares the candidate that Result
 // names and reads nothing from git again. A Result that has an error prepares nothing: the release kind stops the run
-// at that error. A Result whose merge conflicts prepares nothing either: the release integrator makes its candidate.
+// at that error. A Result that names origin's commit prepares nothing either, whether git's merge of it conflicts or
+// not: the release integrator makes the candidate.
 func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Action) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
 		return fmt.Errorf("read result of node %s: %w", act.Path, err)
 	}
 	if act.Run.Result == "" {
-		decided, decideErr := r.decideRelease(ctx, epic, act.Run)
+		decided, decideErr := r.decideRelease(ctx, epic)
 		if decideErr != nil {
 			decided = kinds.ReleaseResult{Error: decideErr.Error()}
 		}
@@ -53,7 +54,7 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 		}
 		result = decided
 	}
-	if result.Error != "" || len(result.Conflicts) > 0 {
+	if result.Error != "" || result.Origin != "" {
 		return nil
 	}
 	if err = r.store.PrepareNode(ctx, epic.ID, act.Path, act.Run.Attempt, result.Candidate, ""); err != nil {
@@ -62,14 +63,12 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 	return nil
 }
 
-// decideRelease works out the Result of a release run's prepare. The candidate is the epic's branch tip, or, when
-// origin's commit is not an ancestor of the tip, the merge of origin's commit into the tip. A merge that merges cleanly
-// names origin's commit as its Origin too. A merge that conflicts has no candidate: its Result names origin's commit, the branch of origin it was fetched from and the conflicted paths. A
-// merge that conflicts in no path git names is an error. Nothing is checked out, and the only ref written is the
-// release's own ref for origin and the run's pin.
-func (r *Runner) decideRelease(
-	ctx context.Context, epic store.EpicRow, run store.NodeRun,
-) (kinds.ReleaseResult, error) {
+// decideRelease works out the Result of a release run's prepare. The candidate is the epic's branch tip when origin's
+// commit is an ancestor of it. Otherwise the Result has no candidate: it names origin's commit, the branch of origin it
+// was fetched from and the paths git's merge of origin's commit into the tip conflicts in, none for a clean merge, and
+// the release integrator makes the merge. A merge that conflicts in no path git names is an error. Nothing is checked
+// out and nothing is committed, and the only ref written is the release's own ref for origin.
+func (r *Runner) decideRelease(ctx context.Context, epic store.EpicRow) (kinds.ReleaseResult, error) {
 	host, err := r.hostOf(epic)
 	if err != nil {
 		return kinds.ReleaseResult{}, err
@@ -96,18 +95,11 @@ func (r *Runner) decideRelease(
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
-	tree, paths := mergedTree(out)
-	if conflicted {
-		if len(paths) == 0 {
-			return kinds.ReleaseResult{}, errors.New(conflictMessage(tip, origin, nil))
-		}
-		return kinds.ReleaseResult{Behind: true, Tip: tip, Origin: origin, Branch: branch, Conflicts: paths}, nil
+	_, paths := mergedTree(out)
+	if conflicted && len(paths) == 0 {
+		return kinds.ReleaseResult{}, errors.New(conflictMessage(tip, origin, nil))
 	}
-	merged, err := mergeOrigin(ctx, host, epic, run, tip, origin, tree)
-	if err != nil {
-		return kinds.ReleaseResult{}, err
-	}
-	return kinds.ReleaseResult{Behind: true, Candidate: merged, Tip: tip, Origin: origin}, nil
+	return kinds.ReleaseResult{Behind: true, Tip: tip, Origin: origin, Branch: branch, Conflicts: paths}, nil
 }
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the
@@ -231,30 +223,13 @@ func isAncestor(ctx context.Context, host hostexec.Host, repo, ancestor, descend
 	return false, err
 }
 
-// mergeOrigin commits tree, the tree merge-tree wrote for the merge of origin's commit into tip, as the merge of the two
-// in epic's repository, without a checkout, and pins the merge under the run's release ref on host.
-func mergeOrigin(
-	ctx context.Context, host hostexec.Host, epic store.EpicRow, run store.NodeRun, tip, origin, tree string,
-) (string, error) {
-	commit, err := gitOutput(ctx, host, epic.Repository, "commit-tree", tree, "-p", tip, "-p", origin, "-m",
-		mergeMessage(tip, origin))
-	if err != nil {
-		return "", err
-	}
-	merged := strings.TrimSpace(commit)
-	if pinErr := build.Pin(ctx, host, epic.Repository, runPin(epic, run), merged); pinErr != nil {
-		return "", fmt.Errorf("pin release merge: %w", pinErr)
-	}
-	return merged, nil
-}
-
 // mergeMessage is the message of the merge of origin's commit into the release tip tip.
 func mergeMessage(tip, origin string) string {
 	return fmt.Sprintf("Merge origin's commit %s into release tip %s", origin, tip)
 }
 
-// runPin returns the ref the merge a release run's prepare or its release integrator makes is pinned under: the run's
-// id and attempt under epic's release namespace.
+// runPin returns the ref the merge a release run's release integrator makes is pinned under: the run's id and attempt
+// under epic's release namespace.
 func runPin(epic store.EpicRow, run store.NodeRun) string {
 	return releaseRef(epic, fmt.Sprintf("%s-%d", run.ID, run.Attempt))
 }

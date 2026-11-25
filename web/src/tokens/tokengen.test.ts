@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -103,7 +103,7 @@ function assertFollowsMeta(rel: string): void {
     }
   }
   for (const [name, t] of Object.entries(tokens.type) as [string, any][]) {
-    assert.equal(css.get(`--o-type-${name}`), `${refValue(t.weight)} ${t.size}px/${t.line}px var(--o-font-mono)`);
+    assert.equal(css.get(`--o-type-${name}`), `${refValue(t.weight)} ${t.size}px/${t.line}px var(--o-font-${t.face})`);
   }
 }
 
@@ -201,12 +201,12 @@ test("TokenGen: every length in OrreryTokens is Dp: Radius, Size, Layout and Ele
   assert.deepEqual(z.sort(numeric), (Object.values(tokens.z) as number[]).sort(numeric), "Z is not tokens.json's z");
 });
 
-test("TokenGen: each type is a TextStyle in OrreryMono with its size and line height in sp, weight and tracking, and its Caps Boolean beside it", () => {
+test("TokenGen: each type is a TextStyle in its face, OrreryInter or OrreryMono, with its size and line height in sp, weight and tracking, and its Caps Boolean beside it", () => {
   const lines = members(bodyOf(kotlin(), "object Type {"));
   for (const [name, t] of Object.entries(tokens.type) as [string, any][]) {
     const style = lines.find((line) => line.startsWith(`val ${name}: TextStyle = TextStyle(`));
     assert.ok(style, `${name} is not a TextStyle`);
-    assert.equal(argument(style, "fontFamily"), "OrreryMono");
+    assert.equal(argument(style, "fontFamily"), t.face === "inter" ? "OrreryInter" : "OrreryMono");
     assert.equal(argument(style, "fontWeight"), `Font.Weight.${refName(t.weight)}`);
     assert.equal(argument(style, "fontSize"), `${t.size}.sp`);
     assert.equal(argument(style, "lineHeight"), `${t.line}.sp`);
@@ -231,6 +231,26 @@ test("TokenGen: each move is a Timing of its duration in millis and an Easing fr
   const loops = members(bodyOf(motion, "object Loop {"));
   for (const [name, loop] of Object.entries(tokens.motion.loop) as [string, any][]) {
     assert.ok(loops.includes(`val ${name}: Int = ${loop.ms}`), `${name} is not a duration in millis`);
+  }
+});
+
+test("TokenGen: each motion.delay is an Int of its millis in Motion.Delay and a --o-delay-<name> of its ms in web/src/tokens.css, 0ms in the reduced-motion block; each motion.distance is a Dp in Motion.Distance and a --o-distance-<name> in px", () => {
+  const motion = bodyOf(kotlin(), "object Motion {");
+  const css = read("web/src/tokens.css");
+  const reducedAt = css.indexOf("@media (prefers-reduced-motion: reduce)");
+  assert.notEqual(reducedAt, -1, "web/src/tokens.css has no reduced-motion block");
+  const normal = css.slice(0, reducedAt);
+  const reduced = css.slice(reducedAt);
+  const delays = members(bodyOf(motion, "object Delay {"));
+  for (const [name, ms] of Object.entries(tokens.motion.delay) as [string, number][]) {
+    assert.ok(delays.includes(`val ${name}: Int = ${ms}`), `${name} is not an Int of ${ms} in Motion.Delay`);
+    assert.ok(normal.includes(`--o-delay-${name}: ${ms}ms;`), `--o-delay-${name} is not ${ms}ms`);
+    assert.ok(reduced.includes(`--o-delay-${name}: 0ms;`), `--o-delay-${name} is not 0ms under reduced motion`);
+  }
+  const distances = members(bodyOf(motion, "object Distance {"));
+  for (const [name, px] of Object.entries(tokens.motion.distance) as [string, number][]) {
+    assert.ok(distances.includes(`val ${name}: Dp = ${px}.dp`), `${name} is not a Dp of ${px} in Motion.Distance`);
+    assert.ok(css.includes(`--o-distance-${name}: ${px}px;`), `--o-distance-${name} is not ${px}px`);
   }
 });
 
@@ -259,4 +279,117 @@ test("TokenGen: rule.context's limits and blocks are the same in rules.ts and in
   const rule = members(bodyOf(bodyOf(kotlin(), "object Rule {"), "object Context {"));
   assert.ok(rule.includes(`val limits: List<Int> = listOf(${limits.join(", ")})`));
   assert.ok(rule.includes(`val blocks: Int = ${blocks}`));
+});
+
+test("TokenGen: a type whose face is neither inter nor mono stops the generator and names the type and its face", () => {
+  const copy = mkdtempSync(join(tmpdir(), "tokengen-"));
+  try {
+    mkdirSync(join(copy, "web/visual/system"), { recursive: true });
+    const altered = JSON.parse(read("web/visual/system/tokens.json"));
+    altered.type.body.face = "serif";
+    writeFileSync(join(copy, "web/visual/system/tokens.json"), JSON.stringify(altered));
+    const result = run(["--root", copy]);
+    assert.notEqual(result.status, 0, "the generator wrote outputs for a face that is neither inter nor mono");
+    assert.match(result.stderr, /type\.body's face must be inter or mono, got serif/);
+  } finally {
+    rmSync(copy, { recursive: true, force: true });
+  }
+});
+
+// The custom properties of a generated stylesheet at rel, by name.
+const cssVars = (rel: string): Map<string, string> =>
+  new Map([...read(rel).matchAll(/(--o-[a-z0-9-]+):\s*([^;]+);/g)].map((m): [string, string] => [m[1], m[2].trim()]));
+// The first family a font stack names, without its quotes: "Orrery Mono", ui-monospace names Orrery Mono.
+const firstFamily = (stack: string): string => stack.split(",")[0].trim().replace(/^"(.*)"$/, "$1");
+// The font resources a FontFamily val in Type.kt is built from, such as inter_regular.
+function fontsOf(family: string): string[] {
+  const m = new RegExp(`val ${family} = FontFamily\\(([\\s\\S]*?)\\n\\)`).exec(read("android/app/src/main/kotlin/io/github/joshsymonds/orrery/ui/theme/Type.kt"));
+  assert.ok(m, `${family} is not a FontFamily in Type.kt`);
+  return [...m[1].matchAll(/R\.font\.(\w+)/g)].map((x) => x[1]);
+}
+// The rules of style.css with comments removed: each one's selectors, and its declarations by property.
+const styleRules = (): { selectors: string[]; declarations: Map<string, string> }[] =>
+  [...read("web/src/style.css").replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = "", body = ""]) => ({
+    selectors: selectors.split(",").map((s) => s.trim()),
+    declarations: new Map([...body.matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)].map((m): [string, string] => [m[1], m[2].trim()])),
+  }));
+
+test("TypeScale: web/src/tokens.css sets label 12/16, small 13/18, body 15/22, title 18/24, display 28/34 and code 13/18, with no tracking but the label's", () => {
+  const css = cssVars("web/src/tokens.css");
+  assert.equal(css.get("--o-type-label"), "700 12px/16px var(--o-font-mono)");
+  assert.equal(css.get("--o-type-small"), "400 13px/18px var(--o-font-inter)");
+  assert.equal(css.get("--o-type-body"), "400 15px/22px var(--o-font-inter)");
+  assert.equal(css.get("--o-type-title"), "700 18px/24px var(--o-font-inter)");
+  assert.equal(css.get("--o-type-display"), "700 28px/34px var(--o-font-inter)");
+  assert.equal(css.get("--o-type-code"), "400 13px/18px var(--o-font-mono)");
+  assert.deepEqual([...css.keys()].filter((name) => name.endsWith("-tracking")), ["--o-type-label-tracking"]);
+});
+
+test("TypeScale: OrreryTokens.Type sets label 12/16, small 13/18, body 15/22, title 18/24, display 28/34 and code 13/18 in sp, with no tracking but the label's, and code in OrreryMono", () => {
+  const type = members(bodyOf(kotlin(), "object Type {"));
+  const scale: [string, string, string, string, string][] = [
+    ["label", "12", "16", "OrreryMono", "0.06f.em"],
+    ["small", "13", "18", "OrreryInter", "0f.em"],
+    ["body", "15", "22", "OrreryInter", "0f.em"],
+    ["title", "18", "24", "OrreryInter", "0f.em"],
+    ["display", "28", "34", "OrreryInter", "0f.em"],
+    ["code", "13", "18", "OrreryMono", "0f.em"],
+  ];
+  for (const [name, size, line, family, tracking] of scale) {
+    const style = type.find((l) => l.startsWith(`val ${name}: TextStyle = TextStyle(`));
+    assert.ok(style, `${name} is not a TextStyle`);
+    assert.equal(argument(style, "fontSize"), `${size}.sp`);
+    assert.equal(argument(style, "lineHeight"), `${line}.sp`);
+    assert.equal(argument(style, "fontFamily"), family);
+    assert.equal(argument(style, "letterSpacing"), tracking);
+  }
+});
+
+test("TypeScale: layout meterCell is 160 and meterCellLine 136, in web/src/tokens.css and in OrreryTokens.Layout", () => {
+  const css = cssVars("web/src/tokens.css");
+  assert.equal(css.get("--o-layout-meter-cell"), "160px");
+  assert.equal(css.get("--o-layout-meter-cell-line"), "136px");
+  const layout = members(bodyOf(kotlin(), "object Layout {"));
+  assert.ok(layout.includes("val meterCell: Dp = 160.dp"));
+  assert.ok(layout.includes("val meterCellLine: Dp = 136.dp"));
+});
+
+test("TypeScale: the read measure is 70ch, and .reader .reply, .epic-page .summary-text, .dline, .contract .intent and .contract .approach take it as max-width", () => {
+  assert.equal(cssVars("web/src/tokens.css").get("--o-layout-read-measure-ch"), "70ch");
+  const rules = styleRules();
+  for (const selector of [".reader .reply", ".epic-page .summary-text", ".dline", ".contract .intent", ".contract .approach"]) {
+    const widths = rules
+      .filter((rule) => rule.selectors.includes(selector) && rule.declarations.has("max-width"))
+      .map((rule) => rule.declarations.get("max-width"));
+    assert.ok(widths.length > 0, `${selector} sets no max-width`);
+    for (const width of widths) assert.equal(width, "var(--o-layout-read-measure-ch)", `${selector} does not take the read measure`);
+  }
+});
+
+test("TypeFaces: web/src/tokens.css resolves small, body, title and display through their var to the Inter family, and label and code to Orrery Mono", () => {
+  const css = cssVars("web/src/tokens.css");
+  assert.equal(css.get("--o-font-inter"), '"Inter", system-ui, sans-serif');
+  for (const [level, family] of [["small", "Inter"], ["body", "Inter"], ["title", "Inter"], ["display", "Inter"], ["label", "Orrery Mono"], ["code", "Orrery Mono"]]) {
+    const face = /var\((--o-font-[a-z]+)\)$/.exec(css.get(`--o-type-${level}`) ?? "");
+    assert.ok(face, `--o-type-${level} names no font family`);
+    assert.equal(firstFamily(css.get(face[1]) ?? ""), family, `${level} does not resolve to ${family}`);
+  }
+});
+
+test("TypeFaces: OrreryTokens.Type gives small, body, title and display OrreryInter and label and code OrreryMono, and Type.kt builds each family from its own files", () => {
+  const type = members(bodyOf(kotlin(), "object Type {"));
+  for (const [level, family, prefix] of [
+    ["small", "OrreryInter", "inter_"],
+    ["body", "OrreryInter", "inter_"],
+    ["title", "OrreryInter", "inter_"],
+    ["display", "OrreryInter", "inter_"],
+    ["label", "OrreryMono", "orrery_mono_"],
+    ["code", "OrreryMono", "orrery_mono_"],
+  ]) {
+    const style = type.find((l) => l.startsWith(`val ${level}: TextStyle = TextStyle(`));
+    assert.ok(style, `${level} is not a TextStyle`);
+    assert.equal(argument(style, "fontFamily"), family, `${level} is not in ${family}`);
+    const files = fontsOf(family);
+    assert.ok(files.length > 0 && files.every((f) => f.startsWith(prefix)), `${family} is not built from ${prefix} files`);
+  }
 });

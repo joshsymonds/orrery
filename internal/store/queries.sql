@@ -327,8 +327,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller, host)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents, caller, host, purpose)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -449,6 +449,9 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: SetStepPurpose :exec
+UPDATE steps SET purpose = ? WHERE id = ? AND purpose = '';
 
 -- name: UpdateStepLines :exec
 UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
@@ -1410,13 +1413,11 @@ WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status
 
 -- name: InsertEvidenceRun :exec
 INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
-VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?);
+VALUES (sqlc.arg(id), sqlc.arg(epic), sqlc.arg(item), sqlc.arg(revision), sqlc.arg(phase), sqlc.arg(source),
+    COALESCE(NULLIF(CAST(sqlc.arg(state) AS TEXT), ''), 'waiting'), sqlc.arg(spec), sqlc.arg(created));
 
 -- name: GetEvidenceRunState :one
 SELECT state FROM evidence_runs WHERE id = ?;
-
--- name: SetEvidenceRunGrant :exec
-UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
 
 -- name: RecordEvidenceRunCapture :exec
 UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
@@ -1453,6 +1454,89 @@ SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
 
 -- name: ListOpenEvidenceRuns :many
 SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;
+
+-- name: InsertEvidenceCapture :exec
+INSERT INTO evidence_captures (id, epic, repository, step, role, runner, commit_sha, argv, files, limit_seconds,
+    state, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEvidenceCaptureFile :exec
+INSERT INTO evidence_capture_files (capture, position, path, state, hash, blob, size) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEvidenceCaptureBrief :exec
+INSERT INTO evidence_capture_briefs (capture, run) VALUES (?, ?);
+
+-- name: GetEvidenceCapture :one
+SELECT * FROM evidence_captures WHERE id = ?;
+
+-- name: GetEvidenceCaptureState :one
+SELECT state FROM evidence_captures WHERE id = ?;
+
+-- name: SetEvidenceCaptureGrant :exec
+UPDATE evidence_captures SET grant_id = ?, holder = ? WHERE id = ?;
+
+-- name: RecordEvidenceCaptureEnd :exec
+UPDATE evidence_captures SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
+    stderr_bytes = ?, state = 'ended', ended = ?
+WHERE id = ?;
+
+-- name: MarkEvidenceCaptureDelivered :exec
+UPDATE evidence_captures SET delivered = 1 WHERE id = ?;
+
+-- name: ListRunningEvidenceCaptures :many
+SELECT * FROM evidence_captures WHERE state = 'running' ORDER BY created, id;
+
+-- name: ListUndeliveredEvidenceCaptures :many
+SELECT * FROM evidence_captures WHERE state = 'ended' AND delivered = 0 ORDER BY ended, id;
+
+-- name: ListEvidenceCapturesAt :many
+SELECT * FROM evidence_captures WHERE repository = ? AND commit_sha = ? ORDER BY created, id;
+
+-- name: ListEvidenceCaptureFiles :many
+SELECT * FROM evidence_capture_files WHERE capture = ? ORDER BY position;
+
+-- name: ListEvidenceCaptureBriefs :many
+SELECT run FROM evidence_capture_briefs WHERE capture = ? ORDER BY run;
+
+-- name: AttachEvidenceRunCapture :execrows
+UPDATE evidence_runs SET capture = ?, state = 'judging' WHERE id = ? AND state IN ('waiting', 'gathering');
+
+-- name: ListOpenEvidenceBriefs :many
+SELECT * FROM evidence_runs
+WHERE epic = ? AND state IN ('waiting', 'gathering') AND source = 'captured' ORDER BY created, id;
+
+-- name: ListEpicsWithWaitingBriefs :many
+SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' AND source = 'captured' ORDER BY epic;
+
+-- name: TakeEvidenceBrief :execrows
+UPDATE evidence_runs SET gatherer = ?, state = 'gathering' WHERE id = ? AND state = 'waiting';
+
+-- name: ListEvidenceBriefsOfGatherer :many
+SELECT * FROM evidence_runs WHERE gatherer = ? AND state = 'gathering' ORDER BY created, id;
+
+-- name: ReleaseEvidenceBriefs :exec
+UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
+WHERE gatherer = ? AND state = 'gathering';
+
+-- name: StartEvidenceGatherer :one
+INSERT INTO evidence_gatherers (epic, seq, step, started)
+VALUES (sqlc.arg(epic),
+    (SELECT COALESCE(MAX(seq), 0) + 1 FROM evidence_gatherers WHERE epic = sqlc.arg(epic)),
+    sqlc.arg(step), sqlc.arg(started))
+RETURNING *;
+
+-- name: EndEvidenceGatherer :execrows
+UPDATE evidence_gatherers SET ended = sqlc.arg(ended)
+WHERE epic = sqlc.arg(epic) AND step = sqlc.arg(step) AND ended = 0;
+
+-- name: GetRunningEvidenceGatherer :one
+SELECT * FROM evidence_gatherers WHERE epic = ? AND ended = 0;
+
+-- name: ListRunningEvidenceGatherers :many
+SELECT * FROM evidence_gatherers WHERE ended = 0 ORDER BY epic, seq;
+
+-- name: GetEvidenceGathererOf :one
+SELECT * FROM evidence_gatherers WHERE step = ?;
 
 -- name: InsertDueResume :exec
 INSERT INTO due_resumes (id, kind, target, resets, state)
@@ -1784,34 +1868,11 @@ UPDATE epic_amendments SET state = 'applied', settled = CASE WHEN settled = 0 TH
 WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state IN ('checking', 'capturing');
 
 -- CountWorkingEvidenceNodeRuns counts the running node runs of an epic that capture its Requirements under ids of their
--- own: an evidence, integrate or sync run with a revision, and a release run of a releasing epic whose release
--- integrator's latest round that passed at the run's attempt made a merge not yet recorded as a candidate of that
--- attempt, since the release walks that merge's Done gates and captures until it records the merge as its candidate.
--- A release run that is doing anything else, such as waiting on the plan its replan started, captures nothing.
+-- own: an evidence, integrate or sync run with a revision. A release run captures nothing.
 -- name: CountWorkingEvidenceNodeRuns :one
 SELECT COUNT(*) FROM epic_node_runs AS run
 WHERE run.epic = sqlc.arg(epic) AND run.state = 'running'
-  AND (
-    (run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '')
-    OR (
-      run.kind = 'release'
-      AND EXISTS (SELECT 1 FROM epics WHERE epics.id = run.epic AND epics.phase = 'releasing')
-      AND EXISTS (
-        SELECT 1 FROM epic_release_runs AS merged
-        WHERE merged.epic = run.epic AND merged.part = 'integrator' AND merged.attempt = run.attempt AND merged.passed
-          AND NOT EXISTS (
-            SELECT 1 FROM epic_release_runs AS later
-            WHERE later.epic = run.epic AND later.part = 'integrator' AND later.attempt = run.attempt AND later.passed
-              AND later.position > merged.position
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM epic_release_runs AS candidate
-            WHERE candidate.epic = run.epic AND candidate.part = 'candidate' AND candidate.attempt = run.attempt
-              AND candidate.passed AND candidate.head = merged.head
-          )
-      )
-    )
-  );
+  AND run.kind IN ('evidence', 'integrate', 'sync') AND run.revision != '';
 
 -- name: CountPendingAmendActions :one
 SELECT COUNT(*) FROM planner_actions WHERE epic = ? AND kind = 'amend_evidence' AND state = 'pending';
@@ -2279,6 +2340,9 @@ SELECT * FROM route_bindings ORDER BY context, scope, selector;
 
 -- name: ListRouteAccountTokens :many
 SELECT id, token FROM llm_accounts WHERE id IN (SELECT account FROM route_contexts WHERE account <> '') ORDER BY id;
+
+-- name: ListLLMAccountTokens :many
+SELECT id, token FROM llm_accounts ORDER BY id;
 
 -- name: GetContractStaged :one
 SELECT staged FROM contracts WHERE id = ?;

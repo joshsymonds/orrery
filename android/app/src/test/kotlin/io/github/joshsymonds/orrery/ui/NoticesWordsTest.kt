@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.NoticeRow
 import io.github.joshsymonds.orrery.api.Pane
@@ -86,26 +87,43 @@ class NoticesWordsTest {
         vararg epics: EpicRow,
         panes: List<Pane> = emptyList(),
         archived: Set<String> = emptySet(),
-    ): TreeData = TreeData(panes, archived, epics.toList(), emptyMap(), emptyList(), "")
+        details: Map<String, EpicDetail> = emptyMap(),
+    ): TreeData = TreeData(panes, archived, epics.toList(), details, emptyList(), "")
+
+    // detailOf is an epic's detail with its centre state, and no requirements.
+    private fun detailOf(epic: EpicRow, centre: String): EpicDetail =
+        EpicDetail(epic = epic, steps = emptyList(), centre = centre)
 
     @Test
-    fun aShippedEpicLeadsWithItsCheckGaugeSlugAndBlockWords() {
-        val tree = treeOf(epic("example-repo/example-epic", outcome = "released", live = false))
+    fun aShippedEpicLeadsWithItsCheckMarkSlugAndBlockWords() {
+        val shipped = epic("example-repo/example-epic", outcome = "released", live = false)
+        val tree = treeOf(shipped, details = mapOf(shipped.id to detailOf(shipped, "shipped")))
 
         val words = noticeWordsOf(row(epic = "example-repo/example-epic", blockKind = "question"), tree, NOW)
 
-        assertEquals(NoticeLead.Gauge(GaugeShare(0, 0, GaugeTone.OK, GaugeInner.CHECK)), words.lead)
+        val mark = EpicMarkModel(
+            rim = emptyList(),
+            centre = CentreMark("shipped", CentreTone.OK, CentreGlyph.CHECK),
+            label = "no requirements yet, shipped",
+        )
+        assertEquals(NoticeLead.Mark(mark), words.lead)
         assertEquals("example-epic", words.name)
         assertEquals("asks you a question", words.words)
     }
 
     @Test
-    fun anEpicEndedShortLeadsWithItsDashGauge() {
-        val tree = treeOf(epic("example-repo/example-epic", outcome = "stopped", live = false))
+    fun anEpicEndedShortLeadsWithItsDashMark() {
+        val stopped = epic("example-repo/example-epic", outcome = "stopped", live = false)
+        val tree = treeOf(stopped, details = mapOf(stopped.id to detailOf(stopped, "ended_short")))
 
         val words = noticeWordsOf(row(epic = "example-repo/example-epic"), tree, NOW)
 
-        assertEquals(NoticeLead.Gauge(GaugeShare(0, 0, GaugeTone.NONE, GaugeInner.DASH)), words.lead)
+        val mark = EpicMarkModel(
+            rim = emptyList(),
+            centre = CentreMark("ended short", CentreTone.QUIET, CentreGlyph.DASH),
+            label = "no requirements yet, ended short",
+        )
+        assertEquals(NoticeLead.Mark(mark), words.lead)
     }
 
     @Test

@@ -22,3 +22,10 @@ undo = "Commit flake.nix and flake.lock back to the previous tag."
 step = "4 Run `update` in ~/nix-config and confirm orreryd and orrery-serve run the new store path and the store is at the tag's newest migration. If origin already has a newer v* tag whose commit contains this release's main commit, skip `update` and return done with evidence naming that newer tag, and read the confirmation as met by that tag: origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
 target = "vermissian user services and the orrery store"
 undo = "Undo step 3, then run `update`; when the tag added a store migration, fix forward with a new release instead, since an older orreryd refuses the migrated store."
+
+# The runner sits under [release], not at the top level: orreryd refuses any unknown top-level key of this file on every
+# gate grant, and it accepts every key under release.
+[[release.runners]]
+name = "box"
+argv = ["scripts/gate-remote.sh"]
+note = "Use box for module-wide Go tests (go test over many packages or ./...), web-check and Android tests, which are heavy. Run single-package or narrow Go tests locally."

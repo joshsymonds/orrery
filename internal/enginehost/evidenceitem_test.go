@@ -29,6 +29,7 @@ func TestEvidenceRunItemRunsOnceUnderID(t *testing.T) {
 		t.Fatalf("RunItem: %v", err)
 	}
 	evidenceRunWantStarted(t, started, "R1", head, evidence.PhaseGreen, evidence.SourceCaptured)
+	evidenceRunAttach(t, ev, st, started)
 	if started.ID != evidenceItemRunID {
 		t.Fatalf("started run id = %q, want %q", started.ID, evidenceItemRunID)
 	}

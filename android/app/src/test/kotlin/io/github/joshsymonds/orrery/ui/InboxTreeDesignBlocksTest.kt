@@ -118,9 +118,8 @@ class InboxTreeDesignBlocksTest {
     private fun convo(designs: List<DesignBlock>, hung: List<Hung> = emptyList()) = Convo(
         key = CONVO,
         pane = paneOf(),
-        standIn = StandIn.NONE,
-        again = false,
         hung = hung,
+        folded = emptyList(),
         designs = designs,
     )
 
@@ -141,7 +140,18 @@ class InboxTreeDesignBlocksTest {
                 endedOpen = false,
                 onFold = {},
                 onEnded = {},
-                convo = { c -> ConvoRowItem(convo = c, now = NOW, onOpen = { opened.add(it) }, onLongPress = {}) },
+                foldOpen = emptySet(),
+                onConvoFold = {},
+                convo = { c, open, onFold ->
+                    ConvoRowItem(
+                        convo = c,
+                        now = NOW,
+                        foldOpen = open,
+                        onFold = onFold,
+                        onOpen = { opened.add(it) },
+                        onLongPress = {},
+                    )
+                },
             )
         }
     }

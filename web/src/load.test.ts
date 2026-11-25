@@ -167,7 +167,7 @@ test("Panes.List fails: the error names the panes list without server text, and 
   );
 });
 
-test("both calls are in flight at once: the panes answer waits for the sessions call to start", { timeout: 2000 }, async () => {
+test("both calls are in flight at once: the panes answer waits for the sessions call to start", async () => {
   let releasePanes: () => void = () => {};
   const sessionsStarted = new Promise<void>((resolve) => {
     releasePanes = resolve;

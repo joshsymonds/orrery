@@ -110,7 +110,10 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 			environ := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
 			f := newStepStampFixture(t, environ, filepath.Join(home, "worktrees"), h)
 
-			id, err := f.steps.Start(t.Context(), stepStampStart(t, home, repo, tc.readOnly))
+			start := stepStampStart(t, home, repo, tc.readOnly)
+			// A purpose stops a Haiku call for one from running beside the monitor call the run count below checks.
+			start.Purpose = "Watch the step's limit."
+			id, err := f.steps.Start(t.Context(), start)
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}

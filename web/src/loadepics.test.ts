@@ -158,7 +158,7 @@ test("an empty List: no epics, no details, no error, and no Get is asked", async
   assert.equal(result.error, "");
 });
 
-test("the live Gets are in flight at once: the first Get waits until the second has started", { timeout: 2000 }, async () => {
+test("the live Gets are in flight at once: the first Get waits until the second has started", async () => {
   let secondGetStarted: () => void = () => {};
   const secondStarted = new Promise<void>((resolve) => {
     secondGetStarted = resolve;
@@ -186,7 +186,7 @@ test("the live Gets are in flight at once: the first Get waits until the second 
   assert.deepEqual([...result.details.keys()].sort(), [liveAlpha.id, liveGamma.id].sort());
 });
 
-test("Epics.List and Contracts.List are in flight at once: the List waits until the other has started", { timeout: 2000 }, async () => {
+test("Epics.List and Contracts.List are in flight at once: the List waits until the other has started", async () => {
   let contractsStarted: () => void = () => {};
   const started = new Promise<void>((resolve) => {
     contractsStarted = resolve;

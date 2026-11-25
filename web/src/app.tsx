@@ -21,7 +21,7 @@ import { ConvoRow } from "./convorow";
 import { DesignPage } from "./designpage";
 import { designCountsOf, type DesignRecord, designRefetch } from "./designrecords";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
-import { epicGaugeOf, type GaugeShare } from "./epicrow";
+import { type MarkDetail, markDetailOf } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
@@ -2756,7 +2756,7 @@ export function App({
     );
   const contractPage =
     contract === undefined ? null : (
-      <div>
+      <section class="page contract-page" aria-label="contract">
         <TitleRow
           crumbs={[{ label: contractSlug(contract.id) }, { label: "contract" }]}
           state={statePill(contract.state)}
@@ -2780,7 +2780,7 @@ export function App({
           onOpenEpic={navigated(openEpic)}
           design={contractDesignOf(contract.id)}
         />
-      </div>
+      </section>
     );
 
   // steeredBar is an epic's ended bar, which steers the epic from another conversation, and whose current steering is
@@ -2840,7 +2840,7 @@ export function App({
       const listed = contracts.find((candidate) => candidate.id === entry.id);
       if (listed !== undefined) {
         return (
-          <div>
+          <section class="page contract-page" aria-label="contract">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractRecord
               key={listed.id}
@@ -2853,15 +2853,15 @@ export function App({
               live={false}
               design={contractDesignOf(listed.id)}
             />
-          </div>
+          </section>
         );
       }
       if (detail.contract !== undefined) {
         return (
-          <div>
+          <section class="page contract-page" aria-label="contract">
             <TitleRow crumbs={crumbs} onBack={back} strip={pageStrip(null, null)} />
             <ContractBody contract={detail.contract} requirements={detail.requirements} />
-          </div>
+          </section>
         );
       }
     }
@@ -2928,6 +2928,7 @@ export function App({
         onOpenContract={openContract}
         onOpenSession={openSession}
         onOpenPhase={openPhase}
+        onOpenStep={navigated((step: string) => openEpicStep(entry.id, step))}
         onBack={epicRootBack}
         strip={pageStrip(null, null)}
         rows={rows}
@@ -3055,11 +3056,9 @@ export function App({
   const activityLines = activityOf(readerRow === null ? null : railConversation);
   // The held card's title is the design's title, the epic's slug or the contract's slug, its body the page the card or panel
   // drew, and its Fold back is closeDesign, closeContract or closePanel, which leave the conversation alone with the cursor on
-  // its row. An epic's gauge is the one its tree row draws, and a design's or a contract's mark needs none.
-  const heldGauge =
-    heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined
-      ? epicGaugeOf(epics.listed.get(epicEntry.id) ?? epicDetail.epic, epicDetail, now)
-      : null;
+  // its row. An epic's mark reads the detail its tree row's mark reads, and a design's or a contract's mark needs none.
+  const heldMark =
+    heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined ? markDetailOf(epicDetail) : null;
   // columnHolds is whether the middle column draws, and so holds the card; with no row or step to draw, the column is hidden
   // and the card sits in the no-conversation middle instead.
   const columnHolds = readerRow !== null || readerStep !== null;
@@ -3090,7 +3089,7 @@ export function App({
     const place = deskPlace(panes);
     const before = shownDesk.current;
     shownDesk.current = {
-      parts: shownHeld === null ? null : { thing: shownHeld, title: heldTitle, gauge: heldGauge, body: heldBodyOf },
+      parts: shownHeld === null ? null : { thing: shownHeld, title: heldTitle, mark: heldMark, body: heldBodyOf },
       sheet: !wide,
       chatLeft: place.chatLeft,
       aim: place.aim,
@@ -3145,7 +3144,9 @@ export function App({
     }
   }, [motion.card]);
   // endMove runs on each animationend the panes hear. The element that carries a move clears its data-move when its own
-  // animation ends, and a leaving card or tab is taken out of the state once its own animation ends.
+  // animation ends, and a leaving card or sheet is taken out of the state once its own animation ends. The tab's ground
+  // fades out before its necks have drawn back (D20), so the leaving tree is taken out at the animationend of a leaving neck,
+  // or at the tab's, when no neck is still drawing back.
   const endMove = (event: AnimationEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -3161,7 +3162,7 @@ export function App({
       carrier.removeAttribute("data-move");
     } else if (carrier.matches(".held-card, .held-sheet")) {
       setMotion((current) => (current.card === null ? current : { ...current, card: null }));
-    } else {
+    } else if (carrier.matches(leavingNeckSelector) || !animating(panesRef.current, leavingNeckSelector)) {
       setMotion((current) => (current.tree === null ? current : { ...current, tree: null }));
     }
   };
@@ -3170,13 +3171,13 @@ export function App({
   const leaving = drawn.card;
   const leavingCard =
     leaving !== null && !leaving.sheet ? (
-      <HeldCard thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onFoldBack={leavingPress}>
+      <HeldCard thing={leaving.thing} title={leaving.title} move="leave" mark={leaving.mark} onFoldBack={leavingPress}>
         {leaving.body(false)}
       </HeldCard>
     ) : null;
   const leavingSheet =
     leaving !== null && leaving.sheet ? (
-      <HeldSheet thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onClose={leavingPress}>
+      <HeldSheet thing={leaving.thing} title={leaving.title} move="leave" mark={leaving.mark} onClose={leavingPress}>
         {leaving.body(false)}
       </HeldSheet>
     ) : null;
@@ -3184,14 +3185,14 @@ export function App({
   // held card keeps its place among the children of the column.
   const heldCard =
     heldThing === null ? null : (
-      <HeldCard thing={heldThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onFoldBack={closeHeld}>
+      <HeldCard thing={heldThing} title={heldTitle} move={drawn.move} mark={heldMark} onFoldBack={closeHeld}>
         {heldBodyOf(true)}
       </HeldCard>
     );
   // sheet is the thing the phone's sheet holds under its conversation's head, when sheetHeld says it does. Its X is closeHeld.
   const heldSheet =
     sheetHeld && openThing !== null ? (
-      <HeldSheet thing={openThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onClose={closeHeld}>
+      <HeldSheet thing={openThing} title={heldTitle} move={drawn.move} mark={heldMark} onClose={closeHeld}>
         {heldBodyOf(true)}
       </HeldSheet>
     ) : null;
@@ -3331,7 +3332,7 @@ export function App({
         {notices.length > 0 && (
           <NoticeStack
             notices={notices}
-            head={(notice) => noticeHead(notice, tree, shownRows, now)}
+            head={(notice) => noticeHead(notice, tree, shownRows)}
             age={noticeAgeOf}
             act={(notice) => noticeAct(notice, shownRows)}
             bringBackRow={(notice) => bringBackRowOf(notice, shownRows)}
@@ -3355,7 +3356,7 @@ export function App({
           <NoticeCentre
             rows={noticeLog.rows}
             failed={noticeLog.failed}
-            head={(row) => noticeHead(row, tree, shownRows, now)}
+            head={(row) => noticeHead(row, tree, shownRows)}
             now={now}
             narrow={!wide}
             onOpen={(row) => {
@@ -3569,11 +3570,11 @@ function readAsSeen(row: Row, written: Map<string, number>): Row {
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
-// HeldParts is what a held card or sheet draws, as a render drew it: the thing, its title and gauge, and its body.
+// HeldParts is what a held card or sheet draws, as a render drew it: the thing, its title and mark, and its body.
 interface HeldParts {
   thing: HeldThing;
   title: string;
-  gauge: GaugeShare | null;
+  mark: MarkDetail | null;
   // body draws the card's page. A copy that folds away is drawn with live false, which takes no pageRef.
   body: (live: boolean) => JSX.Element | null;
 }
@@ -3648,20 +3649,25 @@ function deskPlace(panes: HTMLElement | null): { chatLeft: number | null; aim: n
 // they carry leave.
 const leavingCardSelector = '.held-card[data-move="leave"], .held-sheet[data-move="leave"]';
 const leavingTreeSelector = '[data-held][data-move="leave"]';
+// leavingNeckSelector names the necks of a leaving tree, the rows and marks that draw back into their rows, which are every leaving
+// element but the tab, .convo-block[data-held="tab"].
+const leavingNeckSelector = '[data-held][data-move="leave"]:not(.convo-block[data-held="tab"])';
 // columnMarkSelector is the column that carries a move, and columnFadeSelector the parts of it whose animations run on their own,
 // as style.css draws them: the chat's reader and send box, which move or fade, and the head's crumbs, which fade.
 const columnMarkSelector = ".read[data-move]";
 const columnFadeSelector = ".read[data-move] > .reader, .read[data-move] > .send, .read[data-move] .convo-head .crumbs";
 
-// animating says whether an element under root that matches selector runs an animation now. An element with no Web Animations
-// runs none.
+// animating says whether an element under root that matches selector runs an animation now, on the element itself or on its
+// ::before or ::after, where a neck draws back. An element's own getAnimations leaves out its pseudo-elements, so the animations
+// are read from the document, each by the element it is on. A document with no Web Animations runs none.
 function animating(root: HTMLElement | null, selector: string): boolean {
-  if (root === null) {
+  if (root === null || typeof root.ownerDocument.getAnimations !== "function") {
     return false;
   }
-  return [...root.querySelectorAll<HTMLElement>(selector)].some(
-    (element) => typeof element.getAnimations === "function" && element.getAnimations().length > 0,
-  );
+  return root.ownerDocument.getAnimations().some((animation) => {
+    const target = (animation.effect as KeyframeEffect | null)?.target ?? null;
+    return target !== null && root.contains(target) && target.matches(selector);
+  });
 }
 
 // heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it, or ends it while the row

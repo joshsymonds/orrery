@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import type { Clients } from "./actions";
 import { Block } from "./blocks";
-import { epicGaugeOf } from "./epicrow";
+import { EpicMark } from "./epicmark";
 import type { EpicsView } from "./epics";
 import { EpicSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { Gauge, Icon } from "./glyphs";
+import { Icon } from "./glyphs";
 
 // EpicCalls are the epic calls the reader's epic card makes. get reads an epic, and answer sends the owner's choice to its
 // open question, resolving to "" once it lands. openEpic opens the epic's page, and openStep opens the page of a step the
@@ -128,15 +128,12 @@ function shownReading(own: OwnReading | null, polled: EpicsGetResponse | undefin
   return { detail: polled };
 }
 
-// EpicWidget draws the epic a tool call created as an EpicEventBlock Created: the engine tone, led by the epic's gauge as the
-// epic list draws it, the sentence the epic was created with, and the epic's slug as a link that opens it. It reads the
-// epic as useEpicReading reads it; an epic that cannot be read draws the block with no gauge.
+// EpicWidget draws the epic a tool call created as an EpicEventBlock Created: the engine tone, led by the epic's mark at
+// 24, the sentence the epic was created with, and the epic's slug as a link that opens it. It reads the epic as
+// useEpicReading reads it; an epic that cannot be read draws the block with no mark.
 export function EpicWidget({ epic, calls }: { epic: string; calls: EpicCalls }): JSX.Element {
   const { reading } = useEpicReading(epic, calls);
-  const gauge =
-    reading !== null && reading !== "failed"
-      ? epicGaugeOf(calls.epics.listed.get(epic) ?? reading.detail.epic, reading.detail, calls.now)
-      : null;
+  const detail = reading !== null && reading !== "failed" ? reading.detail : null;
   return (
     <div class="epic-card">
       <Block
@@ -144,7 +141,7 @@ export function EpicWidget({ epic, calls }: { epic: string; calls: EpicCalls }):
         kind="epicevent"
         icon="plus"
         label="EPIC"
-        gauge={gauge === null ? undefined : <Gauge {...gauge} />}
+        mark={detail === null ? undefined : <EpicMark detail={detail} size={24} />}
         end={
           <button type="button" class="epic-link" onClick={() => calls.openEpic(epic)}>
             <span class="slug">{slugOf(epic)}</span>

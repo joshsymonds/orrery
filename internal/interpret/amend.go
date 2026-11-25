@@ -46,8 +46,7 @@ func (r *Runner) passAmendments(ctx context.Context, epics []store.EpicRow) {
 // the epic's base. A capturing one runs the green run of its new item at the stored base it names, and for a test item
 // its reproduction (see amendmentRepro). Work the evidence runner refuses for good stops the amendment with the refusal
 // (see store.Store.StopAmendment). Otherwise the store settles the amendment by its work, and an amendment the store
-// defers while an evidence, integrate or sync run of its epic is under way, or while its release captures a merge of
-// its release integrator, is settled again on a later pass.
+// defers while an evidence, integrate or sync run of its epic is under way is settled again on a later pass.
 func (r *Runner) driveAmendment(ctx context.Context, epic store.EpicRow, amended store.EvidenceAmendment) error {
 	if r.evidence == nil {
 		return missingService("evidence")

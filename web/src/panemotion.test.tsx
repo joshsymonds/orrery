@@ -144,13 +144,15 @@ function draw(container: HTMLElement, clients: Clients, setup: Setup): Promise<v
   });
 }
 
-// runsMoves makes an element that carries a data-move run an animation, as the browser runs the one style.css draws for it. The
-// window runs no CSS animation, so a leaving card or tab stays mounted until the animationend a check dispatches ends it.
+// runsMoves makes each element that carries a data-move run the animation style.css draws for it. The document lists those
+// animations, each by the element it is on: a card, the tab and the chat column on their own element, and a neck on its ::before
+// or ::after. As in the browser, an element's own getAnimations leaves its pseudo-elements out, so a neck's draw-back is seen
+// only through the document. The window runs no CSS animation, so a leaving card or tab stays mounted until the animationend a
+// check dispatches ends it.
 function runsMoves(window: Dom): void {
-  const prototype = window.Element.prototype as unknown as { getAnimations: (this: Element) => unknown[] };
-  prototype.getAnimations = function getAnimations(this: Element): unknown[] {
-    return this.hasAttribute("data-move") ? [{}] : [];
-  };
+  const doc = window.document as unknown as { getAnimations: () => unknown[] };
+  doc.getAnimations = () =>
+    [...window.document.querySelectorAll("[data-move]")].map((element) => ({ effect: { target: element } }));
 }
 
 // reduceMotion makes the window match reduced motion, and leaves every other query to the window. App reads the query at mount.
@@ -222,6 +224,9 @@ function foldBack(container: HTMLElement): HTMLElement {
   return one(container, 'article.held-card button[aria-label="Fold back"]');
 }
 
+// leavingNecks selects the necks of a leaving tree: the rows and marks that draw back, every leaving element but the tab.
+const leavingNecks = '[data-held][data-move="leave"]:not(.convo-block[data-held="tab"])';
+
 test("PaneMotion open: opening an epic from its conversation alone marks the card, both necks, the tab and the chat column with data-move=open", (t) =>
   mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: steererAddress }, async ({ container, rerender }) => {
     await rerender({ rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") });
@@ -269,6 +274,7 @@ test("PaneMotion other: opening a thing of another conversation marks the old ta
     const leavingTab = one(container, '.convo-block[data-move="leave"]');
     assert.equal(one(container, '.convo-block[data-move="other"]').dataset.held, "tab", "the new tab is replaced in");
     await animationEnd(leavingTab);
+    await animationEnd(one(container, leavingNecks));
     assertNone(container.querySelector('.convo-block[data-move="leave"]'), "the old tab is drawn at rest once its animationend has run");
     assert.equal(one(container, "section.read").getAttribute("data-move"), "other", "the head's title and the chat fade where they stand");
     assert.equal(one(container, 'article.held-card[data-move="other"]').getAttribute("data-kind"), "epic", "the new card rises from its own row");
@@ -297,6 +303,28 @@ test("PaneMotion close: while the card folds the chat carries data-move=close an
     assert.ok(container.querySelector('article.held-card[data-move="leave"]') !== null, "the card stays mounted while it folds");
     assert.equal(one(container, "section.read").getAttribute("data-move"), "close", "the chat carries the close move");
     assertNone(container.querySelector("section.read.held"), "the chat is no longer in the held layout while the card folds");
+  }));
+
+test("RiseBolder close: after Fold back the tab's animationend leaves the necks drawn, and the necks' own animationend takes them out", (t) =>
+  mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container }) => {
+    await press(foldBack(container));
+    const tab = one(container, '.convo-block[data-move="leave"]');
+    const neck = one(container, leavingNecks);
+    await animationEnd(tab);
+    assert.ok(container.querySelector(leavingNecks) !== null, "the necks stay drawn while they draw back after the tab's ground has faded");
+    await animationEnd(neck);
+    assertNone(container.querySelector(leavingNecks), "the necks are taken out at their own animationend");
+    assertNone(container.querySelector('[data-held][data-move="leave"]'), "the leaving tab is taken out with them");
+  }));
+
+test("RiseBolder close: a leaving tab with no neck still drawing back is taken out at its own animationend, so no tree is left", (t) =>
+  mountApp(t.signal, desk, { rows: [steererRow()], epics: view([alpha]), address: epicAddress("alpha") }, async ({ container }) => {
+    await press(foldBack(container));
+    for (const neck of container.querySelectorAll<HTMLElement>(leavingNecks)) {
+      neck.removeAttribute("data-move");
+    }
+    await animationEnd(one(container, '.convo-block[data-move="leave"]'));
+    assertNone(container.querySelector('[data-held][data-move="leave"]'), "the leaving tab is taken out at its animationend");
   }));
 
 test("PaneMotion rail: between 760px and 1250px the rail's conversation neck and open mark carry the opening's move", (t) =>

@@ -164,11 +164,11 @@ func TestEpicsGetAttachesEachRequirementsRunsInOrder(t *testing.T) {
 	wantReqs := []*orreryv1.EpicRequirement{
 		{
 			Id: "R1", Text: "synthetic requirement one", Conclusion: "synthetic conclusion one",
-			Runs: []*orreryv1.EvidenceRun{want["run-1a"], want["run-1b"]},
+			Runs: []*orreryv1.EvidenceRun{want["run-1a"], want["run-1b"]}, State: "proven",
 		},
 		{
 			Id: "R2", Text: "synthetic requirement two", Conclusion: "synthetic conclusion two",
-			Runs: []*orreryv1.EvidenceRun{want["run-2a"]},
+			Runs: []*orreryv1.EvidenceRun{want["run-2a"]}, State: "in_flight",
 		},
 	}
 	if len(got) != len(wantReqs) {

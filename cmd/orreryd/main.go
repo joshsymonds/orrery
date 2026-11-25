@@ -946,6 +946,8 @@ type sessionHost struct {
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
 	evidence   *enginehost.Evidence
+	captures   *enginehost.Captures  // the capture runner over the store, the steps and the pools, nil without a store
+	gatherers  *enginehost.Gatherers // the gatherer runner over the store and the steps, nil without a store
 	checks     *enginehost.NodeChecks
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
@@ -1272,7 +1274,7 @@ func (h *sessionHost) serveConfig(
 	hosts hostexec.Hosts,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
-	return enginehost.ServeConfig{
+	cfg := enginehost.ServeConfig{
 		Commands:   commands,
 		Steps:      steps,
 		Epics:      h.epics,
@@ -1292,6 +1294,15 @@ func (h *sessionHost) serveConfig(
 		Hosts:      hosts,
 		Options:    handlerOpts,
 	}
+	// A nil *Captures in the interface would not refuse CaptureEvidence as unavailable, so it stays unset without a store.
+	if h.captures != nil {
+		cfg.Captures = h.captures
+	}
+	// A nil *Evidence in the interface would not refuse AttachEvidence as unavailable, so it stays unset without a store.
+	if h.evidence != nil {
+		cfg.Attacher = h.evidence
+	}
+	return cfg
 }
 
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
@@ -1494,10 +1505,11 @@ func sessionState(ctx context.Context, getenv func(string) string) (string, []st
 	return stateDir, environ, nil
 }
 
-// startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
-// stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
-// them up is logged and serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts
-// name. Its runs run on the hosts of their epics, which hosts resolves.
+// startEvidence builds the evidence runner over st and the steps, with its blobs under stateDir, and takes up the open
+// evidence runs a previous run left. A failure to take them up is logged and serving goes on. Captured items are filed as
+// briefs for the gatherers, which startCaptures' captures answer, and the gatherer runner is built over the store and the
+// steps, and takes up the gatherers a previous run left. The evidence runner wakes it for the epics whose briefs wait. Its
+// runs and captures run on the hosts of their epics, which hosts resolves.
 func (h *sessionHost) startEvidence(
 	ctx context.Context,
 	st *store.Store,
@@ -1507,9 +1519,50 @@ func (h *sessionHost) startEvidence(
 	hosts hostexec.Hosts,
 	logger *slog.Logger,
 ) {
+	h.gatherers = enginehost.NewGatherers(enginehost.GatherersConfig{
+		Store:   st,
+		Steps:   h.steps,
+		Deliver: h.steps.DeliverChildEnd,
+		Hosts:   hosts,
+		Getenv:  os.Getenv,
+		Logger:  logger,
+	})
 	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
+		Store:     st,
+		Steps:     h.steps,
+		Hosts:     hosts,
+		StateDir:  stateDir,
+		Logger:    logger,
+		Briefs:    st,
+		Gatherers: h.gatherers,
+	})
+	if err := h.evidence.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
+	}
+	h.startCaptures(ctx, st, stateDir, opts, environ, hosts, logger)
+	if err := h.gatherers.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume gatherers, serving anyway", "error", err)
+	}
+}
+
+// startCaptures builds the capture runner over st, the steps and the pools, with its blobs and capture worktrees under stateDir
+// and its gates under stateDir/gates, and takes up the captures a previous run left. A failure to take them up is logged and
+// serving goes on. Its gates run in environ, under the holder scope that opts names, and its ended captures are delivered to
+// the steps that asked for them through the steps' DeliverChildEnd. Its captures run on the hosts of their epics, which hosts
+// resolves.
+func (h *sessionHost) startCaptures(
+	ctx context.Context,
+	st *store.Store,
+	stateDir string,
+	opts options,
+	environ []string,
+	hosts hostexec.Hosts,
+	logger *slog.Logger,
+) {
+	h.captures = enginehost.NewCaptures(enginehost.CapturesConfig{
 		Store:        st,
 		Steps:        h.steps,
+		Deliver:      h.steps.DeliverChildEnd,
 		Hosts:        hosts,
 		Pools:        h.pools,
 		Environ:      environ,
@@ -1518,8 +1571,8 @@ func (h *sessionHost) startEvidence(
 		GateScope:    opts.holderScope,
 		Logger:       logger,
 	})
-	if err := h.evidence.Resume(ctx); err != nil {
-		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
+	if err := h.captures.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume captures, serving anyway", "error", err)
 	}
 }
 
@@ -2159,8 +2212,8 @@ func (h *sessionHost) startReports(
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
 // planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass, the epic
 // summaries, the session titles, the session headlines, the session closures and the epic reports to return, stops
-// the caller-event delivery and waits for it to return, closes the node checks and the evidence runner and waits for
-// their drives, ends every
+// the caller-event delivery and waits for it to return, closes the captures and waits for their drives, closes the node
+// checks, the evidence runner and the gatherers and waits for their drives, ends every
 // step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
 // waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
@@ -2176,6 +2229,7 @@ func (h *sessionHost) shutdown() {
 		})
 		h.phase("node checks", h.checks.Close)
 		h.phase("evidence", h.evidence.Close)
+		h.phase("gatherers", h.gatherers.Close)
 		if h.attentionDone != nil {
 			h.phase("attention", func() { <-h.attentionDone })
 		}
@@ -2215,6 +2269,7 @@ func (h *sessionHost) shutdown() {
 			h.stopCallerEvents()
 			<-h.callerEventsDone
 		})
+		h.phase("captures", h.captures.Close)
 		h.phase("steps", h.steps.Close)
 		h.phase("sessions", h.manager.Close)
 	}

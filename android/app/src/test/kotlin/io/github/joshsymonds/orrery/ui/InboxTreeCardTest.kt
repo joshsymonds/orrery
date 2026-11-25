@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
@@ -8,6 +9,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -43,9 +45,9 @@ class InboxTreeCardTest {
         questionHash = "",
     )
 
-    private fun row(key: String) = Convo(key, pane(key), StandIn.NONE, again = false, hung = emptyList())
+    private fun row(key: String) = Convo(key, pane(key), hung = emptyList(), folded = emptyList())
 
-    private val standIn = Convo("standin:unlisted:k", null, StandIn.UNLISTED, again = false, hung = emptyList())
+    private val ownRow = Convo("contract:k", null, hung = emptyList(), folded = emptyList())
 
     private fun project(host: String = "") = Project(
         key = "$host|/home/user/lighthouse",
@@ -53,7 +55,7 @@ class InboxTreeCardTest {
         name = "lighthouse",
         path = "~/lighthouse",
         host = host,
-        convos = listOf(row("a"), row("b"), standIn),
+        convos = listOf(row("a"), row("b"), ownRow),
         ended = listOf(row("c")),
     )
 
@@ -73,9 +75,39 @@ class InboxTreeCardTest {
                 endedOpen = endedOpen,
                 onFold = onFold,
                 onEnded = onEnded,
-                convo = { c -> Text("convo ${c.key}", modifier = Modifier.testTag("convo:${c.key}")) },
+                foldOpen = emptySet(),
+                onConvoFold = {},
+                convo = { c, _, _ -> Text("convo ${c.key}", modifier = Modifier.testTag("convo:${c.key}")) },
             )
         }
+    }
+
+    @Test
+    fun eachConversationRowGetsItsOwnFoldStateAndItsPressFoldsIt() {
+        val pressed = mutableListOf<String>()
+        composeRule.setContent {
+            ProjectCard(
+                project = project(),
+                folded = false,
+                waiting = 0,
+                endedOpen = false,
+                onFold = {},
+                onEnded = {},
+                foldOpen = setOf("b"),
+                onConvoFold = { pressed += it },
+                convo = { c, open, onFold ->
+                    Text(
+                        "convo ${c.key} ${if (open) "open" else "shut"}",
+                        modifier = Modifier.testTag("convo:${c.key}").clickable(onClick = onFold),
+                    )
+                },
+            )
+        }
+
+        composeRule.onNodeWithTag("convo:a").assertTextEquals("convo a shut")
+        composeRule.onNodeWithTag("convo:b").assertTextEquals("convo b open")
+        composeRule.onNodeWithTag("convo:b").performClick()
+        assertEquals(listOf("b"), pressed)
     }
 
     private fun setChips(counts: Counts, narrow: Narrow, onNarrow: (Narrow) -> Unit) {
@@ -126,7 +158,7 @@ class InboxTreeCardTest {
 
         composeRule.onNodeWithTag("convo:a").assertExists()
         composeRule.onNodeWithTag("convo:b").assertExists()
-        composeRule.onNodeWithTag("convo:standin:unlisted:k").assertExists()
+        composeRule.onNodeWithTag("convo:contract:k").assertExists()
         composeRule.onNodeWithText("1 ended").assertExists()
         composeRule.onNodeWithTag("convo:c").assertDoesNotExist()
     }

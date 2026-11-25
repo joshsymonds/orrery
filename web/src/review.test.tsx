@@ -109,8 +109,8 @@ test("EpicReview: the heading and the count words are drawn from the view", () =
     await draw(container, view);
     const section = one(container, "section.review");
     assert.equal(section.getAttribute("aria-label"), "Review");
-    assert.equal(textOf(section, ".sec-head h3"), "Review");
-    assert.equal(textOf(section, ".sec-head > span"), view.words);
+    assert.equal(textOf(section, ".sec > .name"), "Review");
+    assert.equal(textOf(section, ".sec > .n"), view.words);
   }));
 
 test("EpicReview: each reviewer row draws its name, its reason, and its verdict chip word and tone", () =>

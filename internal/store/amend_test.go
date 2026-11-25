@@ -433,7 +433,7 @@ func TestAmendShownOwnerClaimChangeStillChecks(t *testing.T) {
 
 // amendWaitsForWork is the refusal of an amendment that changes how R1 is shown while evidence work is under way.
 const amendWaitsForWork = "R1 keeps its conclusion and kind, so it applies at once, which waits for the evidence, " +
-	"integrate, sync or release run under way to end"
+	"integrate or sync run under way to end"
 
 // integrateUnderWay starts an integrate run of the amended epic with its revision, which captures R1 under its own ids,
 // and returns it.
@@ -725,72 +725,11 @@ func candidateRun(head string) ReleaseRun {
 	return ReleaseRun{Part: ReleasePartCandidate, Start: "tip-1", Head: head, Passed: true}
 }
 
-// TestSettleAmendmentWaitsForAReleaseCapturingItsMerge checks that an amendment whose red passed is not applied while
-// the epic's release captures the Requirement under its own ids: the epic is releasing, and the latest round of its
-// release integrator that passed at the run's attempt holds a merge whose Done gates and captures are walked until that
-// merge is recorded as the candidate. It is applied once the merge is the candidate, since the release then reads the
-// captures no more.
-func TestSettleAmendmentWaitsForAReleaseCapturingItsMerge(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name  string
-		runs  []ReleaseRun
-		merge string
-	}{
-		{
-			name:  "the merge of the first round",
-			runs:  []ReleaseRun{mergedRound(1, "merge-1")},
-			merge: "merge-1",
-		},
-		{
-			name:  "the merge of a later round, after the first one's captures failed",
-			runs:  []ReleaseRun{mergedRound(1, "merge-1"), mergedRound(2, "merge-2")},
-			merge: "merge-2",
-		},
-		{
-			name: "the merge of a candidate prepared again",
-			runs: []ReleaseRun{
-				mergedRound(1, "merge-1"), candidateRun("merge-1"),
-				{Part: ReleasePartVerify, Head: "merge-1", Reason: "origin's main moved"}, mergedRound(4, "merge-2"),
-			},
-			merge: "merge-2",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-			s := openEpicStore(t)
-			releaseAmendEpic(t, s, PhaseReleasing, tc.runs)
-
-			err := s.SettleAmendment(ctx, amendEpic, 1, amendAt())
-			if !errors.Is(err, ErrAmendmentDeferred) {
-				t.Fatalf("SettleAmendment while the release captures %s = %v, want ErrAmendmentDeferred", tc.merge, err)
-			}
-			if stored := storedAmendment(t, s, 1); stored.State != AmendmentChecking {
-				t.Errorf("deferred amendment = %s, want checking", stored.State)
-			}
-			if item := r1Item(t, s); !reflect.DeepEqual(item, oldAmendItem()) {
-				t.Errorf("R1 item while deferred = %+v, want the old item", item)
-			}
-
-			candidate := candidateRun(tc.merge)
-			candidate.At = amendAt()
-			if err = s.RecordCandidate(ctx, amendEpic, candidate); err != nil {
-				t.Fatalf("RecordCandidate: %v", err)
-			}
-			settle(t, s)
-			if stored := storedAmendment(t, s, 1); stored.State != AmendmentApplied {
-				t.Errorf("amendment once %s is the candidate = %s, want applied", tc.merge, stored.State)
-			}
-		})
-	}
-}
-
 // TestSettleAmendmentDoesNotWaitForAReleaseThatCapturesNothing checks that a running release run captures nothing, and
-// so holds no amendment back, unless its epic is releasing with a merge of its release integrator not yet its
-// candidate. The first case is the release a replan sent back to planning: its fix plan runs under it and waits for
-// the amendment to settle, so a release that held the amendment back would never move again.
+// so holds no amendment back, whatever it is doing: its release integrator runs no Done gate or capture on the merge it
+// makes, so a merge not yet its candidate holds nothing back either. The first case is the release a replan sent back to
+// planning: its fix plan runs under it and waits for the amendment to settle, so a release that held the amendment back
+// would never move again.
 func TestSettleAmendmentDoesNotWaitForAReleaseThatCapturesNothing(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -811,6 +750,19 @@ func TestSettleAmendmentDoesNotWaitForAReleaseThatCapturesNothing(t *testing.T) 
 		{
 			name:  "a releasing release with no merge of its integrator",
 			phase: PhaseReleasing,
+		},
+		{
+			name:  "a releasing release whose integrator's merge is not yet its candidate",
+			phase: PhaseReleasing,
+			runs:  []ReleaseRun{mergedRound(1, "merge-1")},
+		},
+		{
+			name:  "a releasing release whose candidate was prepared again, with the new merge not yet its candidate",
+			phase: PhaseReleasing,
+			runs: []ReleaseRun{
+				mergedRound(1, "merge-1"), candidateRun("merge-1"),
+				{Part: ReleasePartVerify, Head: "merge-1", Reason: "origin's main moved"}, mergedRound(4, "merge-2"),
+			},
 		},
 		{
 			name:  "a releasing release whose merge is its candidate",

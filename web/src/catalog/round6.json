@@ -114,6 +114,14 @@
       "Question",
       "Released"
     ],
+    "EpicMark": [
+      "Asks",
+      "EndedShort",
+      "Paused",
+      "Releasing",
+      "Running",
+      "Shipped"
+    ],
     "EpicPin": [
       "Asking",
       "Quiet"

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -13,16 +12,8 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
-	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
-
-// evidenceReadoptRun is the id of the run the granted test readopts.
-const evidenceReadoptRun = "granted-run"
-
-// evidenceReadoptScript is a capture that appends a line to $STARTED each time it runs, waits until $RELEASE exists, then
-// prints done and exits 3. A readopt that ran it again would append a second line.
-const evidenceReadoptScript = `echo run >> "$STARTED"; while [ ! -e "$RELEASE" ]; do sleep 0.05; done; echo done; exit 3`
 
 // evidenceReadoptAdd stores run id of epic evidenceRunEpic in state capturing, at revision and phase, with item as its spec.
 func evidenceReadoptAdd(t *testing.T, st *store.Store, id, revision, phase string, item evidence.Item) {
@@ -57,12 +48,7 @@ func evidenceReadoptJudging(t *testing.T, st *store.Store, id, revision string, 
 // cleanup.
 func evidenceReadoptNew(t *testing.T, st *store.Store, steps EvidenceSteps) *Evidence {
 	t.Helper()
-	home := t.TempDir()
-	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
-	return NewEvidence(EvidenceConfig{
-		Store: st, Steps: steps, Pools: &fakeGatePools{}, Environ: gateEnv("XDG_CONFIG_HOME=" + home),
-		StateDir: t.TempDir(), GateStateDir: gateShortStateDir(t),
-	})
+	return NewEvidence(EvidenceConfig{Store: st, Steps: steps, StateDir: t.TempDir(), Briefs: st})
 }
 
 // evidenceReadoptClose closes ev and returns once Close has. A drive Close does not know of would keep it waiting until
@@ -155,168 +141,6 @@ func evidenceReadoptLines(t *testing.T, path string) int {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return strings.Count(string(data), "\n")
-}
-
-// TestEvidenceReadoptCapturingWithNoGrantIsCapturedOnceAndJudged resumes a run whose capture never launched. The capture runs
-// once, from the start, and the judge gives the verdict.
-func TestEvidenceReadoptCapturingWithNoGrantIsCapturedOnceAndJudged(t *testing.T) {
-	t.Parallel()
-	counter := filepath.Join(t.TempDir(), "runs")
-	repo, head := evidenceRunRepo(t, "echo run >> "+counter+"\nexit 0\n")
-	st := epicTestStore(t)
-	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptAdd(t, st, "fresh", head, evidence.PhaseGreen, evidenceRunItem())
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-
-	if err := ev.Resume(t.Context()); err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	got := evidenceRunSettled(t, engineOf(ev), st, "fresh")
-	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 1 || steps.startCount() != 1 {
-		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, one judge, one start",
-			got.Verdict, got.Passed, got.Judges, steps.startCount())
-	}
-	if n := evidenceReadoptLines(t, counter); n != 1 {
-		t.Fatalf("capture ran %d times, want once", n)
-	}
-}
-
-// TestEvidenceReadoptCapturingWithNoGrantClearsTheWorktreeAStopLeft resumes a run with no grant whose worktree a start left at
-// its path before the grant. The stale worktree is cleared, the capture runs once from the start, and the judge gives the
-// verdict.
-func TestEvidenceReadoptCapturingWithNoGrantClearsTheWorktreeAStopLeft(t *testing.T) {
-	t.Parallel()
-	counter := filepath.Join(t.TempDir(), "runs")
-	repo, head := evidenceRunRepo(t, "echo run >> "+counter+"\nexit 0\n")
-	st := epicTestStore(t)
-	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptAdd(t, st, "left", head, evidence.PhaseGreen, evidenceRunItem())
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-	left := filepath.Join(ev.captures.worktrees, "left")
-	if err := addStepWorktree(t.Context(), hostexec.NewLocal(), repo, left, head); err != nil {
-		t.Fatalf("add the worktree a stop left: %v", err)
-	}
-
-	if err := ev.Resume(t.Context()); err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	got := evidenceRunSettled(t, engineOf(ev), st, "left")
-	if got.NotCaptured != "" || got.Verdict != evidence.VerdictHolds || !got.Passed || steps.startCount() != 1 {
-		t.Fatalf("run = not captured %q verdict %q passed %t starts %d, want captured, holds, passed, one start",
-			got.NotCaptured, got.Verdict, got.Passed, steps.startCount())
-	}
-	if n := evidenceReadoptLines(t, counter); n != 1 {
-		t.Fatalf("capture ran %d times, want once", n)
-	}
-}
-
-// TestEvidenceReadoptCapturingWithNoGrantClearsAHalfMadeWorktree resumes a run with no grant whose start stopped inside git
-// worktree add, leaving checked out files at its path and no .git entry. The directory is cleared, the capture runs once
-// from the start, and the judge gives the verdict.
-func TestEvidenceReadoptCapturingWithNoGrantClearsAHalfMadeWorktree(t *testing.T) {
-	t.Parallel()
-	counter := filepath.Join(t.TempDir(), "runs")
-	repo, head := evidenceRunRepo(t, "echo run >> "+counter+"\nexit 0\n")
-	st := epicTestStore(t)
-	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptAdd(t, st, "half", head, evidence.PhaseGreen, evidenceRunItem())
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-	stepWorktreeTestHalfMade(t, filepath.Join(ev.captures.worktrees, "half"))
-
-	if err := ev.Resume(t.Context()); err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	got := evidenceRunSettled(t, engineOf(ev), st, "half")
-	if got.NotCaptured != "" || got.Verdict != evidence.VerdictHolds || !got.Passed || steps.startCount() != 1 {
-		t.Fatalf("run = not captured %q verdict %q passed %t starts %d, want captured, holds, passed, one start",
-			got.NotCaptured, got.Verdict, got.Passed, steps.startCount())
-	}
-	if n := evidenceReadoptLines(t, counter); n != 1 {
-		t.Fatalf("capture ran %d times, want once", n)
-	}
-}
-
-// TestEvidenceReadoptCapturingWithAGrantReadsTheHoldersExitAndIsNotRunAgain detaches a capture and lets its gate end under
-// its holder, then stores the grant the run held. Resume reads the holder's exit record, records the capture and judges it,
-// and the gate runs once.
-func TestEvidenceReadoptCapturingWithAGrantReadsTheHoldersExitAndIsNotRunAgain(t *testing.T) {
-	t.Parallel()
-	repo, head := evidenceCaptureRepo(t)
-	release := filepath.Join(t.TempDir(), "release")
-	startedFile := filepath.Join(t.TempDir(), "started")
-	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-	pools := &fakeGatePools{}
-	c := evidenceCaptureFor(t, pools, "STARTED="+startedFile, "RELEASE="+release)
-	item := evidence.Item{
-		Capture: []string{"/bin/sh", "-c", evidenceReadoptScript}, Limit: 60,
-		Conclusion: "the build passes", Judge: "reviewer",
-	}
-
-	granted := make(chan string, 1)
-	started := func(ctx context.Context, grant, _ string) error {
-		granted <- grant
-		return ctx.Err()
-	}
-	ctx, cancel := context.WithCancelCause(t.Context())
-	defer cancel(nil)
-	var runErr error
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, runErr = c.run(ctx, repo, head, evidenceReadoptRun, item, started)
-	}()
-	gateWaitFile(t, startedFile, done)
-	cancel(errGateDetach)
-	evidenceCaptureWait(t, done)
-	if !errors.Is(runErr, errGateDetach) {
-		t.Fatalf("detached run = %v, want errGateDetach", runErr)
-	}
-	grant := <-granted
-	// A restart removes the worktree directory, which readopt re-adds.
-	if err := os.RemoveAll(filepath.Join(c.worktrees, evidenceReadoptRun)); err != nil {
-		t.Fatalf("remove the worktree directory: %v", err)
-	}
-	if err := os.WriteFile(release, nil, 0o600); err != nil {
-		t.Fatalf("release the gate: %v", err)
-	}
-	holderDir := filepath.Join(c.gateStateDir, "holders", "evidence-"+evidenceReadoptRun)
-	gateWaitExit(t, holderDir)
-	gateWaitLockFree(t, holderDir)
-
-	st := epicTestStore(t)
-	evidenceRunSeed(t, st, repo, item, item)
-	evidenceReadoptAdd(t, st, evidenceReadoptRun, head, evidence.PhaseRed, item)
-	if err := st.SetEvidenceGrant(t.Context(), evidenceReadoptRun, grant, holderDir); err != nil {
-		t.Fatalf("SetEvidenceGrant: %v", err)
-	}
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-	ev.captures = c
-	ev.blobs = c.blobs
-
-	if err := ev.Resume(t.Context()); err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	got := evidenceRunSettled(t, engineOf(ev), st, evidenceReadoptRun)
-	if got.NotCaptured != "" || got.Exit != 3 || got.LogHash == "" || got.Verdict != evidence.VerdictHolds ||
-		got.Passed || got.Judges != 1 || steps.startCount() != 1 {
-		t.Fatalf(
-			"run = not captured %q exit %d log %q verdict %q passed %t judges %d starts %d, want captured exit 3 with a log, holds, not passed, one judge",
-			got.NotCaptured,
-			got.Exit,
-			got.LogHash,
-			got.Verdict,
-			got.Passed,
-			got.Judges,
-			steps.startCount(),
-		)
-	}
-	if n := evidenceReadoptLines(t, startedFile); n != 1 {
-		t.Fatalf("gate ran %d times, want once", n)
-	}
 }
 
 // TestEvidenceReadoptJudgingRunWhoseStepEndsHoldsRecordsOnce resumes a judging run whose stored judge step ends holds. The
@@ -425,15 +249,15 @@ func TestEvidenceReadoptJudgingRunAdoptsANewerJudgeThanItsStoredOne(t *testing.T
 	}
 }
 
-// TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge resumes a run whose capture never launched. Its first judge ends
-// with no verdict, so its rejudge follows. Each start carries the derived id of its judge number: 1 for the first judge and 2
-// for the rejudge, and the rejudge's verdict is the one recorded.
+// TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge resumes a run whose capture ended and which has no judge yet. Its
+// first judge ends with no verdict, so its rejudge follows. Each start carries the derived id of its judge number: 1 for the
+// first judge and 2 for the rejudge, and the rejudge's verdict is the one recorded.
 func TestEvidenceReadoptJudgeStartsCarryTheDerivedIDOfEachJudge(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "exit 0\n")
 	st := epicTestStore(t)
 	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptAdd(t, st, "fresh", head, evidence.PhaseGreen, evidenceRunItem())
+	evidenceReadoptJudging(t, st, "fresh", head, evidenceRunItem(), "")
 	steps := &evidenceIDSteps{judges: []evidenceIDJudge{
 		{end: store.StepRow{End: stepRestartedEnd}},
 		{end: store.StepRow{End: stepLoopEndDone}},
@@ -483,15 +307,15 @@ func TestEvidenceReadoptJudgingRunRejudgesUnderTheNextDerivedID(t *testing.T) {
 	}
 }
 
-// TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID resumes a run whose first judge's start fails after its
-// row is written, as a StartStep failure leaves it: the row ends failed and Start returns its id with the error. That judge is
-// counted, so its failure gives no verdict and the rejudge starts under the derived id of judge 2 and holds.
+// TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID resumes a run whose capture ended and whose first judge's
+// start fails after its row is written, as a StartStep failure leaves it: the row ends failed and Start returns its id with the
+// error. That judge is counted, so its failure gives no verdict and the rejudge starts under the derived id of judge 2 and holds.
 func TestEvidenceReadoptFailedJudgeStartIsCountedAndRetriedUnderTheNextID(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "exit 0\n")
 	st := epicTestStore(t)
 	evidenceRunSeed(t, st, repo, evidenceRunItem(), evidenceRunItem())
-	evidenceReadoptAdd(t, st, "failed", head, evidence.PhaseGreen, evidenceRunItem())
+	evidenceReadoptJudging(t, st, "failed", head, evidenceRunItem(), "")
 	steps := &evidenceIDSteps{judges: []evidenceIDJudge{
 		{
 			end:      store.StepRow{End: stepLoopEndFailed, Reason: "spawn failed"},

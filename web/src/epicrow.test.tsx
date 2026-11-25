@@ -37,6 +37,15 @@ function epicNode(
   return { kind: "epic", key: `epic:${listed.id}`, block: blockOf(listed, detail), listed, contract };
 }
 
+// detailWithCentre is the fixture's Get answer of the id, with its centre set to centre as the server names it.
+function detailWithCentre(id: string, centre: string): EpicsGetResponse {
+  const found = gets.get(id);
+  if (found === undefined) {
+    throw new Error(`the fixture epics hold no detail for ${id}`);
+  }
+  return { ...found, centre };
+}
+
 // contractItem hangs the fixture's proposed contract under its conversation.
 function contractItem(): ContractItem {
   const contract = contracts.contracts[0];
@@ -95,9 +104,13 @@ test("InboxTree EpicRow words read paused by you for harbour-map, which the fixt
   assert.equal(epicRowWords(epicNode(listedEpic("orrery/harbour-map")), now).words, "paused by you · 3 h");
 });
 
-test("InboxTree EpicRow gauge of a paused epic takes no tone, and a building one the live tone", () => {
-  assert.equal(epicRowWords(epicNode(listedEpic("orrery/harbour-map")), now).gauge?.tone, "");
-  assert.equal(epicRowWords(epicNode(listedEpic("orrery/orrery-followups")), now).gauge?.tone, "live");
+test("InboxTree EpicRow mark of a paused epic draws its paused centre in ink, and a building one its live centre", async () => {
+  await withRow(epicNode(listedEpic("orrery/harbour-map"), null, detailWithCentre("orrery/harbour-map", "paused")), (container) => {
+    assert.equal(container.querySelector("svg.epicmark g.centre")?.getAttribute("data-tone"), "ink.3");
+  });
+  await withRow(epicNode(listedEpic("orrery/orrery-followups"), null, detailWithCentre("orrery/orrery-followups", "running")), (container) => {
+    assert.equal(container.querySelector("svg.epicmark g.centre")?.getAttribute("data-tone"), "live");
+  });
 });
 
 test("InboxTree EpicRow words read paused on a usage limit for an epic the limit paused", () => {
@@ -164,7 +177,6 @@ test("InboxTree EpicRow contract row reads its version, contract · proposed wit
   assert.equal(words.count, "v2");
   assert.equal(words.words, "contract · proposed · 26 min ago");
   assert.equal(words.blocker, "waits to be read and accepted");
-  assert.equal(words.gauge, null);
 });
 
 test("InboxTree EpicRow an epic whose contract is proposed draws as the contract's row", () => {
@@ -174,14 +186,13 @@ test("InboxTree EpicRow an epic whose contract is proposed draws as the contract
   assert.equal(words.count, "v2");
   assert.equal(words.words, "contract · proposed · 26 min ago");
   assert.equal(words.blocker, "waits to be read and accepted");
-  assert.equal(words.gauge, null);
 });
 
-test("InboxTree EpicRow contract row draws the contract's mark and its name, with no gauge", () =>
+test("InboxTree EpicRow contract row draws the contract's mark and its name, with no EpicMark", () =>
   withRow(contractItem(), (container) => {
     assert.equal(container.querySelectorAll(".row.epic.contract").length, 1);
     assert.equal(container.querySelectorAll(".cmark").length, 1);
-    assert.equal(container.querySelectorAll(".gauge").length, 0);
+    assert.equal(container.querySelectorAll(".epicmark").length, 0);
     assert.equal(textOf(container, ".title"), "tide-alerts");
     assert.equal(textOf(container, ".age"), "v2");
     assert.equal(textOf(container, ".l2"), "contract · proposed · 26 min ago");
@@ -189,33 +200,32 @@ test("InboxTree EpicRow contract row draws the contract's mark and its name, wit
     assert.equal(textOf(container, ".l3"), "waits to be read and accepted");
   }));
 
-// The row draws the epic's gauge, name, count, words and blocker.
+// The row draws the epic's mark, name, count, words and blocker.
 
-test("InboxTree EpicRow row draws the gauge, slug, words with count, and the blocker led by a question mark", () => {
+test("InboxTree EpicRow row draws the mark, slug with its count, words, and the blocker led by a question mark", () => {
   const hung = epicNode(listedEpic("lighthouse/rota-export"));
   const words = epicRowWords(hung, now);
   return withRow(hung, (container) => {
     assert.equal(container.querySelectorAll(".row.epic").length, 1);
-    assert.equal(container.querySelectorAll(".gauge").length, 1);
+    assert.equal(container.querySelectorAll(".epicmark").length, 1);
     assert.equal(textOf(container, ".title"), "rota-export");
-    assert.equal(textOf(container, ".l2"), `building · 49 min · ${words.count}`);
+    assert.equal(textOf(container, ".age"), words.count);
+    assert.equal(textOf(container, ".l2"), "building · 49 min");
     assert.equal(container.querySelectorAll(".l3 svg.icon").length, 1);
     assert.equal(textOf(container, ".l3"), "waits on your answer · 2 min");
   });
 });
 
-test("InboxTree EpicRow gauge takes the attention tone with a dot when the epic is blocked", () =>
-  withRow(epicNode(listedEpic("lighthouse/rota-export")), (container) => {
-    const gauge = container.querySelector(".gauge");
-    assert.equal(gauge?.getAttribute("data-tone"), "attention");
-    assert.equal(gauge?.querySelectorAll("circle.core").length, 1);
+test("InboxTree EpicRow mark takes the attention tone at its centre, with a question, when the epic is blocked", () =>
+  withRow(epicNode(listedEpic("lighthouse/rota-export"), null, detailWithCentre("lighthouse/rota-export", "asks")), (container) => {
+    assert.equal(container.querySelector("svg.epicmark g.centre")?.getAttribute("data-tone"), "attention");
+    assert.equal(container.querySelector("svg.epicmark g.centre text")?.textContent, "?");
   }));
 
-test("InboxTree EpicRow gauge takes the ok tone with a check when the epic shipped", () =>
-  withRow(epicNode(listedEpic("orrery/holder-scopes")), (container) => {
-    const gauge = container.querySelector(".gauge");
-    assert.equal(gauge?.getAttribute("data-tone"), "ok");
-    assert.equal(gauge?.querySelectorAll("path.done").length, 1);
+test("InboxTree EpicRow mark takes the ok tone at its centre, with a check, when the epic shipped", () =>
+  withRow(epicNode(listedEpic("orrery/holder-scopes"), null, detailWithCentre("orrery/holder-scopes", "shipped")), (container) => {
+    assert.equal(container.querySelector("svg.epicmark g.centre")?.getAttribute("data-tone"), "ok");
+    assert.equal(container.querySelectorAll("svg.epicmark g.centre path").length, 1);
   }));
 
 test("InboxTree EpicRow an ended epic's row reads ended", () =>

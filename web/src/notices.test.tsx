@@ -819,18 +819,18 @@ function clickControl(root: HTMLElement, label: string): void {
   button.dispatchEvent(new Event("click", { bubbles: true }));
 }
 
-test("NoticeStack: an epic's notice is led by its gauge", async () => {
+test("NoticeStack: an epic's notice is led by its mark", async () => {
   await withContainer(async (container) => {
     await act(() => {
       drawNotice(container, {
         head: {
-          lead: { kind: "gauge", gauge: { done: 2, total: 5, tone: "live" } },
+          lead: { kind: "mark", detail: { centre: "running", requirements: [] } },
           dir: "",
           what: "rota-export asks you a question",
         },
       });
     });
-    assert.equal(noticeRoot(container).firstElementChild?.getAttribute("class"), "gauge");
+    assert.equal(noticeRoot(container).firstElementChild?.getAttribute("class"), "epicmark");
   });
 });
 

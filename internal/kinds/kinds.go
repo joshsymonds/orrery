@@ -92,8 +92,9 @@ const (
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
 // Phase are what a review, closure or conclusion ends with. Gaps are the live gaps a conclusion's gap round gives
 // each a planner turn, and Question is the gaps question an ending with gaps opens. Revision, when set, is the revision
-// the work runs at in place of the run's own: a release run walks the Done gates and captures of a merge the release
-// integrator committed, and records it as the candidate, at that commit.
+// the work runs at in place of the run's own: an integrate run walks the Done gates and captures of a merge its task
+// integrator committed at that commit, and a release run records the merge its release integrator committed as the
+// candidate there.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string

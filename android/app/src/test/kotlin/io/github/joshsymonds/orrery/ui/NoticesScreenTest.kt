@@ -229,8 +229,8 @@ class NoticesScreenTest {
             setScreen(server)
             awaitText("Monday 16 November")
 
-            // An epic leads with its gauge, which its inbox card draws, then its slug and its block's words.
-            composeRule.onNodeWithTag("gauge:$EPIC_ID", useUnmergedTree = true).assertExists()
+            // An epic leads with its mark, which its inbox card draws, then its slug and its block's words.
+            composeRule.onNodeWithTag("epicmark:$EPIC_ID", useUnmergedTree = true).assertExists()
             assertEquals(1, countNodes(hasText("asks you a question")))
             // A pane leads with its state's glyph, then its directory's last element and its state's words.
             assertEquals(1, countNodes(hasText("waiting on you")))
