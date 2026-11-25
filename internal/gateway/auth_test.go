@@ -262,6 +262,35 @@ func TestGatewayCallerKeyInjectDropsCallerCredentials(t *testing.T) {
 	}
 }
 
+func TestGatewayCallerKeySigV4StrippedFromUpstream(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeAnthropic(t, replyWith(t, http.StatusOK))
+	gw := newBedrockGateway(t, fake.url(), bedrockCredentials, discardLogger())
+
+	rec := postAsCaller(t, gw, "/v1/messages", bedrockCallerBody, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 for a sigv4 seat that presents the caller key", rec.Code)
+	}
+
+	got := onlyRequest(t, fake)
+	if v := got.header.Get(patchbayKeyHeader); v != "" {
+		t.Errorf("upstream got %s = %q; want the caller key removed", patchbayKeyHeader, v)
+	}
+	for name, values := range got.header {
+		for _, value := range values {
+			for _, secret := range []string{exampleCallerKey, callerAuthorization, callerKeyHeader} {
+				if strings.Contains(value, secret) {
+					t.Errorf("upstream header %s carries a caller credential %q; want it absent", name, secret)
+				}
+			}
+		}
+	}
+	if v := got.header.Get("X-Api-Key"); v != "" {
+		t.Errorf("upstream X-Api-Key = %q; want the caller's credential removed", v)
+	}
+}
+
 func TestGatewayRoutesInjectSendsKeyFromFile(t *testing.T) {
 	t.Parallel()
 
