@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // moveWip is the ref the move tests keep a worktree's uncommitted work in.
@@ -26,7 +28,15 @@ func newMoveWorld(t *testing.T) moveWorld {
 	identify(t, repo)
 	base := commitOff(t, repo, setup.base, "thing.go", "package thing\n")
 	path := filepath.Join(t.TempDir(), "implement")
-	if err := AddTaskWorktree(context.Background(), repo, setup.epic.ID, 1, path, base); err != nil {
+	if err := AddTaskWorktree(
+		context.Background(),
+		hostexec.NewLocal(),
+		repo,
+		setup.epic.ID,
+		1,
+		path,
+		base,
+	); err != nil {
 		t.Fatal(err)
 	}
 	return moveWorld{
@@ -57,7 +67,7 @@ func (w moveWorld) work() string {
 // move moves the worktree onto to and fails the test on an error.
 func (w moveWorld) move(to string) {
 	w.t.Helper()
-	if err := MoveTaskWorktree(context.Background(), w.path, moveWip, w.epic, 1, to); err != nil {
+	if err := MoveTaskWorktree(context.Background(), hostexec.NewLocal(), w.path, moveWip, w.epic, 1, to); err != nil {
 		w.t.Fatalf("MoveTaskWorktree: %v", err)
 	}
 }
@@ -75,7 +85,7 @@ func (w moveWorld) requireMerged(earlier, onto string) {
 	if parent := buildRun(w.t, w.path, "rev-parse", "HEAD^1"); parent != onto {
 		w.t.Errorf("HEAD^1 %s, want the new base %s", parent, onto)
 	}
-	if held, err := isAncestor(ctx, w.path, earlier, "HEAD^2"); err != nil || !held {
+	if held, err := isAncestor(ctx, hostexec.NewLocal(), w.path, earlier, "HEAD^2"); err != nil || !held {
 		w.t.Errorf("HEAD^2 does not hold %s: %v", earlier, err)
 	}
 	if got := buildRun(w.t, w.repo, "rev-parse", TaskBranchRef(w.epic, 1, 1)); got != earlier {
@@ -155,7 +165,14 @@ func TestMoveTaskWorktreeAfterAnUnstoredMoveMergesOntoTheLaterBase(t *testing.T)
 	if parent := buildRun(t, w.path, "rev-parse", "HEAD^1"); parent != later {
 		t.Errorf("HEAD^1 %s, want the later base %s", parent, later)
 	}
-	if held, err := isAncestor(context.Background(), w.path, second, "HEAD^2"); err != nil || !held {
+	if held, err := isAncestor(
+		context.Background(),
+		hostexec.NewLocal(),
+		w.path,
+		second,
+		"HEAD^2",
+	); err != nil ||
+		!held {
 		t.Errorf("HEAD^2 does not hold %s: %v", second, err)
 	}
 	if got := buildRun(t, w.repo, "rev-parse", TaskBranchRef(w.epic, 1, 2)); got != second {
@@ -174,16 +191,16 @@ func TestMoveTaskWorktreeFinishesAMoveCutShort(t *testing.T) {
 	ctx := context.Background()
 	cuts := map[string]func(w moveWorld){
 		"after the snapshot": func(w moveWorld) {
-			if _, err := snapshotWorktree(ctx, w.path, moveWip); err != nil {
+			if _, err := snapshotWorktree(ctx, hostexec.NewLocal(), w.path, moveWip); err != nil {
 				t.Fatal(err)
 			}
 		},
 		"after the worktree is detached at the snapshot": func(w moveWorld) {
-			snapshot, err := snapshotWorktree(ctx, w.path, moveWip)
+			snapshot, err := snapshotWorktree(ctx, hostexec.NewLocal(), w.path, moveWip)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = enterSnapshot(ctx, w.path, snapshot); err != nil {
+			if err = enterSnapshot(ctx, hostexec.NewLocal(), w.path, snapshot); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -225,7 +242,7 @@ func TestMoveTaskWorktreeRefusesAConflictingMergeAndKeepsTheWork(t *testing.T) {
 	writeFile(t, filepath.Join(w.path, "draft.go"), "package draft\n")
 	before := buildRun(t, w.path, "status", "--porcelain")
 
-	err := MoveTaskWorktree(context.Background(), w.path, moveWip, w.epic, 1, w.to)
+	err := MoveTaskWorktree(context.Background(), hostexec.NewLocal(), w.path, moveWip, w.epic, 1, w.to)
 	if err == nil || !strings.Contains(err.Error(), "conflicts") {
 		t.Fatalf("MoveTaskWorktree = %v, want the refused merge", err)
 	}
@@ -259,7 +276,15 @@ func TestMoveTaskWorktreeRefusedWriteLeavesHeadOnItsBranch(t *testing.T) {
 	gitDir := buildRun(t, w.path, "rev-parse", "--path-format=absolute", "--git-dir")
 	writeFile(t, filepath.Join(gitDir, "index.lock"), "")
 
-	if err := MoveTaskWorktree(context.Background(), w.path, moveWip, w.epic, 1, w.to); err == nil {
+	if err := MoveTaskWorktree(
+		context.Background(),
+		hostexec.NewLocal(),
+		w.path,
+		moveWip,
+		w.epic,
+		1,
+		w.to,
+	); err == nil {
 		t.Fatal("MoveTaskWorktree = nil, want the refused write")
 	}
 	if got := buildRun(t, w.path, "rev-parse", "--symbolic-full-name", "HEAD"); got != TaskBranchRef(w.epic, 1, 1) {
@@ -276,7 +301,7 @@ func TestMoveTaskWorktreeRefusedWriteLeavesHeadOnItsBranch(t *testing.T) {
 func TestMoveTaskWorktreeOfAMissingPathMovesNothing(t *testing.T) {
 	t.Parallel()
 	if err := MoveTaskWorktree(
-		context.Background(), filepath.Join(t.TempDir(), "gone"), moveWip, testEpic, 1, "b",
+		context.Background(), hostexec.NewLocal(), filepath.Join(t.TempDir(), "gone"), moveWip, testEpic, 1, "b",
 	); err != nil {
 		t.Errorf("MoveTaskWorktree of a missing path = %v, want nil", err)
 	}

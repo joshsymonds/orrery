@@ -2752,15 +2752,15 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// standing is where the server stands a record task with no step, by its status.
+// standing is where the server stands a build task with no step, by its status.
 const standing: Record<string, { place: string; tone: string }> = {
   done: { place: "integrated", tone: "ok" },
   integrated: { place: "integrated", tone: "ok" },
   gap: { place: "implement", tone: "bad" },
 };
 
-// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, each standing as
-// the server stands a task of that status with no step unless lives names where it stands, and its steps.
+// detailOf is the Get response for an epic whose build tasks carry the given statuses, one task per status, each standing
+// as the server stands a task of that status with no step unless lives names where it stands, and its steps.
 function detailOf(
   epic: Epic,
   statuses: string[],
@@ -2769,10 +2769,9 @@ function detailOf(
 ): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
-    tasks: statuses.map((status, index) => ({
-      effort: 1,
-      slug: `task-${index}`,
-      subject: `Subject ${index}`,
+    buildTasks: statuses.map((status, index) => ({
+      id: `task-${index}`,
+      title: `Subject ${index}`,
       status,
       ...(lives[index] ?? standing[status] ?? { place: "planned", tone: "plan" }),
     })),
@@ -2837,6 +2836,11 @@ function treeRows(): Row[] {
   });
 }
 
+// endedTreeRows are the tree rows with d's conversation reported ended, as serve reports one whose steered epic has ended.
+function endedTreeRows(): Row[] {
+  return treeRows().map((item) => (item.key === "d" ? { ...item, ended: true } : item));
+}
+
 const treeHost = create(HostStatusResponseSchema, { host: "box" });
 const firstEpic = makeEpic(widgetsRepo, "first", {
   steering: "sess-a",
@@ -2877,10 +2881,10 @@ function dirCard(container: HTMLElement, name: string): HTMLElement {
 }
 
 // drawnKeys lists the key of each drawn conversation, epic, contract and step under root, in the order the page draws
-// them. A stand-in's line has no key of its own and is left out.
+// them. A stand-in's line has no key of its own and is left out, and so is the rail's tiles, which a held card draws beside it.
 function drawnKeys(root: ParentNode): string[] {
   return [...root.querySelectorAll("[data-key]")]
-    .filter((element) => !element.classList.contains("standin"))
+    .filter((element) => element.closest(".rail") === null && !element.classList.contains("standin"))
     .map((element) => element.getAttribute("data-key") ?? "");
 }
 
@@ -2962,7 +2966,7 @@ test("InboxTree: a folded project under a search says what waits in the whole pr
   }));
 
 test("InboxTree: a project's ended line opens to the conversations that ended, with their epics", (t) =>
-  withApp(t.signal, { rows: treeRows(), host: treeHost, epics: epicsView([oldEpic], new Map()) }, async (container) => {
+  withApp(t.signal, { rows: endedTreeRows(), host: treeHost, epics: epicsView([oldEpic], new Map()) }, async (container) => {
     assert.deepEqual(drawnKeys(dirCard(container, "api")), ["a"], "the ended conversation is behind the ended line");
     const line = dirCard(container, "api").querySelector<HTMLElement>(".fold-line");
     assert.equal(line?.textContent, "1 ended");
@@ -3030,7 +3034,7 @@ test("InboxTree: the cursor walks the drawn conversations, epics, contracts and 
   }));
 
 test("InboxTree: with a project's ended line open the cursor walks its ended conversations and their epics in tree order", (t) =>
-  withApp(t.signal, { rows: treeRows(), host: treeHost, epics: epicsView([firstEpic, oldEpic], new Map()) }, async (container) => {
+  withApp(t.signal, { rows: endedTreeRows(), host: treeHost, epics: epicsView([firstEpic, oldEpic], new Map()) }, async (container) => {
     const line = [...dirCard(container, "api").querySelectorAll<HTMLElement>(".fold-line")].find(
       (item) => item.textContent === "1 ended",
     );
@@ -3098,7 +3102,7 @@ test("InboxTree: w reveals a counted contract that sits in a folded project", (t
 
 // cursorKeyOf is the key of the drawn entry the cursor rests on.
 function cursorKeyOf(container: HTMLElement): string | null {
-  return container.querySelector("[data-key].cur")?.getAttribute("data-key") ?? null;
+  return container.querySelector(".list [data-key].cur")?.getAttribute("data-key") ?? null;
 }
 
 test("TitleParts: a waiting pane with no question says in its second line that it waits on you, and draws its label once and no directory", (t) =>
@@ -3816,11 +3820,11 @@ test("an epic entry shows the epic page beside the list, and no epic column rema
     assert.equal(epicPageShown(container), true, "the epic page shows on an epic entry");
     assert.equal(epicPageDrawn(container), true, "the page draws the epic page");
     assert.equal(
-      container.querySelector('aside.rpanel section.page[aria-label="epic"]') !== null,
+      container.querySelector('article.held-card section.page[aria-label="epic"]') !== null,
       true,
-      "the page sits in the panel beside the rail",
+      "the page sits in the held card beside the conversation",
     );
-    assert.equal(container.querySelector("aside.rail") !== null, true, "the rail is drawn");
+    assert.equal(container.querySelector("aside.rail") === null, true, "no rail is drawn");
     assert.equal(pageSlug(container), "first", "the page names the epic");
   }));
 
@@ -3929,9 +3933,9 @@ test("EpicCommands: an epic whose read has not answered reads loading the epic, 
       assert.equal(epicPageDrawn(container), false, "no epic page is drawn before the answer");
       assert.equal(epicReadText(container), "loading the epic…");
       assert.equal(epicTitleSlug(container), "first", "the title row names the listed epic above the line");
-      assert.ok(
+      assertNone(
         container.querySelector('section.page[aria-label="epic"] .title-row .back'),
-        "the title row has a back button",
+        "the held card's title row draws no back button",
       );
       assert.deepEqual(epicPageButtons(container), [], "no button while the epic loads");
     } finally {
@@ -4084,8 +4088,8 @@ test("back and the slug crumb restore the epic page's scroll place, and the page
 test("back closes the epic page until the cursor moves", (t) =>
   withApp(t.signal, { epics: pageEpic() }, async (container) => {
     await press("j");
-    await clickButton(container, 'section.page[aria-label="epic"] .title-row', "‹");
-    assert.equal(epicPageShown(container), false, "back closes the page");
+    await clickFirst(container, "article.held-card .fold-back");
+    assert.equal(epicPageShown(container), false, "Fold back closes the page");
     assert.equal(cursorKey(container), `epic:${widgetsFirst}`, "the cursor stays on the epic");
     await press("j");
     await press("j");
@@ -4260,7 +4264,7 @@ test("WorkerSession: at the desk, opening a step's session draws it in the middl
   withApp(t.signal, { epics: phaseEpic() }, async (container) => {
     await openSessionFromRecord(container);
     assert.ok(container.querySelector(`${deskSession} .worker-session`), "the session is drawn in the middle column");
-    assert.equal(container.querySelector(".rpanel"), null, "no epic panel is drawn");
+    assertNone(container.querySelector("article.held-card"), "no epic card is drawn");
     assert.equal(container.querySelector(".panes")?.getAttribute("data-side"), "rail", "the layout has no panel beside it");
   }, 1600));
 
@@ -4269,7 +4273,7 @@ test("WorkerSession: at the desk, the session's back returns to the task's recor
     await openSessionFromRecord(container);
     await clickButton(container, `${deskSession} .title-row`, "‹");
     assert.equal(container.querySelector(deskSession), null, "the session is no longer drawn in the middle column");
-    assert.ok(container.querySelector(".rpanel"), "the epic panel is drawn again");
+    assert.ok(container.querySelector("article.held-card"), "the epic card is drawn again");
     assert.equal(phaseOutputShown(container), true, "the task's record is drawn in the panel");
     assert.equal(pageSlug(container), "Parser");
   }, 1600));
@@ -4283,7 +4287,7 @@ test("WorkerSession: at the desk, the session's task crumb returns to the task's
     assert.ok(crumb, "the session's task crumb is drawn");
     await clickIn(crumb);
     assert.equal(container.querySelector(deskSession), null, "the session is no longer drawn in the middle column");
-    assert.ok(container.querySelector(".rpanel"), "the epic panel is drawn");
+    assert.ok(container.querySelector("article.held-card"), "the epic card is drawn");
     assert.equal(phaseOutputShown(container), true, "the task's record is drawn in the panel");
   }, 1600));
 
@@ -4294,7 +4298,7 @@ test("WorkerSession: under 760px the session is the page, and no session is draw
     await clickPhaseHead(container, "implement");
     await clickButton(container, phaseBody, "Open the session›");
     assert.equal(container.querySelector(deskSession), null, "no session is drawn in the middle column");
-    assert.equal(container.querySelector(".rpanel"), null, "no epic panel is drawn");
+    assertNone(container.querySelector("article.held-card"), "no epic card is drawn");
     assert.equal(sessionPageShown(container), true, "the session is the epic page");
   }, 400));
 
@@ -4436,7 +4440,7 @@ test("a nudge in the session calls Steps.Nudge with the step's id and the text",
   }));
 
 test("EpicCommands: Pause sends one Epics.Pause with the epic's id", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Pause");
     await until(t.signal, () => fake.callsTo(pauseEpicPath).length === 1, "the Pause call");
@@ -4456,7 +4460,7 @@ test("EpicCommands: Resume sends one Epics.Resume with the epic's id on a paused
   }));
 
 test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and the confirm sends one", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     await press("j");
     await clickButton(container, ".epic-page .title-row .acts", "Stop…");
     await clickButton(container, ".epic-page .title-row .acts", "Keep it running");
@@ -4471,8 +4475,8 @@ test("EpicCommands: Stop asks first, Keep it running sends no Epics.Stop, and th
   }));
 
 test("EpicCommands: a Stop… confirm open on one epic does not carry over to the next epic", (t) => {
-  const first = makeEpic(widgetsRepo, "first");
-  const second = makeEpic(gadgetsRepo, "second");
+  const first = makeEpic(widgetsRepo, "first", { outcome: "accepted" });
+  const second = makeEpic(gadgetsRepo, "second", { outcome: "accepted" });
   const epics = epicsView(
     [first, second],
     new Map([
@@ -4598,7 +4602,7 @@ test("a digit typed in the Something else box selects no card", (t) =>
   }));
 
 test("a command that fails shows its did-not-land line under the title row, and one that lands clears it", (t) =>
-  withApp(t.signal, { epics: pageEpic() }, async (container, fake) => {
+  withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     const noteText = () => container.querySelector('section.page[aria-label="epic"] .title-row + .page-note')?.textContent ?? "";
     fake.failNext.add(pauseEpicPath);
     await press("j");

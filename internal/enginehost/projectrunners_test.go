@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/pools"
 )
 
@@ -255,7 +256,7 @@ func TestProjectRunner_ReadsRunnersAtCommit(t *testing.T) {
 	base := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	withFile := stepGitTestCommit(t, repo, map[string]string{".orrery/project.toml": runnersReleaseText})
 
-	runners, err := ReadProjectRunners(t.Context(), repo, withFile)
+	runners, err := ReadProjectRunners(t.Context(), hostexec.NewLocal(), repo, withFile)
 	if err != nil {
 		t.Fatalf("ReadProjectRunners at the commit with the file: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestProjectRunner_ReadsRunnersAtCommit(t *testing.T) {
 		t.Fatalf("ReadProjectRunners = %+v, want box and mirror_two", runners)
 	}
 
-	none, err := ReadProjectRunners(t.Context(), repo, base)
+	none, err := ReadProjectRunners(t.Context(), hostexec.NewLocal(), repo, base)
 	if err != nil {
 		t.Fatalf("ReadProjectRunners at the commit without the file: %v", err)
 	}

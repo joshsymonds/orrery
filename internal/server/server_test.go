@@ -313,7 +313,7 @@ func TestServeHasNoRESTRoutes(t *testing.T) {
 		Logins:     []string{allowedLogin},
 		Tmux:       newTmuxClient(t),
 		Push:       newPushStore(t),
-		HostStatus: hoststatus.New(writeHostStatusScript(t, "", 0), time.Now),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "", 0), time.Now, time.Minute),
 		Picker: func() (open.Config, error) {
 			return open.Config{}, errors.New("synthetic picker")
 		},
@@ -884,6 +884,7 @@ func connectPaneObject(t *testing.T, pane *orreryv1.Pane) map[string]any {
 		"context":        pane.GetContext(),
 		"activity":       pane.GetActivity(),
 		"tool":           pane.GetTool(),
+		"held":           pane.GetHeld(),
 		"claude_session": pane.GetClaudeSession(),
 	}
 	data, err := json.Marshal(fields)

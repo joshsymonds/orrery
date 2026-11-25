@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -61,7 +62,7 @@ func gradleEnviron(t *testing.T, stateDir string, daemonless bool) []string {
 	if !daemonless {
 		return environ
 	}
-	environ, err := GradleEnviron(environ, stateDir, "")
+	environ, err := GradleEnviron(t.Context(), hostexec.NewLocal(), environ, stateDir, "")
 	if err != nil {
 		t.Fatalf("GradleEnviron: %v", err)
 	}
@@ -157,7 +158,8 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 		}
 	}
 	environ, err := GradleEnviron(
-		[]string{"HOME=/synthetic/home", "GRADLE_USER_HOME=" + user, "KEEP=1"}, stateDir, user,
+		t.Context(), hostexec.NewLocal(), []string{"HOME=/synthetic/home", "GRADLE_USER_HOME=" + user, "KEEP=1"},
+		stateDir, user,
 	)
 	if err != nil {
 		t.Fatalf("GradleEnviron: %v", err)
@@ -170,7 +172,10 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gradle.properties: %v", err)
 	}
-	if string(props) != "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\n" {
+	const wantProps = "org.gradle.daemon=false\n" +
+		"kotlin.compiler.execution.strategy=in-process\n" +
+		"org.gradle.workers.max=8\n"
+	if string(props) != wantProps {
 		t.Fatalf("gradle.properties = %q", props)
 	}
 	entries, err := os.ReadDir(home)
@@ -181,8 +186,16 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
-	if want := []string{"caches", "gradle.properties", "wrapper"}; !slices.Equal(names, want) {
+	if want := []string{"caches", "gradle.properties", "init.d", "wrapper"}; !slices.Equal(names, want) {
 		t.Fatalf("gradle home holds %q, want %q", names, want)
+	}
+	script, err := os.ReadFile(filepath.Join(home, "init.d", "orrery-build-lock.gradle"))
+	if err != nil {
+		t.Fatalf("read the build lock script: %v", err)
+	}
+	if !strings.Contains(string(script), "new File(gradle.gradleUserHomeDir, 'orrery-build.lock')") ||
+		!strings.Contains(string(script), "channel.lock()") {
+		t.Fatalf("init.d/orrery-build-lock.gradle = %q, want a script that holds the home's orrery-build.lock", script)
 	}
 	for _, name := range []string{"caches", "wrapper"} {
 		target, linkErr := os.Readlink(filepath.Join(home, name))
@@ -191,7 +204,9 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 		}
 	}
 	// A second start keeps the links and rewrites the properties.
-	if _, err = GradleEnviron([]string{"GRADLE_USER_HOME=" + user}, stateDir, user); err != nil {
+	if _, err = GradleEnviron(
+		t.Context(), hostexec.NewLocal(), []string{"GRADLE_USER_HOME=" + user}, stateDir, user,
+	); err != nil {
 		t.Fatalf("GradleEnviron again: %v", err)
 	}
 }

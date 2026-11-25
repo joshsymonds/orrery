@@ -279,4 +279,26 @@ public interface SessionOrBuilder extends
    * @return The archived.
    */
   boolean getArchived();
+
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 15 [json_name = "ended"];</code>
+   * @return The ended.
+   */
+  boolean getEnded();
+
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 16 [json_name = "endedAt"];</code>
+   * @return The endedAt.
+   */
+  long getEndedAt();
 }

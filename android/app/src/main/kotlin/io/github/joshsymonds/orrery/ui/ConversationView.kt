@@ -112,7 +112,7 @@ private const val READ_DWELL_MS = 1_000L
  * that holds the current match opens its fold or call, the list scrolls to that entry, and the text that holds the
  * match brings its run into view. Closing the find (a null
  * [find]) returns the list to the place it was at when the find opened. A check round the engine sent draws its round's
- * chips from the step's [checks].
+ * chips from the step's [checks]. A question the Director asked about a design draws its thread through [designQuestion].
  */
 @Composable
 fun ConversationView(
@@ -130,6 +130,7 @@ fun ConversationView(
     onOpenContract: (String) -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     epicQuestion: @Composable (epic: String, question: String) -> Unit = { _, _ -> },
+    designQuestion: @Composable (design: String, question: String) -> Unit = { _, _ -> },
     find: TranscriptFind? = null,
     checks: List<StepCheckRow> = emptyList(),
 ) {
@@ -289,6 +290,7 @@ fun ConversationView(
                             onOpenContract,
                             onOpenEpic,
                             epicQuestion,
+                            designQuestion,
                             marks[index],
                             checks,
                         )
@@ -322,6 +324,7 @@ private fun EntryView(
     onOpenContract: (String) -> Unit,
     onOpenEpic: (String) -> Unit,
     epicQuestion: @Composable (epic: String, question: String) -> Unit,
+    designQuestion: @Composable (design: String, question: String) -> Unit,
     marks: EntryMarks?,
     checks: List<StepCheckRow>,
 ) {
@@ -355,6 +358,7 @@ private fun EntryView(
             time = timeOf(entry.time),
             onOpen = { onOpenEpic(entry.epic) },
         )
+        is ConvoEntry.DesignQuestion -> designQuestion(entry.design, entry.question)
         is ConvoEntry.Move -> MoveLine(entry.event)
         is ConvoEntry.Brief ->
             EngineFold(brief = true, text = entry.text, key = key, expanded = expanded, onToggle = onToggle, marks = marks)
@@ -524,6 +528,29 @@ internal fun EpicQuestion(detail: EpicDetail?, question: String, now: Long, clie
         onDecline = null,
         onArchive = null,
         onConfirm = { choice, text -> answerQuestion(client, detail.epic.id, open.id, choice, text) },
+    )
+}
+
+/**
+ * The thread of a design's question [question] (its key, Q and its number) that the Director asked in the conversation. It
+ * is the thread the design page draws for the same question, through the same [stages]: a design that is not loaded is read,
+ * and an answer given here shows on the design page and the other way round. Draws nothing while the design holds no
+ * such question.
+ */
+@Composable
+internal fun ConversationDesignQuestion(stages: DesignStages, design: String, question: String) {
+    LaunchedEffect(stages, design) {
+        if (stages.loadOf(design) !is DesignLoad.Loaded) stages.start(design)
+    }
+    val row = (stages.loadOf(design) as? DesignLoad.Loaded)?.record?.stage?.questions?.firstOrNull { it.key == question }
+        ?: return
+    QuestionThread(
+        question = row,
+        place = ThreadPlace.CONVERSATION,
+        send = stages.sendOf(design, row),
+        onAnswer = { words -> stages.answer(design, row, words, accept = false) },
+        onAccept = { stages.answer(design, row, words = "", accept = true) },
+        modifier = Modifier.padding(vertical = OrreryTokens.Space.eight),
     )
 }
 

@@ -113,7 +113,7 @@ func TestOpenCreatesPrivateStoreAndMigrates(t *testing.T) {
 
 func goodRows(t *testing.T, path string) string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open for inspection: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	// A store written by a newer binary: its goose version is 999 and none of this binary's migrations ran.
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestOpenRejectsNewerSchemaWithoutMigrating(t *testing.T) {
 // fixtureTables returns the names of the tables in the database at path.
 func fixtureTables(t *testing.T, path string) map[string]bool {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open for inspection: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestBusyReportsOnlyBusyAndLockedResults(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	defer s.Close()
-	other, err := sql.Open("sqlite", path)
+	other, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open second connection: %v", err)
 	}

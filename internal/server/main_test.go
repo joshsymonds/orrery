@@ -7,8 +7,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/holdertest"
 )
 
-// TestMain builds orrery once for the package, because the speak-label test's session runs under orrery holder, and
-// that test runs no build of its own.
+// TestMain builds orrery once for the package when a run selects a test whose session runs under orrery holder: the
+// speak-label test and the two waits-label tests start a session, which finds orrery beside the test binary or on PATH.
+// A run that selects none of them skips the build.
 func TestMain(m *testing.M) {
-	os.Exit(holdertest.Main(m))
+	os.Exit(holdertest.Main(m,
+		"TestSpeakLabelOwnerSayEndsWaitsSpeak",
+		"TestWaitsLabelFollowsOwnerInterruptSayAndStop",
+		"TestWaitsLabelRequestThenSpeakWhileRequestOpen",
+	))
 }

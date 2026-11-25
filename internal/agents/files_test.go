@@ -1,12 +1,15 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // reviewerMD is an agent file that defines an agent named reviewer.
@@ -187,7 +190,7 @@ func TestDirAgents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := writeTree(t, t.TempDir(), tt.files)
-			got, err := dirAgents(dir)
+			got, err := dirAgents(context.Background(), hostexec.NewLocal(), dir)
 			if err != nil {
 				t.Fatalf("dirAgents: %v", err)
 			}
@@ -257,7 +260,7 @@ func TestDirAgentsSymlinks(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := dirAgents(tt.setup(t))
+			got, err := dirAgents(context.Background(), hostexec.NewLocal(), tt.setup(t))
 			if err != nil {
 				t.Fatalf("dirAgents: %v", err)
 			}
@@ -269,7 +272,7 @@ func TestDirAgentsSymlinks(t *testing.T) {
 }
 
 func TestDirAgentsMissingDir(t *testing.T) {
-	got, err := dirAgents(filepath.Join(t.TempDir(), "absent"))
+	got, err := dirAgents(context.Background(), hostexec.NewLocal(), filepath.Join(t.TempDir(), "absent"))
 	if err != nil || len(got) != 0 {
 		t.Errorf("dirAgents(missing) = %q, %v; want no names and nil", got, err)
 	}
@@ -278,7 +281,7 @@ func TestDirAgentsMissingDir(t *testing.T) {
 func TestDirAgentsUnreadable(t *testing.T) {
 	assertErrorNames := func(t *testing.T, root, path string) {
 		t.Helper()
-		got, err := dirAgents(root)
+		got, err := dirAgents(context.Background(), hostexec.NewLocal(), root)
 		if err == nil || !strings.Contains(err.Error(), path) {
 			t.Errorf("dirAgents() = %q, %v; want an error naming %s", got, err, path)
 		}
@@ -302,7 +305,7 @@ func TestWalkMarkdown(t *testing.T) {
 	link(t, root, filepath.Join(root, "sub", "loop"))
 
 	var got []string
-	err := walkMarkdown(root, func(rel string, data []byte) error {
+	err := walkMarkdown(context.Background(), hostexec.NewLocal(), root, func(rel string, data []byte) error {
 		got = append(got, rel+"="+string(data))
 		return nil
 	})
@@ -315,7 +318,7 @@ func TestWalkMarkdown(t *testing.T) {
 	}
 
 	sentinel := errors.New("visit stopped")
-	err = walkMarkdown(root, func(string, []byte) error { return sentinel })
+	err = walkMarkdown(context.Background(), hostexec.NewLocal(), root, func(string, []byte) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Errorf("walkMarkdown error = %v; want the visit error %v", err, sentinel)
 	}

@@ -2,7 +2,7 @@
 // and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
 // the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
-// in internal/cli.
+// in internal/cli. routes imports a routes file through orreryd.
 package main
 
 import (
@@ -35,6 +35,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/ledger"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -123,8 +124,9 @@ subcommands:
   epic pause ID                                 pause an epic, so the planner starts no turn for it
   epic resume ID                                clear an epic's pause
   epic stop ID                                  pause an epic and stop the step of its running turn; an epic
-                                                holding its repository's release slot frees the slot and stops
-                                                its open release step instead, and is not paused
+                                                with no running turn, whose release is releasing or stopped,
+                                                records the owner's stop of the release, so no further step
+                                                starts, and is not paused
   epic steer ID                                 move an epic's steering to this conversation, which takes it over
   epic kick ID TEXT                             record TEXT as your decision on an idle epic and wake its planner
                                                 with it at the epic's next plan run; refused for a paused, parked
@@ -148,6 +150,8 @@ subcommands:
   contract accept ID [WORDS]                    accept a proposed contract, with WORDS
   contract set-aside ID WORDS                   set a contract aside, with WORDS
   contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
+  routes import FILE                            store the routes file FILE as the route registry, replacing
+                                                every stored route; print the seat and context counts it stores
   cron list                                     print this session's orrery cron jobs
   cron delete ID                                cancel the orrery cron job ID of this session
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
@@ -157,10 +161,6 @@ subcommands:
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
   step status ID                                print a step as one line of JSON, through orreryd
-  release-slot hold REPO --holder LABEL --limit DURATION [--wait]
-                                                hold REPO's slot for LABEL up to DURATION, at most 2h; --wait waits
-  release-slot give REPO --holder LABEL         give back LABEL's hold on REPO's release slot
-  release-slot show REPO                        print who holds REPO's release slot, or that it is free
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -173,6 +173,7 @@ subcommands:
         [--host-status-cmd PATH] [--metrics-listen ADDR]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
+  gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -296,9 +297,9 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence":
+	case "run", "gate", "evidence", "routes", "gateway":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
-	case "hold", "step", "release-slot":
+	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
@@ -331,14 +332,10 @@ func contractOrCron(ctx context.Context, opts globals, name string, args []strin
 	return runContract(ctx, opts, args, stdout, getenv)
 }
 
-// runOwnerAction runs `orrery hold`, `orrery step` or `orrery release-slot`, the owner's commands that orreryd answers
-// over the session socket. hold and step retry a call orreryd answers Unavailable, and release-slot makes each call
-// once. Only step and release-slot write to stdout.
+// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket.
+// Both retry a call orreryd answers Unavailable. Only step writes to stdout.
 func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stdout, stderr io.Writer,
 	getenv func(string) string) error {
-	if name == "release-slot" {
-		return runReleaseSlot(ctx, opts, args, stdout, stderr, getenv)
-	}
 	if name == "step" {
 		return runStep(ctx, opts, args, stdout, stderr, getenv)
 	}
@@ -393,8 +390,9 @@ func (c unreachableCrons) CronCall(
 	return nil, c.err
 }
 
-// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and
-// evidence runs an item's evidence or reads it back.
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
+// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway is not one of those; it
+// serves the Claude traffic gateway itself, and is dispatched here only to keep dispatch under its complexity limit.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -409,6 +407,10 @@ func orreryCommand(
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "routes":
+		return runRoutes(ctx, opts, args, stdout, getenv)
+	case "gateway":
+		return runGateway(ctx, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
@@ -530,9 +532,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewPooledReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence and cron tools over MCP on stdin and stdout
-// until stdin closes. The step, epic, contract, evidence and cron services are the ones on the session socket beside
-// the daemon socket, so the command opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step, epic, contract, evidence, cron, design and stage tools over MCP on
+// stdin and stdout until stdin closes. The step, epic, contract, evidence, cron, design and stage services are the
+// ones on the session socket beside the daemon socket, so the command opens no listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -552,7 +554,12 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
 	crons := enginev1connect.NewCronsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
 		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
-	server, err := stepmcp.NewServer(steps, epics, contracts, evidence, stepmcp.WithCrons(crons))
+	designs := enginev1connect.NewDesignsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	stage := enginev1connect.NewStageClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL,
+		connect.WithInterceptors(stepmcp.CallerInterceptor(getenv)))
+	server, err := stepmcp.NewServer(steps, epics, contracts, evidence,
+		stepmcp.WithCrons(crons), stepmcp.WithDesigns(designs), stepmcp.WithStage(stage))
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -607,7 +614,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		if !filepath.IsAbs(value) {
 			return errors.New("host status command must be an absolute path")
 		}
-		hostStatus = hoststatus.New(value, time.Now)
+		hostStatus = hoststatus.New(value, time.Now, hoststatus.CommandLimit)
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
@@ -637,25 +644,23 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	// on every return below, so a serve that fails before it listens closes it too, and its error joins the result.
 	defer func() { err = errors.Join(err, sessions.Close()) }()
 	cfg := serveSessionConfig(opts, getenv)
-	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
-	// reading the working directory's .gambit.
-	var records string
 	home := getenv("HOME")
-	if home != "" {
-		records = filepath.Join(home, ".gambit")
-	}
 	metrics, handlerOptions, err := serveMetrics(*metricsListen)
 	if err != nil {
 		return err
 	}
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
-	cfg.Sessions, cfg.Shutdown, cfg.Records, cfg.Home = sessions, shutdown, records, home
+	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
+	if err := setServeHosts(&cfg, getenv); err != nil {
+		return err
+	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
 	cfg.ReportSeen = seenReporter(opts.daemonSocket, getenv)
 	cfg.ReportRead = readReporter(opts.daemonSocket, getenv)
 	cfg.ReportInput = inputReporter(opts.daemonSocket, getenv)
 	cfg.Web = webui.FS()
+	cfg.Ledger = serveUsageLedger(getenv)
 	handler, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -666,9 +671,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 
 // serveSessionConfig returns a server.Config holding only the clients of orreryd's services on the session socket
 // beside the daemon socket opts names: Engine, Steps, Pools, Notices, Changes, PaneSends, the Epics client as both
-// EpicStore and EpicCommands, Evidence and ContractCommands. None carries a caller header, so a command serve forwards
-// is the owner's. A daemon socket that does not resolve leaves them all nil, and each service they back answers
-// unavailable.
+// EpicStore and EpicCommands, Evidence, ContractCommands, StageCommands and AccountCommands. None carries a caller
+// header, so a command serve forwards is the owner's. A daemon socket that does not resolve leaves them all nil, and
+// each service they back answers unavailable.
 func serveSessionConfig(opts globals, getenv func(string) string) server.Config {
 	daemonSocket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 	if err != nil {
@@ -687,7 +692,22 @@ func serveSessionConfig(opts globals, getenv func(string) string) server.Config 
 		EpicCommands:     epics,
 		Evidence:         enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL),
 		ContractCommands: enginev1connect.NewContractsClient(sessionClient, cli.SessionBaseURL),
+		StageCommands:    enginev1connect.NewStageClient(sessionClient, cli.SessionBaseURL),
+		AccountCommands:  enginev1connect.NewAccountsClient(sessionClient, cli.SessionBaseURL),
 	}
+}
+
+// serveUsageLedger returns the reader of the LLM ledger file beside orreryd's store, which the Usage API answers
+// from. A store path that does not resolve leaves it nil, so every Usage read answers unavailable, as
+// server.Config.Ledger documents. That is safe because openServeStores has already refused an unresolved store path
+// before serve reads this, and serveSessionConfig leaves its clients nil the same way when the daemon socket does not
+// resolve.
+func serveUsageLedger(getenv func(string) string) *ledger.Reader {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return nil
+	}
+	return ledger.NewReader(ledger.Path(storePath))
 }
 
 // serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.

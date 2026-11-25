@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import { releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
 import type { LoadArtifact } from "./evidence";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { Icon } from "./glyphs";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
 import type { CallOutcome } from "./ownercall";
@@ -101,25 +102,27 @@ function SteeredFrom({
   const title = listedTitle(rows, target.kind, target.id, target.label);
   return (
     <button type="button" class="door steered" onClick={() => onOpen(target)}>
+      <Icon name="chat" />
       <span>Steered from</span> <TitleParts dir={title.dir} line={title.line} />
+      <Icon name="chevronRight" />
     </button>
   );
 }
 
 // EpicPage is the one epic page, drawn section by section in the order of the record: the title row with the epic's
-// state and blocker pills and its commands, and under it the did-not-land line of a failed command. Then, for an
-// orreryd epic: its problem, its summary with the Contract door and the Steered from door, its track, Now, Just
-// happened, the tasks with their chart and table, and the requirements. A record epic draws only Now and its tasks. A
-// section the epic has not reached is not drawn. The commands are the ones controlsOf shows for the epic. Each phase
-// click reaches onOpenPhase. After the requirements, the Review, Release and Report sections draw when their views are
-// non-null, in that order. Just happened names a session a move names by its listed row's label. A landing brings its
-// part of the page into view once the page is drawn, and a page that draws its Report brings the Report into view once
-// when no landing names another block. numberKeys is whether a digit key picks an option of the open
-// question. steer draws the steering control: in the title row at the desk, and under narrow the sheet that More's Steer
-// item opens. narrow moves the commands off the title row into a foot bar: its Talk button, given only when a steerer is
-// known, calls onTalk, and its More button opens a sheet of the commands, with the Steer item when steer is given. foot,
-// drawn above that bar under narrow, is the ended bar an epic no running conversation steers stands on. Stop asks first
-// in place: its confirm replaces the title row's commands on the desk, and it is a sheet of its own on the phone.
+// state and blocker pills and its commands, and under it the did-not-land line of a failed command. Then its summary
+// with the Contract door and the Steered from door, its track, Now, Just happened, the tasks with their chart and
+// table, and the requirements. A section the epic has not reached is not drawn. The commands are the ones controlsOf
+// shows for the epic. Each phase click reaches onOpenPhase. After the requirements, the Review, Release and Report
+// sections draw when their views are non-null, in that order. Just happened names a session a move names by its listed
+// row's label. A landing brings its part of the page into view once the page is drawn, and a page that draws its
+// Report brings the Report into view once when no landing names another block. numberKeys is whether a digit key picks
+// an option of the open question. steer draws the steering control: in the title row at the desk, and under narrow the
+// sheet that More's Steer item opens. narrow moves the commands off the title row into a foot bar: its Talk button,
+// given only when a steerer is known, calls onTalk, and its More button opens a sheet of the commands, with the Steer
+// item when steer is given. foot, drawn above that bar under narrow, is the ended bar an epic no running conversation
+// steers stands on. Stop asks first in place: its confirm replaces the title row's commands on the desk, and it is a
+// sheet of its own on the phone.
 export function EpicPage(props: {
   detail: EpicsGetResponse;
   history: EpicHistoryEntry[];
@@ -130,7 +133,7 @@ export function EpicPage(props: {
   commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: SessionTarget) => void;
-  onBack: () => void;
+  onBack?: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
   landing?: Landing;
   strip?: ComponentChildren;
@@ -175,7 +178,6 @@ export function EpicPage(props: {
   const controls = controlsOf(detail);
   const state = statePillOf(detail, now);
   const blocker = blockerPillOf(detail, now);
-  const problem = epic?.source === "orreryd" ? epic.problem : "";
   const summary = detail.summary !== "" ? detail.summary : (contract?.title ?? "");
   const steering = epic?.steering ?? "";
   const provenCount = requirements.filter((requirement) => provenIds.has(requirement.id)).length;
@@ -259,14 +261,15 @@ export function EpicPage(props: {
           </button>
         )}
       </TitleRow>
-      {problem !== "" && <p class="problem error">{problem}</p>}
       {reached.summary && (
         <section class="summary" aria-label="Summary">
           <p class="summary-text">{summary}</p>
           <div class="doors">
             {contract !== undefined && (
               <button type="button" class="door contract" onClick={() => onOpenContract()}>
+                <Icon name="doc" />
                 <span>Contract</span> <span>{contractDoorOf(detail)}</span>
+                <Icon name="chevronRight" />
               </button>
             )}
             {steering !== "" && <SteeredFrom steering={steering} rows={rows} onOpen={onOpenSession} />}
@@ -287,30 +290,33 @@ export function EpicPage(props: {
       {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
       {reached.tasks && (
         <section class="tasks" aria-label="Tasks">
-          <header class="sec-head">
-            <h3>Tasks</h3>
-            <span>{`${doneTasks} of ${tasks.length} done`}</span>
-          </header>
+          <div class="sec" data-hue="4">
+            <Icon name="pools" />
+            <span class="name">Tasks</span>
+            <span class="n">{`${doneTasks} of ${tasks.length} done`}</span>
+          </div>
           <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
           <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
         </section>
       )}
       {reached.requirements && (
         <section class="requirements" aria-label="Requirements">
-          <header class="sec-head">
-            <h3>Requirements</h3>
-            <span>{`${provenCount} of ${requirements.length} proven`}</span>
-          </header>
+          <div class="sec" data-hue="ok">
+            <Icon name="check" />
+            <span class="name">Requirements</span>
+            <span class="n">{`${provenCount} of ${requirements.length} proven`}</span>
+          </div>
           <RequirementTable requirements={requirements} loadArtifact={loadArtifact} proven={provenIds} />
         </section>
       )}
       {reviewView !== null && <EpicReview view={reviewView} />}
       {releaseView !== null && (
         <section class="release" aria-label="Release">
-          <header class="sec-head">
-            <h3>Release</h3>
-            <span>{releaseView.words}</span>
-          </header>
+          <div class="sec" data-hue="engine">
+            <Icon name="open" />
+            <span class="name">Release</span>
+            <span class="n">{releaseView.words}</span>
+          </div>
           <ReleaseTable
             view={releaseView}
             narrow={narrow}

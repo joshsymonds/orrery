@@ -42,7 +42,7 @@ func openNodeStore(t *testing.T) (*store.Store, *sql.DB) {
 			t.Errorf("Close: %v", err)
 		}
 	})
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open raw handle: %v", err)
 	}

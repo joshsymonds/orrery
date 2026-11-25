@@ -79,7 +79,7 @@ func TestStopThenDrainKillsAHolderThatGaveNoAnswerWithoutAskingAgain(t *testing.
 		restarted := newStateManager(t, rig.store, writer, &fakeSink{}, fakeSystemdRunPath(t), rig.root, nil)
 		noAnswer := fmt.Errorf("%w: %w", holder.ErrUnattachable, holder.ErrNoAnswer)
 		drained := make(chan bool, 1)
-		go func() { drained <- restarted.stopThenDrain(t.Context(), row, hdir, noAnswer) }()
+		go func() { drained <- restarted.stopThenDrain(t.Context(), row, noAnswer) }()
 		select {
 		case <-asked:
 			t.Fatal("stopThenDrain asked a holder to stop that had already given no answer")

@@ -16,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -37,22 +38,30 @@ const controlTimedOut = "session command timed out"
 // controlStartRefused is the fixed message for a start whose directory is not an existing directory under the home.
 const controlStartRefused = "session directory must be an existing directory under the home directory"
 
+// controlStartRefusedOnHost is the fixed message for a start on a host whose agent refuses its directory.
+const controlStartRefusedOnHost = "session directory must be an existing directory under the host's root"
+
 // controlServer answers orrery.v1.Control by forwarding each call to engine. A nil engine answers unavailable. Start
-// forwards only a directory under home that resolveSessionDir admits.
+// forwards only a directory under home that resolveSessionDir admits on the controller's own host, and only a directory
+// that the agent of a hosts.toml host admits on that host. controller is the controller's orrery name, and hosts holds
+// the agent of each hosts.toml host by name.
 type controlServer struct {
-	engine  enginev1connect.EngineClient
-	timeout time.Duration
-	home    string
-	steps   StepClient
+	engine     enginev1connect.EngineClient
+	timeout    time.Duration
+	home       string
+	steps      StepClient
+	controller string
+	hosts      map[string]*node.Client
 }
 
-// Start forwards a start to the engine and answers with the started session's id. The directory forwarded is the one
-// resolveSessionDir admits, with its symlinks resolved.
+// Start forwards a start to the engine and answers with the started session's id. The host the start names decides
+// where its directory is checked: startDir checks it under home for the controller's own host, and on the agent of the
+// host otherwise. The directory forwarded is the one that check resolves, with its symlinks resolved.
 func (c controlServer) Start(
 	ctx context.Context,
 	req *connect.Request[orreryv1.StartRequest],
 ) (*connect.Response[orreryv1.StartResponse], error) {
-	dir, dirErr := resolveSessionDir(c.home, req.Msg.GetDir())
+	dir, dirErr := c.startDir(ctx, req.Msg.GetHost(), req.Msg.GetDir())
 	if dirErr != nil {
 		return nil, dirErr
 	}
@@ -64,6 +73,7 @@ func (c controlServer) Start(
 			Model:  req.Msg.GetModel(),
 			Id:     req.Msg.GetId(),
 			Client: req.Header().Get(HeaderClient),
+			Host:   req.Msg.GetHost(),
 		}))
 		if err != nil {
 			return wrapEngine("start", err)
@@ -75,6 +85,31 @@ func (c controlServer) Start(
 		return nil, err
 	}
 	return connect.NewResponse(&orreryv1.StartResponse{Id: id}), nil
+}
+
+// startDir returns the directory a start on host runs in. An empty host, or the controller's own name, checks dir under
+// home as resolveSessionDir does. A host that one of hosts.toml names has its agent check dir under the agent's root,
+// and answers the path the agent resolved. An agent that refuses dir answers invalid_argument, and any other failure
+// to reach it answers unavailable. A host that no agent serves answers invalid_argument, and nothing is checked.
+func (c controlServer) startDir(ctx context.Context, host, dir string) (string, error) {
+	if host == "" || host == c.controller {
+		return resolveSessionDir(c.home, dir)
+	}
+	agent, ok := c.hosts[host]
+	if !ok {
+		return "", listError(connect.CodeInvalidArgument, "unknown host "+host)
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	resolved, err := agent.Folder(ctx, dir)
+	switch {
+	case err == nil:
+		return resolved, nil
+	case errors.Is(err, node.ErrRefused):
+		return "", listError(connect.CodeInvalidArgument, controlStartRefusedOnHost)
+	default:
+		return "", listError(connect.CodeUnavailable, fmt.Sprintf("host %s is unreachable", host))
+	}
 }
 
 // Say forwards a message to the engine, unless its id names a step.
@@ -403,28 +438,42 @@ func translateError(err error) error {
 
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
 // bytes of each request. A zero timeout is defaultControlTimeout. Start forwards only directories under home that
-// resolveSessionDir admits.
+// resolveSessionDir admits on the controller, controller being its orrery name, and only directories that the agent of
+// one of hosts admits on that host.
 func newControlHandler(
 	engine enginev1connect.EngineClient,
 	timeout time.Duration,
 	home string,
 	steps StepClient,
+	controller string,
+	hosts []*node.Client,
 	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
-	return orreryv1connect.NewControlHandler(newControlServer(engine, timeout, home, steps), options...)
+	return orreryv1connect.NewControlHandler(
+		newControlServer(engine, timeout, home, steps, controller, hosts), options...,
+	)
 }
 
 // newControlServer returns the Control service over engine and steps for home, each forward bounded by timeout, or by
-// defaultControlTimeout when timeout is zero.
+// defaultControlTimeout when timeout is zero. controller is the controller's orrery name, and hosts holds the agent of
+// each hosts.toml host, which Start reaches by the host's name.
 func newControlServer(
 	engine enginev1connect.EngineClient,
 	timeout time.Duration,
 	home string,
 	steps StepClient,
+	controller string,
+	hosts []*node.Client,
 ) controlServer {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
-	return controlServer{engine: engine, timeout: timeout, home: home, steps: steps}
+	agents := make(map[string]*node.Client, len(hosts))
+	for _, agent := range hosts {
+		agents[agent.Name()] = agent
+	}
+	return controlServer{
+		engine: engine, timeout: timeout, home: home, steps: steps, controller: controller, hosts: agents,
+	}
 }

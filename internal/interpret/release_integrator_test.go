@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -156,12 +157,12 @@ func hasLine(failures []string, prefix string) bool {
 	return slices.ContainsFunc(failures, func(line string) bool { return strings.HasPrefix(line, prefix) })
 }
 
-// TestReleaseConflictStartsIntegratorWithMergeInProgress: a merge of origin's commit that conflicts records the
+// TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress: a merge of origin's commit that conflicts records the
 // conflict, origin's commit and its branch, and no candidate or revision, and does not stop the release. It starts the
 // release integrator as an unowned writing step, labeled with the epic and the run's path, in a worktree that holds the
 // merge in progress at the tip with zdiff3 conflicts. Its role file names no integrator, so it runs under the release
 // agent. Its prompt is the role text, then each section in order.
-func TestReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
+func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
 	w.pass()
@@ -449,9 +450,10 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 	}
 }
 
-// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return on a merge-side decision stops the release, and the
-// epic's park carries the integrator's report: each path it stopped on with its side, the decision that would settle it
-// and what each side meant. The integrator's worktree is removed with the stop, and no replan is recorded.
+// TestReleaseIntegratorBlockedParksWithUnresolved: a blocked return on a merge-side decision asks for a replan, and in
+// a workflow with no plan that can carry it the release stops: the epic's park carries the integrator's report, each
+// path it stopped on with its side, the decision that would settle it and what each side meant, then the note that the
+// change cannot be planned. The integrator's worktree is removed with the stop.
 func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
@@ -473,7 +475,8 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	}
 	want := fmt.Sprintf("the release integrator stopped the merge of origin's commit %s into release tip %s:\n"+
 		"- README: side: merge; decision: which greeting the product ships; candidate: the epic greets in English; "+
-		"origin: main greets in French", w.origin, w.tip)
+		"origin: main greets in French; the workflow has no plan whose body holds an integrate node, so the release "+
+		"cannot plan the change to the candidate", w.origin, w.tip)
 	if flow.Epic.Parked != want {
 		t.Errorf("parked = %q, want %q", flow.Epic.Parked, want)
 	}
@@ -483,8 +486,8 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
 		t.Errorf("integrator directory stat = %v, want it removed with the stop", err)
 	}
-	if slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
-		t.Errorf("release runs = %+v, want no replan for a merge-side decision", flow.Releases)
+	if !slices.ContainsFunc(flow.Releases, func(r store.ReleaseRun) bool { return r.Part == store.ReleasePartReplan }) {
+		t.Errorf("release runs = %+v, want the replan a merge-side decision asks for", flow.Releases)
 	}
 }
 
@@ -574,20 +577,24 @@ func TestReleaseIntegratorChecksFailedStopsWithConflict(t *testing.T) {
 }
 
 // TestReleaseCleanMergeStartsNoIntegrator: a merge of origin's commit that does not conflict is the candidate as it
-// always was: its Result names no conflict, it is held at the Done gate, and no release integrator starts.
+// always was: its Result names no conflict and no branch, but the origin commit it merged, it is held at the Done gate,
+// and no release integrator starts.
 func TestReleaseCleanMergeStartsNoIntegrator(t *testing.T) {
 	t.Parallel()
 	w := newMergeWorld(t)
 	origin := mergeRemote(t, w.repo)
 	nodeEpicBranch(t, w.repo, "epic.txt")
-	mergeOriginCommit(t, origin, "origin.txt")
+	originHead := mergeOriginCommit(t, origin, "origin.txt")
 	w.pass()
 
 	run := runAt(t, w.s, releaseNodePath)
-	for _, key := range []string{`"conflicts"`, `"origin"`, `"branch"`} {
+	for _, key := range []string{`"conflicts"`, `"branch"`} {
 		if strings.Contains(run.Result, key) {
 			t.Errorf("Result = %s, want no %s key for a clean merge", run.Result, key)
 		}
+	}
+	if got := decodeMerge(t, run.Result); got.Origin != originHead {
+		t.Errorf("Result origin = %q, want origin's commit %q", got.Origin, originHead)
 	}
 	if run.Revision == "" {
 		t.Errorf("revision is empty, want the clean merge")
@@ -623,7 +630,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
 	}
-	check, err := ReadoptCheck(w.s)(t.Context(), row)
+	check, err := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check", check != nil, err)
 	}
@@ -647,7 +654,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	}
 
 	row.Schema = wantReleaseStepSchema
-	if other, otherErr := ReadoptCheck(w.s)(t.Context(), row); other != nil || otherErr != nil {
+	if other, otherErr := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row); other != nil || otherErr != nil {
 		t.Errorf("ReadoptCheck of another step = %v, %v, want no check", other != nil, otherErr)
 	}
 }
@@ -690,7 +697,9 @@ func TestSameChangeLinesPairsEqualPatchesAndDatedSubjects(t *testing.T) {
 	redone := commit("b.txt", "b\n", "T5: tune the cache", "2026-01-03T00:00:00Z")
 	origin := nodeGit(t, repo, "rev-parse", "HEAD")
 
-	got, err := sameChangeLines(t.Context(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := sameChangeLines(
+		t.Context(), hostexec.NewLocal(), repo, base, integratorMerge{repo: repo, tip: tip, origin: origin},
+	)
 	if err != nil {
 		t.Fatalf("sameChangeLines: %v", err)
 	}
@@ -717,7 +726,7 @@ func TestConflictStatusCodesByStage(t *testing.T) {
 		return nodeGit(t, repo, "rev-parse", "HEAD")
 	}
 	tip, origin := side("tip\n"), side("origin\n")
-	got, err := conflictStatus(t.Context(), integratorMerge{repo: repo, tip: tip, origin: origin})
+	got, err := conflictStatus(t.Context(), hostexec.NewLocal(), integratorMerge{repo: repo, tip: tip, origin: origin})
 	if err != nil {
 		t.Fatalf("conflictStatus: %v", err)
 	}

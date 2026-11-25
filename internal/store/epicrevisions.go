@@ -9,8 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -163,7 +162,7 @@ type epicMoves struct {
 // the new row's for an insert or an update, since no update moves a row to another epic, and the old row's for a
 // delete. A row of a table whose key is not read yet is kept for the flush to resolve. The session feed's rows are
 // recorded first, before the early returns below, which skip the tables that name no epic.
-func (m *epicMoves) hook(data sqlite.SQLitePreUpdateData) {
+func (m *epicMoves) hook(data sqlite3.SQLitePreUpdateData) {
 	m.recordSession(&data)
 	if data.DatabaseName != "main" || !m.counting() || revisionUncounted(data.TableName) {
 		return
@@ -185,25 +184,36 @@ func (m *epicMoves) hook(data sqlite.SQLitePreUpdateData) {
 		m.unresolved = append(m.unresolved, unresolvedOf(&data))
 		return
 	}
-	read := data.New
-	if data.Op == sqlite3.SQLITE_DELETE {
-		read = removedRow(&data)
-	}
-	m.add(key, textAt(read, key.column))
+	m.add(key, textAt(rowReader(&data), key.column))
 }
 
-// removedRow returns the reader of the row data's delete removes. The driver names it Old, after SQLite's
-// sqlite3_preupdate_old.
-func removedRow(data *sqlite.SQLitePreUpdateData) func(dest ...any) error {
-	return data.Old
+// rowReader returns the reader of the row data writes: the new row of an insert or an update, and the row a delete
+// removes, which the driver names Old after SQLite's sqlite3_preupdate_old. The driver reads a TEXT value as []byte,
+// and the reader gives it as a string, the type the ids the hook reads are compared as.
+func rowReader(data *sqlite3.SQLitePreUpdateData) func(dest ...any) error {
+	read := data.New
+	if data.Op == sqlite3.SQLITE_DELETE {
+		read = data.Old
+	}
+	return func(dest ...any) error {
+		if err := read(dest...); err != nil {
+			return fmt.Errorf("read a written row: %w", err)
+		}
+		for i, value := range dest {
+			if text, ok := value.([]byte); ok {
+				dest[i] = string(text)
+			}
+		}
+		return nil
+	}
 }
 
 // unresolvedOf returns the row data writes, kept for the flush: its rowid, or every value of the row a delete removes.
-func unresolvedOf(data *sqlite.SQLitePreUpdateData) unresolvedRow {
+func unresolvedOf(data *sqlite3.SQLitePreUpdateData) unresolvedRow {
 	row := unresolvedRow{table: data.TableName, rowid: data.NewRowID}
 	if data.Op == sqlite3.SQLITE_DELETE {
 		row.deleted = make([]any, data.Count())
-		if err := removedRow(data)(row.deleted...); err != nil {
+		if err := rowReader(data)(row.deleted...); err != nil {
 			row.deleted = nil
 		}
 	}

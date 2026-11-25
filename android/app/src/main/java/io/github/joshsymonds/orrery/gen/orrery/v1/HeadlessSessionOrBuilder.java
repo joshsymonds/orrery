@@ -207,4 +207,72 @@ public interface HeadlessSessionOrBuilder extends
    * @return The putOff.
    */
   boolean getPutOff();
+
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @return The ended.
+   */
+  boolean getEnded();
+
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @return The endedAt.
+   */
+  long getEndedAt();
+
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
+
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> 
+      getDesignsList();
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index);
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  int getDesignsCount();
 }

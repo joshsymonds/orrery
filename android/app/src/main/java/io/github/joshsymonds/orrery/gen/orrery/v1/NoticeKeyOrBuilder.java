@@ -109,4 +109,24 @@ public interface NoticeKeyOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAlertBytes();
+
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @return The host.
+   */
+  java.lang.String getHost();
+  /**
+   * <pre>
+   * The orrery name of the pane's host. It is set with pane and only with pane.
+   * </pre>
+   *
+   * <code>string host = 6 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  com.google.protobuf.ByteString
+      getHostBytes();
 }

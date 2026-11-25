@@ -92,6 +92,7 @@ class InboxTreeSheetTest {
         pane = 0,
         cwd = ALPHA,
         command = "",
+        claudeSession = "synthetic-claude",
         state = "working",
         summary = "",
         label = "label-$TMUX_PANE",
@@ -114,7 +115,6 @@ class InboxTreeSheetTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = archived,
     )
 
@@ -133,6 +133,7 @@ class InboxTreeSheetTest {
         .setPane(0)
         .setCwd(cwd)
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel("label-$id")
@@ -163,7 +164,6 @@ class InboxTreeSheetTest {
         .setChanged(NOW - 30)
         .setLive(true)
         .setEndedSteps(0)
-        .setProblem("")
         .setSteering(steering)
         .build()
 

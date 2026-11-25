@@ -26,7 +26,7 @@ func eventPageStore(t *testing.T) (*Store, string) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	now := time.Unix(1_700_000_000, 0)
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working", Label: "one"}},
 		{ID: "orrery-2", Pane: "%2", Fields: Fields{State: "idle"}},
 	}, now); err != nil {
@@ -40,7 +40,7 @@ func eventPageStore(t *testing.T) (*Store, string) {
 	); err != nil {
 		t.Fatalf("SyncPane: %v", err)
 	}
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-2", Pane: "%2", Fields: Fields{State: "idle"}},
 	}, now); err != nil {
 		t.Fatalf("SyncServer removing orrery-1: %v", err)
@@ -156,7 +156,7 @@ func TestEventsReturnsEngineKindsWithTheirStoredPayloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
 	now := engineNowAt()
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
 	}, now); err != nil {
 		t.Fatalf("SyncServer: %v", err)
@@ -244,7 +244,7 @@ func TestEventsOldestRisesAfterPrune(t *testing.T) {
 	// Every event of eventPageStore is older than the retention cutoff of this sync, so the sync prunes them all and
 	// keeps only the event it appends for orrery-3.
 	later := now.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", []Pane{
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{
 		{ID: "orrery-2", Pane: "%2", Fields: Fields{State: "idle"}},
 		{ID: "orrery-3", Pane: "%3"},
 	}, later); err != nil {

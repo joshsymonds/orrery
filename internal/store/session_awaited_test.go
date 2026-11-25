@@ -13,12 +13,8 @@ func TestSessionAwaitedMigrationTakesEachRowsBackgroundFlag(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, provider := storeAtVersion(t, 72)
-	if err := s.ApplyEngine(ctx, []EngineOp{
-		EngineAdd{ID: "listed", Dir: "/d", State: "done"},
-		EngineAdd{ID: "quiet", Dir: "/d", State: "done"},
-	}, time.Unix(1700000000, 0)); err != nil {
-		t.Fatalf("ApplyEngine: %v", err)
-	}
+	addSessionBeforeHost(t, s, "listed", "/d", "done", time.Unix(1700000000, 0))
+	addSessionBeforeHost(t, s, "quiet", "/d", "done", time.Unix(1700000000, 0))
 	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET background = 1 WHERE id = 'listed'`); err != nil {
 		t.Fatalf("set the background flag at version 72: %v", err)
 	}

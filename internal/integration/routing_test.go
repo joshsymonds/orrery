@@ -2,8 +2,11 @@ package integration_test
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
+	"math"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // loggedNotice is the state, route and reason one line of the notice log must carry.
@@ -74,6 +78,35 @@ func noticeLogHas(path, reason string) bool {
 	return err == nil && strings.Contains(string(data), `"reason":"`+reason+`"`)
 }
 
+// pendingRowStored reports whether the store at dbPath holds a pending notice row for pane. The file is read through a
+// read-only handle that is closed at once, so orreryd keeps the file it writes; the handle's busy timeout is the largest
+// SQLite takes, so a read waits out any lock orreryd holds. The caller awaits the store open line first, so the file
+// exists and its schema is migrated.
+func pendingRowStored(t *testing.T, dbPath, pane string) bool {
+	t.Helper()
+	query := url.Values{}
+	query.Set("mode", "ro")
+	query.Set("_busy_timeout", strconv.Itoa(math.MaxInt32))
+	dsn := (&url.URL{Scheme: "file", Path: dbPath, RawQuery: query.Encode()}).String()
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("open store read-only: %v", err)
+	}
+	rows, readErr := sqlcgen.New(db).ListPendingNotices(t.Context())
+	if closeErr := db.Close(); closeErr != nil {
+		t.Fatalf("close store read-only: %v", closeErr)
+	}
+	if readErr != nil {
+		t.Fatalf("list pending notices: %v", readErr)
+	}
+	for _, row := range rows {
+		if row.Pane == pane {
+			return true
+		}
+	}
+	return false
+}
+
 // sendInput reports on the daemon socket that the web view had input at input, unix seconds.
 func sendInput(t *testing.T, socket string, input int64) {
 	t.Helper()
@@ -115,7 +148,7 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 	assertNoticeLog(t, noticeLogPath(stateHome), since, pane, loggedNotice{"waiting", route.DeskPhone, "away"})
 }
 
-func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
+func TestOrrerydRouteSendsNothingForHeldPane(t *testing.T) {
 	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
@@ -128,9 +161,11 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 	since := time.Now().Unix()
 
 	// The turn ends with its reply, but a subagent it started still runs, so Claude keeps the entry busy. The pane reads
-	// working, and no done notice is made for it.
+	// working and held, and no done notice is made for it.
 	session.submitPrompt(t)
-	session.appendTranscript(t, assistantTextLine(t, exampleLastMessage))
+	ended := time.Unix(1700000000, 0)
+	session.holdTurn(t, exampleLastMessage, ended)
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, strconv.FormatInt(ended.Unix(), 10))
 	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWorking))
 	wantExit(t, daemon.stop(t), 0)
 
@@ -138,6 +173,45 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 		t.Fatalf("%d push requests for a pane still busy with background work, want none", extra)
 	}
 	assertNoticeLog(t, noticeLogPath(stateHome), since, pane)
+}
+
+// TestOrrerydHeldPaneNotifiesAtTheTaskTurnsEnd holds a pane whose turn ended while a subagent runs, then plays the
+// subagent's end: its notification starts a turn, which ends the hold, and that turn's end with nothing left running
+// reads the pane done and pushes its one done notification.
+func TestOrrerydHeldPaneNotifiesAtTheTaskTurnsEnd(t *testing.T) {
+	t.Parallel()
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	endpoint := newPushEndpoint(t)
+	registerPush(t, stateHome, endpoint)
+	daemon, _ := startPushDaemon(t, name, dir, stateHome, endpoint)
+	session := startClaudeSession(t, client, dir, pane, dir)
+
+	session.submitPrompt(t)
+	ended := time.Unix(1700000000, 0)
+	session.holdTurn(t, "The agent runs.", ended)
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, strconv.FormatInt(ended.Unix(), 10))
+
+	session.appendTranscript(t, transcriptLine(t, map[string]any{
+		"type":      "user",
+		"timestamp": ended.Add(time.Minute).UTC().Format(time.RFC3339),
+		"message": map[string]any{
+			"role":    "user",
+			"content": "<task-notification><task-id>a1</task-id><status>completed</status></task-notification>",
+		},
+	}))
+	waitForOption(t, daemon, client, pane, protocol.OptionHeld, "")
+	requireOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+
+	session.finishTurn(t, exampleLastMessage)
+	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateDone))
+	assertPushed(t, endpoint, pane, protocol.StateDone)
+	wantExit(t, daemon.stop(t), 0)
+	if extra := len(endpoint.requests); extra != 0 {
+		t.Fatalf("%d push requests beyond the one done, want none", extra)
+	}
 }
 
 func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
@@ -164,10 +238,14 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	session.requestPermission(t)
 	waitForOption(t, daemon, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
-	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
-	// no shutdown line.
+	// router has no store until orreryd attaches it, a step after its open line, and a notice decided before then has
+	// no row, so stopping then ends it with a shutdown line. The test therefore awaits the held notice's row in the
+	// store, which is written only once the store is attached, and stopping then keeps the held notice for the next
+	// start, with no shutdown line.
 	waitUntil(t, func() bool { return noticeLogHas(logPath, "watching") })
 	daemon.waitForStoreOpen(t)
+	dbPath := filepath.Join(stateHome, "orrery", "orrery.db")
+	waitUntil(t, func() bool { return pendingRowStored(t, dbPath, pane) })
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {

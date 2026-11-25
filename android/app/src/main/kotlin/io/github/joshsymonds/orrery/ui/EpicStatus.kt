@@ -24,8 +24,8 @@ sealed interface EpicBlocker {
 }
 
 /**
- * The state word of an epic, first match: its outcome as written, paused, parked, waiting, then planning or building
- * while it is live. An epic with no state gives the empty string.
+ * The state word of an epic, first match: its outcome as written, paused, parked, then planning or building while it is
+ * live. An epic with no state gives the empty string.
  */
 fun epicStateOf(detail: EpicDetail): String {
     val epic = detail.epic
@@ -33,8 +33,7 @@ fun epicStateOf(detail: EpicDetail): String {
         epic.outcome.isNotEmpty() -> epic.outcome
         detail.paused -> "paused"
         detail.parked.isNotEmpty() -> "parked"
-        epic.waiting -> "waiting"
-        epic.live -> if (detail.tasks.isEmpty() && detail.buildTasks.isEmpty()) "planning" else "building"
+        epic.live -> if (detail.buildTasks.isEmpty()) "planning" else "building"
         else -> ""
     }
 }

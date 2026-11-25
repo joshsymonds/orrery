@@ -32,17 +32,19 @@ const ContractAccepted = "accepted"
 const ContractSetAside = "set_aside"
 
 // ContractChange is a change of a contract's state. Session is the sessions row id of the session that makes it, and
-// "" for the owner. Words are what the session said. Base is the commit an accept stores as the contract's base; the
-// changes that store no base leave it "".
+// "" for the owner. Words are what the session said. Base is the commit an accept stores as the contract's base, and
+// Maker is who the change is made for, stored with the state; the changes that store no base leave it "", and the
+// changes that store no maker leave it the zero StageMaker.
 type ContractChange struct {
 	Session, Words, Base string
+	Maker                StageMaker
 	At                   int64
 }
 
-// ReviseContract appends revision as the next version of the contract id. It returns an error that matches ErrNoContract
-// when no contract has id, ErrContractState unless the contract is proposed, ErrNotContractConversation unless
-// revision.Writer is the writer of version 1, and ErrContractVersion unless revision.Version is one after the newest
-// version. It appends no state.
+// ReviseContract appends revision as the next version of the contract id, and deletes the contract's working copy in the
+// same write. It returns an error that matches ErrNoContract when no contract has id, ErrContractState unless the
+// contract is proposed, ErrNotContractConversation unless revision.Writer is the writer of version 1, and
+// ErrContractVersion unless revision.Version is one after the newest version. It appends no state.
 func (s *Store) ReviseContract(ctx context.Context, id string, revision ContractVersion) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		listing, err := readContractListing(ctx, queries, id)
@@ -64,7 +66,15 @@ func (s *Store) ReviseContract(ctx context.Context, id string, revision Contract
 				ErrContractVersion,
 			)
 		}
-		return insertContractVersion(ctx, queries, id, revision)
+		err = insertContractVersion(ctx, queries, id, revision)
+		if err != nil {
+			return err
+		}
+		err = queries.DeleteContractWorking(ctx, id)
+		if err != nil {
+			return fmt.Errorf("delete working copy of contract %s: %w", id, err)
+		}
+		return nil
 	})
 }
 
@@ -197,7 +207,8 @@ func insertContractVersion(ctx context.Context, queries *sqlcgen.Queries, id str
 }
 
 // appendContractState records state as the next state of the contract id, entered at version by the session of change
-// with its words and base at its time.
+// with its words and base at its time. A change that names a maker stores the maker's columns with the state, in the
+// same write.
 func appendContractState(
 	ctx context.Context, queries *sqlcgen.Queries, id, state string, version int64, change ContractChange,
 ) error {
@@ -205,9 +216,10 @@ func appendContractState(
 	if err != nil {
 		return fmt.Errorf("count states of contract %s: %w", id, err)
 	}
+	seq := count + 1
 	if err = queries.InsertContractState(ctx, sqlcgen.InsertContractStateParams{
 		Contract: id,
-		Seq:      count + 1,
+		Seq:      seq,
 		State:    state,
 		Version:  version,
 		Session:  change.Session,
@@ -216,6 +228,19 @@ func appendContractState(
 		Base:     change.Base,
 	}); err != nil {
 		return fmt.Errorf("insert state %s of contract %s: %w", state, id, err)
+	}
+	if change.Maker.Kind == "" {
+		return nil
+	}
+	if err = queries.SetContractStateMaker(ctx, sqlcgen.SetContractStateMakerParams{
+		Maker:       change.Maker.Kind,
+		Quote:       change.Maker.Quote,
+		MakerReason: change.Maker.Reason,
+		Delegation:  change.Maker.Delegation,
+		Contract:    id,
+		Seq:         seq,
+	}); err != nil {
+		return fmt.Errorf("set maker of state %s of contract %s: %w", state, id, err)
 	}
 	return nil
 }

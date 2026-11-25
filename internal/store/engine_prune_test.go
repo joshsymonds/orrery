@@ -50,7 +50,7 @@ func TestSyncServerRemovesEngineSessionWithNoEventInRetention(t *testing.T) {
 	panes := []Pane{{ID: "orrery-1", Pane: "%1"}}
 
 	// The pane row is written first so its session_added is older than the engine events.
-	if err := s.SyncServer(ctx, "-L a", panes, t0); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, t0); err != nil {
 		t.Fatalf("SyncServer at T: %v", err)
 	}
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -66,7 +66,7 @@ func TestSyncServerRemovesEngineSessionWithNoEventInRetention(t *testing.T) {
 	}
 
 	now := t0.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", panes, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, now); err != nil {
 		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 	}
 
@@ -92,7 +92,7 @@ func TestSyncServerKeepsEngineSessionsWithEventInRetention(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	panes := []Pane{{ID: "orrery-1", Pane: "%1"}}
 
-	if err := s.SyncServer(ctx, "-L a", panes, t0); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, t0); err != nil {
 		t.Fatalf("SyncServer at T: %v", err)
 	}
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -104,7 +104,7 @@ func TestSyncServerKeepsEngineSessionsWithEventInRetention(t *testing.T) {
 	}
 
 	now := t0.Add(24 * time.Hour)
-	if err := s.SyncServer(ctx, "-L a", panes, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", panes, now); err != nil {
 		t.Fatalf("SyncServer one day after T: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestSyncServerEngineCutoffIncludesEventAtCutoff(t *testing.T) {
 
 	// The cutoff is now minus EventRetention, which is t0: an event at t0 is at the cutoff and so kept.
 	now := t0.Add(EventRetention)
-	if err := s.SyncServer(ctx, "-L a", nil, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", nil, now); err != nil {
 		t.Fatalf("SyncServer at the cutoff: %v", err)
 	}
 
@@ -152,7 +152,7 @@ func TestSyncServerEngineCutoffIncludesEventAtCutoff(t *testing.T) {
 func seedStaleEngine(t *testing.T, s *Store, t0 time.Time) {
 	t.Helper()
 	ctx := context.Background()
-	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, t0); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, t0); err != nil {
 		t.Fatalf("SyncServer at T: %v", err)
 	}
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -174,7 +174,7 @@ func TestSyncServerKeepsLiveEngineSessionPastRetention(t *testing.T) {
 	s.SetEngineLive(func() []string { return []string{"eng-a"} })
 
 	now := t0.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
 		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestSyncServerEmptyLiveListStillRemovesStaleEngineSession(t *testing.T) {
 			s.SetEngineLive(live)
 
 			now := t0.Add(EventRetention + time.Hour)
-			if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+			if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
 				t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 			}
 
@@ -242,7 +242,7 @@ func TestSyncServerRemovesPromptFailureWithStaleEngineSession(t *testing.T) {
 	}
 
 	now := t0.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
 		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestSyncServerKeepsPromptFailureOfRetainedEngineSessions(t *testing.T) {
 	s.SetEngineLive(func() []string { return []string{"eng-b"} })
 
 	now := t0.Add(EventRetention + time.Hour)
-	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+	if err := s.SyncServer(ctx, "", "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
 		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
 	}
 

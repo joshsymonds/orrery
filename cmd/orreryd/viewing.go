@@ -14,7 +14,8 @@ const viewWindow = 30 * time.Second
 // viewTracker keeps the newest viewing report: the key the web view reported it views and the unix seconds of the
 // input that report carries. Each input report replaces it, so a report that names no key ends the hold of the last.
 type viewTracker struct {
-	now func() time.Time
+	now    func() time.Time
+	orrery string // the controller's orrery name, the host of a viewed pane's key
 
 	mu  sync.Mutex
 	key notice.Key
@@ -29,10 +30,12 @@ func newViewTracker(now func() time.Time) *viewTracker {
 // note records a viewing report: view is the key the web view views, and at is the unix seconds of the input it
 // carries. A zero view names no key.
 func (t *viewTracker) note(at int64, view protocol.ViewKey) {
-	key := notice.Key{Pane: view.Pane, Session: view.Session, Epic: view.Epic}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.key = key
+	t.key = notice.Key{Pane: view.Pane, Session: view.Session, Epic: view.Epic}
+	if view.Pane != "" {
+		t.key.Host = t.orrery
+	}
 	t.at = at
 }
 

@@ -51,16 +51,26 @@
         {
           # The web page is bundled before the Go build and replaces the committed stub in the build's own copy of
           # internal/webui/dist, so the binary embeds the built page. scripts/build-web.sh is the one bundle command.
-          default = pkgs.buildGoModule {
+          # nixpkgs' buildGoModule takes its toolchain from the `go` it was called with, so the per-call `go` alone
+          # leaves the build on the default Go; the override makes the toolchain go_1_27 as well.
+          default = (pkgs.buildGoModule.override { go = pkgs.go_1_27; }) {
             pname = "orrery";
             version = "0.0.0";
             src = ./.;
-            go = pkgs.go_1_26;
-            vendorHash = "sha256-oHPo8UvX5R+zXkB7tLhbH8REWrPqli6psMNCeq5P1Fo=";
+            go = pkgs.go_1_27;
+            vendorHash = "sha256-PAEKIzdy9UngUUJ6OiqlmCRCsCtrpavpeyfWQqYQ5eE=";
             subPackages = [
               "cmd/orrery"
               "cmd/orreryd"
             ];
+            # The store's SQLite driver builds the pre-update hook it records epic writes with only under
+            # sqlite_preupdate_hook (internal/store/needs_preupdate_hook.go), and libsqlite3 links nixpkgs' SQLite, which
+            # is built with that hook, in place of the amalgamation the driver bundles.
+            tags = [
+              "sqlite_preupdate_hook"
+              "libsqlite3"
+            ];
+            buildInputs = [ pkgs.sqlite ];
             nativeBuildInputs = [ pkgs.esbuild ];
             nativeCheckInputs = [
               pkgs.git
@@ -72,8 +82,10 @@
               bash scripts/build-web.sh web/build/page
               cp -r web/build/page/. internal/webui/dist/
             '';
+            # The tests build orrery themselves (cmd/orreryd's TestMain), and that go build reads the tag from GOFLAGS.
             preCheck = ''
               export TMUX_TMPDIR="$TMPDIR"
+              export GOFLAGS="$GOFLAGS -tags=sqlite_preupdate_hook,libsqlite3"
             '';
             # The default check covers only subPackages, so the webui tests run here against the embedded page.
             postCheck = ''

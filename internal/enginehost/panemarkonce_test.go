@@ -32,7 +32,7 @@ func TestCallerPaneMarkOnce(t *testing.T) {
 	marks := &onceFailingMarks{}
 	wakes := 0
 	sender := NewCallerSender(CallerSenderConfig{
-		WakePane: func(context.Context, string, string, string) (bool, error) {
+		WakePane: func(context.Context, string, string, string, string) (bool, error) {
 			wakes++
 			return true, nil
 		},

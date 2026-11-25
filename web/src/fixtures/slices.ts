@@ -4,6 +4,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import type { Code } from "@connectrpc/connect";
 
+import type { Account, RouteRegistry } from "../gen/orrery/v1/accounts_pb";
 import {
   type ContractsGetResponse,
   type ContractsListResponse,
@@ -27,6 +28,7 @@ import {
   type SessionsWatchConversationResponse,
   type WatchConversationResponse,
 } from "../gen/orrery/v1/orrery_pb";
+import { accounts, registry } from "./accounts";
 import { contracts } from "./contracts";
 import { tideAccepted, tideProposed, tideReady, tideSetAside } from "./contractrecords";
 import {
@@ -52,7 +54,6 @@ import {
   rotaEvidence,
   rotaLimited,
   rotaPlanner,
-  rotaProblem,
   rotaReviewing,
   tidecacheGaps,
   tidecacheGapsRow,
@@ -118,6 +119,10 @@ export interface Slices {
   readonly failingEpicCommands: ReadonlyMap<"pause" | "resume" | "stop" | "retry", string>;
   readonly fail?: ReadonlySet<string>;
   readonly hold?: ReadonlySet<string>;
+  // accounts and registry are the accounts and route registry Accounts.List and Routes.Get answer from at the start. The
+  // fixture's accounts service changes its own copy, so these are never changed.
+  readonly accounts: readonly Account[];
+  readonly registry: RouteRegistry;
 }
 
 // shippedSlices is the data the fixture transport serves when it is given no slices.
@@ -140,6 +145,8 @@ export const shippedSlices: Slices = {
   asks: new Map<string, AskAnswer>(),
   heldGets: new Set<string>(),
   failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>(),
+  accounts,
+  registry,
 };
 
 // noticeStackSlices are the shipped slices with the five notices the stack draws showing, so Notices.Watch sends
@@ -155,7 +162,6 @@ export type EpicScenario =
   | "limited"
   | "plannerParked"
   | "commandError"
-  | "problem"
   | "unavailable"
   | "planning"
   | "dense"
@@ -219,7 +225,6 @@ export const epicScenarios: Record<EpicScenario, Slices> = {
     ...withEpic(rotaId, rotaBuilding),
     failingEpicCommands: new Map<"pause" | "resume" | "stop" | "retry", string>([["pause", "the server did not answer"]]),
   },
-  problem: withEpic(rotaId, rotaProblem),
   unavailable: {
     ...withEpic(rotaId, rotaBuilding),
     gets: new Map<string, EpicsGetResponse>([...gets].filter(([id]) => id !== rotaId)),

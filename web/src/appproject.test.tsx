@@ -10,7 +10,7 @@ import { createClients, createTransport } from "./client";
 import { type Contract, ContractSchema } from "./gen/orrery/v1/contracts_pb";
 import { formatAddress, type Address } from "./router";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { projectOf } from "./tree";
 
 const now = 1000;
@@ -278,16 +278,18 @@ test("ProjectPage: Enter shuts the page and opens the cursor's conversation in i
     assert.ok(one(container, 'section[aria-label="reader"]').hidden === false, "the cursor's conversation is drawn");
   }));
 
-test("ProjectPage: a press on a stand-in, which the tree draws no entry of, opens nothing", (t) =>
+test("ProjectPage: a press on a contract with no listed conversation, drawn as its own row, opens the contract's panel and closes the page", (t) =>
   withApp(
     t.signal,
     undefined,
     async ({ container }) => {
       await press(headOf(container, "api"));
-      const before = cursorKey(container);
-      await press(one(container, '.pc-row[data-key^="standin:"]'));
-      assert.ok(projectPage(container) !== null, "the page stays open");
-      assert.equal(cursorKey(container), before, "the cursor does not move to a neighbour");
+      const own = one(container, '.pc-row[data-key="contract:api/orphan"]');
+      assert.equal(one(own, ".t").textContent, "orphan", "the row names the contract");
+      assertNone(container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]'), "no panel before the press");
+      await press(own);
+      assert.ok(projectPage(container) === null, "the page closes");
+      assert.ok(container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]') !== null, "the contract's panel is drawn");
     },
     [create(ContractSchema, { id: "api/orphan", repository: apiDir, title: "Orphan", state: "proposed", conversation: "gone", version: 1n, changed: 250n })],
   ));
@@ -298,11 +300,11 @@ test("ProjectPage: a press on a contract's card opens the contract's panel, as t
     undefined,
     async ({ container, reports }) => {
       await press(headOf(container, "api"));
-      assert.equal(container.querySelector('aside[aria-label="orphan contract"]'), null, "no panel before the press");
+      assertNone(container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]'), "no panel before the press");
       await press(one(container, 'section[aria-label="project"] .wcard[data-key="contract:api/orphan"]'));
       assert.ok(projectPage(container) === null, "the page closes");
       assert.ok(
-        container.querySelector('aside[aria-label="orphan contract"]') !== null,
+        container.querySelector('article.held-card[data-kind="contract"][aria-label="orphan"]') !== null,
         "the contract's panel is drawn",
       );
       const last = reports[reports.length - 1];

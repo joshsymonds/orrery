@@ -29,7 +29,6 @@ func TestReleaseReplanDecisions(t *testing.T) {
 	correcting := func(state string) Rows {
 		rows := integratorRows([]store.ReleaseRun{failed, replanRun(1, "tip-1", report)}, nil, nil, nil)
 		rows.Epic.Phase = phaseCorrecting
-		rows.Slot = ""
 		if state != "" {
 			rows.Runs = []store.NodeRun{{Path: "release/A1/fix", Kind: kindPlan, State: state}}
 		}
@@ -87,7 +86,7 @@ func TestReleaseAfterReplanReusesNoEarlierCandidate(t *testing.T) {
 	t.Parallel()
 	epic := releasingEpic(releaseStep("tag", "none"))
 	before := Rows{
-		Epic: epic, Slot: releaseEpicID,
+		Epic:     epic,
 		Releases: []store.ReleaseRun{candidateRun(0, "old"), replanRun(1, "tip-1", "report")},
 	}
 	if got := (Release{}).Decide(releaseNode(2, "", ""), before); got.Kind != ActPrepare {

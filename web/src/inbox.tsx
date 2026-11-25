@@ -40,6 +40,10 @@ export interface InboxProps {
   onOpenProject?: (key: string) => void;
   // onCollapse is the foot's control that collapses the inbox to its rail. The foot draws it only when given.
   onCollapse?: () => void;
+  // onAccounts is the foot's gear, which opens the accounts and routes page. The foot draws it only when given.
+  onAccounts?: () => void;
+  // moving is the projects whose ended line's button is marked as moving: a move landed behind that shut line.
+  moving?: ReadonlySet<string>;
   // notes are the page's error lines, drawn above the rows, under the chips and the search field, as round 6 draws them.
   notes?: ComponentChildren;
 }
@@ -74,6 +78,8 @@ export function Inbox({
   onKeys,
   onOpenProject,
   onCollapse,
+  onAccounts,
+  moving,
   notes,
 }: InboxProps): JSX.Element {
   // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
@@ -176,6 +182,7 @@ export function Inbox({
           onRetry={onRetry}
           onNew={onNew}
           onOpenProject={onOpenProject}
+          moving={moving}
         />
       </div>
       <footer class="inbox-foot">
@@ -189,6 +196,17 @@ export function Inbox({
             <Icon name="archive" />
             Archived
             <kbd>v</kbd>
+          </button>
+        )}
+        {onAccounts !== undefined && (
+          <button
+            type="button"
+            class="btn quiet icon-only"
+            aria-label="Accounts and routes"
+            title="Accounts and routes"
+            onClick={() => onAccounts()}
+          >
+            <Icon name="gear" />
           </button>
         )}
         {onKeys !== undefined && (
@@ -229,6 +247,7 @@ interface BodyProps {
   onRetry?: () => void;
   onNew: () => void;
   onOpenProject?: (key: string) => void;
+  moving?: ReadonlySet<string>;
 }
 
 // Body draws the inbox's rows: loading, the error with Try now, the nothing-running state with New, the nothing-matches
@@ -249,6 +268,7 @@ function Body({
   onRetry,
   onNew,
   onOpenProject,
+  moving,
 }: BodyProps): JSX.Element | null {
   if (state === "loading") {
     return (
@@ -310,6 +330,7 @@ function Body({
           onFold={() => onFold(project.key)}
           onEnded={() => onEnded(project.key)}
           onOpen={onOpenProject}
+          moving={moving?.has(project.key) ?? false}
           ended={project.ended.map((convo) => <Fragment key={convo.key}>{renderConvo(convo)}</Fragment>)}
         >
           {project.convos.map((convo) => (

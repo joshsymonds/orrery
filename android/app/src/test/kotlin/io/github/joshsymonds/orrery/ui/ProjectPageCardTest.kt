@@ -5,10 +5,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.ContractRow
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicQuestionRow
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
@@ -33,12 +33,18 @@ private fun epicRow(
     live = live,
     runningSteps = emptyList(),
     endedSteps = 0,
-    problem = "",
     phaseAt = NOW - 2940,
     parked = parked,
 )
 
-private fun taskRow() = EpicTaskRow(effort = 1, slug = "t1", subject = "Build the feed", status = "")
+private fun taskRow() = EpicBuildTaskRow(
+    id = "t1",
+    title = "Build the feed",
+    status = "",
+    stage = "",
+    red = null,
+    green = null,
+)
 
 private fun runningStep() = StepRow(
     id = "s1",
@@ -104,7 +110,7 @@ class ProjectPageCardTest {
         val epic = epicRow()
         val detail = EpicDetail(
             epic = epic,
-            tasks = listOf(taskRow()),
+            buildTasks = listOf(taskRow()),
             steps = listOf(runningStep()),
             questions = listOf(question),
         )
@@ -126,7 +132,7 @@ class ProjectPageCardTest {
         val epic = epicRow(parked = "held for a decision")
         val detail = EpicDetail(
             epic = epic,
-            tasks = listOf(taskRow()),
+            buildTasks = listOf(taskRow()),
             steps = emptyList(),
             parked = "held for a decision",
         )
@@ -141,7 +147,7 @@ class ProjectPageCardTest {
     @Test
     fun anEpicBuildingIsLiveAndAsksNothing() {
         val epic = epicRow()
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = listOf(runningStep()))
+        val detail = EpicDetail(epic = epic, buildTasks = listOf(taskRow()), steps = listOf(runningStep()))
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.LIVE, card.tone)
@@ -169,7 +175,7 @@ class ProjectPageCardTest {
     @Test
     fun anArchivedLiveEpicHasNoToneAndAsksNothing() {
         val epic = epicRow().copy(archived = true)
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = emptyList(), questions = listOf(question))
+        val detail = EpicDetail(epic = epic, buildTasks = listOf(taskRow()), steps = emptyList(), questions = listOf(question))
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.NONE, card.tone)
@@ -180,7 +186,7 @@ class ProjectPageCardTest {
     @Test
     fun anEndedEpicHasNoToneAndAsksNothing() {
         val epic = epicRow(outcome = "released", live = false)
-        val detail = EpicDetail(epic = epic, tasks = listOf(taskRow()), steps = emptyList())
+        val detail = EpicDetail(epic = epic, buildTasks = listOf(taskRow()), steps = emptyList())
         val card = workCardOf(EpicNode(epic, detail, contract = null), NOW)
 
         assertEquals(CardTone.NONE, card.tone)
@@ -195,7 +201,7 @@ class ProjectPageCardTest {
         val epic = epicRow()
         val detail = EpicDetail(
             epic = epic,
-            tasks = listOf(taskRow()),
+            buildTasks = listOf(taskRow()),
             steps = listOf(runningStep()),
             questions = listOf(question),
         )

@@ -60,7 +60,11 @@ func callerSenderOver(
 	wake func(context.Context, string, string, string) (bool, error),
 ) *enginehost.CallerSender {
 	return enginehost.NewCallerSender(enginehost.CallerSenderConfig{
-		Deliver: deliver, WakePane: wake, Store: s, Now: claimedAt,
+		Deliver: deliver,
+		WakePane: func(ctx context.Context, _, server, pane, text string) (bool, error) {
+			return wake(ctx, server, pane, text)
+		},
+		Store: s, Now: claimedAt,
 	})
 }
 

@@ -70,6 +70,10 @@ message StartRequest {
 
   // The client that sent the request, such as orrery-android. Empty means none.
   string client = 5;
+
+  // The orrery name of the host the session runs on, a host hosts.toml names or the controller's own. Empty means the
+  // controller's.
+  string host = 6;
 }
 
 // StartResponse names the started session.

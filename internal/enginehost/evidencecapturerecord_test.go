@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
@@ -206,7 +207,7 @@ func TestCaptureEndRecordedWhenCtxEndsBeforeItsRecord(t *testing.T) {
 		cancel(nil)
 	}})
 
-	c.runFresh(ctx, repo, stored, captureItem(stored, nil))
+	c.runFresh(ctx, hostexec.NewLocal(), repo, stored, captureItem(stored, nil))
 
 	if !ended {
 		t.Fatal("the record hook did not run, so the context never ended before the record")

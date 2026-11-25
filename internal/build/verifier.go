@@ -135,18 +135,41 @@ func epicVerifierPrompt(epic store.EpicRow, base, revision string, finding store
 	return VerifierRole() + "\n" + strings.Join(body, "\n")
 }
 
+// testRunsHeading opens the test runner output a finding's verifier prompt carries when test runs checked the finding.
+const testRunsHeading = "Test runner output:"
+
 // findingLines renders the range the change spans from base to revision, the finding with its citation, location,
-// evidence and verify-by step, and the closing instruction to return one result for it.
+// evidence, verify-by step and test runner output, and the closing instruction to return one result for it.
 func findingLines(base, revision string, finding store.TaskFinding) []string {
-	return []string{
-		fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", base, revision, revision),
-		"Finding " + finding.ID + ": " + finding.Claim,
-		"Citation: " + finding.Citation,
-		"Location: " + finding.Location,
-		"Evidence: " + finding.Evidence,
-		"Verify by: " + finding.VerifyBy,
-		"Return exactly one result, for " + finding.ID + ".",
+	return slices.Concat(
+		[]string{
+			fmt.Sprintf("The change is %s..%s; this worktree is checked out at %s.", base, revision, revision),
+			"Finding " + finding.ID + ": " + finding.Claim,
+			"Citation: " + finding.Citation,
+			"Location: " + finding.Location,
+			"Evidence: " + finding.Evidence,
+			"Verify by: " + finding.VerifyBy,
+		},
+		testRunLines(finding.TestRuns),
+		[]string{"Return exactly one result, for " + finding.ID + "."},
+	)
+}
+
+// testRunLines renders the test runs that checked a finding, each with its command, its revision and its output, or
+// not run when it has no step. It is none when there are no runs.
+func testRunLines(runs []store.TaskTestRun) []string {
+	if len(runs) == 0 {
+		return nil
 	}
+	lines := []string{testRunsHeading}
+	for _, run := range runs {
+		output := run.Output
+		if run.Step == "" {
+			output = "not run"
+		}
+		lines = append(lines, "Command: "+run.Command, "Revision: "+run.Revision, "Output: "+output)
+	}
+	return lines
 }
 
 // VerifierCheck is the return check of a verifier step. It refuses a return that does not hold exactly one result,

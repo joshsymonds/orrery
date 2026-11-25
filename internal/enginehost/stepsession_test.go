@@ -12,8 +12,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 
-	// The blank import registers the pure-Go "sqlite" driver the kind check opens the file with.
-	_ "modernc.org/sqlite"
+	// The blank import registers the "sqlite3" driver the kind check opens the file with.
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // stepSchema is a JSON schema with no spaces, so it stays one field of the fake claude's argument line.
@@ -72,7 +72,7 @@ func newStepManager(t *testing.T, claude string, sink NoticeSink) (*Manager, str
 // rowKind returns the kind of the sessions row id in the store at path, read on a separate connection.
 func rowKind(t *testing.T, path, id string) string {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

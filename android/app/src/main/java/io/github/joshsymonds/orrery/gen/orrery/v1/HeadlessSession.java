@@ -29,6 +29,8 @@ public  final class HeadlessSession extends
     summary_ = "";
     question_ = "";
     headline_ = "";
+    host_ = "";
+    designs_ = emptyProtobufList();
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -708,6 +710,293 @@ public  final class HeadlessSession extends
   private void clearPutOff() {
 
     putOff_ = false;
+  }
+
+  public static final int ENDED_FIELD_NUMBER = 13;
+  private boolean ended_;
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @return The ended.
+   */
+  @java.lang.Override
+  public boolean getEnded() {
+    return ended_;
+  }
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   * @param value The ended to set.
+   */
+  private void setEnded(boolean value) {
+    
+    ended_ = value;
+  }
+  /**
+   * <pre>
+   * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+   * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+   * has unarchived it since its last change.
+   * </pre>
+   *
+   * <code>bool ended = 13 [json_name = "ended"];</code>
+   */
+  private void clearEnded() {
+
+    ended_ = false;
+  }
+
+  public static final int ENDED_AT_FIELD_NUMBER = 14;
+  private long endedAt_;
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @return The endedAt.
+   */
+  @java.lang.Override
+  public long getEndedAt() {
+    return endedAt_;
+  }
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   * @param value The endedAt to set.
+   */
+  private void setEndedAt(long value) {
+    
+    endedAt_ = value;
+  }
+  /**
+   * <pre>
+   * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+   * </pre>
+   *
+   * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+   */
+  private void clearEndedAt() {
+
+    endedAt_ = 0L;
+  }
+
+  public static final int HOST_FIELD_NUMBER = 15;
+  private java.lang.String host_;
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The host.
+   */
+  @java.lang.Override
+  public java.lang.String getHost() {
+    return host_;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @return The bytes for host.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHostBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(host_);
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @param value The host to set.
+   */
+  private void setHost(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    host_ = value;
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   */
+  private void clearHost() {
+
+    host_ = getDefaultInstance().getHost();
+  }
+  /**
+   * <pre>
+   * The orrery name of the host the session runs on.
+   * </pre>
+   *
+   * <code>string host = 15 [json_name = "host"];</code>
+   * @param value The bytes for host to set.
+   */
+  private void setHostBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    host_ = value.toStringUtf8();
+
+  }
+
+  public static final int DESIGNS_FIELD_NUMBER = 16;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Design> designs_;
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
+    return designs_;
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder> 
+      getDesignsOrBuilderList() {
+    return designs_;
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public int getDesignsCount() {
+    return designs_.size();
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
+    return designs_.get(index);
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.DesignOrBuilder getDesignsOrBuilder(
+      int index) {
+    return designs_.get(index);
+  }
+  private void ensureDesignsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.Design> tmp = designs_;
+    if (!tmp.isModifiable()) {
+      designs_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void setDesigns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.add(value);
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void addDesigns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+    java.util.Objects.requireNonNull(value);
+    ensureDesignsIsMutable();
+    designs_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void addAllDesigns(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
+    ensureDesignsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, designs_);
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void clearDesigns() {
+    designs_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The designs this conversation works, each with its contracts.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+   */
+  private void removeDesigns(int index) {
+    ensureDesignsIsMutable();
+    designs_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession parseFrom(
@@ -1518,6 +1807,311 @@ public  final class HeadlessSession extends
       return this;
     }
 
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @return The ended.
+     */
+    @java.lang.Override
+    public boolean getEnded() {
+      return instance.getEnded();
+    }
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @param value The ended to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEnded(boolean value) {
+      copyOnWrite();
+      instance.setEnded(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * true once the conversation's turn is judged closed by a closure verdict for its current change time, or (headless)
+     * it stopped. It is false while the conversation steers a live epic or a proposed contract, and false while the owner
+     * has unarchived it since its last change.
+     * </pre>
+     *
+     * <code>bool ended = 13 [json_name = "ended"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEnded() {
+      copyOnWrite();
+      instance.clearEnded();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @return The endedAt.
+     */
+    @java.lang.Override
+    public long getEndedAt() {
+      return instance.getEndedAt();
+    }
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @param value The endedAt to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEndedAt(long value) {
+      copyOnWrite();
+      instance.setEndedAt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unix seconds the conversation ended (its change time), or 0 when it has not ended.
+     * </pre>
+     *
+     * <code>int64 ended_at = 14 [json_name = "endedAt"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEndedAt() {
+      copyOnWrite();
+      instance.clearEndedAt();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return The host.
+     */
+    @java.lang.Override
+    public java.lang.String getHost() {
+      return instance.getHost();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return The bytes for host.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHostBytes() {
+      return instance.getHostBytes();
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @param value The host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHost(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHost(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHost() {
+      copyOnWrite();
+      instance.clearHost();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orrery name of the host the session runs on.
+     * </pre>
+     *
+     * <code>string host = 15 [json_name = "host"];</code>
+     * @param value The bytes for host to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHostBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHostBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.Design> getDesignsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getDesignsList());
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public int getDesignsCount() {
+      return instance.getDesignsCount();
+    }/**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.Design getDesigns(int index) {
+      return instance.getDesigns(index);
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder setDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.setDesigns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder setDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDesigns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.addDesigns(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design value) {
+      copyOnWrite();
+      instance.addDesigns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDesigns(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder addDesigns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.Design.Builder builderForValue) {
+      copyOnWrite();
+      instance.addDesigns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder addAllDesigns(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.Design> values) {
+      copyOnWrite();
+      instance.addAllDesigns(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder clearDesigns() {
+      copyOnWrite();
+      instance.clearDesigns();
+      return this;
+    }
+    /**
+     * <pre>
+     * The designs this conversation works, each with its contracts.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.Design designs = 16 [json_name = "designs"];</code>
+     */
+    public Builder removeDesigns(int index) {
+      copyOnWrite();
+      instance.removeDesigns(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.HeadlessSession)
   }
   @java.lang.Override
@@ -1546,11 +2140,16 @@ public  final class HeadlessSession extends
             "archived_",
             "headline_",
             "putOff_",
+            "ended_",
+            "endedAt_",
+            "host_",
+            "designs_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.Design.class,
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007\u000b\u0208" +
-              "\f\u0007";
+              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0002\u0006\u0002\u0007\u0208\b\u0208\t\u0002\n\u0007" +
+              "\u000b\u0208\f\u0007\r\u0007\u000e\u0002\u000f\u0208\u0010\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

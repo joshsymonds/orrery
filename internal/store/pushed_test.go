@@ -65,10 +65,10 @@ func TestPushedRowsReopen(t *testing.T) {
 	wantRows("after reopen", []PushedRow{session, pane})
 
 	// Deleting the pane row removes only that row; an absent key is not an error.
-	if err := s.DeletePushed(ctx, pane.Pane, pane.Session); err != nil {
+	if err := s.DeletePushed(ctx, pane.Host, pane.Pane, pane.Session); err != nil {
 		t.Fatalf("DeletePushed pane: %v", err)
 	}
-	if err := s.DeletePushed(ctx, "%9", ""); err != nil {
+	if err := s.DeletePushed(ctx, "", "%9", ""); err != nil {
 		t.Fatalf("DeletePushed of absent key: got %v, want nil", err)
 	}
 	wantRows("after deleting pane row", []PushedRow{session})

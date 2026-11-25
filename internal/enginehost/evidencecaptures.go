@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -66,6 +67,7 @@ type CaptureStore interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	EvidenceGathererOf(ctx context.Context, step string) (store.EvidenceGatherer, bool, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // CaptureSteps reads the status of the step that asks for a capture. *Steps satisfies it.
@@ -75,13 +77,15 @@ type CaptureSteps interface {
 
 // CapturesConfig configures Captures. Store records the captures, Steps reads the step that asks for one, and Deliver
 // tells the asking step of an ended capture that it ended. Pools, Environ, GateStateDir and GateScope run each command as a
-// capture does, and StateDir holds the capture worktrees. NewTimer arms a timer that sends on its channel once, after a
+// capture does, and StateDir holds the capture worktrees. Hosts resolves the host each epic is stored on to the Host its
+// captures' git, worktrees and artifact reads run on, and a nil Hosts is hostexec.LocalHosts. NewTimer arms a timer that sends on its channel once, after a
 // duration, and returns the timer's stop; a nil NewTimer wraps time.NewTimer. A nil Now is time.Now, and a nil Logger
 // discards.
 type CapturesConfig struct {
 	Store        CaptureStore
 	Steps        CaptureSteps
 	Deliver      func(context.Context, DeliverRequest) error
+	Hosts        hostexec.Hosts
 	Pools        PoolCommands
 	Environ      []string
 	StateDir     string
@@ -100,6 +104,7 @@ type Captures struct {
 	steps    CaptureSteps
 	deliver  func(context.Context, DeliverRequest) error
 	captures evidenceCapture
+	hosts    hostexec.Hosts
 	newTimer func(time.Duration) (<-chan time.Time, func() bool)
 	now      func() time.Time
 	logger   *slog.Logger
@@ -128,6 +133,10 @@ func NewCaptures(cfg CapturesConfig) *Captures {
 			return timer.C, timer.Stop
 		}
 	}
+	hosts := cfg.Hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
 	return &Captures{
 		store:   cfg.Store,
 		steps:   cfg.Steps,
@@ -140,6 +149,7 @@ func NewCaptures(cfg CapturesConfig) *Captures {
 			gateScope:    cfg.GateScope,
 			blobs:        evidenceBlobs{dir: filepath.Join(cfg.StateDir, "evidence", "blobs")},
 		},
+		hosts:    hosts,
 		newTimer: newTimer,
 		now:      now,
 		logger:   logger,
@@ -163,15 +173,15 @@ func (c *Captures) Capture(ctx context.Context, caller string, args CaptureArgs)
 	if err != nil {
 		return store.Capture{}, err
 	}
-	row, err := c.store.Epic(ctx, epic)
+	row, host, err := c.epicOn(ctx, epic)
 	if err != nil {
-		return store.Capture{}, fmt.Errorf("capture evidence: epic %s: %w", epic, err)
+		return store.Capture{}, fmt.Errorf("capture evidence: %w", err)
 	}
 	runner := args.Runner
 	if runner == "" {
 		runner = localRunnerName
 	}
-	prefix, found, err := runnerPrefix(ctx, row, runner)
+	prefix, found, err := runnerPrefix(ctx, host, row, runner)
 	if err != nil {
 		return store.Capture{}, fmt.Errorf("capture evidence: %w", err)
 	}
@@ -180,7 +190,7 @@ func (c *Captures) Capture(ctx context.Context, caller string, args CaptureArgs)
 			fmt.Sprintf("runner %q is not named by the project at %s", runner, row.Base),
 		)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, args.Commit)
+	commit, err := stepGitResolve(ctx, host, row.Repository, args.Commit)
 	if err != nil {
 		return store.Capture{}, fmt.Errorf("%w: commit %q does not resolve: %w", ErrCaptureRefused, args.Commit, err)
 	}
@@ -204,7 +214,7 @@ func (c *Captures) Capture(ctx context.Context, caller string, args CaptureArgs)
 	}
 	item := captureItem(stored, prefix)
 	if err = c.begin(ctx, id, func(driveCtx context.Context) {
-		c.runFresh(driveCtx, row.Repository, stored, item)
+		c.runFresh(driveCtx, host, row.Repository, stored, item)
 	}); err != nil {
 		return store.Capture{}, fmt.Errorf("capture %s: %w", id, err)
 	}
@@ -320,13 +330,28 @@ func (c *Captures) roleOf(ctx context.Context, caller string) (string, error) {
 	return captureRoleStep, nil
 }
 
+// epicOn returns the stored row of epic and the Host it lives on, which its captures' git, worktrees and artifact reads
+// run on.
+func (c *Captures) epicOn(ctx context.Context, epic string) (store.EpicRow, hostexec.Host, error) {
+	row, err := c.store.Epic(ctx, epic)
+	if err != nil {
+		return store.EpicRow{}, nil, fmt.Errorf("epic %s: %w", epic, err)
+	}
+	host, err := hostOfEpic(ctx, c.store, c.hosts, epic)
+	if err != nil {
+		return store.EpicRow{}, nil, err
+	}
+	return row, host, nil
+}
+
 // runnerPrefix returns the argv a capture on runner runs before its own argv. The local runner has none. Any other runner is
-// the one the project of row names at its base, and found is false when that project names no runner of the name.
-func runnerPrefix(ctx context.Context, row store.EpicRow, runner string) ([]string, bool, error) {
+// the one the project of row names at its base, read through host, and found is false when that project names no runner of
+// the name.
+func runnerPrefix(ctx context.Context, host hostexec.Host, row store.EpicRow, runner string) ([]string, bool, error) {
 	if runner == localRunnerName {
 		return nil, true, nil
 	}
-	runners, err := ReadProjectRunners(ctx, row.Repository, row.Base)
+	runners, err := ReadProjectRunners(ctx, host, row.Repository, row.Base)
 	if err != nil {
 		return nil, false, fmt.Errorf("runners of epic %s: %w", row.ID, err)
 	}
@@ -344,14 +369,14 @@ func captureItem(capture store.Capture, prefix []string) evidence.Item {
 	return evidence.Item{Capture: slices.Concat(prefix, capture.Argv), Limit: capture.Limit, Artifacts: capture.Files}
 }
 
-// resumeRunning takes up a running capture. One with a grant readopts its gate, and one with none clears its worktree and runs
-// from the start. Either is driven in the background, as Capture's run is.
+// resumeRunning takes up a running capture on the host its epic lives on. One with a grant readopts its gate, and one with
+// none clears its worktree and runs from the start. Either is driven in the background, as Capture's run is.
 func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) error {
-	row, err := c.store.Epic(ctx, capture.Epic)
+	row, host, err := c.epicOn(ctx, capture.Epic)
 	if err != nil {
-		return fmt.Errorf("epic %s: %w", capture.Epic, err)
+		return err
 	}
-	prefix, found, err := runnerPrefix(ctx, row, capture.Runner)
+	prefix, found, err := runnerPrefix(ctx, host, row, capture.Runner)
 	if err != nil {
 		return err
 	}
@@ -361,7 +386,7 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 	item := captureItem(capture, prefix)
 	return c.begin(ctx, capture.ID, func(driveCtx context.Context) {
 		if capture.Grant != "" {
-			end, readoptErr := c.captures.readopt(
+			end, readoptErr := c.captures.on(host).readopt(
 				driveCtx,
 				row.Repository,
 				capture.Commit,
@@ -375,6 +400,7 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 		worktree := filepath.Join(c.captures.worktrees, capture.ID)
 		if clearErr := clearUnlaunchedWorktree(
 			context.WithoutCancel(driveCtx),
+			host,
 			row.Repository,
 			worktree,
 		); clearErr != nil {
@@ -388,13 +414,15 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 			)
 			return
 		}
-		c.runFresh(driveCtx, row.Repository, capture, item)
+		c.runFresh(driveCtx, host, row.Repository, capture, item)
 	})
 }
 
-// runFresh runs capture at its commit in repo under a grant of the gate pool. The grant is recorded once it holds, and the
-// capture is then settled (see settle).
-func (c *Captures) runFresh(ctx context.Context, repo string, capture store.Capture, item evidence.Item) {
+// runFresh runs capture at its commit in repo on host under a grant of the gate pool. The grant is recorded once it holds,
+// and the capture is then settled (see settle).
+func (c *Captures) runFresh(
+	ctx context.Context, host hostexec.Host, repo string, capture store.Capture, item evidence.Item,
+) {
 	launched := false
 	started := func(startCtx context.Context, grant, holder string) error {
 		if err := c.retry(startCtx, "capture grant", capture.ID, func(storeCtx context.Context) error {
@@ -405,7 +433,7 @@ func (c *Captures) runFresh(ctx context.Context, repo string, capture store.Capt
 		launched = true
 		return nil
 	}
-	end, err := c.captures.run(ctx, repo, capture.Commit, capture.ID, item, started)
+	end, err := c.captures.on(host).run(ctx, repo, capture.Commit, capture.ID, item, started)
 	c.settle(ctx, capture, end, err, launched)
 }
 

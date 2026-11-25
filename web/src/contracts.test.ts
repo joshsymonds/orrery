@@ -11,6 +11,7 @@ import {
   concernedRows,
   footText,
   leftOf,
+  lengthOf,
   type RowAbout,
   ratingTone,
   recordLine,
@@ -26,6 +27,7 @@ import {
   type ContractVersion,
   ContractVersionSchema,
 } from "./gen/orrery/v1/contracts_pb";
+import { EpicContractSchema, EpicRequirementSchema } from "./gen/orrery/v1/epics_pb";
 import { clock } from "./reader";
 
 const contractId = "tidepool/tide-alerts";
@@ -196,4 +198,54 @@ test("ContractDoc: statePill words each state, a proposal waiting on the owner",
   assert.equal(statePill("proposed"), "proposed · waits for you");
   assert.equal(statePill("accepted"), "accepted");
   assert.equal(statePill("set_aside"), "set aside");
+});
+
+test("ContractLength: an empty contract is no lines", () => {
+  assert.equal(lengthOf(create(EpicContractSchema, {}), [], []), 0);
+});
+
+test("ContractLength: the intent and the approach count their non-empty lines, not the blank ones", () => {
+  const contract = create(EpicContractSchema, { intent: "one\n\n   \ntwo\n", approach: "a\nb\n\nc" });
+  assert.equal(lengthOf(contract, [], []), 5);
+});
+
+test("ContractLength: each failure, addition, requirement, premise, exclusion, alternative, release step and decision is one line", () => {
+  const contract = create(EpicContractSchema, {
+    failures: [
+      { id: "F1", text: "a failure", rating: "limited", response: "" },
+      { id: "F2", text: "another", rating: "serious", response: "" },
+    ],
+    additions: [{ location: "a.go", what: "a change", why: "", cost: "" }],
+    premises: [
+      { id: "P1", text: "a premise", ifWrong: "" },
+      { id: "P2", text: "another", ifWrong: "" },
+      { id: "P3", text: "a third", ifWrong: "" },
+    ],
+    exclusions: ["not this"],
+    alternatives: [
+      { alternative: "one way", whyNot: "", reconsider: "" },
+      { alternative: "another way", whyNot: "", reconsider: "" },
+    ],
+    releaseSteps: [{ step: "ship", target: "", undo: "" }],
+  });
+  const requirement = create(EpicRequirementSchema, { id: "R1", text: "a requirement", evidence: "" });
+  const requirements = [requirement, requirement, requirement, requirement];
+  const decisions = [decision("D1", "F1"), decision("D2", "F2", "yes")];
+  assert.equal(lengthOf(contract, requirements, decisions), 2 + 1 + 3 + 1 + 2 + 1 + 4 + 2);
+});
+
+test("ContractLength: the title, care, release-then line, checks, base and approval count no line", () => {
+  const contract = create(EpicContractSchema, {
+    title: "a title\nover two lines",
+    approved: "approved\nin two lines",
+    care: "severe",
+    releaseThen: "then\nthis",
+    checks: "go test\njust check",
+    base: "0123456789abcdef0123456789abcdef01234567",
+  });
+  assert.equal(lengthOf(contract, [], []), 0);
+});
+
+test("ContractLength: an answered decision counts as one line, as an open one does", () => {
+  assert.equal(lengthOf(create(EpicContractSchema, {}), [], [decision("D1", "F1"), decision("D2", "F2", "yes")]), 2);
 });

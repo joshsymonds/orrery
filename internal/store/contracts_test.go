@@ -45,7 +45,7 @@ func syntheticProposal(writer string, at int64) store.ContractVersion {
 // its row removed.
 func deleteSessionRow(t *testing.T, path, id string) {
 	t.Helper()
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open raw handle: %v", err)
 	}

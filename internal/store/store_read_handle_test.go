@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -98,8 +97,8 @@ func TestStoreReadHandleRefusesAWrite(t *testing.T) {
 	s := openEpicStore(t)
 	_, err := s.read.ExecContext(t.Context(),
 		`INSERT INTO sessions (id, server, pane) VALUES ('read-handle', 'server', '%1')`)
-	var sqliteErr *sqlite.Error
-	if !errors.As(err, &sqliteErr) || sqliteErr.Code()&primaryCodeMask != sqlite3.SQLITE_READONLY {
+	var sqliteErr sqlite3.Error
+	if !errors.As(err, &sqliteErr) || sqliteErr.Code != sqlite3.ErrReadonly {
 		t.Fatalf("INSERT on the read pool: %v, want SQLite's read-only error", err)
 	}
 	t.Logf("INSERT on the read pool failed as read-only: %v", err)
@@ -130,8 +129,8 @@ func TestStoreReadHandleLogsASlowRead(t *testing.T) {
 }
 
 // TestStoreReadHandleWriterReferencedOnlyByWriteFunctions scans the package's non-test files for the writer's field,
-// db, and requires the functions that reference it to be writeDB, migrate and Close alone: every read runs on the read
-// pool.
+// db, and requires the functions that reference it to be writeDB, makeFresh, migrate and Close alone: every read runs on
+// the read pool.
 func TestStoreReadHandleWriterReferencedOnlyByWriteFunctions(t *testing.T) {
 	t.Parallel()
 	entries, err := os.ReadDir(".")
@@ -168,7 +167,7 @@ func TestStoreReadHandleWriterReferencedOnlyByWriteFunctions(t *testing.T) {
 	}
 	slices.Sort(got)
 	t.Logf("non-test functions referencing the writer handle: %s", strings.Join(got, ", "))
-	if want := []string{"Close", "migrate", "writeDB"}; !slices.Equal(got, want) {
+	if want := []string{"Close", "makeFresh", "migrate", "writeDB"}; !slices.Equal(got, want) {
 		t.Fatalf("functions referencing the writer handle = %v, want %v", got, want)
 	}
 }

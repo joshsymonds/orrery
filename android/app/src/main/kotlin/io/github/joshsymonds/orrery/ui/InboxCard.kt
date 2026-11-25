@@ -7,9 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,9 +37,11 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * A project's card: a head with the fold control, the folder, the name, the path with home as ~, and a host chip only
  * for another host. Folded, the head also says how many things wait on you (only when [waiting] is not zero) and how
- * many conversations the project holds, and nothing else is drawn. Open, its conversations hang under a line, then the
- * ended line, which shows the count of ended conversations and opens to them. Each conversation is drawn by [convo].
- * A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the chevron only folds.
+ * many conversations the project holds, and nothing else is drawn. Open, its conversations sit on the card's ground,
+ * with no line, then the ended line, which shows the count of ended conversations and opens to them. Each conversation
+ * is drawn by [convo], with whether its fold is open (its key is in [foldOpen]) and the press that folds it, which calls
+ * [onConvoFold] with its key. A tap on the folder, the name or the path calls [onOpenProject] with the project's key; the
+ * chevron only folds.
  */
 @Composable
 internal fun ProjectCard(
@@ -51,9 +51,12 @@ internal fun ProjectCard(
     endedOpen: Boolean,
     onFold: () -> Unit,
     onEnded: () -> Unit,
-    convo: @Composable (Convo) -> Unit,
+    foldOpen: Set<String>,
+    onConvoFold: (String) -> Unit,
+    convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     onOpenProject: (String) -> Unit = {},
+    endedMoving: Boolean = false,
 ) {
     Column(
         modifier = modifier
@@ -64,7 +67,7 @@ internal fun ProjectCard(
     ) {
         ProjectHead(project, folded, waiting, onFold, onOpenProject)
         if (!folded) {
-            ProjectConversations(project, endedOpen, onEnded, convo)
+            ProjectConversations(project, endedOpen, onEnded, foldOpen, onConvoFold, convo, endedMoving)
         }
     }
 }
@@ -164,34 +167,28 @@ private fun ProjectConversations(
     project: Project,
     endedOpen: Boolean,
     onEnded: () -> Unit,
-    convo: @Composable (Convo) -> Unit,
+    foldOpen: Set<String>,
+    onConvoFold: (String) -> Unit,
+    convo: @Composable (Convo, Boolean, () -> Unit) -> Unit,
+    endedMoving: Boolean,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
             .padding(
-                start = OrreryTokens.Space.sixteen,
+                start = OrreryTokens.Space.four,
                 end = OrreryTokens.Space.four,
                 bottom = OrreryTokens.Space.eight,
             ),
     ) {
-        Box(
-            modifier = Modifier
-                .width(OrreryTokens.Size.hairline)
-                .fillMaxHeight()
-                .background(OrreryTokens.Line.firm),
-        )
-        Column(modifier = Modifier.weight(1f).padding(start = OrreryTokens.Space.four)) {
-            for (c in project.convos) {
-                convo(c)
-            }
-            if (project.ended.isNotEmpty()) {
-                EndedLine(project, endedOpen, onEnded)
-                if (endedOpen) {
-                    for (c in project.ended) {
-                        convo(c)
-                    }
+        for (c in project.convos) {
+            convo(c, c.key in foldOpen) { onConvoFold(c.key) }
+        }
+        if (project.ended.isNotEmpty()) {
+            EndedLine(project, endedOpen, onEnded, endedMoving)
+            if (endedOpen) {
+                for (c in project.ended) {
+                    convo(c, c.key in foldOpen) { onConvoFold(c.key) }
                 }
             }
         }
@@ -199,10 +196,12 @@ private fun ProjectConversations(
 }
 
 @Composable
-private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit) {
+private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit, moving: Boolean) {
     Row(
         modifier = Modifier
             .testTag("ended:${project.key}")
+            .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
+            .arrival(moving)
             .fillMaxWidth()
             .height(OrreryTokens.Size.controlTouch)
             .clickable(role = Role.Button, onClick = onEnded),
@@ -218,7 +217,7 @@ private fun EndedLine(project: Project, endedOpen: Boolean, onEnded: () -> Unit)
     }
 }
 
-/** A project's conversations as the card counts them: each row once, and no stand-in, which is not a conversation. */
+/** A project's conversations as the card counts them: each row once, and no own row of a thing, which is not a conversation. */
 private fun conversationCount(project: Project): Int =
     (project.convos + project.ended).filter { it.pane != null }.distinctBy { it.key }.size
 

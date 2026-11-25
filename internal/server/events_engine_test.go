@@ -27,7 +27,7 @@ func applyEngineOps(t *testing.T, s *store.Store, ops ...store.EngineOp) {
 // can store a payload the store's writer would not write.
 func insertRawEvent(t *testing.T, path, kind, payload string) {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open store for raw event: %v", err)
 	}

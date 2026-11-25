@@ -387,7 +387,7 @@ test("EpicWords: each running step is a row with its glyph, label, pips, doing a
   );
   return withSection(props, async (container) => {
     assert.equal(container.querySelector("section.now")?.getAttribute("aria-label"), "Now");
-    assert.equal(container.querySelector("section.now h3")?.textContent, "Now");
+    assert.equal(container.querySelector("section.now .sec .name")?.textContent, "Now");
     assert.equal(sentenceOf(container).textContent, nowSentenceOf(props.detail));
     const rows = container.querySelectorAll("div.tbl.steps > div.tr");
     assert.equal(rows.length, 2, "the finished step draws no row");

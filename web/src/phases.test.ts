@@ -6,14 +6,13 @@ import { create } from "@bufbuild/protobuf";
 import { EpicRequirementSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/epics_pb";
 import { durationText, provenOf, taskOfLabel, tasksOf } from "./phases";
 
-test("tasks come from the build tasks when there are any, each where the server stands it", () => {
+test("tasks come from the build tasks, each where the server stands it", () => {
   const tasks = tasksOf(
     create(EpicsGetResponseSchema, {
       buildTasks: [
         { id: "T1", title: "Parser", status: "open", stage: "implement", requirements: ["R1"], place: "implement", tone: "run" },
         { id: "T2", title: "Lexer", status: "done", stage: "review", requirements: [], place: "integrate", tone: "acc" },
       ],
-      tasks: [{ effort: 1, slug: "old", subject: "Old", status: "done", requirements: [], place: "integrated", tone: "ok" }],
     }),
   );
   assert.deepEqual(
@@ -21,24 +20,6 @@ test("tasks come from the build tasks when there are any, each where the server 
     [
       ["T1", "Parser", "R1", "implement", "run"],
       ["T2", "Lexer", "", "integrate", "acc"],
-    ],
-  );
-});
-
-test("tasks come from the record's tasks when there are no build tasks, each where the server stands it", () => {
-  const tasks = tasksOf(
-    create(EpicsGetResponseSchema, {
-      tasks: [
-        { effort: 1, slug: "first", subject: "First task", status: "done", requirements: ["R2", "R3"], place: "integrated", tone: "ok" },
-        { effort: 1, slug: "second", subject: "Second", status: "gap", requirements: [], place: "green", tone: "bad" },
-      ],
-    }),
-  );
-  assert.deepEqual(
-    tasks.map((task) => [task.task, task.title, task.requirements.join(","), task.place, task.tone, task.labels.join(",")]),
-    [
-      ["first", "First task", "R2,R3", "integrated", "ok", "first"],
-      ["second", "Second", "", "green", "bad", "second"],
     ],
   );
 });

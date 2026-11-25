@@ -12,7 +12,7 @@ type ParkClass string
 const (
 	// ParkClassReleaseUndoNone is a release that stopped at a release step with undo none that failed.
 	ParkClassReleaseUndoNone ParkClass = "release_undo_none"
-	// ParkClassReleaseOwnerStop is a release the owner stopped: the epic no longer holds its release slot.
+	// ParkClassReleaseOwnerStop is a release the owner stopped: the stop is recorded at the attempt it stopped at.
 	ParkClassReleaseOwnerStop ParkClass = "release_owner_stop"
 	// ParkClassBranch is an epic branch that exists, is gone, has moved or is checked out elsewhere.
 	ParkClassBranch ParkClass = "branch"
@@ -26,6 +26,8 @@ const (
 	// ParkClassRetryBound is a planner park that came back after two planner actions on its chain. The planner is not
 	// woken again for it: the owner answers it.
 	ParkClassRetryBound ParkClass = "retry_bound"
+	// ParkClassStall is an epic the stall check found idle twice with nothing changed, or idle with no plan run to wake.
+	ParkClassStall ParkClass = "stall"
 )
 
 // The planner classes. Each is answered by the planner's next turn.
@@ -48,7 +50,7 @@ const (
 func (c ParkClass) OpensQuestion() bool {
 	switch c {
 	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
-		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound:
+		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound, ParkClassStall:
 		return true
 	case ParkClassNode, ParkClassTask, ParkClassLoop, ParkClassNotBuilt, ParkClassReleaseStep:
 		return false

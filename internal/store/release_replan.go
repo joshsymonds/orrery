@@ -55,37 +55,67 @@ func recordReplan(ctx context.Context, queries *sqlcgen.Queries, epic string, ro
 
 // ReplanRelease sends the release of epic back to planning, in one write, for the replan release run of the running
 // release node run at path and attempt. It moves epic from releasing, or from stopped when a retry ended the stop, to
-// correcting, frees the release slot epic holds, starts plan, the plan run that plans and integrates the change to the
-// candidate, adds trigger, which wakes the planner with the integrator's report, and adds tell, cut to TurnReasonMax
-// bytes. An epic in another phase, or whose release node run is not running at attempt, changes nothing, so a repeat is a
-// no-op.
+// correcting, starts plan, the plan run that plans and integrates the change to the candidate, adds trigger, which wakes
+// the planner with the integrator's report, and adds tell, cut to TurnReasonMax bytes. An epic in another phase, or
+// whose release node run is not running at attempt, changes nothing, so a repeat is a no-op.
 func (s *Store) ReplanRelease(
 	ctx context.Context, epic, path string, attempt int64, plan NodeRun, trigger NodeTrigger, tell string,
 	at time.Time,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		running, err := runningAt(ctx, queries, epic, path, attempt)
-		if err != nil || !running {
+		_, err := replanInWrite(ctx, queries, epic, path, attempt, plan, trigger, tell, at)
+		return err
+	})
+}
+
+// ReplanGate sends the release of epic back to planning for a Done gate that ran and failed on a candidate that merged
+// origin's commit, in one write. It does what ReplanRelease does, and when the release moves it also stores replan, a
+// replan release run of the attempt of the running release node run at path, with the origin commit as its head and
+// the gate's report as its reason. Its part, step and time are set here. A release that does not move changes nothing,
+// so a repeat is a no-op.
+func (s *Store) ReplanGate(
+	ctx context.Context, epic, path string, replan ReleaseRun, plan NodeRun, trigger NodeTrigger, tell string,
+	at time.Time,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		sent, err := replanInWrite(ctx, queries, epic, path, replan.Attempt, plan, trigger, tell, at)
+		if err != nil || !sent {
 			return err
 		}
-		moved, err := queries.ReplanEpicRelease(ctx, sqlcgen.ReplanEpicReleaseParams{PhaseAt: at.Unix(), ID: epic})
-		if err != nil {
-			return fmt.Errorf("move epic %s back to planning: %w", epic, err)
-		}
-		if moved == 0 {
-			return nil
-		}
-		if freeErr := queries.FreeEpicReleaseSlot(ctx, epic); freeErr != nil {
-			return fmt.Errorf("free release slot of epic %s: %w", epic, freeErr)
-		}
-		if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
-			return startErr
-		}
-		if triggerErr := insertNodeTrigger(ctx, queries, epic, trigger, at); triggerErr != nil {
-			return triggerErr
-		}
-		return insertTell(ctx, queries, epic, capTurnText(tell), at)
+		replan.Part, replan.Step, replan.At = ReleasePartReplan, replanStepName, at
+		return recordRelease(ctx, queries, epic, replan)
 	})
+}
+
+// replanInWrite sends the release of epic at path and attempt back to planning, in the caller's write: the epic moves
+// from releasing or stopped to correcting, plan is started, and trigger and tell are added, as ReplanRelease does. It
+// reports whether the epic moved. A release node run that is not running at attempt, or an epic in another phase,
+// changes nothing.
+func replanInWrite(
+	ctx context.Context, queries *sqlcgen.Queries, epic, path string, attempt int64, plan NodeRun,
+	trigger NodeTrigger, tell string, at time.Time,
+) (bool, error) {
+	running, err := runningAt(ctx, queries, epic, path, attempt)
+	if err != nil || !running {
+		return false, err
+	}
+	moved, err := queries.ReplanEpicRelease(ctx, sqlcgen.ReplanEpicReleaseParams{PhaseAt: at.Unix(), ID: epic})
+	if err != nil {
+		return false, fmt.Errorf("move epic %s back to planning: %w", epic, err)
+	}
+	if moved == 0 {
+		return false, nil
+	}
+	if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
+		return false, startErr
+	}
+	if triggerErr := insertNodeTrigger(ctx, queries, epic, trigger, at); triggerErr != nil {
+		return false, triggerErr
+	}
+	if tellErr := insertTell(ctx, queries, epic, capTurnText(tell), at); tellErr != nil {
+		return false, tellErr
+	}
+	return true, nil
 }
 
 // runningAt reports whether the node run of epic at path is running at attempt.
@@ -103,8 +133,7 @@ func runningAt(ctx context.Context, queries *sqlcgen.Queries, epic, path string,
 // ResumeReplannedRelease resumes the release of epic once its replan has ended, in one write. The running release node
 // run at path and attempt moves to its next attempt with its outcome, output, revision, refs, refs checked, result and
 // end cleared, so it prepares its candidate again from the epic's branch tip, and epic moves from correcting to clean, so
-// the release takes its repository's release slot again. A release node run that is not running at attempt changes
-// nothing, so a repeat is a no-op.
+// the release starts again. A release node run that is not running at attempt changes nothing, so a repeat is a no-op.
 func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		moved, err := queries.NextEpicNodeRunAttempt(ctx, sqlcgen.NextEpicNodeRunAttemptParams{
@@ -126,17 +155,19 @@ func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, a
 	})
 }
 
-// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, when the release integrator
-// stopped it: the attempt of its parked release node run holds a round of the release integrator that returned blocked.
-// It stores a replan release run of that round, as the integrator's own replan stores one, turns the release node run
-// running at the same attempt, answers each open park question retry and ends the park as RetryEpic does. head stays
-// stopped until the release kind's next decision sends the release back to planning with the round's report
-// (ReplanRelease). Any other stopped release is a RefusalError, and only ReleaseEpic, or a planner's resume_release
-// action, resumes it.
+// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, when the release integrator or
+// a release reviewer stopped it: the attempt of its parked release node run holds a round of the release integrator that
+// returned blocked, or a review that refused the candidate. It stores a replan release run of that round or review, as
+// the integrator's own replan stores one, turns the release node run running at the same attempt, answers each open park
+// question retry and ends the park as RetryEpic does. head stays stopped until the release kind's next decision sends
+// the release back to planning with the round's or the review's report (ReplanRelease), so a candidate that needs a
+// change of its own is planned again instead of resumed as it was. Any other stopped release is a RefusalError, and only
+// ReleaseEpic, or a planner's resume_release action, resumes it.
 func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) error {
 	epic := head.ID
 	refusal := RefusalError(fmt.Sprintf(
-		"epic %s is stopped; retry ends a stopped release only when its release integrator stopped it", epic))
+		"epic %s is stopped; retry ends a stopped release only when its release integrator or reviewer stopped it",
+		epic))
 	parked, err := parkedReleaseRun(ctx, queries, epic)
 	var refused RefusalError
 	if errors.As(err, &refused) {
@@ -149,14 +180,11 @@ func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sql
 	if err != nil {
 		return err
 	}
-	blocked := slices.IndexFunc(runs, func(run ReleaseRun) bool {
-		return run.Part == ReleasePartIntegrator && run.Attempt == parked.Attempt && !run.Passed &&
-			run.End == integratorReturnedEnd
-	})
-	if blocked < 0 {
+	stop, ok := replanOfStop(runs, parked.Attempt)
+	if !ok {
 		return refusal
 	}
-	if recordErr := recordReplan(ctx, queries, epic, runs[blocked]); recordErr != nil {
+	if recordErr := recordReplan(ctx, queries, epic, stop); recordErr != nil {
 		return recordErr
 	}
 	if _, unparkErr := queries.UnparkEpicNodeRun(ctx, sqlcgen.UnparkEpicNodeRunParams{
@@ -168,4 +196,28 @@ func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sql
 		return closeErr
 	}
 	return endPark(ctx, queries, epic)
+}
+
+// replanOfStop returns the release run a retry replans the release stopped at attempt from, as runs hold it: the round of
+// the release integrator that returned blocked at attempt, else a review at attempt that refused the candidate, with the
+// candidate it refused as its start. It reports false when runs hold neither.
+func replanOfStop(runs []ReleaseRun, attempt int64) (ReleaseRun, bool) {
+	blocked := slices.IndexFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartIntegrator && run.Attempt == attempt && !run.Passed &&
+			run.End == integratorReturnedEnd
+	})
+	if blocked >= 0 {
+		return runs[blocked], true
+	}
+	refused := slices.IndexFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
+	})
+	if refused < 0 {
+		return ReleaseRun{}, false
+	}
+	review := runs[refused]
+	if review.Start == "" {
+		review.Start = review.Head
+	}
+	return review, true
 }

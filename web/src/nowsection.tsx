@@ -4,6 +4,7 @@ import { Ask } from "./ask";
 import { epicAsk, parkAsk } from "./askmodel";
 import { AskFirst } from "./blocker";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { Icon } from "./glyphs";
 import { pipsOf, recordTasksOf } from "./record";
 import { Pips } from "./pips";
 import { askingOf, nowSentenceOf, stepLinesOf } from "./recordwords";
@@ -40,7 +41,10 @@ export function NowSection({
   const slug = epic?.slug ?? "";
   return (
     <section class="now" aria-label="Now">
-      <h3>Now</h3>
+      <div class="sec" data-hue="live">
+        <Icon name="clock" />
+        <span class="name">Now</span>
+      </div>
       <p class="now-sentence">{nowSentenceOf(detail)}</p>
       {asking?.kind === "question" && epic !== undefined && (
         <Ask

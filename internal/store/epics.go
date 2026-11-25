@@ -48,16 +48,13 @@ func (e *QuestionReplacedError) Error() string {
 
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds. Seen is the time of the epic's last SeeEpic mark, zero when
-// none is stored. Synced is the commit of origin's main that the stored base last merged in a sync, "" while no sync
-// has passed, and OriginRead the epic's last read of origin's main.
+// none is stored.
 type EpicRow struct {
 	ID          string
 	Repository  string
 	Base        string
 	StoredBase  string
 	Candidate   string
-	Synced      string
-	OriginRead  OriginRead
 	Branch      string
 	Title       string
 	Approved    string
@@ -88,6 +85,7 @@ type EpicRow struct {
 	SupersededBy string
 	Summary      string
 	Steerer      string
+	Host         string
 	Report       EpicReport
 	Workflow     EpicWorkflow
 
@@ -224,7 +222,8 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 // CreateContractEpic stores row as CreateEpic does, in one write that first reads the contract holding row's id: that
 // contract's newest state must be accepted and its newest version must be version. Otherwise it returns an error that
 // matches ErrNoContract or ErrContractState and stores nothing. An id an epic holds is ErrEpicExists, as CreateEpic
-// gives it.
+// gives it. The same write reads the contracts the contract starts after: when one has no epic, or an epic not in
+// released, done or closed_shipped, the epic is stored in PhaseHeld rather than row's phase.
 func (s *Store) CreateContractEpic(ctx context.Context, row EpicRow, version int64) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		listing, err := readContractListing(ctx, queries, row.ID)
@@ -242,6 +241,13 @@ func (s *Store) CreateContractEpic(ctx context.Context, row EpicRow, version int
 				version,
 				ErrContractState,
 			)
+		}
+		shipped, err := startsAfterShipped(ctx, queries, row.ID)
+		if err != nil {
+			return err
+		}
+		if !shipped {
+			row.Phase = PhaseHeld
 		}
 		return insertEpic(ctx, queries, row)
 	})
@@ -261,7 +267,7 @@ func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) erro
 		Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
 		ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
 		Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
-		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer,
+		WorkflowSha256: row.Workflow.SHA256, PhaseAt: row.Created.Unix(), Steerer: row.Steerer, Host: row.Host,
 	}); err != nil {
 		return fmt.Errorf("insert epic %s: %w", row.ID, err)
 	}
@@ -499,6 +505,37 @@ func encodeStrings(items []string) (string, error) {
 // has that id.
 func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
 	return readEpic(ctx, sqlcgen.New(s.read), id)
+}
+
+// EpicHost returns the host the stored epic with id lives on. An unknown id is ErrNoEpic.
+func (s *Store) EpicHost(ctx context.Context, id string) (string, error) {
+	return epicHostOf(ctx, sqlcgen.New(s.read), id)
+}
+
+// epicHostOf returns the host of the stored epic with id as queries read it. An unknown id is ErrNoEpic.
+func epicHostOf(ctx context.Context, queries *sqlcgen.Queries, id string) (string, error) {
+	host, err := queries.GetEpicHost(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("epic %s: %w", id, ErrNoEpic)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get host of epic %s: %w", id, err)
+	}
+	return host, nil
+}
+
+// AdoptHost sets the host of every epic and step row with no host to name, in one store write. A row that already names
+// a host keeps it, so a controller that opens a store adopts only the rows stored before hosts were kept.
+func (s *Store) AdoptHost(ctx context.Context, name string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := queries.AdoptEpicHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of epics: %w", err)
+		}
+		if err := queries.AdoptStepHosts(ctx, name); err != nil {
+			return fmt.Errorf("adopt host of steps: %w", err)
+		}
+		return nil
+	})
 }
 
 // readEpic returns the stored epic with id as queries read it, every section in order. It returns an error matching
@@ -771,6 +808,7 @@ func epicListingOf(listed sqlcgen.ListEpicListingsRow) EpicRow {
 	row := EpicRow{
 		ID:            listed.ID,
 		Repository:    listed.Repository,
+		Host:          listed.Host,
 		Title:         listed.Title,
 		Phase:         listed.Phase,
 		Created:       time.Unix(listed.Created, 0),
@@ -902,6 +940,7 @@ func (s *Store) AnswerQuestion(
 // question. An answer to a park question for a red run judged holding at base carries out its choice, as
 // answerMetAtBase gives. An answered park question that is not final ends the park in the same write. An answer to a
 // gaps question carries out its choice in the same write, after the decision is appended, as answerGapsQuestion gives.
+// An answer to a held question carries out its choice in the same write too, as answerHeldQuestion gives.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -943,6 +982,10 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	err = answerGapsQuestion(ctx, queries, epic, id, text, answered, choice, maker, at)
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	err = answerHeldQuestion(ctx, queries, epic, choice, answered, at)
 	if err != nil {
 		return EpicDecision{}, err
 	}
@@ -1200,8 +1243,6 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Base:         head.Base,
 		StoredBase:   head.StoredBase,
 		Candidate:    head.Candidate,
-		Synced:       head.Synced,
-		OriginRead:   originReadOf(head),
 		Branch:       head.Branch,
 		Title:        head.Title,
 		Approved:     head.Approved,
@@ -1222,6 +1263,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		SupersededBy: head.SupersededBy,
 		Summary:      head.Summary,
 		Steerer:      head.Steerer,
+		Host:         head.Host,
 		Workflow: EpicWorkflow{
 			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
 		},

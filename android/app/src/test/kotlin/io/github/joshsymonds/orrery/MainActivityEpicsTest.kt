@@ -125,6 +125,7 @@ class MainActivityEpicsTest {
         .setPane(0)
         .setCwd("/home/user/alpha")
         .setCommand("claude")
+        .setClaudeSession("synthetic-claude")
         .setState("working")
         .setSummary("Synthetic summary.")
         .setLabel(label)
@@ -185,7 +186,6 @@ class MainActivityEpicsTest {
         .addRunningSteps(epicStep())
         .addRunningSteps(epicStep(id = HELD_STEP_ID, held = true))
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     /**
@@ -230,7 +230,6 @@ class MainActivityEpicsTest {
         .setChanged(NOW - 3_600L)
         .setLive(false)
         .setEndedSteps(0)
-        .setProblem("")
         .build()
 
     /** The one requirement a contracted epic carries, with its evidence. */

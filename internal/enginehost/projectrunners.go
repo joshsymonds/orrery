@@ -8,6 +8,8 @@ import (
 	"slices"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // ProjectRunner is one runner a project names: the name a capture asks for it by, the argv it runs, and a note on what
@@ -76,15 +78,15 @@ func ParseProjectRunners(data []byte) ([]ProjectRunner, error) {
 	return runners, nil
 }
 
-// ReadProjectRunners returns the runners that the project of repo names at commit, read from the commit and never the
-// working tree. A commit with no project file, or a project file with no runners, names none. It returns an error when
-// the commit does not resolve or the file's runners do not parse.
-func ReadProjectRunners(ctx context.Context, repo, commit string) ([]ProjectRunner, error) {
-	base, err := stepGitResolve(ctx, repo, commit)
+// ReadProjectRunners returns the runners that the project of repo names at commit, read from the commit through host and
+// never the working tree. A commit with no project file, or a project file with no runners, names none. It returns an
+// error when the commit does not resolve or the file's runners do not parse.
+func ReadProjectRunners(ctx context.Context, host hostexec.Host, repo, commit string) ([]ProjectRunner, error) {
+	base, err := stepGitResolve(ctx, host, repo, commit)
 	if err != nil {
 		return nil, fmt.Errorf("resolve commit: %w", err)
 	}
-	data, found, err := baseReader(ctx, repo, base)(projectFileRel)
+	data, found, err := baseReader(ctx, host, repo, base)(projectFileRel)
 	if err != nil {
 		return nil, err
 	}

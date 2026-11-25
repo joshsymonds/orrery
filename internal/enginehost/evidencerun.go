@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -50,6 +51,7 @@ type EvidenceStore interface {
 	EvidenceRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	OpenEvidenceRuns(ctx context.Context) ([]store.EvidenceRun, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // EvidenceSteps starts judge steps and subscribes to their ends and holds. *Steps satisfies it.
@@ -72,15 +74,17 @@ type EvidenceGatherers interface {
 	Wake(ctx context.Context, epic string)
 }
 
-// EvidenceConfig configures an Evidence. Store records the runs and Steps runs the judges. StateDir holds the blobs. NewTimer
-// arms a timer that sends on its channel once, after a duration, and returns the timer's stop; a nil NewTimer wraps
-// time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed store write of a run
-// waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before it reads the epic
-// again, and nil is time.After. Briefs reads and attaches captures to the runs they answer, and Gatherers is woken for an
-// epic whose briefs wait; both may be nil.
+// EvidenceConfig configures an Evidence. Store records the runs and Steps runs the judges. StateDir holds the blobs. Hosts
+// resolves the host each epic is stored on to the Host its runs' git and supplied file reads run on, and a nil Hosts is
+// hostexec.LocalHosts. NewTimer arms a timer that sends on its channel once, after a duration, and returns the timer's stop;
+// a nil NewTimer wraps time.NewTimer. A nil Now is time.Now, and a nil Logger discards. After returns the channel a failed
+// store write of a run waits on before it is tried again (see retryStore), and that a judge of a paused epic waits on before
+// it reads the epic again, and nil is time.After. Briefs reads and attaches captures to the runs they answer, and Gatherers
+// is woken for an epic whose briefs wait; both may be nil.
 type EvidenceConfig struct {
 	Store     EvidenceStore
 	Steps     EvidenceSteps
+	Hosts     hostexec.Hosts
 	StateDir  string
 	Now       func() time.Time
 	Logger    *slog.Logger
@@ -103,6 +107,7 @@ type Evidence struct {
 	newTimer  func(time.Duration) (<-chan time.Time, func() bool)
 	logger    *slog.Logger
 	after     func(time.Duration) <-chan time.Time
+	hosts     hostexec.Hosts
 	briefs    EvidenceBriefs
 	gatherers EvidenceGatherers
 
@@ -135,6 +140,10 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 	if after == nil {
 		after = time.After
 	}
+	hosts := cfg.Hosts
+	if hosts == nil {
+		hosts = hostexec.LocalHosts()
+	}
 	blobs := evidenceBlobs{dir: filepath.Join(cfg.StateDir, "evidence", "blobs")}
 	return &Evidence{
 		store:     cfg.Store,
@@ -145,6 +154,7 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 		newTimer:  newTimer,
 		logger:    logger,
 		after:     after,
+		hosts:     hosts,
 		briefs:    cfg.Briefs,
 		gatherers: cfg.Gatherers,
 		cancels:   map[string]context.CancelCauseFunc{},
@@ -169,7 +179,11 @@ func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) 
 	if phase != evidence.PhaseRed && phase != evidence.PhaseGreen {
 		return store.EvidenceRun{}, fmt.Errorf("%w: phase %q is not red or green", ErrEvidenceRefused, phase)
 	}
-	commit, err := stepGitResolve(ctx, row.Repository, revision)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, epic)
+	if err != nil {
+		return store.EvidenceRun{}, err
+	}
+	commit, err := stepGitResolve(ctx, host, row.Repository, revision)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf(
 			"%w: revision %q does not resolve: %w", ErrEvidenceRefused, revision, err,
@@ -354,6 +368,25 @@ func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error)
 	return "", "", fmt.Errorf("artifact %s of evidence run %s: %w", name, run.ID, ErrNoEvidenceArtifact)
 }
 
+// epicHoster reads the name of the host a stored epic lives on. The stores of the runners satisfy it.
+type epicHoster interface {
+	EpicHost(ctx context.Context, epic string) (string, error)
+}
+
+// hostOfEpic returns the Host the stored epic lives on: the host name st gives it, resolved by hosts. An epic st does not
+// hold, and a name hosts does not resolve, are errors.
+func hostOfEpic(ctx context.Context, st epicHoster, hosts hostexec.Hosts, epic string) (hostexec.Host, error) {
+	name, err := st.EpicHost(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic, err)
+	}
+	host, err := hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("host of epic %s: %w", epic, err)
+	}
+	return host, nil
+}
+
 // start drives run at repo in the background, under a context that Close cancels, and that finish cancels with nil. It returns
 // an error when the runner is closed, and the run then stays as it was stored for a restart to resume.
 func (e *Evidence) start(ctx context.Context, repo string, run store.EvidenceRun) error {
@@ -384,9 +417,14 @@ func (e *Evidence) finish(id string) {
 // drive runs the supplied run to its verdict. Its reading of its files is recorded (see recordCapture), even when ctx has
 // ended, and a run whose reading captured nothing ends there. A drive whose ctx has ended then stops before judging, and a
 // Resume gives the judge. Otherwise its judge gives the verdict. A read cut short records nothing, so the next restart reads
-// the files again.
+// the files again, and so does one whose epic's host cannot be read.
 func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun) {
-	capture, err := e.capture(ctx, repo, run)
+	host, err := hostOfEpic(ctx, e.store, e.hosts, run.Epic)
+	if err != nil {
+		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
+		return
+	}
+	capture, err := e.capture(ctx, host, repo, run)
 	if err != nil {
 		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
@@ -424,10 +462,12 @@ func (e *Evidence) recordJudge(ctx context.Context, id, step string) error {
 	return nil
 }
 
-// capture reads the supplied files of run at repo's revision. A read that ctx cut short has not ended, so it returns an error
-// and a restart reads the files again rather than recording the cut.
-func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceCapture, error) {
-	capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
+// capture reads the supplied files of run at repo's revision on host. A read that ctx cut short has not ended, so it returns
+// an error and a restart reads the files again rather than recording the cut.
+func (e *Evidence) capture(
+	ctx context.Context, host hostexec.Host, repo string, run store.EvidenceRun,
+) (store.EvidenceCapture, error) {
+	capture := readSupplied(ctx, host, repo, run.Revision, run.Spec.Supplied, e.blobs)
 	if capture.NotCaptured != "" && ctx.Err() != nil {
 		return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())
 	}

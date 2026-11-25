@@ -29,6 +29,7 @@ const (
 	reasonSharedTitle    = "names a title two tasks of the return share"
 	reasonFailedTask     = "names a failed task"
 	reasonGapTask        = "names a gap task"
+	reasonSplitTask      = "names a split task; name its descendants"
 	reasonCycle          = "is part of a cycle of depends_on"
 	reasonNotStringArray = "not a JSON array of strings"
 )
@@ -58,6 +59,7 @@ func Check(ret Return, requirements []string, tasks []store.EpicTask, gate, judg
 		refusals = append(refusals, checkAmendAction(i, action, known, judge)...)
 		refusals = append(refusals, checkApproachAction(i, action, judge)...)
 		refusals = append(refusals, checkApproachFiles(i, action)...)
+		refusals = append(refusals, checkSplitAction(i, action, known, gate, judge)...)
 	}
 	refusals = append(refusals, checkUnresolvable(ret)...)
 	if len(refusals) == 0 {
@@ -67,9 +69,10 @@ func Check(ret Return, requirements []string, tasks []store.EpicTask, gate, judg
 }
 
 // checkAmendKeeps returns one refusal for each amend_evidence action of ret whose item changes the conclusion of the
-// Requirement it names, and one for each whose item changes its kind, which only the owner may change: the planner amends
-// how a Requirement is shown, never what it claims or what its kind checks. requirements are the epic's Requirements. An
-// action that names no Requirement of the epic is refused by Check, so it gets no line here.
+// Requirement it names, and one for each whose item changes its kind. Only the owner or the epic's steering
+// conversation may change a conclusion or kind: the planner amends how a Requirement is shown, never what it claims or
+// what its kind checks. requirements are the epic's Requirements. An action that names no Requirement of the epic is
+// refused by Check, so it gets no line here.
 func checkAmendKeeps(ret Return, requirements []store.EpicRequirement) []string {
 	var refusals []string
 	for i, action := range ret.Actions {
@@ -413,12 +416,23 @@ const (
 	reasonNamedEarlier        = "names a gap an earlier entry names"
 )
 
+// minSplitTasks is the fewest descendants a split action may name: one descendant is no split of its task.
+const minSplitTasks = 2
+
+// The reasons a refusal of a split action's descendants gives: there are fewer than minSplitTasks, a descendant repeats
+// the title of an earlier one, and a file of a descendant is one an earlier descendant names.
+const (
+	reasonFewerDescendants = "fewer than two descendants"
+	reasonRepeatedTitle    = "repeats the title of an earlier descendant"
+	reasonFileNamedEarlier = "named by an earlier descendant"
+)
+
 // actionKinds returns the kinds an action may name, in the order the refusal lists them.
 func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
 		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach, store.ActionSendBack,
-		store.ActionRerunReview, store.ActionReopenDesign,
+		store.ActionRerunReview, store.ActionReopenDesign, store.ActionSplit,
 	}
 }
 
@@ -447,6 +461,8 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argReviewer}, true
 	case store.ActionReopenDesign:
 		return []string{argTask, argDeliverable}, true
+	case store.ActionSplit:
+		return []string{argTask, argTasks}, true
 	}
 	return nil, false
 }
@@ -482,9 +498,9 @@ func checkAction(i int, action EngineAction) []string {
 
 // checkNeededFields calls refuse for each field action's kind needs that is missing or wrong: a retry_node names a node,
 // a fail_task names a task above 0, a close_epic names a close of superseded or abandoned and, when superseded, a by,
-// a change_approach or reopen_design names a task above 0 and a deliverable, a send_back names a task above 0, and a
-// rerun_review names a reviewer. An amend_evidence action's fields are checkAmendAction's, and a change_approach action's
-// item is checkApproachAction's.
+// a change_approach or reopen_design names a task above 0 and a deliverable, a send_back and a split name a task above
+// 0, and a rerun_review names a reviewer. An amend_evidence action's fields are checkAmendAction's, a change_approach
+// action's item is checkApproachAction's, and a split's descendants are checkSplitAction's.
 func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 	switch action.Kind {
 	case store.ActionRetryNode:
@@ -495,7 +511,7 @@ func checkNeededFields(action EngineAction, refuse func(field, reason string)) {
 		if strings.TrimSpace(action.Reviewer) == "" {
 			refuse(argReviewer, reasonEmpty)
 		}
-	case store.ActionFailTask, store.ActionSendBack:
+	case store.ActionFailTask, store.ActionSendBack, store.ActionSplit:
 		if action.Task <= 0 {
 			refuse(argTask, reasonAboveZero)
 		}
@@ -566,6 +582,76 @@ func checkApproachFiles(i int, action EngineAction) []string {
 	return refusals
 }
 
+// checkSplitAction returns the refusals of a split action at position i, named as checkAction names its lines: fewer
+// than minSplitTasks descendants, then the refusals of each descendant in order, from checkDescendant. An action of
+// another kind, and one whose args did not read, which checkAction refuses, get none. Whether the split's files and
+// claims match the task it splits is the store's to refuse.
+func checkSplitAction(
+	i int, action EngineAction, known map[string]bool, gate, judge func(name string) error,
+) []string {
+	if action.Kind != store.ActionSplit || action.ArgsError != "" {
+		return nil
+	}
+	var refusals []string
+	if len(action.Split) < minSplitTasks {
+		refusals = append(refusals, fmt.Sprintf(`actions[%d] "%s" %s: %s`,
+			i, action.Kind, argTasks, reasonFewerDescendants))
+	}
+	titles := make(map[string]bool, len(action.Split))
+	files := make(map[string]bool)
+	for j, descendant := range action.Split {
+		item := fmt.Sprintf(`actions[%d] "%s" %s[%d] "%s"`, i, action.Kind, argTasks, j, descendant.Title)
+		refusals = append(refusals, checkDescendant(item, descendant, titles, files, known, gate, judge)...)
+	}
+	return refusals
+}
+
+// checkDescendant returns the refusals of descendant, named by item, in the order of a task's fields: its title, which
+// may not repeat the title of an earlier descendant, its deliverable, its files, which may not repeat a file an earlier
+// descendant names, its test changes, which must be among its files, its claims and contributes, which must be
+// Requirements of the epic, its gate, which must resolve to a command gate, and its evidence item. Its title and files
+// then join titles and files, which hold the descendants before the next one.
+func checkDescendant(
+	item string, descendant Descendant, titles, files, known map[string]bool, gate, judge func(name string) error,
+) []string {
+	var refusals []string
+	switch {
+	case strings.TrimSpace(descendant.Title) == "":
+		refusals = append(refusals, item+" title: "+reasonEmpty)
+	case titles[descendant.Title]:
+		refusals = append(refusals, item+" title: "+reasonRepeatedTitle)
+	}
+	titles[descendant.Title] = true
+	if strings.TrimSpace(descendant.Deliverable) == "" {
+		refusals = append(refusals, item+" deliverable: "+reasonEmpty)
+	}
+	if len(descendant.Files) == 0 {
+		refusals = append(refusals, item+" files: "+reasonNoFiles)
+	}
+	for k, file := range descendant.Files {
+		reason := FileRefusal(file)
+		if reason == "" && files[file] {
+			reason = reasonFileNamedEarlier
+		}
+		if reason != "" {
+			refusals = append(refusals, fmt.Sprintf("%s files[%d]: %s", item, k, reason))
+		}
+	}
+	for _, file := range descendant.Files {
+		files[file] = true
+	}
+	view := Task{Files: descendant.Files, TestChanges: descendant.TestChanges}
+	refusals = append(refusals, testChangeRefusals(item, view)...)
+	refusals = append(refusals, unknownRequirements(item+" claims", descendant.Claims, known)...)
+	refusals = append(refusals, unknownRequirements(item+" contributes", descendant.Contributes, known)...)
+	if strings.TrimSpace(descendant.Gate) == "" {
+		refusals = append(refusals, item+" gate: "+reasonEmpty)
+	} else if err := gate(descendant.Gate); err != nil {
+		refusals = append(refusals, item+" gate: "+err.Error())
+	}
+	return append(refusals, checkItemLines(item, descendant.Evidence, judge)...)
+}
+
 // checkItemLines returns the refusals of item as the item field of the action named by prefix: each line evidence.Check
 // gives, as item.<line>, and an item.judge line when judge does not resolve item's judge.
 func checkItemLines(prefix string, item evidence.Item, judge func(name string) error) []string {
@@ -598,6 +684,7 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argFiles, len(action.Files) > 0},
 		{argRemove, len(action.Remove) > 0},
 		{argReviewer, action.Reviewer != ""},
+		{argTasks, len(action.Split) > 0},
 	}
 	for _, field := range fields {
 		if field.set && !slices.Contains(used, field.name) {
@@ -692,8 +779,8 @@ func (g taskGraph) dependsOnRefusals(i int) []string {
 }
 
 // dependsOnReason returns the reason the depends_on entry name of return task i is refused, or "" when it passes. A
-// T<n> must name an epic task that is neither failed nor a gap. Any other name must be the title of exactly one task of
-// the return, and the entry must not be part of a cycle of depends_on, a self-reference included.
+// T<n> must name an epic task that is neither failed, a gap nor split. Any other name must be the title of exactly one
+// task of the return, and the entry must not be part of a cycle of depends_on, a self-reference included.
 func (g taskGraph) dependsOnReason(i int, name string) string {
 	if isTName(name) {
 		task, ok := g.epic[name]
@@ -704,6 +791,8 @@ func (g taskGraph) dependsOnReason(i int, name string) string {
 			return reasonFailedTask
 		case task.Status == store.TaskGap:
 			return reasonGapTask
+		case task.Status == store.TaskSplit:
+			return reasonSplitTask
 		}
 		return ""
 	}

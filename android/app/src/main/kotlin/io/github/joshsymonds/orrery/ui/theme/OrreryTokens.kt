@@ -183,8 +183,14 @@ object OrreryTokens {
         val scrim: Float = 0.6f
     }
 
+    object Ground {
+        val open: Color = Color(0xFF524568)
+        val openHover: Color = Color(0xFF65547E)
+    }
+
     object Font {
         val mono: String = "\"Orrery Mono\", ui-monospace, \"JetBrains Mono\", Menlo, monospace"
+        val inter: String = "\"Inter\", system-ui, sans-serif"
         object Weight {
             val regular: FontWeight = FontWeight(400)
             val bold: FontWeight = FontWeight(700)
@@ -194,14 +200,16 @@ object OrreryTokens {
     object Type {
         val label: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.bold, fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.06f.em)
         const val labelCaps: Boolean = true
-        val small: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.regular, fontSize = 13.sp, lineHeight = 20.sp, letterSpacing = 0f.em)
+        val small: TextStyle = TextStyle(fontFamily = OrreryInter, fontWeight = Font.Weight.regular, fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0f.em)
         const val smallCaps: Boolean = false
-        val body: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.regular, fontSize = 15.sp, lineHeight = 24.sp, letterSpacing = 0f.em)
+        val body: TextStyle = TextStyle(fontFamily = OrreryInter, fontWeight = Font.Weight.regular, fontSize = 15.sp, lineHeight = 22.sp, letterSpacing = 0f.em)
         const val bodyCaps: Boolean = false
-        val title: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.bold, fontSize = 18.sp, lineHeight = 28.sp, letterSpacing = 0f.em)
+        val title: TextStyle = TextStyle(fontFamily = OrreryInter, fontWeight = Font.Weight.bold, fontSize = 18.sp, lineHeight = 24.sp, letterSpacing = 0f.em)
         const val titleCaps: Boolean = false
-        val display: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.bold, fontSize = 28.sp, lineHeight = 36.sp, letterSpacing = 0f.em)
+        val display: TextStyle = TextStyle(fontFamily = OrreryInter, fontWeight = Font.Weight.bold, fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = 0f.em)
         const val displayCaps: Boolean = false
+        val code: TextStyle = TextStyle(fontFamily = OrreryMono, fontWeight = Font.Weight.regular, fontSize = 13.sp, lineHeight = 18.sp, letterSpacing = 0f.em)
+        const val codeCaps: Boolean = false
     }
 
     object Space {
@@ -244,13 +252,15 @@ object OrreryTokens {
         val inboxWidth: Dp = 340.dp
         val inboxWidthNarrow: Dp = 316.dp
         val railWidth: Dp = 64.dp
-        val readMeasureCh: Int = 88
+        val readMeasureCh: Int = 70
         val gutterCh: Int = 6
         val pageMeasure: Dp = 1120.dp
         val pagePadDesk: Dp = 24.dp
         val pagePadPhone: Dp = 16.dp
         val turnGap: Dp = 32.dp
         val itemGap: Dp = 12.dp
+        val meterCell: Dp = 160.dp
+        val meterCellLine: Dp = 136.dp
     }
 
     object Elevation {
@@ -295,6 +305,7 @@ object OrreryTokens {
             val out: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
             val `in`: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
             val linear: Easing = CubicBezierEasing(0f, 0f, 1f, 1f)
+            val rise: Easing = CubicBezierEasing(0.3f, 0f, 0.1f, 1f)
         }
 
         object Move {
@@ -303,6 +314,12 @@ object OrreryTokens {
             val layout: Timing = Timing(280, Ease.out)
             val drill: Timing = Timing(320, Ease.out)
             val leave: Timing = Timing(200, Ease.`in`)
+            val rise: Timing = Timing(450, Ease.rise)
+            val fold: Timing = Timing(280, Ease.`in`)
+        }
+
+        object Delay {
+            val rise: Int = 120
         }
 
         object Loop {
@@ -315,12 +332,13 @@ object OrreryTokens {
         }
 
         object Reduced {
-            // motion.reduced: with reduced motion every move is one linear step of this length and every loop holds still
+            // motion.reduced: with reduced motion every move is one linear step of this length, every delay is also 0, and every loop holds still
             val millis: Int = 100
         }
 
         object Distance {
             val drill: Dp = 16.dp
+            val rise: Dp = 48.dp
         }
     }
 }

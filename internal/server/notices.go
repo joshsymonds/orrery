@@ -203,6 +203,7 @@ func noticeKeyMessage(key *enginev1.NoticeKey) *orreryv1.NoticeKey {
 		Epic:    key.GetEpic(),
 		Limit:   key.GetLimit(),
 		Alert:   key.GetAlert(),
+		Host:    key.GetHost(),
 	}
 }
 
@@ -214,5 +215,6 @@ func engineNoticeKey(key *orreryv1.NoticeKey) *enginev1.NoticeKey {
 		Epic:    key.GetEpic(),
 		Limit:   key.GetLimit(),
 		Alert:   key.GetAlert(),
+		Host:    key.GetHost(),
 	}
 }

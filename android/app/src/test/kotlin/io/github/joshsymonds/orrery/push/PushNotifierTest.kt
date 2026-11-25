@@ -59,6 +59,8 @@ class PushNotifierTest {
         questionHash = "",
     )
     private val questionEvent = idleEvent.copy(question = "Run tests?", questionHash = "qh-synthetic-1")
+    private val askStored = """{"questions":[{"question":"Run tests?"}]}"""
+    private val permissionStored = """{"tool":"Bash","input":{"command":"ls"}}"""
 
     @Before
     fun grantPermission() {
@@ -137,9 +139,11 @@ class PushNotifierTest {
 
     @Test
     fun paneOptionsAreTitledByLabelWithKeyNAndThenReply() {
-        notifier.show(questionEvent.copy(options = listOf("Yes, once", "Always")))
+        notifier.show(questionEvent.copy(question = askStored, options = listOf("Yes, once", "Always")))
 
-        val actions = posted(notificationId(host, pane)).actions.orEmpty()
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo asks", titleOf(notification))
+        val actions = notification.actions.orEmpty()
         assertEquals(listOf("Yes, once", "Always", "Reply"), titlesOf(actions))
         listOf("1", "2").forEachIndexed { index, key ->
             val pending = actions[index].actionIntent
@@ -158,7 +162,7 @@ class PushNotifierTest {
 
     @Test
     fun threeOptionsOfferNoReply() {
-        notifier.show(questionEvent.copy(options = listOf("One", "Two", "Three")))
+        notifier.show(questionEvent.copy(question = askStored, options = listOf("One", "Two", "Three")))
 
         val actions = posted(notificationId(host, pane)).actions.orEmpty()
         assertEquals(listOf("One", "Two", "Three"), titlesOf(actions))
@@ -262,11 +266,15 @@ class PushNotifierTest {
     }
 
     @Test
-    fun questionOffersKeyActionsOneTwoThreeThenReply() {
-        notifier.show(questionEvent)
+    fun permissionOffersYesDontAskAgainNoAsKeysOneTwoThreeAndNoReply() {
+        notifier.show(questionEvent.copy(question = permissionStored))
 
-        val actions = posted(notificationId(host, pane)).actions.orEmpty()
-        assertEquals(4, actions.size)
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo asks to run Bash", titleOf(notification))
+        assertEquals("ls", textOf(notification))
+        val actions = notification.actions.orEmpty()
+        assertEquals(listOf("Yes", "Don't ask again", "No"), titlesOf(actions))
+        assertTrue(actions.all { it.remoteInputs.isNullOrEmpty() })
         listOf("1", "2", "3").forEachIndexed { index, key ->
             val pending = actions[index].actionIntent
             val intent = intentOf(pending)
@@ -279,8 +287,83 @@ class PushNotifierTest {
             assertEquals(questionEvent.project, intent.getStringExtra(EXTRA_DIR))
             assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
         }
-        assertEquals(1, actions[3].remoteInputs.size)
-        assertEquals(REMOTE_INPUT_KEY, actions[3].remoteInputs[0].resultKey)
+    }
+
+    @Test
+    fun permissionWithoutDetailTextsItsSummary() {
+        notifier.show(questionEvent.copy(question = """{"tool":"WebSearch","input":{}}""", summary = "Searches the web"))
+
+        assertEquals("Searches the web", textOf(posted(notificationId(host, pane))))
+    }
+
+    @Test
+    fun askWithOptionsExpandsToQuestionThenNumberedOptions() {
+        notifier.show(questionEvent.copy(question = askStored, options = listOf("Yes, once", "Always")))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals("Run tests?", textOf(notification))
+        assertEquals(
+            "Run tests?\n1. Yes, once\n2. Always",
+            notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString(),
+        )
+    }
+
+    @Test
+    fun plainOrUnparseablePromptOffersOpenThenReplyWithNoKeyButtons() {
+        listOf("Run tests?", "{not json").forEach { stored ->
+            notifier.show(questionEvent.copy(question = stored, options = listOf("One", "Two")))
+
+            val notification = posted(notificationId(host, pane))
+            assertEquals("orrery-demo asks you a question", titleOf(notification))
+            assertEquals("Build finished", textOf(notification))
+            val actions = notification.actions.orEmpty()
+            assertEquals(listOf("Open", "Reply"), titlesOf(actions))
+            assertEquals(REMOTE_INPUT_KEY, actions[1].remoteInputs[0].resultKey)
+        }
+    }
+
+    @Test
+    fun sessionQuestionWithOptionsIsTitledAndExpandedLikeAPaneAsk() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", question = "Which fix?", options = listOf("Allow", "Deny")))
+
+        val notification = posted(notificationId(host, "sess-1"))
+        assertEquals("orrery-demo asks", titleOf(notification))
+        assertEquals("Which fix?", textOf(notification))
+        assertEquals(
+            "Which fix?\n1. Allow\n2. Deny",
+            notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString(),
+        )
+    }
+
+    @Test
+    fun epicQuestionTextAndExpandedTextAreItsBody() {
+        notifier.show(idleEvent.copy(pane = "", project = "Work board", epic = "work/rota-export", block = "question", summary = "Which rota?"))
+
+        val notification = posted(notificationId(host, "work/rota-export"))
+        assertEquals("rota-export asks you a question", titleOf(notification))
+        assertEquals("Which rota?", textOf(notification))
+        assertEquals("Which rota?", notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT).toString())
+    }
+
+    @Test
+    fun noActionIsTitledByABareDigit() {
+        val events = listOf(
+            questionEvent.copy(question = askStored, options = listOf("Yes, once", "Always")),
+            questionEvent.copy(question = permissionStored),
+            questionEvent,
+            questionEvent.copy(question = askStored, options = listOf("One", "Two", "Three", "Four")),
+            idleEvent.copy(pane = "", session = "sess-1", question = "Which fix?", options = listOf("Allow", "Deny")),
+            idleEvent.copy(pane = "", session = "sess-2", question = "Which fix?"),
+            idleEvent.copy(pane = "", project = "Work board", epic = "work/rota-export", block = "question"),
+        )
+
+        val titles = events.flatMap { event ->
+            notifier.show(event)
+            shadowOf(manager).allNotifications.flatMap { titlesOf(it.actions.orEmpty()) }
+        }
+
+        assertTrue(titles.isNotEmpty())
+        titles.forEach { assertFalse("action titled \"$it\"", it.matches(Regex("\\d+"))) }
     }
 
     @Test
@@ -315,8 +398,8 @@ class PushNotifierTest {
 
     @Test
     fun laterPushForSamePaneReplacesNotificationAndCarriesNewestHash() {
-        notifier.show(questionEvent)
-        notifier.show(questionEvent.copy(questionHash = "qh-synthetic-2"))
+        notifier.show(questionEvent.copy(question = permissionStored))
+        notifier.show(questionEvent.copy(question = permissionStored, questionHash = "qh-synthetic-2"))
 
         assertEquals(1, shadowOf(manager).allNotifications.size)
         val firstKey = posted(notificationId(host, pane)).actions.orEmpty()[0].actionIntent

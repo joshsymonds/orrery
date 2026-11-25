@@ -18,8 +18,8 @@ const paneWakeCutLine = "[... rest of the text cut to fit the pane ...]"
 // line.
 const paneWakeBreaks = 2
 
-// WakePane types text into pane on the tmux server that server names, then presses Enter, when the pane is done
-// and its screen shows the input box. Otherwise it sends no key and returns false. server is the store's server
+// WakePane types text into pane on the tmux server that server names, then presses Enter, when the pane is idle (see
+// SendIdle) and its screen shows the input box. Otherwise it sends no key and returns false. server is the store's server
 // column: "-L <name>", "-S <path>", or "" for the default server. A malformed column is an error that names pane,
 // and nothing is sent. Its signature is enginehost's WakePane, so orreryd passes it straight in.
 //

@@ -1160,6 +1160,73 @@ public  final class ConversationItem extends
 
   }
 
+  public static final int DESIGN_FIELD_NUMBER = 20;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign design_;
+  /**
+   * <pre>
+   * The stage record of the item, unset when the item carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDesign() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The stage record of the item, unset when the item carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+    return design_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance() : design_;
+  }
+  /**
+   * <pre>
+   * The stage record of the item, unset when the item carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+   */
+  private void setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    design_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The stage record of the item, unset when the item carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+    java.util.Objects.requireNonNull(value);
+    if (design_ != null &&
+        design_ != io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.getDefaultInstance()) {
+      design_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.newBuilder(design_).mergeFrom(value).buildPartial();
+    } else {
+      design_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The stage record of the item, unset when the item carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+   */
+  private void clearDesign() {
+    design_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2429,6 +2496,77 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDesign() {
+      return instance.hasDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign() {
+      return instance.getDesign();
+    }
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    public Builder setDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.setDesign(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    public Builder setDesign(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDesign(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    public Builder mergeDesign(io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign value) {
+      copyOnWrite();
+      instance.mergeDesign(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The stage record of the item, unset when the item carries none.
+     * </pre>
+     *
+     * <code>.orrery.v1.EngineDesign design = 20 [json_name = "design"];</code>
+     */
+    public Builder clearDesign() {  copyOnWrite();
+      instance.clearDesign();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -2465,12 +2603,13 @@ public  final class ConversationItem extends
             "added_",
             "removed_",
             "client_",
+            "design_",
           };
           java.lang.String info =
-              "\u0000\u0013\u0000\u0001\u0001\u0013\u0013\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
+              "\u0000\u0014\u0000\u0001\u0001\u0014\u0014\u0000\u0000\u0000\u0001\u0208\u0002\u0002" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002" +
               "\u000b\u0208\f\u000b\r\u0208\u000e\u0208\u000f\u1009\u0000\u0010\u0208\u0011\u0002" +
-              "\u0012\u0002\u0013\u0208";
+              "\u0012\u0002\u0013\u0208\u0014\u1009\u0001";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

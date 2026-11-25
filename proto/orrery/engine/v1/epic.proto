@@ -41,15 +41,16 @@ service Epics {
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 
   // CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
-  // its running steps, answers its open questions and frees its release slot, and returns the stored epic. A close by the
-  // planner routes the ending report to the owner. It refuses superseded without the epic that replaces it.
+  // its running steps, answers its open questions, and returns the stored epic. A close by the planner routes the ending
+  // report to the owner. It refuses superseded without the epic that replaces it.
   rpc CloseEpic(CloseEpicRequest) returns (CloseEpicResponse);
 
   // AmendEvidence asks for a Requirement of a stored epic to hold a new evidence item, which must pass the shape check a
   // created epic's items pass. The amendment starts checking: the item replaces the Requirement's own only once a red run
   // of it at the epic's base is judged not to hold there, and a red that holds refuses it. It returns the stored
-  // amendment and the stored epic. A call from the step of the epic's running turn amends as the planner, which may not
-  // change the conclusion; any other call amends as the owner, who may.
+  // amendment and the stored epic. The owner and the conversation that steers the epic may change the conclusion and
+  // kind, and a conversation that does not steer the epic is refused. The planner amends through its action and may not
+  // change either, so a call from a step of the epic is refused.
   rpc AmendEvidence(AmendEvidenceRequest) returns (AmendEvidenceResponse);
 
   // EscalateEpic marks question Q<n> of a stored epic escalated, with its reason, and returns the question read back. The
@@ -1031,6 +1032,9 @@ message EpicReviewRound {
 
 // StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
+  reserved 19;
+  reserved "release_slot";
+
   // The epic's contract as created.
   EpicContract contract = 1;
 
@@ -1089,10 +1093,6 @@ message StoredEpic {
   // that returns the epic fills it.
   repeated EpicReleaseRun releases = 18;
 
-  // The epic that holds the release slot of the epic's repository, empty when the slot is free. A waiting epic shows
-  // whose release it waits on.
-  string release_slot = 19;
-
   // The epic's summary, written once from its contract. Empty until it is written.
   string summary = 20;
 
@@ -1138,6 +1138,9 @@ message StoredEpic {
   // Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
   // does, the epic's open questions are the steerer's to answer until it escalates them.
   bool steerer_heard = 34;
+
+  // The orrery name of the host the epic lives on.
+  string host = 35;
 }
 
 // EpicAction is one action taken on an epic's steering or controls, such as a move.
@@ -1296,6 +1299,9 @@ message EpicSummary {
   // Whether a steering session hears the epic: it has a steerer whose session row exists and is not stopped. While one
   // does, the epic's open questions are the steerer's to answer until it escalates them.
   bool steerer_heard = 15;
+
+  // The orrery name of the host the epic lives on.
+  string host = 16;
 }
 
 // CreateEpicRequest names the accepted contract an epic is made from, by its id, with the base the epic starts from, its
@@ -1324,7 +1330,7 @@ message CreateEpicResponse {
   StoredEpic epic = 1;
 
   // One warning for each lint finding that does not refuse the contract: a go test whose -run pattern matches a test at
-  // the base, or a release step that says merge, names a fixed version or waits on CI. Each names its field and reason.
+  // the base, or a release step that names a fixed version. Each names its field and reason.
   repeated string warnings = 2;
 }
 

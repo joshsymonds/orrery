@@ -23,7 +23,8 @@ service Notices {
   rpc ReadAll(NoticesReadAllRequest) returns (NoticesReadAllResponse);
 }
 
-// NoticeKey names what a notice is about. Exactly one field is set.
+// NoticeKey names what a notice is about. Exactly one of pane, session, epic, limit and alert is set. host is set with
+// pane and only with pane.
 message NoticeKey {
   // The tmux pane id, % followed by digits.
   string pane = 1;
@@ -39,6 +40,9 @@ message NoticeKey {
 
   // The alert's name.
   string alert = 5;
+
+  // The orrery name of the pane's host. It is set with pane and only with pane.
+  string host = 6;
 }
 
 // NoticeBlock names the block of an epic's page that a notice opens on.

@@ -122,7 +122,7 @@ func TestPushedEpicAndPaneKeysAreDistinct(t *testing.T) {
 	wantRows("after puts", []PushedRow{pane, epic})
 
 	// Deleting the pane row leaves the epic row, and deleting the epic row leaves nothing.
-	if err := s.DeletePushed(ctx, pane.Pane, pane.Session); err != nil {
+	if err := s.DeletePushed(ctx, pane.Host, pane.Pane, pane.Session); err != nil {
 		t.Fatalf("DeletePushed pane: %v", err)
 	}
 	wantRows("after deleting pane row", []PushedRow{epic})

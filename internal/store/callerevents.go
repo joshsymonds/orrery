@@ -18,6 +18,8 @@ const (
 	CallerKindQuestion = "question"
 	CallerKindRelease  = "release"
 	CallerKindEnd      = "end"
+	CallerKindDesign   = "design"
+	CallerKindTell     = "tell"
 )
 
 // stepEventPrefix heads the id of a step's end event: the prefix and the step id. ListCallerSteps and
@@ -97,6 +99,11 @@ func EpicQuestionEvent(epic string, seq int64) string {
 	return fmt.Sprintf("epic:%s:Q%d", epic, seq)
 }
 
+// EpicTellEvent returns the id of the event of tell seq of epic, which is a tell its steerer is sent.
+func EpicTellEvent(epic string, seq int64) string {
+	return fmt.Sprintf("epic:%s:tell:%d", epic, seq)
+}
+
 // EpicPhaseEvent returns the id of the event of epic's phase, which is its release or its end.
 func EpicPhaseEvent(epic, phase string) string {
 	return fmt.Sprintf("epic:%s:%s", epic, phase)
@@ -121,7 +128,8 @@ func EpicPhaseEventKind(phase string) (string, bool) {
 // A step_end carries the step: Step is its id, Agent its agent, End and Status how it ended, Brief the lines of its
 // step_end block's body joined by newlines, as StepEndParts gives them, its last line the More line, Epic the epic
 // that holds it, empty when none does, and Facts the step's facts, as StepFactsOf gives them. An epic event carries
-// Epic, the epic's id, and Title, the epic's title, and no facts.
+// Epic, the epic's id, and Title, the epic's title, and no facts. A design event carries Design, the design's log line
+// it is about, and none of the step or epic fields.
 type PendingEvent struct {
 	ID     string
 	Kind   string
@@ -133,6 +141,7 @@ type PendingEvent struct {
 	Epic   string
 	Title  string
 	Facts  StepFacts
+	Design DesignLogLine
 }
 
 // PendingCallerEvents returns the caller events still owed to session, read in one read transaction. A step end is
@@ -144,7 +153,8 @@ type PendingEvent struct {
 // no time of its own, so the epic events are not merged into the step ends by time.
 //
 // An action event is owed when session is its recipient or a move leaves or takes it, as ActionEvents lists it; those
-// events come last, after the epic events, in the order ActionEvents gives them.
+// events come after the epic events, in the order ActionEvents gives them. The design events session is owed, as
+// DesignEvents lists them, come last, after the action events.
 //
 // It returns an error matching ErrUnavailable when the store file is missing or the database is busy.
 func (r *Reader) PendingCallerEvents(ctx context.Context, session string) ([]PendingEvent, error) {
@@ -227,6 +237,16 @@ func pendingInTx(ctx context.Context, tx *sql.Tx, session string) ([]PendingEven
 	}
 	for _, action := range actions {
 		events = append(events, PendingEvent{ID: action.ID, Kind: action.Kind, Epic: action.Epic, Title: action.Title})
+	}
+	designs, err := designEventsIn(ctx, queries)
+	if err != nil {
+		return nil, err
+	}
+	for _, design := range designs {
+		if design.Recipient.ID != session {
+			continue
+		}
+		events = append(events, PendingEvent{ID: design.ID, Kind: CallerKindDesign, Design: design.Line})
 	}
 	return events, nil
 }

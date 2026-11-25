@@ -6,7 +6,6 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.BackgroundTask
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
@@ -61,14 +60,6 @@ class WorkListSheetTest {
         }
     }
 
-    private fun setPicker(rows: List<PickerRow>, onOpen: (String) -> Unit, onDismiss: () -> Unit) {
-        composeRule.setContent {
-            MaterialTheme {
-                RailPickerSheet(label = "epics", rows = rows, onOpen = onOpen, onDismiss = onDismiss)
-            }
-        }
-    }
-
     @Test
     fun agentsSheetHeadsLeadsAndDrawsEachAgentWithActivityAndClock() {
         setWorkList(
@@ -119,55 +110,4 @@ class WorkListSheetTest {
         assertEquals(listOf<Color?>(OrreryTokens.State.idle), spanColors("list-row:s1"))
     }
 
-    @Test
-    fun pickerHeadsByCountAndLabelAndDrawsEachEpicWithSlugAndState() {
-        setPicker(
-            rows = listOf(
-                PickerRow(id = "e1", slug = "alpha-epic", state = "working", asks = false),
-                PickerRow(id = "e2", slug = "beta-epic", state = "waiting", asks = true),
-            ),
-            onOpen = {},
-            onDismiss = {},
-        )
-
-        composeRule.onNodeWithTag("picker-head").assertTextEquals("2 epics".inLabelCase())
-        composeRule.onNodeWithTag("picker-row:e1")
-            .assertTextContains("alpha-epic")
-            .assertTextContains("working")
-        composeRule.onNodeWithTag("picker-row:e2")
-            .assertTextContains("beta-epic")
-            .assertTextContains("waiting")
-    }
-
-    @Test
-    fun pickerStateIsAttentionToneOnlyWhenTheEpicAsks() {
-        setPicker(
-            rows = listOf(
-                PickerRow(id = "e1", slug = "alpha-epic", state = "working", asks = false),
-                PickerRow(id = "e2", slug = "beta-epic", state = "waiting", asks = true),
-            ),
-            onOpen = {},
-            onDismiss = {},
-        )
-
-        assertEquals(listOf<Color?>(OrreryTokens.Ink.two), spanColors("picker-row:e1"))
-        assertEquals(listOf<Color?>(OrreryTokens.Role.attention), spanColors("picker-row:e2"))
-    }
-
-    @Test
-    fun tappingPickerRowOpensItsOwnEpicThenDismisses() {
-        val events = mutableListOf<String>()
-        setPicker(
-            rows = listOf(
-                PickerRow(id = "e1", slug = "alpha-epic", state = "working", asks = false),
-                PickerRow(id = "e2", slug = "beta-epic", state = "waiting", asks = true),
-            ),
-            onOpen = { events += "open:$it" },
-            onDismiss = { events += "dismiss" },
-        )
-
-        composeRule.onNodeWithTag("picker-row:e2").performClick()
-
-        assertEquals(listOf("open:e2", "dismiss"), events)
-    }
 }

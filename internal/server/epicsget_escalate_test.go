@@ -20,7 +20,7 @@ func TestEscalateAPI_GetCarriesEscalation(t *testing.T) {
 		EscalationBy: "conversation", EscalationSession: "synthetic session",
 	}}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/shared").GetQuestions()
 	want := &orreryv1.EpicQuestion{
@@ -45,7 +45,7 @@ func TestEscalateAPI_OwnerEscalation(t *testing.T) {
 		Escalated: epicsAgo(time.Hour), EscalationReason: "synthetic owner reason", EscalationBy: "owner",
 	}}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/shared").GetQuestions()
 	want := &orreryv1.EpicQuestion{
@@ -68,7 +68,7 @@ func TestEscalateAPI_UnescalatedQuestionCarriesNone(t *testing.T) {
 		Id: "Q1", Turn: 1, Text: "synthetic question", State: "open",
 	}}
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{stored}}
-	client := epicStoreServe(t, t.TempDir(), &epicsFake{}, store)
+	client := epicStoreServe(t, &epicsFake{}, store)
 
 	got := epicsGet(t, client, "repoa/shared").GetQuestions()
 	if len(got) != 1 {

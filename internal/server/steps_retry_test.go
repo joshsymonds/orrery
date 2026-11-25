@@ -205,11 +205,10 @@ func TestStatusLookupRetriesAfterOneUnavailable(t *testing.T) {
 // TestEpicsListRetriesListStepsAfterOneUnavailable checks that the ListSteps call of List is asked again.
 func TestEpicsListRetriesListStepsAfterOneUnavailable(t *testing.T) {
 	t.Parallel()
-	root := t.TempDir()
-	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
+	store := &epicStoreFake{stored: []*enginev1.StoredEpic{storedEpicOf("repo/epic", "accepted", epicsAgo(time.Hour))}}
 	inner := &epicsFake{steps: []*enginev1.Step{{Id: "run-a", Epic: "repo/epic"}}}
 	steps := &retryFake{StepClient: inner, failures: map[string][]error{"list": {restartUnavailable()}}}
-	client := epicsServe(t, root, steps)
+	client := epicStoreServe(t, steps, store)
 	epics := epicsList(t, client)
 	if len(epics) != 1 || len(epics[0].GetRunningSteps()) != 1 {
 		t.Fatalf("epics = %v, want the epic with its one running step", epics)

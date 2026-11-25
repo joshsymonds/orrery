@@ -121,10 +121,11 @@ func (s *Store) CloseDueResume(ctx context.Context, id string) error {
 
 // StopEpic pauses epic as its owner's, closes its due rows, and flags its running turn to stop, in one write, and
 // returns the turn's step, empty while the turn has none. The turn keeps its claimed triggers. An epic with no running
-// turn that holds its repository's release slot frees the slot in one write instead, and returns the id of its release
-// step that has no end, or "" when none runs. It neither pauses the epic nor changes its phase. Either write appends one
-// stop action made by maker at at. An unknown epic is ErrNoEpic, and an epic with no running turn that holds no slot is a
-// RefusalError.
+// turn whose release is running or stopped records the owner's stop of the release in one write instead, and returns
+// the id of its release step that has no end, or "" when none runs. An epic stopped by its release also takes the park
+// class release_owner_stop. Neither write pauses the epic or changes its phase. Either write appends one stop action
+// made by maker at at. An unknown epic is ErrNoEpic, and an epic with no running turn whose release is neither running
+// nor stopped is a RefusalError.
 func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.Time) (string, error) {
 	var step string
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -140,7 +141,7 @@ func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.
 		if running {
 			err = pauseAsOwner(ctx, queries, epic)
 		} else {
-			step, err = stopReleaseSlot(ctx, queries, head)
+			step, err = stopRelease(ctx, queries, head, at)
 		}
 		if err != nil {
 			return err
@@ -157,15 +158,16 @@ func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
 // highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
 // granted round. Each parked evidence run that an open park question for a red run judged holding at base names turns
-// running at its next attempt, and each open park question of epic is answered retry, in the same write. The write
+// running at its next attempt, and each open park question of epic is answered retry, in the same write. A retry that
+// ends a stall park also adds the pending trigger stall-retry:<latest stall seq>, which wakes the planner. The write
 // appends one retry action made by maker at at. An unknown epic is ErrNoEpic, an epic that is not parked is a
 // RefusalError, and an epic in phase met_at_base, which the owner ended, is a RefusalError that changes nothing. An epic
-// in phase stopped is retried only when its release integrator stopped it, which sends its release back to planning
-// (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does not end its
-// release park.
+// in phase stopped is retried only when its release integrator or a release reviewer stopped it, which sends its release
+// back to planning (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does
+// not end its release park.
 func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := retryEpicIn(ctx, queries, epic); err != nil {
+		if err := retryEpicIn(ctx, queries, epic, at); err != nil {
 			return err
 		}
 		_, err := appendEpicAction(ctx, queries, epic, ActionRetry, maker, "", "", at)
@@ -173,8 +175,9 @@ func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time
 	})
 }
 
-// retryEpicIn ends the park of epic in the caller's write, as RetryEpic does.
-func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+// retryEpicIn ends the park of epic in the caller's write, as RetryEpic does. A retry that ends a stall park also adds
+// the pending trigger that wakes the planner (insertStallRetryTrigger), stamped at at.
+func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string, at time.Time) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
@@ -200,7 +203,14 @@ func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string) err
 	if err != nil {
 		return err
 	}
-	return endPark(ctx, queries, epic)
+	err = endPark(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	if ParkClass(head.ParkClass) == ParkClassStall {
+		return insertStallRetryTrigger(ctx, queries, epic, at)
+	}
+	return nil
 }
 
 // rerunMetAtBaseRuns turns each parked evidence run that an open park question of epic names running at its next

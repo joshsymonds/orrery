@@ -35,6 +35,7 @@ func gateDefaultTailWant() string {
 func runGateScript(t *testing.T, script string, tail int) gateResult {
 	t.Helper()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Host:    gateTestHost(),
 		Argv:    []string{"/bin/sh", "-c", script},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,

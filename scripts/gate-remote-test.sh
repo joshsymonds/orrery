@@ -54,10 +54,11 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
-# The hang guard: a case that waits on a run that never ends (the waits on the runs this test starts have no bound of
-# their own) fails the whole test after guard_secs, through the TERM trap and the cleanup, instead of hanging it. A
-# passing run, even on a loaded host, ends long before.
-guard_secs=600
+# The hang guard: a case that waits on a run or a state that never comes (no wait in this test has a bound of its own,
+# so a loaded host only slows a passing run) fails the whole test after guard_secs, through the TERM trap and the
+# cleanup, instead of hanging it. A passing run, even on a host at load 300, ends long before; the bound stays under the
+# 1800 s a gate gives `just check`.
+guard_secs=1500
 guard=""
 (sleep "$guard_secs" && echo "FAIL: the test still runs after ${guard_secs}s: the case after the last ok above hangs" >&2 \
     && kill -TERM $$) &
@@ -301,31 +302,16 @@ gate() {
 }
 
 # appears <file> [pattern]: true once the file exists (and holds a line matching the pattern); what writes it runs in
-# the background, so wait for it a little.
+# the background, so wait for it, bounded only by the guard.
 appears() {
-    local i
-    for ((i = 0; i < 100; i++)); do
-        if [ -e "$1" ] && { [ -z "${2:-}" ] || grep -qE -- "$2" "$1"; }; then
-            return 0
-        fi
+    until [ -e "$1" ] && { [ -z "${2:-}" ] || grep -qE -- "$2" "$1"; }; do
         sleep 0.1
     done
-    return 1
 }
-# ends <pid>: true once the run has ended, waiting a little like appears, with its status in $rc; a run that never ends
-# fails the case instead of hanging the test, and the cleanup ends it.
+# ends <pid>: once the run, a child of this shell, has ended, its status is in $rc; a run that never ends is the guard's.
 ends() {
-    local i state
-    for ((i = 0; i < 100; i++)); do
-        state="$(awk '{ print $3 }' "/proc/$1/stat" 2>/dev/null || true)"
-        if [ -z "$state" ] || [ "$state" = Z ]; then
-            rc=0
-            wait "$1" || rc=$?
-            return 0
-        fi
-        sleep 0.1
-    done
-    return 1
+    rc=0
+    wait "$1" || rc=$?
 }
 woke() {
     appears "$root/woke"
@@ -448,14 +434,11 @@ expect_line "$root/out" '^cached-ran$' "a cached run's output comes back"
 expect_line "$root/box-cache.calls" "^run $root/fleet\$" "a box with a cache root runs the command under box-cache.sh run"
 rm "$work/scripts/box-cache.sh"
 
-# gone <pid>: true once the process has ended; the scope's stop signals it, so wait for it a little.
+# gone <pid>: true once the process has ended; the scope's stop signals it, so wait for it, bounded only by the guard.
 gone() {
-    local i
-    for ((i = 0; i < 100; i++)); do
-        kill -0 "$1" 2>/dev/null || return 0
+    while kill -0 "$1" 2>/dev/null; do
         sleep 0.1
     done
-    return 1
 }
 
 # The command runs in its own scope, which is stopped when the run ends: a child the command left behind ends with it,
@@ -647,18 +630,12 @@ box_procs() {
         echo "$p $(tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | cut -c1-120)"
     done
 }
-# box_idle: true once nothing runs on the fake box, waiting a little like appears; otherwise it lists what does.
+# box_idle: true once nothing runs on the fake box, waiting like appears; what still runs when the guard ends the test
+# is listed by the cleanup.
 box_idle() {
-    local i left line
-    for ((i = 0; i < 100; i++)); do
-        left="$(box_procs)"
-        [ -n "$left" ] || return 0
+    until [ -z "$(box_procs)" ]; do
         sleep 0.1
     done
-    while IFS= read -r line; do
-        echo "    still running: $line" >&2
-    done <<<"$left"
-    return 1
 }
 
 # The connection carrying stdout drops in the middle of a line while the box stays up: the run goes on, the script
@@ -721,7 +698,7 @@ EOF
 long_run() {
     rm -f "$root/long-pid" "$root/woke" "$root/ran-here"
     spawn "$root/out" "$root/err" "$work" scripts/gate-remote.sh bash -c "$long"
-    appears "$root/long-pid" || fail "the long command never started"
+    appears "$root/long-pid"
 }
 # runner_pid: the box-side runner of the work tree's run.
 runner_pid() {
@@ -740,7 +717,7 @@ echo keep >"$root/drop-run"
 rm -f "$root/stops"
 long_run
 rc=""
-ends "$spawned" || fail "a run that could not be collected never ended"
+ends "$spawned"
 rm "$root/drop-run"
 expect "a run that could not be collected ends with 75" test "${rc:-none}" = 75
 expect_line "$root/err" '^gate-remote: lost the connection to orrery@fake-box after the command started and could not collect the run within 2s; environment result, not a test failure \(exit 75\)$' "a run that could not be collected says so"
@@ -756,7 +733,7 @@ runner="$(runner_pid)"
 expect "the run's runner is found" test -n "$runner"
 [ -z "$runner" ] || kill -KILL "$runner"
 rc=""
-ends "$spawned" || fail "a run that recorded no exit never ended"
+ends "$spawned"
 expect "a run that recorded no exit ends with 75" test "${rc:-none}" = 75
 expect_line "$root/err" '^gate-remote: the run on orrery@fake-box ended without recording its exit \(it was killed there\); environment result, not a test failure \(exit 75\)$' "a run that recorded no exit says so"
 expect "what is left of a run that recorded no exit is stopped" gone "$(cat "$root/long-pid")"
@@ -766,7 +743,7 @@ expect "nothing of a run that recorded no exit is left on the box" box_idle
 long_run
 kill -TERM "$spawned"
 rc=""
-ends "$spawned" || fail "a stopped run never ended"
+ends "$spawned"
 expect "a stopped run ends with 143" test "${rc:-none}" = 143
 expect "stopping the script stops the run on the box" gone "$(cat "$root/long-pid")"
 expect "nothing of a stopped run is left on the box" box_idle
@@ -844,7 +821,7 @@ both() {
         spawn "$root/$tree.out" "$root/$tree.err" "$root/$tree" env ORRERY_GATE_WAKE='' scripts/gate-remote.sh bash -c 'exit 7'
         both_pids+=("$spawned")
         if [ "$tree" = work ]; then
-            appears "$root/ec2-up-calls" || fail "the first run's wake never reached ec2 up"
+            appears "$root/ec2-up-calls"
         fi
     done
     appears "$root/run/orrery-gate-wake.log" 'waiting for the orrery-gate launch in progress' \
@@ -932,7 +909,7 @@ box_run_pid() {
 # With one full-check slot, a second `just check` waits for the first, and its output says it is queued.
 check_in work
 pid_a=$spawned
-appears "$root/started-work" || fail "the first full check never started"
+appears "$root/started-work"
 check_in work2
 pid_b=$spawned
 expect_line_eventually() {
@@ -977,18 +954,13 @@ expect "the full check that waited on a dead holder ends with its status" test "
 expect "no slot waiter outlives the waits" test -z "$(pgrep -f "$root/box/gate/slots/full-" || true)"
 
 # waiter_group: the process group of the queued run's slot waiters, once one of them is in flock on its slot file
-# (waiting a little, like appears).
+# (waiting like appears).
 waiter_group() {
-    local i p
-    for ((i = 0; i < 100; i++)); do
-        p="$(pgrep -f "^flock $root/box/gate/slots/full-" | head -n 1 || true)"
-        if [ -n "$p" ]; then
-            ps -o pgid= -p "$p" | tr -d ' '
-            return 0
-        fi
+    local p=""
+    until p="$(pgrep -f "^flock $root/box/gate/slots/full-" | head -n 1 || true)"; [ -n "$p" ]; do
         sleep 0.1
     done
-    return 1
+    ps -o pgid= -p "$p" | tr -d ' '
 }
 
 # queue_behind_holder: a full check from work holds the one slot and one from work2 queues behind it; their pids go in
@@ -996,7 +968,7 @@ waiter_group() {
 queue_behind_holder() {
     check_in work
     pid_a=$spawned
-    appears "$root/started-work" || fail "the holder of the slot never started"
+    appears "$root/started-work"
     check_in work2
     pid_b=$spawned
     expect_line_eventually "$root/work2.err" 'queued until one is let go$' "a full check queues behind the holder"
@@ -1013,10 +985,10 @@ release_holder() {
 # The queued run's slot waiters all end without a slot while the slot directory is still there (here they are killed):
 # the run ends with 75, naming the waiters, instead of going round the wait again.
 queue_behind_holder
-group="$(waiter_group)" || fail "the queued run's slot waiters never started"
+group="$(waiter_group)"
 [ -z "$group" ] || kill -TERM -- "-$group"
 rc=""
-ends "$pid_b" || fail "a run whose slot waiters ended never ended"
+ends "$pid_b"
 expect "a run whose slot waiters ended ends with 75" test "${rc:-none}" = 75
 expect_line "$root/work2.err" '^gate-remote: every slot waiter ended without a slot in .*/gate/slots on .*; the run ends without a slot \(exit 75\)$' "a run whose slot waiters ended names them"
 expect "a run whose slot waiters ended never started its command" test ! -e "$root/started-work2"
@@ -1026,11 +998,11 @@ release_holder
 # directory, which ended the waiters too, as the cause. The waiters are killed after the directory goes, so this takes
 # the branch where the waiters' end is seen first.
 queue_behind_holder
-group="$(waiter_group)" || fail "the queued run's slot waiters never started"
+group="$(waiter_group)"
 rm -rf -- "$root/box/gate/slots"
 [ -z "$group" ] || kill -TERM -- "-$group"
 rc=""
-ends "$pid_b" || fail "a run whose slot directory went never ended"
+ends "$pid_b"
 expect "a run whose slot directory went ends with 75" test "${rc:-none}" = 75
 expect_line "$root/work2.err" '^gate-remote: the slot directory .*/gate/slots is gone on .*; the run ends without a slot \(exit 75\)$' "a run whose slot directory went names the cause"
 expect "a run whose slot directory went never started its command" test ! -e "$root/started-work2"
@@ -1057,17 +1029,12 @@ EOF
 chmod +x "$store/hooks/pre-receive"
 mkfifo "$root/push-release"
 # other_push_settled: the push that is not held has finished (a tag is in the store) or waits for the push lock (a
-# second flock on it runs), waiting a little like appears.
+# second flock on it runs), waiting like appears.
 other_push_settled() {
-    local i
-    for ((i = 0; i < 100; i++)); do
-        if git -C "$store" rev-parse -q --verify refs/tags/v0.0.1 >/dev/null \
-            || [ "$(pgrep -fc 'flock -o gate/objects.lock git-receive-pack' || true)" -ge 2 ]; then
-            return 0
-        fi
+    until git -C "$store" rev-parse -q --verify refs/tags/v0.0.1 >/dev/null \
+        || [ "$(pgrep -fc 'flock -o gate/objects.lock git-receive-pack' || true)" -ge 2 ]; do
         sleep 0.1
     done
-    return 1
 }
 pair=()
 for tree in work work2; do

@@ -27,6 +27,7 @@ class WaitsOnYouTest {
         pane = 0,
         cwd = cwd,
         command = "",
+        claudeSession = "synthetic-claude",
         state = state,
         summary = "",
         label = "",
@@ -47,6 +48,7 @@ class WaitsOnYouTest {
         pane = 0,
         cwd = "/home/user/repo",
         command = "",
+        claudeSession = "synthetic-claude",
         state = state,
         summary = "",
         label = "",
@@ -68,7 +70,6 @@ class WaitsOnYouTest {
         live = true,
         runningSteps = emptyList(),
         endedSteps = 0,
-        problem = "",
         archived = false,
         steering = steering,
         path = "/home/user/repo",
@@ -76,7 +77,6 @@ class WaitsOnYouTest {
 
     private fun parked(epic: EpicRow, plannerParked: Boolean = false, steererParked: Boolean = false) = EpicDetail(
         epic = epic,
-        tasks = emptyList(),
         steps = emptyList(),
         questions = emptyList(),
         parked = "held",

@@ -14,6 +14,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -52,24 +54,35 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// ServeConfig is what ServeWith serves. Each field is one of the services Serve takes, and the nil rules are
-// Serve's. Options apply to each handler.
+// ServeConfig is what ServeWith serves. Each field but PaneSends, Accounts, Designs and Stage is one of the services
+// Serve takes, and the nil rules are Serve's. PaneSends, Accounts, Designs and Stage are served by ServeWith alone.
+// Options apply to each handler.
 type ServeConfig struct {
-	Commands     Commands
-	Steps        StepCommands
-	Epics        EpicCommands
-	Steering     SteeringSessions
-	Pools        PoolCommands
-	Evidence     EvidenceCommands
-	Captures     CaptureCommands
-	Attacher     AttachCommands
-	Notices      NoticeSource
-	Crons        CronCommands
-	Changes      *ChangeFeed
-	Contracts    *Contracts
-	ReleaseSlots ReleaseSlotCommands
-	PaneSends    PaneSendRecorder
-	Options      []connect.HandlerOption
+	Commands  Commands
+	Steps     StepCommands
+	Epics     EpicCommands
+	Steering  SteeringSessions
+	Pools     PoolCommands
+	Evidence  EvidenceCommands
+	Captures  CaptureCommands
+	Attacher  AttachCommands
+	Notices   NoticeSource
+	Crons     CronCommands
+	Changes   *ChangeFeed
+	Contracts *Contracts
+	Designs   *Designs
+	Stage     enginev1connect.StageHandler
+	PaneSends PaneSendRecorder
+	Accounts  *Accounts
+	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
+	// create checks run on the Host that Hosts resolves it to.
+	Host string
+	// CallerHost is the orrery name of the host whose panes a call on this listener comes from. ServeWith sets it as the
+	// Orrery-Host of each request, over any Orrery-Host the request sent, and sends no Orrery-Host when it is empty.
+	CallerHost string
+	// Hosts resolves host names to the Hosts that run epic git. Nil resolves every name to this machine.
+	Hosts   hostexec.Hosts
+	Options []connect.HandlerOption
 }
 
 // Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
@@ -84,9 +97,9 @@ type ServeConfig struct {
 // session in the Orrery-Session header, and refuses a call with no such header as InvalidArgument. With steps served,
 // the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and NotNow
 // and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
-// ten handlers. Serve serves no release slots: it is ServeWith with ReleaseSlots nil, so the ReleaseSlots service is
-// served and refuses every RPC as unavailable. Likewise it serves no pane sends, so the PaneSends service refuses every
-// RPC as unavailable.
+// ten handlers. Serve serves no pane sends, so the PaneSends service refuses every RPC as unavailable, no accounts, so
+// the Accounts service refuses every RPC as unavailable, and no designs, so the Designs service refuses every RPC as
+// unavailable.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -117,20 +130,18 @@ func Serve(
 	})
 }
 
-// ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the release
-// slots service with cfg.ReleaseSlots and the PaneSends service with cfg.PaneSends. It then shuts down within
-// shutdownWait and returns nil. A nil cfg.ReleaseSlots refuses every ReleaseSlots RPC as unavailable, and a nil
-// cfg.PaneSends refuses every PaneSends RPC as unavailable. A nil cfg.Captures refuses CaptureEvidence as unavailable,
-// and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields keep Serve's nil rules, and cfg.Options
-// apply to each handler.
-func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
+// NewHandler returns the handler that ServeWith serves: a mux that answers each service that cfg describes, with the
+// nil rules and the options that ServeWith documents.
+func NewHandler(cfg ServeConfig) http.Handler {
 	opts := cfg.Options
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: cfg.Commands, steps: cfg.Steps}, opts...)
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(
 		&stepService{steps: cfg.Steps},
 		opts...)
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
-		&epicService{epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering}, opts...)
+		&epicService{
+			epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, hosts: cfg.Hosts, host: cfg.Host,
+		}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
 		&evidenceService{evidence: cfg.Evidence, captures: cfg.Captures, attacher: cfg.Attacher}, opts...)
@@ -139,10 +150,17 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	changesPath, changesHandler := NewChangesHandler(cfg.Changes, opts...)
 	contractsPath, contractsHandler := enginev1connect.NewContractsHandler(
 		&contractService{contracts: cfg.Contracts}, opts...)
-	releaseSlotsPath, releaseSlotsHandler := enginev1connect.NewReleaseSlotsHandler(
-		releaseSlotService{slots: cfg.ReleaseSlots}, opts...)
+	designsPath, designsHandler := enginev1connect.NewDesignsHandler(
+		&designService{designs: cfg.Designs}, opts...)
+	stage := cfg.Stage
+	if stage == nil {
+		stage = enginev1connect.UnimplementedStageHandler{}
+	}
+	stagePath, stageHandler := enginev1connect.NewStageHandler(stage, opts...)
 	paneSendsPath, paneSendsHandler := enginev1connect.NewPaneSendsHandler(
 		paneSendService{sends: cfg.PaneSends, now: time.Now}, opts...)
+	accountsPath, accountsHandler := enginev1connect.NewAccountsHandler(
+		&accountService{accounts: cfg.Accounts}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
@@ -153,9 +171,26 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	mux.Handle(cronsPath, cronsHandler)
 	mux.Handle(changesPath, changesHandler)
 	mux.Handle(contractsPath, contractsHandler)
-	mux.Handle(releaseSlotsPath, releaseSlotsHandler)
+	mux.Handle(designsPath, designsHandler)
+	mux.Handle(stagePath, stageHandler)
 	mux.Handle(paneSendsPath, paneSendsHandler)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
+	mux.Handle(accountsPath, accountsHandler)
+	return mux
+}
+
+// ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the PaneSends
+// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
+// service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
+// PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
+// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. A nil cfg.Captures
+// refuses CaptureEvidence as unavailable, and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields
+// keep Serve's nil rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as
+// cfg.CallerHost sets it, so no caller names another host.
+func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
+	srv := &http.Server{
+		Handler:           stampCallerHost(cfg.CallerHost, NewHandler(cfg)),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(ln) }()
@@ -177,6 +212,19 @@ func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 		return fmt.Errorf("serve engine: %w", err)
 	}
 	return nil
+}
+
+// stampCallerHost returns the handler that serves each request of next with its Orrery-Host set to host. It deletes
+// any Orrery-Host the request sent first, so the name next sees is the one the listener admitted, and sets none when
+// host is empty.
+func stampCallerHost(host string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		req.Header.Del(protocol.HeaderHost)
+		if host != "" {
+			req.Header.Set(protocol.HeaderHost, host)
+		}
+		next.ServeHTTP(w, req)
+	})
 }
 
 // service implements the Engine RPCs over commands. steps, when set, names the step ids the engine refuses.
@@ -227,6 +275,7 @@ func (s *service) Start(
 		Model:  req.Msg.GetModel(),
 		ID:     req.Msg.GetId(),
 		Client: req.Msg.GetClient(),
+		Host:   req.Msg.GetHost(),
 	})
 	if err != nil {
 		return nil, commandError(err)
@@ -444,14 +493,14 @@ func commandError(err error) error {
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer),
-		errors.Is(err, ErrBadPutOff):
+		errors.Is(err, ErrBadPutOff), errors.Is(err, ErrUnknownHost):
 		code = connect.CodeInvalidArgument
 	case errors.Is(err, ErrNotResumable), errors.Is(err, ErrUnknownPrompt), errors.Is(err, ErrQuestionNotOpen),
 		errors.Is(err, ErrPaneInMode):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrNoPane):
 		code = connect.CodeNotFound
-	case errors.Is(err, ErrPutOffUnavailable):
+	case errors.Is(err, ErrPutOffUnavailable), errors.Is(err, ErrHostUnreachable):
 		code = connect.CodeUnavailable
 	}
 	return errors.Join(connect.NewError(code, err))

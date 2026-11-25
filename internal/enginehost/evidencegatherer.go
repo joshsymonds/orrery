@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -54,17 +55,20 @@ type GathererStore interface {
 	RunningEvidenceGatherers(ctx context.Context) ([]store.EvidenceGatherer, error)
 	EvidenceGathererOf(ctx context.Context, step string) (store.EvidenceGatherer, bool, error)
 	CapturesAt(ctx context.Context, repository, commit string) ([]store.Capture, error)
+	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
 // GatherersConfig configures Gatherers. Store records the gatherers and takes their briefs, Steps starts the gatherer
-// steps and subscribes to their ends, and Deliver sends a step its text. Getenv reads the environment a step runs
-// under. A nil Now is time.Now, and a nil Logger discards. After returns the channel a wake waits on before it reads an
+// steps and subscribes to their ends, and Deliver sends a step its text. Hosts resolves the host each epic is stored on to
+// the Host its project file is read through, and a nil Hosts is hostexec.LocalHosts. Getenv reads the environment a step
+// runs under. A nil Now is time.Now, and a nil Logger discards. After returns the channel a wake waits on before it reads an
 // epic again, and nil is time.After. NewTimer arms a timer that sends on its channel once, after a duration, and
 // returns the timer's stop; a nil NewTimer wraps time.NewTimer. A nil Getenv is os.Getenv.
 type GatherersConfig struct {
 	Store    GathererStore
 	Steps    EvidenceSteps
 	Deliver  func(context.Context, DeliverRequest) error
+	Hosts    hostexec.Hosts
 	Getenv   func(string) string
 	Now      func() time.Time
 	Logger   *slog.Logger
@@ -109,6 +113,9 @@ func NewGatherers(cfg GatherersConfig) *Gatherers {
 	}
 	if cfg.Getenv == nil {
 		cfg.Getenv = os.Getenv
+	}
+	if cfg.Hosts == nil {
+		cfg.Hosts = hostexec.LocalHosts()
 	}
 	if cfg.After == nil {
 		cfg.After = time.After
@@ -515,9 +522,14 @@ func (g *Gatherers) endedCapturesAt(ctx context.Context, repository, commit stri
 }
 
 // prompt returns the prompt of the gatherer of the epic row describes, which holds each brief of open, the ended
-// captures at each brief's commit, and the runners the project names at the epic's base.
+// captures at each brief's commit, and the runners the project names at the epic's base, read on the host the epic
+// lives on.
 func (g *Gatherers) prompt(ctx context.Context, row store.EpicRow, open []store.EvidenceRun) (string, error) {
-	runners, err := ReadProjectRunners(ctx, row.Repository, row.Base)
+	host, err := hostOfEpic(ctx, g.cfg.Store, g.cfg.Hosts, row.ID)
+	if err != nil {
+		return "", err
+	}
+	runners, err := ReadProjectRunners(ctx, host, row.Repository, row.Base)
 	if err != nil {
 		return "", fmt.Errorf("runners of epic %s: %w", row.ID, err)
 	}

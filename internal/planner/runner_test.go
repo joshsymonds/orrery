@@ -834,7 +834,7 @@ func TestRunnerClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
 	})
 	createRunnerEpic(t, s)
 	// No store call adds a second trigger before O3c2, so the test writes one beside the created trigger.
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}

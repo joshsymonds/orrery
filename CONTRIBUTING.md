@@ -42,7 +42,7 @@ The nixpkgs revision is written as a literal in both `devenv.yaml` and `flake.ni
 - `just gen-diff` regenerates everything, then fails when the output differs from what is committed. See [Generated code](#generated-code).
 - `just pin-check` fails when `devenv.lock` and `flake.lock` resolve nixpkgs to different revisions.
 - `just doc-cites` fails when `docs/` cites code by `file:line`. Cite the enclosing symbol instead.
-- `just web-check` typechecks `web/` with `tsc`, bundles every `*.test.ts` and `*.test.tsx` under `web/src` with esbuild, and runs the bundles with `node --test`. Each test has a 5-second limit and the whole run a 120-second budget. See [Test time budgets](#test-time-budgets). It runs offline, using the `web/node_modules` that the shell links from nix.
+- `just web-check` typechecks `web/` with `tsc`, bundles every `*.test.ts` and `*.test.tsx` under `web/src` with esbuild, and runs the bundles with `node --test`. Each test has a 120-second hang limit, and the whole run none. See [Test time budgets](#test-time-budgets). It runs offline, using the `web/node_modules` that the shell links from nix.
 - `just web-page` bundles the web page into `web/build/page`, the directory the flake package embeds. `scripts/build-web.sh` holds the bundle command, and the flake calls it too.
 - `just alert-check` runs `promtool test rules` on `observability/orrery-rules.test.yml`.
 - `just gate-remote-test` tests `scripts/gate-remote.sh` against a fake box, with no AWS and no network. `just box-cache-test` tests `scripts/box-cache.sh` against a fixture checkout with stub `go`, `nix` and `nix-store`, and no Nix store. `just test-deadline-test` tests `scripts/test-deadline.sh`, and `just test-budget-test` tests `scripts/test-budget.sh` with synthetic numbers.
@@ -104,24 +104,23 @@ Formatting is part of the same configuration. `goimports` groups imports from `g
 - computes one total over the rest of the code with `go tool cover -func`, and fails when it is below 80.0%;
 - fails when a tmux `-L` socket is left in the run's private tmux directory, so a test that leaves its server running is caught.
 
-The run has a wall-clock budget of 360 seconds, set by `TEST_BUDGET` at the top of `justfile`. `scripts/test-deadline.sh` gives each test binary a `-test.timeout` that ends 10 seconds before the budget does, so a package still running then panics and names its running tests. A run that passes the budget fails with `tests exceeded 360s budget`. Override the budget for one run with `just TEST_BUDGET=600 cover`. The coverage profile is written to `coverage.out` and `coverage.cov.out`, and each test's artifacts to `test-artifacts/`. All three are git-ignored.
+The run has no wall-clock budget. A run slowed by a loaded machine still passes; `go test`'s own per-binary timeout ends a hang, and its panic names the running tests. The coverage profile is written to `coverage.out` and `coverage.cov.out`, and each test's artifacts to `test-artifacts/`. All three are git-ignored.
 
 ## Test time budgets
 
-The tests run under four limits. Three are wall-clock limits that end a hang with the hung test named. The fourth is a CPU budget per Go package, advisory: it reports a package whose tests grow expensive and never fails a run.
+No test run has a wall-clock budget: a run is red because a test failed, never because the machine was busy. Two limits end a hang, each long enough that no passing run reaches it, and name the hung test. A CPU budget per Go package is advisory: it reports a package whose tests grow expensive and never fails a run.
 
 | Limit | Where | Value | Override |
 | --- | --- | --- | --- |
-| Go test run under `cover` | `just cover` | 360 s | `just TEST_BUDGET=600 cover` |
-| Whole web suite | `just web-check` | 120 s | `just WEB_TEST_BUDGET=300 web-check` |
-| One web test | `just web-check` | 5 s | none |
+| One Go test binary | `just cover` and `just check-changed` | `go test`'s default, 10 min | none |
+| One web test | `just web-check` | 120 s | none |
 | CPU time of one Go package | `just cover` and `just check-changed` | its baseline, plus 15% or 5 CPU seconds | `just remote-test-budget-update` |
 
-`cover` runs each Go test binary through `scripts/test-deadline.sh`. The binary's `-test.timeout` ends 10 seconds before the budget, so a package still running then panics and names its running tests. A `cover` test run that passes its budget fails with exit 124 and `tests exceeded 360s budget`. `check-changed` runs its Go test binaries through the same script for the CPU record, with no deadline.
+`cover` and `check-changed` run each Go test binary through `scripts/test-deadline.sh` for the CPU record, with no deadline of their own. A binary still running at `go test`'s timeout panics and names its running tests. A hang outside any test is ended by the gate that runs the check.
 
 `check-changed` has no wall-clock budget of its own. It runs `pin-check`, lint, the Go tests, and whichever of the web, proto, SQL, alert, script and Android checks the change selects, each to its end, and the gate that runs it is what ends a hang. A passing run ends with `check-changed: OK after <n>s`, where `<n>` is its elapsed seconds. A `proto/` change that reaches the Android client regenerates its code under `android/`, which `gen-diff` keeps committed, so it selects `android-test` too.
 
-`web-check` runs `node --test --test-timeout=5000` under `timeout 120`. A test still running after 5 seconds fails with its name. A suite still running after 120 seconds is ended, and the recipe fails with exit 124 and `web-check: the web suite exceeded 120s budget`. A test that needs a timeout to fire uses a short one: the child runs in `web/src/main.test.tsx` and `web/src/testwait.test.ts` set their own `--test-timeout` of a few hundred milliseconds.
+`web-check` runs `node --test --test-timeout=120000`. A test still running after 120 seconds fails with its name; the suite as a whole has no limit. A test that needs a timeout to fire uses a short one: the child runs in `web/src/main.test.tsx` and `web/src/testwait.test.ts` set their own `--test-timeout` of a few hundred milliseconds.
 
 ### CPU budget per package
 

@@ -57,27 +57,30 @@ func (r stepRefusedError) Unwrap() error { return r.err }
 
 // StartStep starts the step session step as step describes. It checks step, that claude would resolve its agent and
 // that the manager is open, records the row as working with its Ops in one write, spawns claude with its agent, inline
-// agents and schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no
-// notice. A step refused before anything is stored, for a bad step, an agent that does not resolve or a closed manager,
-// returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure, records the
-// row failed and returns the error.
+// agents and schema, then records and sends its prompt. A step always runs on the controller, so its row stores the
+// controller's host name. A step is listed as a step, never as a session, and sends no notice. A step refused before
+// anything is stored, for a bad step, an agent that does not resolve or a closed manager, returns its error and stores
+// nothing. A failure after the row is written, a record, spawn or send failure, records the row failed and returns the
+// error.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	defer m.calls.enter()()
 	if err := checkStep(step); err != nil {
 		return stepRefusedError{err}
 	}
-	if err := m.resolveStepAgent(step); err != nil {
+	if err := m.resolveStepAgent(ctx, step); err != nil {
 		return stepRefusedError{err}
 	}
 	if err := m.checkOpen(); err != nil {
 		return stepRefusedError{err}
 	}
-	add := store.EngineAdd{ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep}
+	add := store.EngineAdd{
+		ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep, Host: m.hostName,
+	}
 	if err := m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
-	live, err := m.spawnLive(ctx, step.ID, step.Dir,
-		spawnSpec{agent: step.Agent, agents: step.Agents, schema: step.Schema, step: true, observer: step.Observer})
+	live, err := m.spawnLive(ctx, step.ID, step.Dir, spawnSpec{agent: step.Agent, agents: step.Agents,
+		schema: step.Schema, step: true, observer: step.Observer, host: m.local})
 	if err != nil {
 		recordErr := m.writeFailed(ctx, step.ID, err)
 		return fmt.Errorf("start step %s: %w", step.ID, errors.Join(err, recordErr))
@@ -154,7 +157,7 @@ func checkStep(step StepSession) error {
 // under the managed root. An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve
 // refuses. The error names the agent and each place checked, and an Agents that is not a JSON object of definitions is
 // refused with an error matching ErrBadAgents.
-func (m *Manager) resolveStepAgent(step StepSession) error {
+func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error {
 	defined, err := inlineAgents(step.Agents)
 	if err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
@@ -165,7 +168,7 @@ func (m *Manager) resolveStepAgent(step StepSession) error {
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
 	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
-	if err = agents.Resolve(step.Agent, where); err != nil {
+	if err = agents.Resolve(ctx, step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
 	return nil

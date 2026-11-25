@@ -169,4 +169,23 @@ public interface BackgroundTaskOrBuilder extends
    * @return The ended.
    */
   long getEnded();
+
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   * @return Whether the design field is set.
+   */
+  boolean hasDesign();
+  /**
+   * <pre>
+   * The stage record of the task, unset when the task carries none.
+   * </pre>
+   *
+   * <code>.orrery.v1.EngineDesign design = 10 [json_name = "design"];</code>
+   * @return The design.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EngineDesign getDesign();
 }
