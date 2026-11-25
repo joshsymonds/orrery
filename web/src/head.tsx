@@ -46,6 +46,9 @@ export interface HeadProps {
   // sheetKey is the key of the thing the phone's sheet holds under this head. Its work link is lit, and a band of its ground
   // runs under the head. Absent, nothing is lit and no band is drawn.
   sheetKey?: string;
+  // usage is the conversation's usage readout, drawn in the title row after the context meter's place and before Find, open
+  // or folded, whether or not the meters are shown. Absent, the title row draws none.
+  usage?: JSX.Element;
 }
 
 // HeadWorkLinks is what the title row's work links draw: the things the conversation works on, and what a link opens.
@@ -70,11 +73,11 @@ interface MenuItem {
   run: () => void;
 }
 
-// Head is a conversation's header: its title row, with the work links after the title when given, the context, the find
-// control and the More menu, then either the machine band and the band of what it is for and what waits on it, or, when
-// folded, the one folded line. The machine band is drawn with the open header only. The hide control on the band and the
-// Hide the header item are drawn only in the narrow layout. With a sheetKey, the work link of that thing is lit, and a band
-// of its ground runs under the head.
+// Head is a conversation's header: its title row, with the work links after the title when given, the context, the usage
+// readout when given, the find control and the More menu, then either the machine band and the band of what it is for and
+// what waits on it, or, when folded, the one folded line. The machine band is drawn with the open header only. The hide
+// control on the band and the Hide the header item are drawn only in the narrow layout. With a sheetKey, the work link of
+// that thing is lit, and a band of its ground runs under the head.
 export function Head({
   row,
   conversation,
@@ -99,6 +102,7 @@ export function Head({
   contracts,
   onOpenContract,
   hereContract,
+  usage,
 }: HeadProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   // choose runs a More menu item and closes the menu.
@@ -133,6 +137,7 @@ export function Head({
           <WorkLink items={workLinks.items} narrow={narrow} lit={sheetKey} onOpen={workLinks.onOpen} />
         )}
         {context !== undefined && figure !== null && <ContextMeter context={context} figure={figure} />}
+        {usage}
         <button type="button" class="icon find" aria-label="Find in this conversation" title="Find  /" onClick={() => onFind()}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 10l3.5 3.5" /></svg>
         </button>

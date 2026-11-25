@@ -30,6 +30,7 @@ import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import type { UsageSessionTotal } from "./gen/orrery/v1/usage_pb";
 import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { type HeldMove, type HeldThing, heldMove } from "./held";
@@ -85,6 +86,8 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
+import { UsagePanel } from "./usagepanel";
+import { UsageReadout } from "./usagereadout";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 
@@ -490,6 +493,8 @@ export function App({
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The list panel open beside a session, and the thing a panel held last, which ] reopens.
   const [listPanel, setListPanel] = useState<ListOpen | null>(null);
+  // Whether the Usage panel is open beside the middle conversation. It shuts a list panel, and a list panel shuts it.
+  const [usageOpen, setUsageOpen] = useState(false);
   const [held, setHeld] = useState<Held | null>(null);
   // The motion of the held layout (D16), and what the last commit drew of it. The panes hold the custom properties a move reads.
   const [motion, setMotion] = useState<HeldMotion>(noMotion);
@@ -698,6 +703,31 @@ export function App({
   const watchedRow = accountsOpen ? null : designShown ? designLiveRow : contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
+  // The middle conversation's session totals, the one read the title row's readout and the Usage panel both draw. The
+  // panel shows only while the read holds some totals.
+  const usageTotals = useSessionTotals(clients, middleRow);
+  const usageShown = usageOpen && usageTotals.length > 0;
+  // The panel shuts when the middle has no totals: when the latest read answers none, and when the middle moves to another
+  // conversation, whose totals are none until its own read answers, as a move of the cursor shuts a list panel. So a later
+  // read with totals does not reopen it. A turn's end keeps the last totals until its own answer lands, so it does not shut it.
+  useEffect(() => {
+    if (usageTotals.length === 0) {
+      setUsageOpen(false);
+    }
+  }, [usageTotals.length]);
+  // openUsage opens the Usage panel beside the conversation, shutting a list panel that is open. closeUsage shuts it, and the
+  // readout's press opens it or shuts it.
+  const openUsage = () => {
+    setListPanel(null);
+    setUsageOpen(true);
+  };
+  const closeUsage = () => setUsageOpen(false);
+  const toggleUsage = () => (usageShown ? closeUsage() : openUsage());
+  // The readout is drawn in the middle conversation's title row once its read answers some totals.
+  const usageReadout =
+    usageTotals.length > 0 ? (
+      <UsageReadout totals={usageTotals} open={usageShown} onOpen={toggleUsage} />
+    ) : undefined;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
   const restedEpic =
     epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
@@ -1881,6 +1911,10 @@ export function App({
         setListPanel(
           entry.kind === "session" && entry.panel !== undefined ? { key: item.key, panel: entry.panel } : null,
         );
+        // An address that opens a list panel shuts the Usage panel, as opening a list does.
+        if (entry.kind === "session" && entry.panel !== undefined) {
+          setUsageOpen(false);
+        }
         setRowOpened(true);
         adopt();
         return;
@@ -2078,6 +2112,7 @@ export function App({
       contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
       onOpenContract: navigated(openContractPanel),
       hereContract: middle && contract !== undefined ? contract.id : undefined,
+      usage: middle ? usageReadout : undefined,
       // While a card is held the card is the work, so the head names no work link. Under 760px the sheet under the head
       // holds the work, and its link is the one lit.
       workLinks:
@@ -2273,6 +2308,7 @@ export function App({
       return;
     }
     moveTo(target);
+    setUsageOpen(false);
     setListPanel({ key, panel });
   };
   // closeList shuts the list panel, from its Close or a press on its activity line. The cursor stays on the session's row,
@@ -3173,7 +3209,7 @@ export function App({
         ref={panesRef}
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
         data-inbox={railed ? "collapsed" : "expanded"}
-        data-side={heldThing !== null ? "held" : listShown !== null ? "panel" : "rail"}
+        data-side={heldThing !== null ? "held" : listShown !== null || usageShown ? "panel" : "rail"}
         onAnimationEnd={endMove}
       >
         {railed && (
@@ -3353,6 +3389,16 @@ export function App({
         {listShown !== null && !wide && (
           <Sheet title={listHead(listShown)} onClose={closeList}>
             <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
+          </Sheet>
+        )}
+        {usageShown && wide && (
+          <SidePanel label="Usage" tone="quiet" href={shownForm} onClose={closeUsage}>
+            <UsagePanel totals={usageTotals} />
+          </SidePanel>
+        )}
+        {usageShown && !wide && (
+          <Sheet title="Usage" onClose={closeUsage}>
+            <UsagePanel totals={usageTotals} headless />
           </Sheet>
         )}
       </div>
@@ -3856,6 +3902,52 @@ function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract
     case "step":
       return `step:${entry.id}`;
   }
+}
+
+// usageRead is the latest read of a session's totals: the session it was for, and the totals it answered.
+interface UsageRead {
+  session: string;
+  totals: UsageSessionTotal[];
+}
+
+// useSessionTotals is the totals of the row's session, from SessionTotals. It reads once when the row's conversation opens,
+// which is when the row's session becomes the one the middle draws, and again when the row's state moves from working to
+// any other state, as a turn ends. A row with no archiveId makes no read. The totals are those of the latest read for the
+// row's session: a read that fails answers none, and so does one that answers no totals, and none is held while the
+// session's first read is pending.
+function useSessionTotals(clients: Clients, row: Row | null): UsageSessionTotal[] {
+  const session = row?.archiveId ?? "";
+  const state = row?.state ?? "";
+  const [read, setRead] = useState<UsageRead>({ session: "", totals: [] });
+  const last = useRef<{ session: string; state: string } | null>(null);
+  const latest = useRef(0);
+  useEffect(() => {
+    const previous = last.current;
+    last.current = { session, state };
+    const opened = previous === null || previous.session !== session;
+    const turnEnded = !opened && previous?.state === stateWorking && state !== stateWorking;
+    if (!opened && !turnEnded) {
+      return;
+    }
+    // A read from before this one is ignored once this one starts, so the latest read is the one that answers.
+    const ask = ++latest.current;
+    if (session === "") {
+      return;
+    }
+    clients.usage.sessionTotals({ session }).then(
+      (answer) => {
+        if (ask === latest.current) {
+          setRead({ session, totals: answer.totals });
+        }
+      },
+      () => {
+        if (ask === latest.current) {
+          setRead({ session, totals: [] });
+        }
+      },
+    );
+  }, [clients, session, state]);
+  return read.session === session ? read.totals : [];
 }
 
 // readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed

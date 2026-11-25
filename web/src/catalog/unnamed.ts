@@ -73,6 +73,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // UsagePanel draws a conversation's Usage panel in the right rail: its list total, its four token kinds, and its model-and-agent
   // rows. Round 6 draws no usage panel, and ListPanel stands nearest, for a rail panel in the same frame.
   "usage-panel": { replacement: "ListPanel", epic: "F4" },
+  // UsageReadout draws a conversation's usage in its title row: the word usage and the session's list total, lit while the
+  // Usage panel is open. Round 6 draws no usage readout, and TitleRow stands nearest, for the title row it sits in.
+  "usage-readout": { replacement: "TitleRow", epic: "F3" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 
