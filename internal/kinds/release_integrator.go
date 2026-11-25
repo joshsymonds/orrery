@@ -105,8 +105,9 @@ func integratorStart(rows Rows, attempt int64, id string, position int64, head, 
 	}
 }
 
-// mergedChecks walks the epic's Done gates and then the captures of its Requirements at the revision of checked, a
-// commit the release integrator made, under checked's id. Until they settle it returns the action the first one that
+// mergedChecks walks the epic's Done gates and then the captures of every Requirement that names an evidence item at the
+// revision of checked, a commit the release integrator made, under checked's id: a merge of origin's main can change any
+// of them. Until they settle it returns the action the first one that
 // is not decided asks for. Once they settle, failure is "" when every gate passed and no capture failed. Otherwise it
 // is the stop reason of the first gate that failed, or of the captures that failed, and previous is what that failure
 // was, with the gate's exit and output tails or each capture's verdict, as the next round of the integrator reads it.
@@ -121,7 +122,7 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 		failure := fmt.Sprintf("done gate %s did not pass at %s", gate, checked.Revision)
 		return failure, gateFailure(checked, rows), Action{}, true
 	}
-	captured, act, settled := captures(checked, rows)
+	captured, act, settled := captures(checked, rows, itemRequirements(rows.Epic.Requirements))
 	if !settled {
 		return "", "", act, false
 	}
