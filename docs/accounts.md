@@ -162,6 +162,20 @@ A refusal names the context, the seat or the selector at fault, and never a toke
 
 Routes.SetContextAccount sets only one context's `account`. It refuses an unknown context, and an account that is neither empty nor a stored account. Its answer is the registry as it stands.
 
+## Importing a routes file
+
+`orrery routes import FILE` stores a routes file as the route registry. The file is the registry JSON document that patchbay reads: `default_context`, and `seats` and `contexts` as objects keyed by id. Its seat and context members are the ones this document defines, and a context's `subagents` takes `default_seat`, `agent_types` and `models`. A context names an account by its id, and a routes file carries no token.
+
+The command parses the file, then calls `Accounts.ReplaceRoutes` on orreryd's session socket. orreryd holds the parsed registry to the rules above, and replaces every stored route in one write. A file the parser or those rules refuse stores nothing, and the stored routes stay as they were. The parser refuses the whole file when:
+
+- a member name repeats within one object, so a repeated name cannot silently shadow the value above it;
+- data follows the registry document;
+- a required member is missing;
+- a member has the wrong type; or
+- a member orrery does not store is present. That covers `extra_body`, `max_output_tokens` and `capture_bodies`, which patchbay reads and orrery does not keep, and any other member that is not one of this document's.
+
+On success the command prints the number of seats and contexts the store holds, and exits 0. A refusal prints its error and exits 1.
+
 ## Tokens and the gateway
 
 `store.Reader.RoutesSnapshot` reads, in one read transaction that writes nothing, the route registry and the token of each account a context names. The gateway serves each request from that one snapshot. A context whose `account` is unset carries no token, and its forward seats send the caller's own login.

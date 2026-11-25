@@ -54,7 +54,9 @@ type StartStepRequest struct {
 	// The name of the gate the step's return is checked against, resolved once when the step starts. Empty runs no gate.
 	GateName string `protobuf:"bytes,14,opt,name=gate_name,json=gateName,proto3" json:"gate_name,omitempty"`
 	// The absolute path of the epic's gates file. Empty reads only the project file.
-	GatesFile     string `protobuf:"bytes,15,opt,name=gates_file,json=gatesFile,proto3" json:"gates_file,omitempty"`
+	GatesFile string `protobuf:"bytes,15,opt,name=gates_file,json=gatesFile,proto3" json:"gates_file,omitempty"`
+	// What the step is for. Optional: a start without one gets a model-written purpose.
+	Purpose       string `protobuf:"bytes,16,opt,name=purpose,proto3" json:"purpose,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -190,6 +192,13 @@ func (x *StartStepRequest) GetGateName() string {
 func (x *StartStepRequest) GetGatesFile() string {
 	if x != nil {
 		return x.GatesFile
+	}
+	return ""
+}
+
+func (x *StartStepRequest) GetPurpose() string {
+	if x != nil {
+		return x.Purpose
 	}
 	return ""
 }
@@ -476,7 +485,9 @@ type Step struct {
 	// one that is not a string. A key the result holds more than once is read at its last value.
 	Summary string `protobuf:"bytes,27,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The orrery name of the host the step lives on.
-	Host          string `protobuf:"bytes,30,opt,name=host,proto3" json:"host,omitempty"`
+	Host string `protobuf:"bytes,30,opt,name=host,proto3" json:"host,omitempty"`
+	// What the step is for, as stored at its start; empty when none is stored.
+	Purpose       string `protobuf:"bytes,31,opt,name=purpose,proto3" json:"purpose,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -703,6 +714,13 @@ func (x *Step) GetSummary() string {
 func (x *Step) GetHost() string {
 	if x != nil {
 		return x.Host
+	}
+	return ""
+}
+
+func (x *Step) GetPurpose() string {
+	if x != nil {
+		return x.Purpose
 	}
 	return ""
 }
@@ -1728,7 +1746,7 @@ var File_orrery_engine_v1_step_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\n" +
-	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xc5\x03\n" +
+	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xdf\x03\n" +
 	"\x10StartStepRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x16\n" +
@@ -1748,7 +1766,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x04task\x18\r \x01(\tR\x04task\x12\x1b\n" +
 	"\tgate_name\x18\x0e \x01(\tR\bgateName\x12\x1d\n" +
 	"\n" +
-	"gates_file\x18\x0f \x01(\tR\tgatesFile\"#\n" +
+	"gates_file\x18\x0f \x01(\tR\tgatesFile\x12\x18\n" +
+	"\apurpose\x18\x10 \x01(\tR\apurpose\"#\n" +
 	"\x11StartStepResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"!\n" +
 	"\x0fStopStepRequest\x12\x0e\n" +
@@ -1757,7 +1776,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x11StepStatusRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
 	"\x12StepStatusResponse\x12*\n" +
-	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xbd\x06\n" +
+	"\x04step\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x04step\"\xd7\x06\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -1788,7 +1807,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\bverdicts\x18\x19 \x03(\v2\x1d.orrery.engine.v1.StepVerdictR\bverdicts\x12\x16\n" +
 	"\x06caller\x18\x1a \x01(\tR\x06caller\x12\x18\n" +
 	"\asummary\x18\x1b \x01(\tR\asummary\x12\x12\n" +
-	"\x04host\x18\x1e \x01(\tR\x04hostJ\x04\b\x1c\x10\x1dJ\x04\b\x1d\x10\x1eR\fred_evidenceR\x0egreen_evidence\"\x7f\n" +
+	"\x04host\x18\x1e \x01(\tR\x04host\x12\x18\n" +
+	"\apurpose\x18\x1f \x01(\tR\apurposeJ\x04\b\x1c\x10\x1dJ\x04\b\x1d\x10\x1eR\fred_evidenceR\x0egreen_evidence\"\x7f\n" +
 	"\x15ReadStepResultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05field\x18\x02 \x01(\tR\x05field\x12\x12\n" +

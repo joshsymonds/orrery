@@ -86,12 +86,14 @@ func stepWireRun(t *testing.T, f *stepWireFixture) *stepRun {
 	return run
 }
 
-// stepWireStart starts a writing step with a model limit of limit, and returns the fixture and the step id.
+// stepWireStart starts a writing step with a model limit of limit, and returns the fixture and the step id. The start
+// names a purpose, so no Haiku call for one runs beside the monitor calls the tests count.
 func stepWireStart(t *testing.T, haiku *Haiku, limit time.Duration) (*stepWireFixture, string) {
 	t.Helper()
 	f := newStepWireFixture(t, haiku)
 	start := stepStartWriting(stepWorktreeTestAddLinked(t, stepGitTestRepo(t)))
 	start.ModelLimit = limit
+	start.Purpose = "Watch the step's limit."
 	id, err := f.steps.Start(t.Context(), start)
 	if err != nil {
 		t.Fatalf("Start: %v", err)

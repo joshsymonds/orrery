@@ -203,8 +203,9 @@ func TestToldLimitQueryPlans(t *testing.T) {
 // steps' listings for every epic list and an epic's listings for every epic page. A search of steps is not a scan and
 // passes. ListLabelledSteps and ListLabelledStepListings list the labeled steps of every epic and so read the whole
 // table; no pass reads them, and they are not listed. A read of one task's steps of an epic searches both labels, in
-// the order it returns them. The count of the labeled steps by label, which an epic list takes its ended counts from,
-// reads the label index alone and no step's row.
+// the order it returns them. The read of an epic's open steps, which every read of its flow makes, searches the open
+// steps by the epic and takes their ids from that index alone, in the order it returns them. The count of the labeled
+// steps by label, which an epic list takes its ended counts from, reads the label index alone and no step's row.
 func TestStepQueryPlans(t *testing.T) {
 	t.Parallel()
 	texts := sqlcQueryTexts(t)
@@ -229,6 +230,10 @@ func TestStepQueryPlans(t *testing.T) {
 	want := []string{"SEARCH steps USING INDEX steps_epic_task (epic=? AND task=?)"}
 	if got := planDetails(t, s.db.DB, "ListEpicTaskSteps", texts["ListEpicTaskSteps"]); !reflect.DeepEqual(got, want) {
 		t.Errorf("ListEpicTaskSteps plan = %q, want %q", got, want)
+	}
+	want = []string{"SEARCH steps USING COVERING INDEX steps_epic_open (epic=?)"}
+	if got := planDetails(t, s.db.DB, "ListOpenEpicSteps", texts["ListOpenEpicSteps"]); !reflect.DeepEqual(got, want) {
+		t.Errorf("ListOpenEpicSteps plan = %q, want %q", got, want)
 	}
 	for name, first := range map[string]string{
 		"ListEpicStepListings":     "SEARCH steps USING INDEX steps_epic_task (epic=?)",

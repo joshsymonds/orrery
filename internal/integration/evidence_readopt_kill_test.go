@@ -18,12 +18,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// The test in this file SIGKILLs orreryd twice while an evidence run works: once while its capture runs and once
-// while its judge step runs. Each restart is on the same store and state directory. The capture's gate appends a
-// line to a runs file each time it runs, then holds until a release file exists. The judge's fake claude holds its
-// turn until fakeclaude.release exists in the judge step's worktree, then ends it with a verdict that holds the
-// item's one assertion. The test checks that the capture ran once, that the judge is the one judge step the run
-// started, and that the run ends passed with its verdict recorded once.
+// The test in this file SIGKILLs orreryd while an evidence run's judge step runs. The restart is on the same store and
+// state directory. The run reads a supplied item, whose files are read from the commit without a gate, so the judge is
+// the only work that a kill can interrupt. The judge's fake claude holds its turn until fakeclaude.release exists in the
+// judge step's worktree, then ends it with a verdict that holds the item's one assertion. The test checks that the
+// judge is the one judge step the run started, and that the run ends passed with its verdict recorded once.
+//
+// The test does not kill orreryd during a capture. A captured item is filed as a brief that a gatherer step captures
+// through CaptureEvidence, and a gatherer is an agent step, which this fake claude cannot stand in for. The capture's
+// kill, its readopt and its detach are the captures' tests' to cover, not this one's.
 
 // evidenceKillEpic is the id of the epic the test creates. Its repository prefix has the form a contract requires.
 const evidenceKillEpic = "evidence-0123456/kill-test"
@@ -49,16 +52,13 @@ const (
 )
 
 // evidenceKillRig is a repository whose project file declares the default gate pool, with the base commit an epic
-// starts from. The paths are the ones the test releases and counts through.
+// starts from.
 type evidenceKillRig struct {
-	f              *engineFixture
-	scope          string
-	stateDir       string
-	repo           string
-	base           string
-	capture        []string
-	captureRuns    string
-	captureRelease string
+	f        *engineFixture
+	scope    string
+	stateDir string
+	repo     string
+	base     string
 }
 
 // newEvidenceKillRig builds the rig under the fixture's root. The repository ignores the fake claude's files, so they
@@ -75,9 +75,6 @@ func newEvidenceKillRig(t *testing.T) *evidenceKillRig {
 	f.env = append(f.env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"XDG_CONFIG_HOME="+filepath.Join(f.root, "config"))
 	host := testHost
-	captureRuns := filepath.Join(f.root, "capture.runs")
-	captureRelease := filepath.Join(f.root, "capture.release")
-	script := fmt.Sprintf("echo run >> '%s'; while [ ! -e '%s' ]; do sleep 0.05; done", captureRuns, captureRelease)
 
 	repo := filepath.Join(f.root, "repo")
 	stepReadoptGit(t, f.root, "init", "-q", "-b", "main", repo)
@@ -98,20 +95,15 @@ func newEvidenceKillRig(t *testing.T) *evidenceKillRig {
 	stepReadoptGit(t, repo, "commit", "-q", "-m", "base")
 
 	rig := &evidenceKillRig{
-		f:              f,
-		scope:          scope,
-		stateDir:       filepath.Dir(f.dbPath),
-		repo:           repo,
-		base:           stepReadoptGit(t, repo, "rev-parse", "HEAD"),
-		capture:        []string{f.shell, "-c", script},
-		captureRuns:    captureRuns,
-		captureRelease: captureRelease,
+		f:        f,
+		scope:    scope,
+		stateDir: filepath.Dir(f.dbPath),
+		repo:     repo,
+		base:     stepReadoptGit(t, repo, "rev-parse", "HEAD"),
 	}
-	// A capture still held at the end of a failed test exits at once, so its holder is not left waiting. The holders
-	// are cleared last, after every daemon has stopped. A failed run can start judge steps the test never names, so
-	// every holder in the state directory is cleared, not only those the test names.
+	// A holder still held at the end of a failed test is cleared, after every daemon has stopped. A failed run can start
+	// judge steps the test never names, so every holder in the state directory is cleared, not only those the test names.
 	t.Cleanup(func() { clearHolders(t, rig.stateDir) })
-	t.Cleanup(func() { stepReadoptTouch(t, captureRelease) })
 	return rig
 }
 
@@ -149,22 +141,21 @@ func (r *evidenceKillRig) steps() enginev1connect.StepsClient {
 }
 
 // createEpic accepts the rig's contract in the store file, then creates the rig's epic by its id: one Requirement whose
-// evidence is the capture, judged against its conclusion.
+// evidence is the committed README, judged against its conclusion.
 func (r *evidenceKillRig) createEpic(t *testing.T) {
 	t.Helper()
 	contract := &v1.EpicContract{
 		Id:         evidenceKillEpic,
 		Repository: r.repo,
 		Title:      "Evidence kill test",
-		Intent:     "A SIGKILL during a capture and during its judge loses nothing and runs nothing twice.",
+		Intent:     "A SIGKILL during a judge loses nothing and runs nothing twice.",
 		Care:       "severe",
 		Requirements: []*v1.EpicRequirement{{
 			Id:   "R1",
-			Text: "The capture runs once and its judge holds once.",
+			Text: "The judge holds once.",
 			Item: &v1.EvidenceItem{
-				Kind:       "capture",
-				Capture:    r.capture,
-				Limit:      300,
+				Kind:       "supplied",
+				Supplied:   []string{"README"},
 				Conclusion: evidenceKillConclusion,
 				Judge:      evidenceKillAgent,
 			},
@@ -290,27 +281,15 @@ func (r *evidenceKillRig) requireCaptureWorktreesEmpty(t *testing.T) {
 	}
 }
 
-// TestEvidenceReadoptSigkillDuringCaptureAndJudge proves that orreryd killed while an evidence run's capture runs,
-// and again while its judge step runs, loses nothing and runs nothing twice. The restarted orreryd re-adopts the
-// capture without running it again, then re-adopts the judge step without starting another, and the run ends passed
-// with its verdict recorded.
-func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
+// TestEvidenceReadoptSigkillDuringJudge proves that orreryd killed while an evidence run's judge step runs loses nothing and
+// runs nothing twice. The restarted orreryd re-adopts the judge step without starting another, and the run ends passed with
+// its verdict recorded.
+func TestEvidenceReadoptSigkillDuringJudge(t *testing.T) {
 	t.Parallel()
 	r := newEvidenceKillRig(t)
 	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
 	r.createEpic(t)
 	run := r.runEvidence(t)
-	waitUntil(t, func() bool { return gateRunCount(t, r.captureRuns) > 0 })
-
-	killOrreryd(t, daemon)
-	daemon = r.f.startOrreryd(t, true, "--holder-scope", r.scope)
-	if state := r.run(t, run).GetState(); state != "capturing" {
-		t.Fatalf("state of run %s after the restart = %q, want capturing", run, state)
-	}
-	if n := gateRunCount(t, r.captureRuns); n != 1 {
-		t.Fatalf("capture runs of run %s before its release = %d, want 1", run, n)
-	}
-	stepReadoptTouch(t, r.captureRelease)
 
 	judge := r.awaitJudge(t, run)
 	judgeDir := r.stepRow(t, judge).GetWorktree()
@@ -346,9 +325,6 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	if n := len(r.judgeSteps(t, run)); n != 1 {
 		t.Fatalf("judge steps of run %s after the restart = %d, want 1", run, n)
 	}
-	if n := gateRunCount(t, r.captureRuns); n != 1 {
-		t.Fatalf("capture runs of run %s after the judge restart = %d, want 1", run, n)
-	}
 
 	stepReadoptTouch(t, filepath.Join(judgeDir, "fakeclaude.release"))
 	waitUntil(t, func() bool { return r.run(t, run).GetState() == "ended" })
@@ -359,9 +335,6 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	}
 	if n := len(r.runs(t)); n != 1 {
 		t.Fatalf("evidence runs of %s = %d, want 1", evidenceKillEpic, n)
-	}
-	if n := gateRunCount(t, r.captureRuns); n != 1 {
-		t.Fatalf("capture runs of run %s after it ended = %d, want 1", run, n)
 	}
 	judges := r.judgeSteps(t, run)
 	if len(judges) != 1 || judges[0].GetId() != judge || judges[0].GetEnd() != "done" {

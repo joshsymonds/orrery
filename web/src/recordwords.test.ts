@@ -260,7 +260,7 @@ test("EpicWords: limited rows read limited and held rows read held, each with it
       since: 9_000,
     },
     { id: "s2", glyph: "held", label: "T2", task: "T2", doing: "held · owner asked", since: 8_900 },
-    { id: "s3", glyph: "working", label: "reviewer", task: "", doing: "reading the diff", since: 9_500 },
+    { id: "s3", glyph: "working", label: "", task: "", doing: "reading the diff", since: 9_500 },
   ]);
 });
 

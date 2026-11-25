@@ -11,7 +11,8 @@ import (
 )
 
 // TestGradleEnvironThroughHost makes the Gradle home through a Host that records its calls. The home is made with
-// MkdirAll under the state directory, its gradle.properties is written with WriteFile, and the user's caches are linked
+// MkdirAll under the state directory, its gradle.properties is written with WriteFile, its init.d is made with MkdirAll
+// and the build lock script written in it with WriteFile, and the user's caches are linked
 // in with Symlink. Those are the only calls that change the file system, so they are the only ones checked.
 func TestGradleEnvironThroughHost(t *testing.T) {
 	t.Parallel()
@@ -35,6 +36,8 @@ func TestGradleEnvironThroughHost(t *testing.T) {
 	want := []string{
 		"MkdirAll " + home,
 		"WriteFile " + filepath.Join(home, "gradle.properties"),
+		"MkdirAll " + filepath.Join(home, "init.d"),
+		"WriteFile " + filepath.Join(home, "init.d", "orrery-build-lock.gradle"),
 		"Symlink " + filepath.Join(home, "caches"),
 	}
 	if !slices.Equal(changes, want) {

@@ -55,19 +55,25 @@ fun TaskTable(tasks: List<RecordTask>, now: Long, onOpenPhase: ((task: String, p
 }
 
 /**
- * The running steps of an epic as rows: each glyph names its state, then the label, the pips of the task in [tasks] the
- * step belongs to by [taskOfStep] (five not reached when none does), what the step does, and how long its stage has run
- * as of [now].
+ * The running steps of an epic as rows: each glyph names its state, then the label (the step's purpose, else its task,
+ * else its role), what the step does, the pips of the task in [tasks] the step belongs to by [taskOfStep] when it has a
+ * task (five not reached when none does), and how long its stage has run as of [now].
  */
 @Composable
 fun StepRows(lines: List<StepLine>, tasks: List<RecordTask>, now: Long) {
     Column(modifier = Modifier.fillMaxWidth()) {
         lines.forEach { line ->
-            val cells = tasks.taskOfStep(line.task)?.cells ?: RingPlace.entries.map { CellTone.NONE }
-            StepLineRow(line = line, cells = cells, now = now)
+            StepLineRow(line = line, cells = stepCellsOf(line.task, tasks), now = now)
         }
     }
 }
+
+/**
+ * The five cells of the task among [tasks] a step labelled [task] belongs to by [taskOfStep], five not reached when none
+ * does.
+ */
+internal fun stepCellsOf(task: String, tasks: List<RecordTask>): List<CellTone> =
+    tasks.taskOfStep(task)?.cells ?: RingPlace.entries.map { CellTone.NONE }
 
 /** Elapsed seconds as m:ss, or h:mm:ss from an hour. Never negative. */
 internal fun elapsedClock(seconds: Long): String {
@@ -147,7 +153,9 @@ private fun StepLineRow(line: StepLine, cells: List<CellTone>, now: Long) {
                 style = OrreryTokens.Type.small,
             )
         }
-        Pips(cells = cells)
+        if (line.task.isNotEmpty()) {
+            Pips(cells = cells)
+        }
         if (line.since > 0) {
             Text(
                 elapsedClock(now - line.since),

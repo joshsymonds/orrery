@@ -124,15 +124,16 @@ release, grey.
 
 ## 2. Type
 
-One face: Orrery Mono (Maple Mono), regular and bold; italic only for emphasis and a thought.
+Two faces. **Inter** sets the reading text: `small`, `body`, `title` and `display`. **Orrery Mono** (Maple Mono) sets the label and the code level: `label` and `code`. Italic is for emphasis and a thought only, in either face.
 
 | token | size / line | weight | for |
 |---|---|---|---|
 | `type.label` | 12 / 16 | bold, caps, tracked 0.06em | Section heads, a block's label, a meter's name. |
-| `type.small` | 13 / 20 | regular | Machinery and meta: a tool line, a second line, a chip, a button, the strip. |
-| `type.body` | 15 / 24 | regular | Reading text, your words, a row's title, an input, an option's name. |
-| `type.title` | 18 / 28 | bold | The page's title; an epic's now sentence. |
-| `type.display` | 28 / 36 | bold | The chart's count; a contract's title. One per page. |
+| `type.small` | 13 / 18 | regular | Machinery and meta: a tool line's name and counts, a second line, a chip, a button, the strip. |
+| `type.code` | 13 / 18 mono | regular | Code blocks, inline code, a command, a tool line, an id and a gutter time. |
+| `type.body` | 15 / 22 | regular | Reading text, your words, a row's title, an input, an option's name. |
+| `type.title` | 18 / 24 | bold | The page's title; an epic's now sentence. |
+| `type.display` | 28 / 34 | bold | The chart's count; a contract's title. One per page. |
 
 Bold is allowed at `small` and `body` for emphasis. There are no other sizes.
 
@@ -213,7 +214,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Pill | Neutral, Live, Attention, Ok, Engine; WithGlyph |
 | Meter | Ok, Warn, Crit; NoBar; Stacked (touch) |
 | ContextMeter | Ok, Warn, Crit; Bare |
-| Gauge | Building, AsksYou, NoTasks, Paused, Releasing, Shipped, EndedShort |
+| EpicMark | Running, Asks, Paused, Releasing, Shipped, EndedShort. A rim of one segment per requirement, toned by its state, and the centre: the proven count, or a glyph; 32 in the inbox row, 24 elsewhere |
 | Pips | Running, Held, Limited, Failed, Accepted, Done, NotStarted. Five cells: red, implement, green, review, integrate. |
 | CommitMark | Default |
 | SectionHead | Plain, Attention, WithRest |
@@ -288,7 +289,7 @@ Every pane, session, epic and step draws its host, also when there is only one h
 | component | states |
 |---|---|
 | Track | a stage is Done, Now (with a tone) or Ahead |
-| Orrery | Running, Mine, Done, Dense. Five rings, outside in: red, implement, green, review, integrate, each named once along its own ring, ending where the ring begins. Not drawn with no tasks. |
+| Orrery | Running, Mine, Done, Dense. A rim of one segment per requirement, labelled with its id and toned by its server state (proven, failed, held, in flight, not reached); a task's cells sit inside the first requirement it names, tasks naming none sit in an unlabelled last group, and a requirement no task names keeps an empty segment. Five rings, outside in: red, implement, green, review, integrate, each named once along its own ring, ending where the ring begins. The centre reads n of m proven. A click selects a segment or a task and captions it, with its outline; nothing captions on hover. Not drawn with no tasks. |
 | TaskTable | Default |
 | RequirementTable | Default, WithRuns |
 | EvidenceRun | RedHolds, RedMetAtBase, GreenPasses, Judging, NoVerdict, LogOpen, LogUnavailable |
@@ -307,7 +308,7 @@ composables under `android/.../ui`.
 |---|---|---|
 | Inbox, Dir | `.list`, the three views of `App`, `rows.ts` sections | `PaneListScreen`, `treeRows` in `PaneTree.kt`, `EpicsGroup` |
 | InboxRow | `.b-row`, `TitleParts` | the pane row of `PaneListScreen` |
-| EpicRow, StepRow, Gauge | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
+| EpicRow, StepRow, EpicMark | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
 | TitleRow, MeterStrip | `TitleRow`, `Strip` | `TitleRow.kt`, `PaneHeader`, `HostMeters` |
 | Dock | `Composer` with its queue, `StepBox`, the pill of `workline.tsx` | `ComposeBox`, `StatusLine`, `SessionControls`, `StepControls`, `QuickKeys` |
 | WorkRail, SidePanel | `.epic-card`, waiting cards, background rows, all in the transcript today | `GoalLine`; the rest is not drawn |

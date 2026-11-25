@@ -195,7 +195,8 @@ test("HeadBand: the machine row is its own band after the title row, holding the
       Array.from(band?.querySelectorAll(".meter .value") ?? [], (value) => value.textContent),
       ["↓551K ↑72K", "93% 25/32", "19G", "↓6K ↑2M", "50%"],
     );
-    assert.equal(band?.querySelectorAll(".meter .bar").length, 3, "cpu, ram and disk keep their bars");
+    assert.equal(band?.querySelectorAll(".meter .bar").length, 5, "every meter draws a bar line");
+    assert.equal(band?.querySelectorAll(".meter .bar i").length, 3, "cpu, ram and disk fill their bars; net and disk io stay empty");
     assert.equal(band?.querySelector(".ctx"), null, "the context is not in the band");
   });
 });

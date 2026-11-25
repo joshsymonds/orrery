@@ -322,6 +322,7 @@ func TestEvidenceJudgeStartFields(t *testing.T) {
 		Prompt:    "judge the run",
 		Epic:      "epic-1",
 		Task:      "evidence-run-1",
+		Purpose:   "Judge item-1's green evidence at head",
 	}
 	if !reflect.DeepEqual(start, want) {
 		t.Errorf("StepStart = %+v, want %+v", start, want)

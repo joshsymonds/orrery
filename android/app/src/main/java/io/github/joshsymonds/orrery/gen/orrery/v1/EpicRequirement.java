@@ -25,6 +25,7 @@ public  final class EpicRequirement extends
     kind_ = "";
     runs_ = emptyProtobufList();
     conclusion_ = "";
+    state_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -496,6 +497,73 @@ public  final class EpicRequirement extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     conclusion_ = value.toStringUtf8();
+
+  }
+
+  public static final int STATE_FIELD_NUMBER = 7;
+  private java.lang.String state_;
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @return The state.
+   */
+  @java.lang.Override
+  public java.lang.String getState() {
+    return state_;
+  }
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @return The bytes for state.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStateBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(state_);
+  }
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @param value The state to set.
+   */
+  private void setState(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    state_ = value;
+  }
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   */
+  private void clearState() {
+
+    state_ = getDefaultInstance().getState();
+  }
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @param value The bytes for state to set.
+   */
+  private void setStateBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    state_ = value.toStringUtf8();
 
   }
 
@@ -1095,6 +1163,75 @@ public  final class EpicRequirement extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The requirement's state: proven, failed, held, in_flight or not_reached.
+     * </pre>
+     *
+     * <code>string state = 7 [json_name = "state"];</code>
+     * @return The state.
+     */
+    @java.lang.Override
+    public java.lang.String getState() {
+      return instance.getState();
+    }
+    /**
+     * <pre>
+     * The requirement's state: proven, failed, held, in_flight or not_reached.
+     * </pre>
+     *
+     * <code>string state = 7 [json_name = "state"];</code>
+     * @return The bytes for state.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getStateBytes() {
+      return instance.getStateBytes();
+    }
+    /**
+     * <pre>
+     * The requirement's state: proven, failed, held, in_flight or not_reached.
+     * </pre>
+     *
+     * <code>string state = 7 [json_name = "state"];</code>
+     * @param value The state to set.
+     * @return This builder for chaining.
+     */
+    public Builder setState(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setState(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement's state: proven, failed, held, in_flight or not_reached.
+     * </pre>
+     *
+     * <code>string state = 7 [json_name = "state"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearState() {
+      copyOnWrite();
+      instance.clearState();
+      return this;
+    }
+    /**
+     * <pre>
+     * The requirement's state: proven, failed, held, in_flight or not_reached.
+     * </pre>
+     *
+     * <code>string state = 7 [json_name = "state"];</code>
+     * @param value The bytes for state to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStateBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setStateBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicRequirement)
   }
   @java.lang.Override
@@ -1118,10 +1255,11 @@ public  final class EpicRequirement extends
             "runs_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.class,
             "conclusion_",
+            "state_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u001b\u0006\u0208";
+              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u001b\u0006\u0208\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

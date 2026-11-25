@@ -93,9 +93,9 @@ func (r *Runner) releaseStepDir(id string) (string, error) {
 
 // startReleaseStep starts the release step act names, at the start revision act names, as an unowned writing step in a
 // worktree of its own, detached at that commit. The first step starts only once origin's main is verified to be in its
-// candidate, whether the candidate was passed at an earlier attempt or recorded at this one, since origin's main may have
-// moved past it while its Done gates ran. Its role, worktree or start refused for good records the step as failed at
-// once, and the release stops at it on its next decision.
+// candidate, whether the candidate was passed at an earlier attempt or recorded at this one, since origin's main may
+// have moved past it while its release integrator ran. Its role, worktree or start refused for good records the step as
+// failed at once, and the release stops at it on its next decision.
 func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -131,7 +131,7 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseStepPrompt(step, start, epic.ReleaseThen), Schema: releaseStepSchema,
 		Workspace: wt, Revision: start, Unowned: true, DoneValue: releaseDone, Epic: epic.ID,
-		Task: releaseStepTask(act, position, id),
+		Task: releaseStepTask(act, position, id), Purpose: fmt.Sprintf("Release step %d: %s.", position, step.Step),
 	})
 	if err == nil {
 		return nil
@@ -340,6 +340,7 @@ func (r *Runner) startJudge(ctx context.Context, epic store.EpicRow, act Action,
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
 		ID: id, Agent: agent, Prompt: releaseJudgePrompt(epic.ReleaseThen, flow.Releases), Schema: releaseJudgeSchema,
 		Workspace: epic.Repository, Revision: candidate, ReadOnly: true, Epic: epic.ID,
+		Purpose: fmt.Sprintf("Judge %s's release.", build.Slug(epic.ID)),
 	})
 	if err == nil {
 		return nil

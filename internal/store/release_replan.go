@@ -68,12 +68,12 @@ func (s *Store) ReplanRelease(
 	})
 }
 
-// ReplanGate sends the release of epic back to planning for a Done gate that ran and failed on a candidate that merged
-// origin's commit, in one write. It does what ReplanRelease does, and when the release moves it also stores replan, a
-// replan release run of the attempt of the running release node run at path, with the origin commit as its head and
-// the gate's report as its reason. Its part, step and time are set here. A release that does not move changes nothing,
-// so a repeat is a no-op.
-func (s *Store) ReplanGate(
+// ReplanReview sends the release of epic back to planning for a release review that refused its candidate with
+// findings, in one write. It does what ReplanRelease does, and when the release moves it also stores replan, a replan
+// release run of the attempt of the running release node run at path, with the epic's branch tip the candidate was made
+// from as its head and the review's reason as its reason. Its part, step and time are set here. A release that does
+// not move changes nothing, so a repeat is a no-op.
+func (s *Store) ReplanReview(
 	ctx context.Context, epic, path string, replan ReleaseRun, plan NodeRun, trigger NodeTrigger, tell string,
 	at time.Time,
 ) error {

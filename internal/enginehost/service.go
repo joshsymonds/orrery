@@ -64,6 +64,8 @@ type ServeConfig struct {
 	Steering  SteeringSessions
 	Pools     PoolCommands
 	Evidence  EvidenceCommands
+	Captures  CaptureCommands
+	Attacher  AttachCommands
 	Notices   NoticeSource
 	Crons     CronCommands
 	Changes   *ChangeFeed
@@ -142,7 +144,7 @@ func NewHandler(cfg ServeConfig) http.Handler {
 		}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(
-		&evidenceService{evidence: cfg.Evidence}, opts...)
+		&evidenceService{evidence: cfg.Evidence, captures: cfg.Captures, attacher: cfg.Attacher}, opts...)
 	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: cfg.Notices}, opts...)
 	cronsPath, cronsHandler := enginev1connect.NewCronsHandler(cronService{crons: cfg.Crons}, opts...)
 	changesPath, changesHandler := NewChangesHandler(cfg.Changes, opts...)
@@ -180,8 +182,9 @@ func NewHandler(cfg ServeConfig) http.Handler {
 // service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
 // service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
 // PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
-// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. The other fields keep
-// Serve's nil rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as
+// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. A nil cfg.Captures
+// refuses CaptureEvidence as unavailable, and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields
+// keep Serve's nil rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as
 // cfg.CallerHost sets it, so no caller names another host.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	srv := &http.Server{

@@ -13,7 +13,13 @@ val OrreryMono = FontFamily(
     Font(R.font.orrery_mono_italic, FontWeight.Normal, FontStyle.Italic),
 )
 
-// Lazy because OrreryTokens.Type reads OrreryMono from this file: built eagerly, the typography could read Type before Type has finished initialising.
+val OrreryInter = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal, FontStyle.Normal),
+    Font(R.font.inter_bold, FontWeight.Bold, FontStyle.Normal),
+    Font(R.font.inter_italic, FontWeight.Normal, FontStyle.Italic),
+)
+
+// Lazy because OrreryTokens.Type reads OrreryMono and OrreryInter from this file: built eagerly, the typography could read Type before Type has finished initialising.
 val OrreryTypography: Typography by lazy {
     Typography(
         displayLarge = OrreryTokens.Type.display,
@@ -30,7 +36,7 @@ val OrreryTypography: Typography by lazy {
         bodySmall = OrreryTokens.Type.small,
         labelLarge = OrreryTokens.Type.small,
         labelMedium = OrreryTokens.Type.small,
-        labelSmall = OrreryTokens.Type.label,
+        labelSmall = OrreryTokens.Type.small,
     )
 }
 

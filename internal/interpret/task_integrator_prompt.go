@@ -57,6 +57,15 @@ func taskIntegratorPrompt(
 	return out.String(), nil
 }
 
+// previousLines returns the lines of previous, the failure the commit of the task integrator's round before met, or none
+// for the first round.
+func previousLines(previous string) []string {
+	if previous == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(previous, "\n"), "\n")
+}
+
 // taskLines returns the title and deliverable of task, as `- T<n> <title>` and `  deliverable: <deliverable>`.
 func taskLines(task store.EpicTask) []string {
 	return []string{fmt.Sprintf("- T%d %s", task.Seq, task.Title), "  deliverable: " + task.Deliverable}

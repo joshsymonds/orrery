@@ -919,6 +919,55 @@ type EvidenceArtifact struct {
 	Size     int64
 }
 
+type EvidenceCapture struct {
+	ID           string
+	Epic         string
+	Repository   string
+	Step         string
+	Role         string
+	Runner       string
+	CommitSha    string
+	Argv         string
+	Files        string
+	LimitSeconds int64
+	State        string
+	GrantID      string
+	Holder       string
+	Exit         int64
+	TimedOut     int64
+	NotCaptured  string
+	LogHash      string
+	LogBytes     int64
+	StderrHash   string
+	StderrBytes  int64
+	Delivered    int64
+	Created      int64
+	Ended        int64
+}
+
+type EvidenceCaptureBrief struct {
+	Capture string
+	Run     string
+}
+
+type EvidenceCaptureFile struct {
+	Capture  string
+	Position int64
+	Path     string
+	State    string
+	Hash     string
+	Blob     string
+	Size     int64
+}
+
+type EvidenceGatherer struct {
+	Epic    string
+	Seq     int64
+	Step    string
+	Started int64
+	Ended   int64
+}
+
 type EvidenceRun struct {
 	ID          string
 	Epic        string
@@ -944,6 +993,9 @@ type EvidenceRun struct {
 	Ended       int64
 	StderrHash  string
 	StderrBytes int64
+	Capture     string
+	Gatherer    string
+	Gatherers   int64
 }
 
 type Grant struct {
@@ -1238,6 +1290,7 @@ type Step struct {
 	LinesAdded      int64
 	LinesRemoved    int64
 	Host            string
+	Purpose         string
 }
 
 type StepListing struct {
@@ -1257,6 +1310,7 @@ type StepListing struct {
 	Ended           int64
 	Epic            string
 	Task            string
+	Purpose         string
 	GateName        string
 	GateLimit       int64
 	LoopLimited     bool

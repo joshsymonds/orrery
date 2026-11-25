@@ -42,6 +42,12 @@ One request is one row in `requests`. [`Start`](../internal/ledger/write.go) ins
 | `cache_write_tokens` | Finish | Cache-write tokens. 0 while in flight. |
 | `billed_cost_nano_usd` | Finish | The billed cost. NULL when unknown. |
 | `list_cost_nano_usd` | Finish | The cost at list price. NULL when unknown. |
+| `list_input_nano_usd` | Finish | The input tokens' cost at list price. NULL when the request has no list cost. |
+| `list_output_nano_usd` | Finish | The output tokens' cost at list price. NULL when the request has no list cost. |
+| `list_cache_read_nano_usd` | Finish | The cache-read tokens' cost at list price. NULL when the request has no list cost. |
+| `list_cache_write_nano_usd` | Finish | The cache-write tokens' cost at list price. NULL when the request has no list cost. |
+
+**List cost by kind.** The four `list_*_nano_usd` columns split `list_cost_nano_usd` by token kind. Cache writes at the 5-minute price and at the 1-hour price are priced apart and both count in `list_cache_write_nano_usd`. For a request with a list cost, the four sum to `list_cost_nano_usd`. A request with no list cost has NULL in all five columns. [`ratecard`](../internal/ratecard/ratecard.go) computes the four from the Claude rate card, and `Finish` stores them as given.
 
 `Start` also carries `CallerAccount`, which is not a column. It feeds the account when the context has none (section 4).
 
@@ -58,7 +64,7 @@ Migration [`00002_kind_costs.sql`](../internal/ledger/migrations/00002_kind_cost
 - `list_cache_read_nano_usd`: the tokens read from the prompt cache.
 - `list_cache_write_nano_usd`: the tokens written to the prompt cache. A write at the 5-minute price and a write at the 1-hour price both count here.
 
-The migration specifies that the four sum to `list_cost_nano_usd`, and that each is NULL where the request has no list cost. `Finish` takes no per-kind cost, so it leaves the four columns NULL. A NULL kind is a cost the ledger does not know.
+The migration specifies that the four sum to `list_cost_nano_usd`, and that each is NULL where the request has no list cost. `Finish` stores the four as it is given them (section 2). A NULL kind is a cost the ledger does not know.
 
 **The unknown rule for totals.** A session total (section 5) and an epic total each carry the four kinds. For each kind, the total's value is the sum of that kind's column over the total's finalized requests, when every one of them has a non-NULL value for the kind. When any finalized request of the total is NULL for the kind, the total's value for that kind is NULL: the total is unknown for that kind, and no partial sum is given. An in-flight request is not counted, so it does not make its total unknown.
 

@@ -44,6 +44,15 @@ func gateHolderArgv(stateDir string, child proc.Config, seconds string) []string
 	}, child.Args...)
 }
 
+// gateScopeArgs returns the arguments that put a gate's holder of testSession in its own user scope named unit, before
+// the holder's argv: scopeArgs's, with the gate's lower CPU weight.
+func gateScopeArgs(unit string) []string {
+	return []string{
+		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "-p", "CPUWeight=20",
+		"--unit", unit,
+	}
+}
+
 // sessionDirOf returns the holder directory of testSession under the state directory root.
 func sessionDirOf(t *testing.T, root string) string {
 	t.Helper()
@@ -79,7 +88,7 @@ func TestHolderCommandGateLimitIsItsWholeSecondsBeforeTheSeparator(t *testing.T)
 			cfg.Scope = fakeSystemdRunPath(t)
 			unit := scopeUnit(testSession, testScopeNonce)
 			prog, argv = holderCommand(cfg, orrery, root, unit)
-			wantScoped := append(scopeArgs(unit), orrery)
+			wantScoped := append(gateScopeArgs(unit), orrery)
 			wantScoped = append(wantScoped, want...)
 			if prog != cfg.Scope || !slices.Equal(argv, wantScoped) {
 				t.Fatalf("scoped holder command = %q %q, want %q %q", prog, argv, cfg.Scope, wantScoped)

@@ -49,7 +49,10 @@ sealed interface Asking {
 /** A running step's state glyph: working, held by the owner, or waiting on a usage limit. */
 enum class StepGlyph { WORKING, HELD, LIMITED }
 
-/** One running step as a row of Now: its [glyph], [label], [task], what it [doing], and the unix second it [since]. */
+/**
+ * One running step as a row of Now: its [glyph], [label] (the step's purpose, else its task, else its role), [task], what
+ * it [doing], and the unix second it [since].
+ */
 data class StepLine(
     val id: String,
     val glyph: StepGlyph,
@@ -200,7 +203,7 @@ fun stepLinesOf(detail: EpicDetail): List<StepLine> = runningOf(detail).map { st
             step.limited -> StepGlyph.LIMITED
             else -> StepGlyph.WORKING
         },
-        label = labelOf(step),
+        label = stepHeadlineOf(step),
         task = step.task,
         doing = doingOf(step),
         since = if (step.stageStarted != 0L) step.stageStarted else step.started,
@@ -212,6 +215,11 @@ private fun runningOf(detail: EpicDetail): List<StepRow> = detail.steps.filter {
 // asks is whether the epic waits on the owner: an open question the owner is asked, or the owner's park.
 private fun asks(detail: EpicDetail): Boolean = ownerQuestionOf(detail) != null || ownerParked(detail)
 
+// stepHeadlineOf is the line a running step's row leads with: its purpose, else its task, else its role. The agent is
+// the step's detail, never its row.
+internal fun stepHeadlineOf(step: StepRow): String = step.purpose.ifEmpty { step.task.ifEmpty { step.role } }
+
+// labelOf names a step by its task, else its agent. The blocker pill keeps it.
 private fun labelOf(step: StepRow): String = step.task.ifEmpty { step.agent }
 
 // stageNowOf is the track's stage an outcome is in.
@@ -380,7 +388,7 @@ private fun plainReasonOf(reason: String): String {
     return if (sentence.endsWith(".")) sentence else "$sentence."
 }
 
-private fun doingOf(step: StepRow): String = when {
+internal fun doingOf(step: StepRow): String = when {
     step.held -> if (step.reason.isEmpty()) "held" else "held · ${step.reason}"
     step.limited -> limitWaitOf(step)
     else -> step.doing

@@ -51,6 +51,10 @@ class InboxDroidTickTest {
         const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
         const val HOST_STATUS = "/orrery.v1.Host/Status"
         const val NOTICES_LIST = "/orrery.v1.Notices/List"
+        const val ACCOUNTS_LIST = "/orrery.v1.Accounts/List"
+        const val ROUTES_GET = "/orrery.v1.Routes/Get"
+        const val USAGE_READINGS = "/orrery.v1.Usage/Readings"
+        const val USAGE_SPEND = "/orrery.v1.Usage/Spend"
         const val ALPHA_TAG = "project:|$ALPHA"
         const val BETA_TAG = "project:|$BETA"
         const val MOVING_PANE = "%1"
@@ -136,10 +140,14 @@ class InboxDroidTickTest {
 
     /**
      * Every call the inbox has made so far, by procedure path. The bell reads the notice history each time the inbox starts,
-     * as it always has, so that read is left out: the inbox's own reads are the rest.
+     * as it always has, and the usage band reads the accounts, the routes, the readings and the spend on its own minute
+     * while started, so those reads are left out: the inbox's own reads are the rest.
      */
     private fun readsOf(server: FakeOrreryServer): Map<String, Int> =
-        server.requests.filter { it.rawPath != NOTICES_LIST }.groupingBy { it.rawPath }.eachCount()
+        server.requests.filter { it.rawPath !in otherReads }.groupingBy { it.rawPath }.eachCount()
+
+    /** The reads the bell and the usage band make on their own, which are not the inbox's row reads. */
+    private val otherReads = setOf(NOTICES_LIST, ACCOUNTS_LIST, ROUTES_GET, USAGE_READINGS, USAGE_SPEND)
 
     /** The calls made since [before], by path, leaving out the paths that were not called. */
     private fun readsSince(server: FakeOrreryServer, before: Map<String, Int>): Map<String, Int> {

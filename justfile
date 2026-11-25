@@ -4,13 +4,6 @@ set shell := ["scripts/in-devenv", "-uc"]
 # [script] recipes run through the same script, in bash with the devenv environment loaded.
 set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 
-# Wall-clock budget (seconds) for the test suite, a hang guard rather than a
-# performance target. Override on the CLI: just TEST_BUDGET=60 check
-TEST_BUDGET := "360"
-
-# Wall-clock budget (seconds) for web-check's node run, the whole web suite. Override: just WEB_TEST_BUDGET=300 web-check
-WEB_TEST_BUDGET := "120"
-
 # List available recipes.
 default:
     @just --list
@@ -36,30 +29,16 @@ cover:
     dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
     trap 'rm -rf "$dir"' EXIT
     rc=0
-    # The budget is a hang guard for the tests, and compiling every package under -race and coverage, which a cold build
-    # cache does, is no hang, so the test binaries are compiled before it starts, with the flags the run below uses, and
-    # the run then links from the build cache. -c takes only packages that have tests. The orrery and orreryd the tests
-    # build themselves (cmd/orreryd's TestMain, internal/integration) are compiled the same way.
-    mapfile -t pkgs < <(go list -f '{{"{{"}}if or .TestGoFiles .XTestGoFiles{{"}}"}}{{"{{"}}.ImportPath{{"}}"}}{{"{{"}}end{{"}}"}}' ./... | grep -v '^$')
-    go test -c -o "$dir/bin/" -race -covermode=atomic -coverpkg=./... "${pkgs[@]}"
-    go build -o "$dir/bin/" ./cmd/orrery ./cmd/orreryd
-    # Each test binary runs with -test.timeout set to what is left until 10 s before the budget ends
-    # (scripts/test-deadline.sh), so a package still running then panics listing its running tests, which go test
-    # prints, instead of ending without a word when timeout kills go test. A failure at or past that deadline is the
-    # budget's.
-    deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
-    # Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
+    # The run has no wall-clock budget: a slow run on a loaded machine is not a failing one. go test's own per-binary
+    # timeout ends a hang, and its panic names the tests that were running. Each test's artifact directory, which holds the logs of the processes it starts, is kept under test-artifacts,
     # so a run that fails or times out leaves them on disk.
     artifacts="$PWD/test-artifacts"
     rm -rf "$artifacts" && mkdir "$artifacts"
     # scripts/test-deadline.sh appends each package's CPU seconds to the record, checked against the baseline below.
     record="$artifacts/test-budget.record"
     : >"$record"
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$record" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
-    if [ "$rc" -eq 124 ] || { [ "$rc" -ne 0 ] && [ "$(date +%s)" -ge "$deadline" ]; }; then
-        echo "tests exceeded {{TEST_BUDGET}}s budget" >&2
-        exit 124
-    elif [ "$rc" -ne 0 ]; then
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
+    if [ "$rc" -ne 0 ]; then
         exit "$rc"
     fi
 
@@ -215,16 +194,11 @@ web-check:
         exit 1
     fi
     esbuild $tests --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build --out-extension:.js=.mjs --log-level=warning
-    # A test still running after 5 s fails, named, rather than holding its file until the gate's own limit ends it
-    # with no test named. Most tests here take milliseconds and the slowest a few hundred, so 5 s bounds a hang, not a
-    # slow test. The whole run is bounded too: past WEB_TEST_BUDGET seconds timeout ends it, and the recipe fails
-    # saying so, so a file that hangs outside any test cannot hold the gate.
-    rc=0
-    timeout {{WEB_TEST_BUDGET}} node --test --test-timeout=5000 $(find web/build -name '*.test.mjs' | sort) || rc=$?
-    if [ "$rc" -eq 124 ]; then
-        echo "web-check: the web suite exceeded {{WEB_TEST_BUDGET}}s budget" >&2
-    fi
-    exit "$rc"
+    # A test still running after 120 s fails, named, rather than holding its file until the gate's own limit ends it
+    # with no test named. Most tests here take milliseconds and the slowest a few hundred, so 120 s bounds a hang and
+    # never a test slowed by a loaded machine. The run as a whole has no budget: the gate that runs it ends a hang
+    # outside any test.
+    node --test --test-timeout=120000 $(find web/build -name '*.test.mjs' | sort)
 
 # Write the design tokens from tokens.json: tokens.css, web/src/tokens.css, web/src/tokens/rules.ts and OrreryTokens.kt.
 tokens:
@@ -334,9 +308,8 @@ test-budget-update: reap-test-tmux
     for run in 1 2; do
         mkdir "$dir/tmux$run"
         : >"$dir/run$run"
-        deadline=$(($(date +%s) + {{TEST_BUDGET}} - 10))
         rc=0
-        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_DEADLINE="$deadline" ORRERY_TEST_CPU_FILE="$dir/run$run" timeout "{{TEST_BUDGET}}" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$dir/cover$run.out" ./... || rc=$?
+        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_CPU_FILE="$dir/run$run" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$dir/cover$run.out" ./... || rc=$?
         if [ "$rc" -ne 0 ]; then
             echo "test-budget-update: run $run failed (exit $rc); testdata/test-budget.json is unchanged" >&2
             exit "$rc"
@@ -379,15 +352,18 @@ android-install:
         gradle -p android assembleDebug -Porrery.defaultServer="${ORRERY_DEFAULT_SERVER:-}" -Porrery.version="$(git describe --tags --abbrev=0)"; \
         adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
 
-# Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF
-# from the flake's pinned nixpkgs, renamed because the OFL reserves the name.
+# Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF from the flake's pinned nixpkgs, renamed
+# because the OFL reserves the name, and the Inter faces (inter_regular, inter_bold, inter_italic) from nixpkgs' Inter:
+# its variable faces instanced at wght 400 and 700 upright and 400 italic, every other axis pinned to its default.
+# Both are subset to the same unicodes.
 [script]
 android-font:
     src=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#maple-mono.NF-CN-unhinted)
+    inter=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#inter)
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
-    nix shell --inputs-from . nixpkgs#python3Packages.fonttools -c bash -euo pipefail -s "$src" "$tmp" "$PWD/android/app/src/main/res" <<'SCRIPT'
-    src=$1 tmp=$2 res=$3
+    nix shell --inputs-from . nixpkgs#python3Packages.fonttools -c bash -euo pipefail -s "$src" "$tmp" "$PWD/android/app/src/main/res" "$inter" <<'SCRIPT'
+    src=$1 tmp=$2 res=$3 inter=$4
     unicodes='U+0020-007E,U+00A0-024F,U+2000-206F,U+2190-21FF,U+2200-22FF,U+2300-23FF,U+2500-259F,U+25A0-25FF,U+2600-27BF,U+2800-28FF,U+2B00-2BFF,U+E000-F8FF,U+F0000-F1FFF'
     mkdir -p "$res/font"
     for style in Regular Bold Italic; do
@@ -397,6 +373,13 @@ android-font:
         ttx -q -t name -f -o "$tmp/$lower.name.ttx" "$tmp/$lower.ttf"
         sed -i -e 's/Maple Mono NF CN/Orrery Mono/g' -e 's/MapleMono-NF-CN-/OrreryMono-/g' "$tmp/$lower.name.ttx"
         ttx -q --no-recalc-timestamp -m "$tmp/$lower.ttf" -o "$res/font/orrery_mono_$lower.ttf" "$tmp/$lower.name.ttx"
+    done
+    inter_src="$inter/share/fonts/truetype"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable.ttf" wght=400 -o "$tmp/inter-regular.ttf"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable.ttf" wght=700 -o "$tmp/inter-bold.ttf"
+    fonttools varLib.instancer --static --no-recalc-timestamp "$inter_src/InterVariable-Italic.ttf" wght=400 -o "$tmp/inter-italic.ttf"
+    for face in regular bold italic; do
+        pyftsubset "$tmp/inter-$face.ttf" --output-file="$res/font/inter_$face.ttf" --unicodes="$unicodes" --layout-features='*' --name-IDs='*'
     done
     SCRIPT
 

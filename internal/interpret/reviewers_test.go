@@ -320,7 +320,7 @@ func TestEpicReviewersStartEndsTestParsimonyWithTheDoneGatesTestCost(t *testing.
 		Stdout: "ok  \tgithub.com/x/internal/store\t41.2s\n" +
 			"test-budget: internal/store 212 cpu-s > 160 (+33%)\n" +
 			"test-budget: 2 packages checked, none over twice its baseline\n",
-		Stderr: "tests exceeded 360s budget\n",
+		Stderr: "tests exceeded 360s budget\ncheck-changed: OK after 97s\n",
 	}
 	cases := []struct {
 		name      string
@@ -333,7 +333,7 @@ func TestEpicReviewersStartEndsTestParsimonyWithTheDoneGatesTestCost(t *testing.
 			want: []string{
 				"- test-budget: internal/store 212 cpu-s > 160 (+33%)",
 				"- test-budget: 2 packages checked, none over twice its baseline",
-				"- tests exceeded 360s budget",
+				"- check-changed: OK after 97s",
 			},
 		},
 		{name: "no Done gate check", want: []string{"- no budget lines"}},

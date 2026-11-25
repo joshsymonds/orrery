@@ -1005,7 +1005,7 @@ test("ReleaseTable: page/epic-releasing draws Release with step 2 running and th
     (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.live') !== null,
     (root) => {
       assertNoFailure(root);
-      assert.equal(root.querySelector(".epic-page section.release > header > span")?.textContent, "step 2 of 3");
+      assert.equal(root.querySelector(".epic-page section.release > .sec > .n")?.textContent, "step 2 of 3");
       assert.equal(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent, "running");
       assert.ok(root.querySelector('.epic-page section.release [data-step="1"] .cell')?.textContent.includes("passed"));
       assert.equal(

@@ -17,7 +17,7 @@ import {
 import { NowSection } from "./nowsection";
 import { clock as resetAt } from "./reader";
 import { nowSentenceOf } from "./recordwords";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { elapsed } from "./dockwords";
 
 type Props = Parameters<typeof NowSection>[0];
@@ -387,7 +387,7 @@ test("EpicWords: each running step is a row with its glyph, label, pips, doing a
   );
   return withSection(props, async (container) => {
     assert.equal(container.querySelector("section.now")?.getAttribute("aria-label"), "Now");
-    assert.equal(container.querySelector("section.now h3")?.textContent, "Now");
+    assert.equal(container.querySelector("section.now .sec .name")?.textContent, "Now");
     assert.equal(sentenceOf(container).textContent, nowSentenceOf(props.detail));
     const rows = container.querySelectorAll("div.tbl.steps > div.tr");
     assert.equal(rows.length, 2, "the finished step draws no row");
@@ -399,11 +399,8 @@ test("EpicWords: each running step is a row with its glyph, label, pips, doing a
     assert.equal(first.querySelectorAll("span.pips > i").length, 5, "a task with no build task draws five pips");
     assert.equal(first.querySelector("span.doing")?.textContent, "editing the parser");
     assert.equal(first.querySelector("span.end")?.textContent, elapsed(now - 9_000));
-    assert.equal(second.querySelector("span.strong")?.textContent, "reviewer", "a step with no task is named by its agent");
-    assert.deepEqual(
-      [...second.querySelectorAll("span.pips > i")].map((mark) => mark.getAttribute("data-tone")),
-      ["none", "none", "none", "none", "none"],
-    );
+    assert.equal(second.querySelector("span.strong")?.textContent, "", "a step with no purpose, task or role names none");
+    assertNone(second.querySelector("span.pips"), "a step with no task draws no pips");
   });
 });
 

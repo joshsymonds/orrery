@@ -212,17 +212,17 @@ test("Shapes: each of an epic's question, park, release and end draws one EpicEv
   }
 });
 
-test("Shapes: an epic's Created draws one EpicEventBlock in the engine tone, its head led by the epic's gauge before the plus icon, with the sentence and the slug link, and the link opens the epic", async (t) => {
+test("Shapes: an epic's Created draws one EpicEventBlock in the engine tone, its head led by the epic's mark before the plus icon, with the sentence and the slug link, and the link opens the epic", async (t) => {
   const opened: string[] = [];
   await withCard(ringEpic, callsReading(epicReading([], [{ id: "t1", status: "" }]), opened), async (container) => {
-    await settle(t, () => container.querySelector(".gauge") !== null, "the card reads its epic's gauge");
+    await settle(t, () => container.querySelector(".epicmark") !== null, "the card reads its epic's mark");
     const block = container.querySelector(".block.epicevent");
     assert.notEqual(block, null, "the card draws one EpicEventBlock");
     assert.equal(block?.getAttribute("data-tone"), "engine", "the Created block is in the engine tone");
     assert.equal(block?.querySelector(".head .label")?.textContent, "EPIC");
     const head = block?.querySelector(".head");
-    assert.equal(head?.children[0]?.getAttribute("class"), "gauge", "the head is led by the epic's gauge");
-    assert.equal(head?.children[1]?.outerHTML, iconMarkup("plus"), "the gauge comes before the plus icon");
+    assert.equal(head?.children[0]?.getAttribute("class"), "epicmark", "the head is led by the epic's mark");
+    assert.equal(head?.children[1]?.outerHTML, iconMarkup("plus"), "the mark comes before the plus icon");
     assert.equal(block?.querySelector(".ring-sentence")?.textContent, "Created the epic from the accepted contract.");
     const link = block?.querySelector<HTMLButtonElement>(".end button");
     assert.equal(link?.textContent, "planner-runner", "the Created block links the epic's slug");
@@ -231,15 +231,17 @@ test("Shapes: an epic's Created draws one EpicEventBlock in the engine tone, its
   });
 });
 
-test("Shapes: a paused epic's Created gauge draws in no tone, and a live epic's draws in live, as the epic list draws them", async (t) => {
+test("Shapes: a paused epic's Created mark draws its centre in ink, and a running epic's in live, as the epic list draws them", async (t) => {
   const tasks = [{ id: "t1", status: "" }];
-  await withCard(ringEpic, callsReading(epicReading([], tasks, true), []), async (container) => {
-    await settle(t, () => container.querySelector(".gauge") !== null, "the paused card reads its epic's gauge");
-    assert.equal(container.querySelector(".block.epicevent .gauge")?.getAttribute("data-tone"), "", "a paused gauge draws in no tone");
+  const paused = { ...epicReading([], tasks, true), centre: "paused" };
+  await withCard(ringEpic, callsReading(paused, []), async (container) => {
+    await settle(t, () => container.querySelector(".epicmark") !== null, "the paused card reads its epic's mark");
+    assert.equal(container.querySelector(".block.epicevent .epicmark g.centre")?.getAttribute("data-tone"), "ink.3", "a paused centre draws in ink");
   });
-  await withCard(ringEpic, callsReading(epicReading([], tasks), []), async (container) => {
-    await settle(t, () => container.querySelector(".gauge") !== null, "the live card reads its epic's gauge");
-    assert.equal(container.querySelector(".block.epicevent .gauge")?.getAttribute("data-tone"), "live", "a live gauge draws live");
+  const running = { ...epicReading([], tasks), centre: "running" };
+  await withCard(ringEpic, callsReading(running, []), async (container) => {
+    await settle(t, () => container.querySelector(".epicmark") !== null, "the live card reads its epic's mark");
+    assert.equal(container.querySelector(".block.epicevent .epicmark g.centre")?.getAttribute("data-tone"), "live", "a running centre draws live");
   });
 });
 

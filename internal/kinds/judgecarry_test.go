@@ -23,7 +23,7 @@ func noVerdictRun(id string) store.EvidenceRun {
 
 // TestJudgeCarryNoVerdictCarries: a capture that ran and exited 0 but whose judge gave no verdict, for a Requirement
 // green at the stored base, does not fail its node. Its earlier verdict carries, with a note, so the integrate advances
-// and says so, and the release records its candidate.
+// and says so, and a round of the task integrator composes its task.
 func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 	t.Parallel()
 	t.Run("integrate", func(t *testing.T) {
@@ -34,29 +34,29 @@ func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 			Action{Kind: ActAdvance, Output: carryNote + "\nR2 green\nR3 not yet green"},
 		}})
 	})
-	t.Run("release", func(t *testing.T) {
+	t.Run("task integrator", func(t *testing.T) {
 		t.Parallel()
-		rows := integratorRows(
-			[]store.ReleaseRun{integratorRound(1, "merge-1", "")},
-			[]store.NodeCheck{{ID: roundWorkID(1, "done 1"), State: store.NodeEnded}},
-			[]store.EvidenceRun{noVerdictRun(roundWorkID(1, "capture R1"))}, nil,
-		)
 		batch, green := greenBatch()
-		rows.Epic.StoredBase = "base-1"
-		rows.Runs = []store.NodeRun{batch}
-		rows.Evidence = append(rows.Evidence, green)
-		checkDecisions(t, Release{}, []decideCase{{
-			"carried capture records the candidate", releaseNode(1, "", integratorResult), rows,
-			Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, "merge-1"}, Revision: "merge-1"},
+		rows := Rows{
+			Epic: conflictEpic(), Runs: []store.NodeRun{batch},
+			Rounds: []store.IntegrateRound{recordedRound(1, RoundMerged, "m1", "", "")}, Checks: roundChecksPassed(),
+			Evidence: []store.EvidenceRun{
+				noVerdictRun(roundWork("capture R1")), roundCapturesPassed()[1], green,
+			},
+		}
+		checkDecisions(t, Integrate{}, []decideCase{{
+			"carried capture composes the task", batchNode("cand-1", conflictLeftOut, true), rows,
+			Action{Kind: ActTaskIntegrator, Items: []string{TaskCompose, "1", "m1"}, Tasks: []int64{2}},
 		}})
 	})
 }
 
 // TestJudgeCarryNoVerdictStillFails: a capture that did not run, timed out or exited non-zero is a cause as today, even
-// for a Requirement green at the stored base, so the integrate fails with its capture failed.
+// for a Requirement green at the stored base, so the integrate fails with its capture failed. With no verdict it shows
+// nothing about the Requirement, so it is not read as a regression from green.
 func TestJudgeCarryNoVerdictStillFails(t *testing.T) {
 	t.Parallel()
-	const want = "R1 capture failed\nR1 regressed from green at the stored base base-1"
+	const want = "R1 capture failed"
 	didNotRun := noVerdictRun(workID("capture R1"))
 	didNotRun.NotCaptured = "the capture command is missing"
 	timedOut := noVerdictRun(workID("capture R1"))

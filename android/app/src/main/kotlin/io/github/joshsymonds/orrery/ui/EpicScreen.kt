@@ -483,7 +483,7 @@ private fun EpicBody(
                         color = OrreryTokens.Ink.three,
                     )
                 }
-                EpicOrrery(tasks = tasks, proven = proven)
+                EpicOrrery(tasks = tasks, proven = proven, requirements = detail.requirements)
                 TaskTable(tasks = tasks, now = now, onOpenPhase = onOpenPhase)
             }
         }

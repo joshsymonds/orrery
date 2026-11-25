@@ -165,8 +165,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UsageClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicSession as UsageEpicSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.UsageEpicTotalsRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageReading as UsageReadingProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageReadingsRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSeatSpend as UsageSeatSpendProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSessionTotal as UsageSessionTotalProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSessionTotalsRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UsageSpendRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.WithdrawRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
@@ -511,6 +515,24 @@ data class LlmRoutes(val defaultContext: String, val seats: List<LlmSeat>, val c
 data class LlmAccounts(val accounts: List<LlmAccount>, val routes: LlmRoutes)
 
 /**
+ * One reading of a usage limit for [account] and [claim], as the ledger keeps it. [utilization] is the share of the
+ * limit in use and [reset] when the limit resets, in unix seconds; each is null when the reading gives none.
+ * [observed] is when the reading was taken, in unix seconds, and [dropped] says whether orrery dropped it.
+ */
+data class UsageReadingRow(
+    val account: String,
+    val claim: String,
+    val utilization: Double?,
+    val reset: Long?,
+    val status: String,
+    val observed: Long,
+    val dropped: Boolean,
+)
+
+/** What [seat] spent over a span of time, in nano US dollars, and how many of its requests had no known cost. */
+data class SeatSpendRow(val seat: String, val billedNanoUsd: Long, val listNanoUsd: Long, val unknownCostRequests: Long)
+
+/**
  * The answer to an account or route write: [Done] with what the server stored, [Refused] when the server refused it
  * with [code] and its [reason], or [NoAnswer] when no answer came, so the write may or may not have landed.
  */
@@ -555,7 +577,8 @@ data class StepVerdictRow(val round: Int, val verdict: String, val reason: Strin
  * limit of [limitKind] holds the step, and [limitResets] is when that limit resets, in unix seconds, 0 when unknown.
  * [readOnly] is whether the step is read-only, [role] is the role it plays, and
  * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
- * and [verdicts] are its done-judge verdicts, in round order.
+ * and [verdicts] are its done-judge verdicts, in round order. [purpose] is what the step is for, empty when none
+ * is stored.
  */
 data class StepRow(
     val id: String,
@@ -579,6 +602,7 @@ data class StepRow(
     val summary: String = "",
     val gateName: String = "",
     val verdicts: List<StepVerdictRow> = emptyList(),
+    val purpose: String = "",
 )
 
 /**
@@ -739,7 +763,8 @@ sealed interface ContractCallResult {
 
 /**
  * One requirement of an orreryd epic's contract: [kind] is "check" or "review". [conclusion] is what its evidence is
- * judged against, and [runs] are its evidence runs, oldest first.
+ * judged against, and [runs] are its evidence runs, oldest first. [state] is proven, failed, held, in_flight or
+ * not_reached.
  */
 data class EpicRequirementRow(
     val id: String,
@@ -748,13 +773,14 @@ data class EpicRequirementRow(
     val kind: String,
     val conclusion: String = "",
     val runs: List<EvidenceRunRow> = emptyList(),
+    val state: String = "",
 )
 
 /**
  * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
  * [passed] is whether the run passes its phase, [logBytes] and [stderrBytes] are the sizes of its stdout and stderr logs,
  * and [artifacts] are the files it kept. [item] is the requirement or task whose evidence the run shows, set by an
- * epic's history and empty elsewhere.
+ * epic's history and empty elsewhere. [judgeStep] is the id of the run's judge step, empty when none.
  */
 data class EvidenceRunRow(
     val id: String,
@@ -774,12 +800,14 @@ data class EvidenceRunRow(
     val stderrBytes: Long,
     val artifacts: List<EvidenceArtifactRow>,
     val item: String = "",
+    val judgeStep: String = "",
 )
 
 /**
  * One entry of an epic's history: [time] is its time in unix seconds and [cursor] names it for the next page. [kind] is
  * the row the entry carries, one of turn, trigger, step, evidence, decision and tell, and "" when it carries none. Only
- * the row [kind] names is set.
+ * the row [kind] names is set. [sentence] is the entry's line as a sentence built from its stored fields. [runs] are
+ * every run an evidence line groups, the run in [evidence] included; empty for any other entry.
  */
 data class EpicHistoryRow(
     val time: Long,
@@ -791,6 +819,8 @@ data class EpicHistoryRow(
     val evidence: EvidenceRunRow? = null,
     val decision: EpicDecisionRow? = null,
     val tell: EpicTellRow? = null,
+    val sentence: String = "",
+    val runs: List<EvidenceRunRow> = emptyList(),
 )
 
 /**
@@ -970,7 +1000,8 @@ data class EpicContractRow(
  * [ledger] is the end-of-epic review ledger in ledger order, with each finding's closures, empty before its review
  * freezes. [releases] are the release runs in the order orreryd reads them, empty before its release. [report] is
  * what the epic shipped, null until the epic ends and writes it. [supersededBy] is the epic a close named as its
- * replacement, empty when its close named none or it is not closed.
+ * replacement, empty when its close named none or it is not closed. [centre] is the epic's centre state and [newest] is
+ * the sentence of its newest history entry, empty when it has none.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -991,6 +1022,8 @@ data class EpicDetail(
     val releases: List<EpicReleaseRunRow> = emptyList(),
     val report: EpicReportRow? = null,
     val supersededBy: String = "",
+    val centre: String = "",
+    val newest: String = "",
 )
 
 /**
@@ -1399,6 +1432,8 @@ class OrreryClient(
             releases = response.releasesList.map { it.toEpicReleaseRunRow() },
             report = if (response.hasReport()) response.report.toEpicReportRow() else null,
             supersededBy = response.supersededBy,
+            centre = response.centre,
+            newest = response.newest,
         )
     }
 
@@ -1542,6 +1577,22 @@ class OrreryClient(
     fun llmRoutes(): LlmRoutes {
         val response = call(write = false) { standard.routes.get(RoutesGetRequest.getDefaultInstance(), CLIENT_HEADERS) }
         return response.registry.toLlmRoutes()
+    }
+
+    /** The usage limit readings, one for each account and claim. A failed read throws, as [llmRoutes] does. */
+    fun usageReadings(): List<UsageReadingRow> {
+        val response = call(write = false) { standard.usage.readings(UsageReadingsRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.readingsList.map { it.toUsageReadingRow() }
+    }
+
+    /**
+     * What each seat spent over the half-open span [from, to), both in unix seconds, one row for each seat. A failed
+     * read throws, as [llmRoutes] does.
+     */
+    fun usageSpend(from: Long, to: Long): List<SeatSpendRow> {
+        val request = UsageSpendRequest.newBuilder().setFrom(from).setTo(to).build()
+        val response = call(write = false) { standard.usage.spend(request, CLIENT_HEADERS) }
+        return response.seatsList.map { it.toSeatSpendRow() }
     }
 
     /**
@@ -2217,6 +2268,7 @@ class OrreryClient(
             kind = kind,
             conclusion = conclusion,
             runs = runsList.map { it.toEvidenceRunRow() },
+            state = state,
         )
 
     private fun EvidenceRunProto.toEvidenceRunRow(): EvidenceRunRow =
@@ -2238,13 +2290,20 @@ class OrreryClient(
             stderrBytes = stderrBytes,
             artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
             item = item,
+            judgeStep = judgeStep,
         )
 
     private fun EvidenceArtifactProto.toEvidenceArtifactRow(): EvidenceArtifactRow =
         EvidenceArtifactRow(path = path, state = state, size = size, mediaType = mediaType)
 
     private fun EpicHistoryEntryProto.toEpicHistoryRow(): EpicHistoryRow {
-        val row = EpicHistoryRow(time = time, cursor = cursor, kind = "")
+        val row = EpicHistoryRow(
+            time = time,
+            cursor = cursor,
+            kind = "",
+            sentence = sentence,
+            runs = runsList.map { it.toEvidenceRunRow() },
+        )
         return when {
             hasTurn() -> row.copy(kind = "turn", turn = turn.toEpicTurnRow())
             hasTrigger() -> row.copy(kind = "trigger", trigger = trigger.toEpicTriggerRow())
@@ -2309,6 +2368,7 @@ class OrreryClient(
             summary = summary,
             gateName = gateName,
             verdicts = verdictsList.map { it.toStepVerdictRow() },
+            purpose = purpose,
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
@@ -2453,6 +2513,26 @@ class OrreryClient(
 
     private fun UsageEpicSessionProto.toEpicUsageSession(): EpicUsageSession =
         EpicUsageSession(session = session, shared = shared, totals = totalsList.map { it.toUsageTotal() })
+
+    /** An unset utilization or reset is null, not the proto's zero. */
+    private fun UsageReadingProto.toUsageReadingRow(): UsageReadingRow =
+        UsageReadingRow(
+            account = account,
+            claim = claim,
+            utilization = if (hasUtilization()) utilization else null,
+            reset = if (hasReset()) reset else null,
+            status = status,
+            observed = observed,
+            dropped = dropped,
+        )
+
+    private fun UsageSeatSpendProto.toSeatSpendRow(): SeatSpendRow =
+        SeatSpendRow(
+            seat = seat,
+            billedNanoUsd = billedCostNanoUsd,
+            listNanoUsd = listCostNanoUsd,
+            unknownCostRequests = unknownCostRequests,
+        )
 
     private fun RouteRegistryProto.toLlmRoutes(): LlmRoutes =
         LlmRoutes(

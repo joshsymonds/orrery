@@ -182,6 +182,9 @@ class AccountsDroidAddTest {
         composeRule.awaitNone(hasTestTag("add-plan-menu"))
     }
 
+    /** How many accounts lists the server has been asked for: the inbox's usage read asks too, before the page does. */
+    private fun accountsListsAsked(): Int = server.requests.count { it.rawPath == ACCOUNTS_LIST_PATH }
+
     /** The token the one Add request the server received carried. */
     private fun sentAddRequest(): AccountsAddRequest =
         AccountsAddRequest.parseFrom(server.requests.single { it.rawPath == ACCOUNTS_ADD_PATH }.body)
@@ -259,6 +262,8 @@ class AccountsDroidAddTest {
         server.fail(ACCOUNTS_ADD_PATH, Code.INVALID_ARGUMENT, "that name is already in use")
         launch()
         openAccounts()
+        composeRule.awaitExactlyOne(hasText("max-1"))
+        val listsBefore = accountsListsAsked()
         openAddSheet()
 
         typeIn(NAME_TAG, NEW_NAME)
@@ -268,7 +273,7 @@ class AccountsDroidAddTest {
         composeRule.awaitExactlyOne(hasText("Not added: that name is already in use Nothing changed."))
         composeRule.awaitExactlyOne(hasTestTag(SHEET_TAG))
         composeRule.onNodeWithTag(NAME_TAG).assertTextEquals(NEW_NAME)
-        assertEquals(1, server.requests.count { it.rawPath == ACCOUNTS_LIST_PATH })
+        assertEquals(listsBefore, accountsListsAsked())
     }
 
     @Test
@@ -276,6 +281,8 @@ class AccountsDroidAddTest {
         server.drop(ACCOUNTS_ADD_PATH)
         launch()
         openAccounts()
+        composeRule.awaitExactlyOne(hasText("max-1"))
+        val listsBefore = accountsListsAsked()
         openAddSheet()
 
         typeIn(NAME_TAG, NEW_NAME)
@@ -285,7 +292,7 @@ class AccountsDroidAddTest {
         composeRule.awaitNone(hasTestTag(SHEET_TAG))
         composeRule.awaitExactlyOne(hasText(UNANSWERED_NOTE))
         composeRule.awaitUntil("the page read again after the Add") {
-            server.requests.count { it.rawPath == ACCOUNTS_LIST_PATH } == 2
+            accountsListsAsked() == listsBefore + 1
         }
     }
 

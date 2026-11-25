@@ -70,8 +70,8 @@ func (e *Evidence) RunAmendment(
 // runUnder runs the item specOf gives for the epic, named item, at revision in phase, under the caller's id, as RunTask,
 // RunItem and RunAmendment give. A stored run with id is returned as it is and nothing starts. An id that is not 32
 // lowercase hex digits, a refusal of specOf, a bad phase and a revision that does not resolve are refused with an error
-// matching ErrEvidenceRefused, and store no run. Otherwise the run is stored capturing, with the commit revision resolves
-// to, and driven in the background.
+// matching ErrEvidenceRefused, and store no run. Otherwise the run is filed with the commit revision resolves to (see file):
+// a captured item as a brief waiting for its epic's gatherer, and a supplied item as a run driven in the background.
 func (e *Evidence) runUnder(
 	ctx context.Context, id, epic, item, revision, phase string, specOf func(store.EpicRow) (evidence.Item, error),
 ) (store.EvidenceRun, error) {
@@ -111,18 +111,7 @@ func (e *Evidence) runUnder(
 		ID: id, Epic: epic, Item: item, Revision: commit, Phase: phase,
 		Source: evidenceRunSource(spec), Spec: spec, Created: e.now(),
 	}
-	if err = e.store.AddEvidenceRun(ctx, run); err != nil {
-		return store.EvidenceRun{}, fmt.Errorf("add evidence run %s: %w", id, err)
-	}
-	stored, err = e.store.EvidenceRun(ctx, id)
-	if err != nil {
-		return store.EvidenceRun{}, fmt.Errorf("read evidence run %s: %w", id, err)
-	}
-	err = e.start(ctx, row.Repository, stored)
-	if err != nil {
-		return store.EvidenceRun{}, err
-	}
-	return stored, nil
+	return e.file(ctx, row.Repository, run)
 }
 
 // evidenceRunTaskItemOf returns the evidence item a run of task T<task> of row in phase is held to. A task the epic

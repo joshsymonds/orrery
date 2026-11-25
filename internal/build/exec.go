@@ -158,7 +158,8 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 // fail climbs the task one rung off action's failure, in one write (store.Store.ClimbTask): the rung it climbs to is
 // action's Move.To, or the rung after the task's own. The failure is the cause the climb records, the files action
 // names are the task's needs files, and a fail an orchestrator decided records its decision in the same write, with a
-// longer cause. A climb below the gap rung carries the task's kept work onto the base it lands on (carry) before the
+// longer cause, and counts it on the climbed build, as every other decision is counted, so the task's next decision
+// takes the next id. A climb below the gap rung carries the task's kept work onto the base it lands on (carry) before the
 // climb is written, so no rung starts from a base without the work. The climb to the gap rung carries nothing, and
 // removes the task's worktrees. Any other climb keeps them, so the next rung's implementer continues in the same
 // worktree.
@@ -170,6 +171,9 @@ func (r *Runner) fail(ctx context.Context, epic store.EpicRow, view View, action
 	}
 	cause := store.ClimbCause(action.Reason, action.Decision != nil)
 	next := store.ClimbedBuild(from, min(target, store.GapRung), cause)
+	if action.Decision != nil {
+		next.Decisions++
+	}
 	var version *store.TaskVersionInput
 	if next.Attempt < store.GapRung {
 		var carried bool

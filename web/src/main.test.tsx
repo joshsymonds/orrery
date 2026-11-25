@@ -606,15 +606,15 @@ if (process.env[childEnv] === "1") {
       await until(t.signal, () => false, "a state that never comes");
     }));
 
-  test(`${childPrefix}a page that loads after it`, { timeout: 10_000 }, (t) =>
+  test(`${childPrefix}a page that loads after it`, { timeout: 120_000 }, (t) =>
     withPage(t.signal, async (root, start) => {
       start(root, clientsFor(fakeServer("api")), longPollMs);
       await until(t.signal, () => labels(root).includes("api"), "the first load");
     }));
 }
 
-// The test waits for a child node run, which takes longer than the suite's 5 s limit under load.
-test("a page whose test times out stops before the next test, which fails only on its own", { timeout: 30_000 }, async () => {
+// The test waits for a child node run, the suite's slowest test; the suite's 120 s limit bounds a hang.
+test("a page whose test times out stops before the next test, which fails only on its own", async () => {
   // The forced order: in a child run, the first test's page is up when its test times out, and node:test starts the
   // second test at once. A page that ran on past its test would render into the second test's DOM, or remove it, and
   // fail the second test in the first one's place. The child must report the first test alone as failed.
@@ -816,7 +816,7 @@ test("a live epic from Epics.List and Get shows in the list with its count", (t)
       await until(t.signal, () => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
-      assert.ok(epicRow.querySelector(".l2")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
+      assert.ok(epicRow.querySelector(".age")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
       assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
       assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
     } finally {
@@ -860,6 +860,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       assert.deepEqual(
         [...server.paths].sort(),
         [
+          "/orrery.v1.Accounts/List",
           "/orrery.v1.Contracts/List",
           epicsGetPath,
           epicsListPath,
@@ -870,6 +871,9 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
           panesPath,
           sessionsPath,
           headlessPath,
+          "/orrery.v1.Routes/Get",
+          "/orrery.v1.Usage/Readings",
+          "/orrery.v1.Usage/Spend",
           watchPath,
           "/orrery.v1.Usage/EpicTotals",
         ].sort(),

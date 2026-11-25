@@ -88,6 +88,12 @@ service Evidence {
 
   // GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
   rpc GetEvidenceArtifact(GetEvidenceArtifactRequest) returns (GetEvidenceArtifactResponse);
+
+  // CaptureEvidence runs a command at a commit under a project runner, and returns the id of the capture it made.
+  rpc CaptureEvidence(CaptureEvidenceRequest) returns (CaptureEvidenceResponse);
+
+  // AttachEvidence attaches a capture to the evidence runs it answers, and returns those runs as stored.
+  rpc AttachEvidence(AttachEvidenceRequest) returns (AttachEvidenceResponse);
 }
 
 // EpicContract is the ten sections of an accepted epic contract.
@@ -356,7 +362,7 @@ message EvidenceRun {
   // How the evidence was produced: captured or supplied.
   string source = 6;
 
-  // The run's state: capturing, judging or ended.
+  // The run's state: capturing, waiting, gathering, judging or ended.
   string state = 7;
 
   // The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
@@ -1725,4 +1731,39 @@ message GetEvidenceArtifactResponse {
 
   // The sha256 of the bytes.
   string hash = 2;
+}
+
+message CaptureEvidenceRequest {
+  // The commit the command runs at.
+  string commit = 1;
+
+  // The command to run, as its argv.
+  repeated string argv = 2;
+
+  // The project runner the command runs under.
+  string runner = 3;
+
+  // The evidence runs, by id, that the capture answers.
+  repeated string briefs = 4;
+
+  // The repository-relative files the capture keeps.
+  repeated string files = 5;
+}
+
+message CaptureEvidenceResponse {
+  // The id of the capture.
+  string capture = 1;
+}
+
+message AttachEvidenceRequest {
+  // The id of the capture to attach.
+  string capture = 1;
+
+  // The evidence runs, by id, to attach the capture to.
+  repeated string briefs = 2;
+}
+
+message AttachEvidenceResponse {
+  // The evidence runs the capture was attached to, as stored.
+  repeated EvidenceRun runs = 1;
 }

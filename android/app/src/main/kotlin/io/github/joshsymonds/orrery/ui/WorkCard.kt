@@ -30,14 +30,14 @@ internal enum class CardTone { NONE, LIVE, ATTENTION }
 internal enum class TrackState { DONE, NOW, AHEAD }
 
 /**
- * What a WorkCard says of a [Hung] at a time: its item [key], its [slug], its [gauge] (null for a contract), its [tone],
+ * What a WorkCard says of a [Hung] at a time: its item [key], its [slug], its [mark] (null for a contract), its [tone],
  * its [state] words, its five-part [track] (contract, planning, building, releasing, report), its [now] line, its [asks]
  * with the [act] that answers them (both empty when nothing asks), and its [count].
  */
 internal data class WorkCardWords(
     val key: String,
     val slug: String,
-    val gauge: GaugeShare?,
+    val mark: EpicMarkModel?,
     val tone: CardTone,
     val state: String,
     val track: List<TrackState>,
@@ -70,7 +70,7 @@ private fun contractCardOf(key: String, contract: ContractRow): WorkCardWords {
     return WorkCardWords(
         key = key,
         slug = contract.id.substringAfterLast('/'),
-        gauge = null,
+        mark = null,
         tone = if (waiting) CardTone.ATTENTION else CardTone.NONE,
         state = if (contract.care.isEmpty()) contract.state else "${contract.care} care",
         track = trackAt(0),
@@ -102,7 +102,7 @@ private fun epicCardOf(node: EpicNode, now: Long): WorkCardWords {
     return WorkCardWords(
         key = node.key,
         slug = words.name,
-        gauge = words.gauge,
+        mark = words.mark,
         tone = when {
             !active -> CardTone.NONE
             need != null -> CardTone.ATTENTION
@@ -137,7 +137,7 @@ private fun trackAt(current: Int, hasNow: Boolean = true): List<TrackState> = TR
 }
 
 /**
- * A WorkCard of the project page: its gauge and slug with its state, its track, its now line, its asks with the act that
+ * A WorkCard of the project page: its mark and slug with its state, its track, its now line, its asks with the act that
  * answers them, and its count with Open. A tap on the card, on its act or on Open calls [onOpen] with the item key.
  */
 @Composable
@@ -158,7 +158,7 @@ internal fun WorkCard(card: WorkCardWords, onOpen: (String) -> Unit, modifier: M
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
-            card.gauge?.let { GaugeMark(card.key, it) }
+            card.mark?.let { EpicMark(card.key, it, OrreryTokens.Size.gauge) }
             Text(
                 card.slug,
                 modifier = Modifier.weight(1f),

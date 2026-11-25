@@ -239,30 +239,29 @@ func (w replanWorld) refuseReview() {
 }
 
 // TestReleaseReviewerRefusalReplans: in a workflow with a plan that can make the change, a release reviewer that refused
-// the candidate with findings sends the release back to planning with its reason, as a Done gate's failure does, and
-// the first release step never starts. The replan records the epic's branch tip the candidate was made from, so once a
-// replan leaves that branch where it was, the reviewer's refusal of the candidate prepared again stops the release.
+// the candidate with findings sends the release back to planning with its reason, and the first release step never
+// starts. The candidate is the clean merge of origin's main the release integrator made. The replan records the epic's
+// branch tip the candidate was made from, so once a replan leaves that branch where it was, the reviewer's refusal of
+// the candidate the integrator makes again stops the release.
 func TestReleaseReviewerRefusalReplans(t *testing.T) {
 	t.Parallel()
 	const refusal = "the release reviewer refused the candidate: " + releaseClaim
-	w := newGateReplanWorld(t, defaultReleaseReviewer(t, true)...)
+	w := newCleanReplanWorld(t, defaultReleaseReviewer(t, true)...)
 	w.runner.reviewers = &releaseReviewers{}
 	w.pass()
-	w.endGate(0)
-	w.pass()
+	w.integrateClean(w.integratorID())
 	w.refuseReview()
 	w.requireReplannedAt(w.tip, refusal)
 
 	turn, _ := w.claimReplanTurn()
 	w.completeReplanTurn(turn, "complete")
 	again := runAt(t, w.s, releaseNodePath)
-	if again.Attempt != 1 || again.Revision == "" {
-		t.Fatalf("release run = %+v, want attempt 1 with its candidate prepared again", again)
+	if again.Attempt != 1 || decodeMerge(t, again.Result).Origin != w.origin {
+		t.Fatalf("release run = %+v, want attempt 1 merging origin's commit %s again", again, w.origin)
 	}
-	w.endGate(0)
-	w.pass()
+	w.integrateClean(w.integratorID())
 	w.refuseReview()
-	w.requireGateStopped(refusal+"; the epic's branch has not moved since the last replan", 1)
+	w.requireReleaseStopped(refusal+"; the epic's branch has not moved since the last replan", 1)
 	firstSteps := []string{store.NodeWorkID(again.ID, 0, "release 1"), store.NodeWorkID(again.ID, 1, "release 1")}
 	for _, call := range w.fakes.steps.calls {
 		if slices.Contains(firstSteps, call.ID) {

@@ -284,6 +284,12 @@ func turnStepID(epic string, seq int64) string {
 	return hex.EncodeToString(sum[:])[:turnStepIDLength]
 }
 
+// epicSlug returns the part of epic id after its "/", the slug the epic is named by.
+func epicSlug(id string) string {
+	_, slug, _ := strings.Cut(id, "/")
+	return slug
+}
+
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step under turnStepID. It
 // returns the step's id. A start that returns an id with an error still has its id recorded on the turn (see
 // recordStep), and a step whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
@@ -329,6 +335,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		Revision:    revision,
 		ReadOnly:    true,
 		Epic:        row.ID,
+		Purpose:     fmt.Sprintf("Plan turn %d of %s.", turn.Seq, epicSlug(row.ID)),
 		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),
 	})
 	if id != "" {

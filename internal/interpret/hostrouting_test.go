@@ -6,7 +6,6 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
-	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // newHostRoutingRelease returns a release world whose epic lives on host b, and the recorders of hosts a and b, which
@@ -25,7 +24,7 @@ func newHostRoutingRelease(t *testing.T) (*releaseWorld, *hostexectest.Recorder,
 	cfg := nodeConfig(w.s, w.fakes)
 	cfg.Hosts = hostexec.Map{"a": recA, "b": recB}
 	w.runner = New(cfg)
-	result, err := w.runner.decideRelease(t.Context(), epicOf(t, w.s), store.NodeRun{})
+	result, err := w.runner.decideRelease(t.Context(), epicOf(t, w.s))
 	if err != nil {
 		t.Fatalf("decideRelease: %v", err)
 	}

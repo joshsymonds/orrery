@@ -2,7 +2,7 @@
 // and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
 // holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
 // the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
-// in internal/cli.
+// in internal/cli. routes imports a routes file through orreryd.
 package main
 
 import (
@@ -150,6 +150,8 @@ subcommands:
   contract accept ID [WORDS]                    accept a proposed contract, with WORDS
   contract set-aside ID WORDS                   set a contract aside, with WORDS
   contract reopen ID [WORDS]                    reopen a set-aside contract, with WORDS
+  routes import FILE                            store the routes file FILE as the route registry, replacing
+                                                every stored route; print the seat and context counts it stores
   cron list                                     print this session's orrery cron jobs
   cron delete ID                                cancel the orrery cron job ID of this session
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
@@ -162,6 +164,10 @@ subcommands:
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
+  evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- ARGV...
+                                                as an epic's evidence gatherer, run ARGV at SHA as a capture of
+                                                the briefs; print its id, and its end arrives as an event
+  evidence attach CAPTURE RUN...                as an epic's evidence gatherer, attach a capture to its briefs
   holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
                                                 run PATH as one session's held child and serve its holder socket
                                                 until the child ends
@@ -171,6 +177,7 @@ subcommands:
         [--host-status-cmd PATH] [--metrics-listen ADDR]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
+  gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -294,7 +301,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence":
+	case "run", "gate", "evidence", "routes", "gateway":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
@@ -387,8 +394,9 @@ func (c unreachableCrons) CronCall(
 	return nil, c.err
 }
 
-// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and
-// evidence runs an item's evidence or reads it back.
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
+// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway is not one of those; it
+// serves the Claude traffic gateway itself, and is dispatched here only to keep dispatch under its complexity limit.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -403,6 +411,10 @@ func orreryCommand(
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "routes":
+		return runRoutes(ctx, opts, args, stdout, getenv)
+	case "gateway":
+		return runGateway(ctx, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}

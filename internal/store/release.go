@@ -13,10 +13,11 @@ import (
 
 // The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
 // position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
-// was prepared again, a round of the release integrator, which finished a merge of origin's commit that conflicted, a
-// replan, which sends the release back to planning for a change to its candidate that a blocked round asked for, a
-// review, which records whether a release reviewer held the candidate before the first release step started from it,
-// and a stop, which records that the owner stopped the release at an attempt, so no further step of it starts.
+// was prepared again, a round of the release integrator, which made and verified a merge of origin's commit, a replan,
+// which sends the release back to planning for a change to its candidate that a blocked round or a refusing review
+// asked for, a review, which records whether a release reviewer held the candidate before the first release step
+// started from it, and a stop, which records that the owner stopped the release at an attempt, so no further step of it
+// starts.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
@@ -331,9 +332,9 @@ func highestAttempt(runs []ReleaseRun, keep func(ReleaseRun) bool) (ReleaseRun, 
 	return best, found
 }
 
-// ReleaseGatedID returns the id the work of the release node run runID is walked under at generation: runID itself at
-// generation 0, and an id that carries the generation after it at any later one, so the checks and steps of a candidate
-// prepared again cannot decide the candidate it replaces.
+// ReleaseGatedID returns the id the work of the release node run runID runs under at generation: runID itself at
+// generation 0, and an id that carries the generation after it at any later one, so the release integrator, reviewers
+// and first step of the candidate a candidate prepared again replaces cannot decide its own.
 func ReleaseGatedID(runID string, generation int64) string {
 	if generation > 0 {
 		return fmt.Sprintf("%s-generation-%d", runID, generation)

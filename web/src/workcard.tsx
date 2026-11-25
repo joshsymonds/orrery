@@ -1,9 +1,10 @@
 import type { JSX } from "preact";
 
-import { type GaugeShare, epicRowWords } from "./epicrow";
+import { EpicMark } from "./epicmark";
+import { type MarkDetail, epicRowWords, markDetailOf } from "./epicrow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { Gauge, Icon } from "./glyphs";
+import { Icon } from "./glyphs";
 import { type Need, epicNeeds } from "./needs";
 import { nowSentenceOf } from "./recordwords";
 import { trackPart, trackParts } from "./status";
@@ -15,13 +16,14 @@ const proposedState = "proposed";
 // A stage of a card's track: a part passed, the part the item is in now, or a part still ahead.
 export type TrackStage = "done" | "now" | "ahead";
 
-// CardModel is one card's words: the item key its card, act and Open open, its slug, its gauge (null for a contract), its
-// tone (attention, live, or none), its state (the pill's words), its track (one stage per trackParts part), its now
-// sentence, its asks (empty when nothing is asked), the button that answers the ask (empty when none), and its count.
+// CardModel is one card's words: the item key its card, act and Open open, its slug, the detail its mark reads (null for a
+// contract), its tone (attention, live, or none), its state (the pill's words), its track (one stage per trackParts
+// part), its now sentence, its asks (empty when nothing is asked), the button that answers the ask (empty when none), and
+// its count.
 export interface CardModel {
   key: string;
   slug: string;
-  gauge: GaugeShare | null;
+  detail: MarkDetail | null;
   tone: string;
   state: string;
   track: TrackStage[];
@@ -51,7 +53,7 @@ function contractCard(key: string, contract: Contract): CardModel {
   return {
     key,
     slug: contract.id.slice(contract.id.lastIndexOf("/") + 1),
-    gauge: null,
+    detail: null,
     tone: waiting ? "attention" : "",
     state: contract.care === "" ? contract.state : `${contract.care} care`,
     track: stagesOf(0),
@@ -79,7 +81,7 @@ function epicCard(node: EpicNode, now: number): CardModel {
   return {
     key: node.key,
     slug: listed.slug,
-    gauge: words.gauge,
+    detail: markDetailOf(detail),
     tone: need !== undefined ? "attention" : listed.live && !listed.archived ? "live" : "",
     state: words.words,
     track: stagesOf(part === undefined ? 1 : trackParts.indexOf(part), part !== undefined),
@@ -115,7 +117,7 @@ function stagesOf(current: number, hasNow = true): TrackStage[] {
   );
 }
 
-// WorkCard draws one card of a project's page: its gauge, slug and pill, its track, its now sentence, its ask with the
+// WorkCard draws one card of a project's page: its mark, slug and pill, its track, its now sentence, its ask with the
 // button that answers it, and its count with Open. The card, its act button and Open each call onOpen with the card's key.
 export function WorkCard({ card, onOpen }: { card: CardModel; onOpen: (key: string) => void }): JSX.Element {
   const pillTone = card.tone === "attention" ? "waiting" : card.tone === "live" ? "working" : "idle";
@@ -127,7 +129,7 @@ export function WorkCard({ card, onOpen }: { card: CardModel; onOpen: (key: stri
       onClick={() => onOpen(card.key)}
     >
       <div class="top">
-        {card.gauge !== null && <Gauge {...card.gauge} />}
+        {card.detail !== null && <EpicMark detail={card.detail} size={24} />}
         <span class="slug">{card.slug}</span>
         <span class={`end pill tone-${pillTone}`}>{card.state}</span>
       </div>

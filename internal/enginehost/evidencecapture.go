@@ -83,7 +83,7 @@ func (c evidenceCapture) run(
 	if err := addStepWorktree(ctx, c.hostOf(), repo, worktree, revision); err != nil {
 		return c.end(ctx, repo, worktree, item, nil, captureNotStarted(err)), nil
 	}
-	req, err := c.captureRequest(ctx, worktree, id, item)
+	req, err := c.captureGrantRequest(ctx, worktree, id, item)
 	if err != nil {
 		return c.end(ctx, repo, worktree, item, nil, captureNotStarted(err)), nil
 	}
@@ -146,7 +146,7 @@ func (c evidenceCapture) readoptRequest(
 	if err := captureEnsureWorktree(ctx, c.hostOf(), repo, revision, worktree); err != nil {
 		return grants.Request{}, err
 	}
-	return c.captureRequest(ctx, worktree, id, item)
+	return c.captureGrantRequest(ctx, worktree, id, item)
 }
 
 // readoptLost ends the capture of a gate that readopt cannot re-adopt, so the gate is lost at a restart. Nothing reads its
@@ -162,8 +162,8 @@ func (c evidenceCapture) readoptLost(
 	return captureFinished(c.end(ctx, repo, worktree, item, nil, store.LostAtRestart), err)
 }
 
-// captureRequest returns the grant request run id's capture queues in worktree: one member of the default gate pool.
-func (c evidenceCapture) captureRequest(
+// captureGrantRequest returns the grant request run id's capture queues in worktree: one member of the default gate pool.
+func (c evidenceCapture) captureGrantRequest(
 	ctx context.Context, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}

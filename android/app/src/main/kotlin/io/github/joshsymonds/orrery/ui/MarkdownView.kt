@@ -170,7 +170,7 @@ private fun CodeBlock(block: MdBlock.Code) {
                     bottom = OrreryTokens.Space.eight + OrreryTokens.Space.two,
                 ),
             color = OrreryTokens.Ink.one,
-            style = OrreryTokens.Type.small,
+            style = OrreryTokens.Type.code,
             softWrap = false,
         )
         if (block.language.isNotEmpty()) {

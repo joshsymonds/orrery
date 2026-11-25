@@ -24,6 +24,7 @@
   "internal/engine/wire": 0.3,
   "internal/enginehost": 230.3,
   "internal/evidence": 0.3,
+  "internal/exectest": 0.2,
   "internal/gates": 0.3,
   "internal/grants": 5.1,
   "internal/guard": 6.7,

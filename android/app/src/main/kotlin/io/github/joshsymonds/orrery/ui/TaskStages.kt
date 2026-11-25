@@ -92,8 +92,8 @@ private fun wordsOf(
     RingPlace.INTEGRATE -> if (integrated) "merged" else "accepted · waits for its merge"
 }
 
-// A red or green run's words: capturing while it has no run or captures, judging while a judge reads it, then whether it
-// passed, with judged to hold when its verdict holds.
+// A red or green run's words: capturing while it has no run or captures, waiting for the gatherer or being gathered,
+// judging while a judge reads it, then whether it passed, with judged to hold when its verdict holds.
 private fun runWordsOf(
     run: EvidenceRunRow?,
     capturing: String,
@@ -102,6 +102,8 @@ private fun runWordsOf(
     failed: String,
 ): String = when {
     run == null || run.state == "capturing" -> capturing
+    run.state == "waiting" -> WAITING_FOR_GATHERER
+    run.state == "gathering" -> BEING_GATHERED
     run.state == "judging" -> judging
     else -> (if (run.passed) passed else failed) + if (run.verdict == "holds") " · judged to hold" else ""
 }

@@ -301,7 +301,7 @@ test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox
     assert.equal(container.querySelector('.inbox-foot button[aria-label="Keys"]')?.getAttribute("aria-label"), "Keys");
   }));
 
-test("HeadTitle: each stat draws its name, then its bar only with a percent, then its value, in series (index mod 5) + 1 at its level; warn and crit take that level's class alone", async () => {
+test("HeadTitle: each stat draws its name, then its bar (an empty line without a percent), then its value, in series (index mod 5) + 1 at its level; warn and crit take that level's class alone", async () => {
   const host = create(HostStatusResponseSchema, {
     host: "den",
     stats: [
@@ -331,13 +331,13 @@ test("HeadTitle: each stat draws its name, then its bar only with a percent, the
       meters.map((meter) => [...meter.children].map((child) => child.getAttribute("class"))),
       [
         ["name", "bar", "value"],
-        ["name", "value"],
+        ["name", "bar", "value"],
         ["name", "bar", "value"],
         ["name", "bar", "value"],
         ["name", "bar", "value"],
         ["name", "bar", "value"],
       ],
-      "a stat without a percent draws no bar",
+      "a stat without a percent draws an empty bar line",
     );
     assert.deepEqual(
       meters.map((meter) => meter.querySelector(".name")?.textContent),

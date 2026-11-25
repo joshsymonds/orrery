@@ -172,7 +172,10 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gradle.properties: %v", err)
 	}
-	if string(props) != "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\n" {
+	const wantProps = "org.gradle.daemon=false\n" +
+		"kotlin.compiler.execution.strategy=in-process\n" +
+		"org.gradle.workers.max=8\n"
+	if string(props) != wantProps {
 		t.Fatalf("gradle.properties = %q", props)
 	}
 	entries, err := os.ReadDir(home)
@@ -183,8 +186,16 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
-	if want := []string{"caches", "gradle.properties", "wrapper"}; !slices.Equal(names, want) {
+	if want := []string{"caches", "gradle.properties", "init.d", "wrapper"}; !slices.Equal(names, want) {
 		t.Fatalf("gradle home holds %q, want %q", names, want)
+	}
+	script, err := os.ReadFile(filepath.Join(home, "init.d", "orrery-build-lock.gradle"))
+	if err != nil {
+		t.Fatalf("read the build lock script: %v", err)
+	}
+	if !strings.Contains(string(script), "new File(gradle.gradleUserHomeDir, 'orrery-build.lock')") ||
+		!strings.Contains(string(script), "channel.lock()") {
+		t.Fatalf("init.d/orrery-build-lock.gradle = %q, want a script that holds the home's orrery-build.lock", script)
 	}
 	for _, name := range []string{"caches", "wrapper"} {
 		target, linkErr := os.Readlink(filepath.Join(home, name))

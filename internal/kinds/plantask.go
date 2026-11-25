@@ -11,18 +11,17 @@ import (
 const kindBuild = "build"
 
 // PlanTask reports whether task is a task of the plan run plan, among the epic's node runs runs: a task of a turn
-// above the plan's mark, or a task of a turn at or below it that a send_back reopened, at a reopen generation above 0,
-// and that the plan builds, so a build child of the task runs under the plan's path. The running plan starts that
-// child for a reopened task an earlier plan run planned (interpret.pass.startTasks). A task of an earlier turn at
-// generation 0 is the earlier plan run's alone: a plan's mark starts below the turn of every open task no plan run has
-// built (PlanMark). The interpreter settles and integrates a plan's tasks by this rule, a correction round's closure
-// records them, a loop round counts them as planned, and the clients are shown them.
+// above the plan's mark, or a task of a turn at or below it that the plan builds, so a build child of the task runs
+// under the plan's path. The running plan starts that child for a task a send_back reopened, at a reopen generation
+// above 0, that an earlier plan run planned, and for an open task no plan run has built (interpret.pass.startTasks). The
+// second is a task whose turn was still running when the plan started: the plan's mark counted that turn, and its
+// tasks were stored only when it ended, so a task the plan built is the plan's to settle and integrate whatever its
+// turn. A task of an earlier turn that an earlier plan run built is that run's alone, since its build child runs under
+// the earlier plan's path (PlanMark). The interpreter settles and integrates a plan's tasks by this rule, a correction
+// round's closure records them, a loop round counts them as planned, and the clients are shown them.
 func PlanTask(task store.EpicTask, plan store.NodeRun, runs []store.NodeRun) bool {
 	if task.Turn > plan.Mark {
 		return true
-	}
-	if task.Generation == 0 {
-		return false
 	}
 	return slices.ContainsFunc(runs, func(run store.NodeRun) bool {
 		return run.Kind == kindBuild && run.Task == task.Seq && strings.HasPrefix(run.Path, plan.Path+"/")

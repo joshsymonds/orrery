@@ -32,6 +32,7 @@ import {
 import { accountsServe } from "./accounts";
 import { evidenceArtifactKey } from "./epics";
 import { type Slices, shippedSlices } from "./slices";
+import { usageServe } from "./usage";
 
 // FixtureTransport is the fixture a page is given: the transport, the clients made from it, the procedures it refused,
 // and a way to hear each refusal as it is recorded.
@@ -210,8 +211,12 @@ export function createFixtureTransport(slices: Slices = shippedSlices): FixtureT
   // The accounts fake starts from the slices' accounts and registry, and serves Accounts and Routes from its own state.
   const accounts = accountsServe({ accounts: slices.accounts, registry: slices.registry });
 
+  // The usage fake starts from the slices' readings and spend, and serves Usage from its own state.
+  const usage = usageServe({ readings: slices.readings, spend: slices.spend });
+
   const transport = createRouterTransport((router) => {
     accounts.register(router);
+    usage.register(router);
     router.service(Panes, {
       list: () => panes,
       screen: refuse,

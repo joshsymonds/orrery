@@ -72,7 +72,7 @@ public interface EvidenceRunOrBuilder extends
 
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -81,7 +81,7 @@ public interface EvidenceRunOrBuilder extends
   java.lang.String getState();
   /**
    * <pre>
-   * The run's state: capturing, judging or ended.
+   * The run's state: capturing, waiting, gathering, judging or ended.
    * </pre>
    *
    * <code>string state = 4 [json_name = "state"];</code>
@@ -287,4 +287,24 @@ public interface EvidenceRunOrBuilder extends
    */
   com.google.protobuf.ByteString
       getItemBytes();
+
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The judgeStep.
+   */
+  java.lang.String getJudgeStep();
+  /**
+   * <pre>
+   * The id of the run's judge step; empty when none.
+   * </pre>
+   *
+   * <code>string judge_step = 18 [json_name = "judgeStep"];</code>
+   * @return The bytes for judgeStep.
+   */
+  com.google.protobuf.ByteString
+      getJudgeStepBytes();
 }

@@ -279,9 +279,9 @@ private fun UnreadDot(unread: Boolean) {
 }
 
 @Composable
-private fun NoticeLeadMark(lead: NoticeLead, epicId: String) {
+internal fun NoticeLeadMark(lead: NoticeLead, epicId: String) {
     when (lead) {
-        is NoticeLead.Gauge -> GaugeMark(epicId, lead.share)
+        is NoticeLead.Mark -> EpicMark(epicId, lead.mark, OrreryTokens.Size.gauge)
         is NoticeLead.State -> StateGlyph(lead.state, Modifier.padding(top = OrreryTokens.Space.four))
         NoticeLead.Bell -> BellMark()
         NoticeLead.Clock -> ClockMark()

@@ -23,7 +23,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -38,6 +37,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
@@ -47,19 +47,16 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
 private const val MAX_STEP_ROWS = 4
 
-/** The view boxes the round-6 glyph, gauge and contract mark are drawn in, and their strokes, in those units. */
+/** The view boxes the round-6 glyph and the contract mark are drawn in, and their strokes, in those units. */
 private const val GLYPH_VIEW = 16f
-private const val GAUGE_VIEW = 24f
+private const val CONTRACT_VIEW = 24f
 private const val GLYPH_STROKE = 1.5f
-private const val GAUGE_STROKE = 3f
-private const val GAUGE_INNER_STROKE = 1.5f
-private const val GAUGE_RADIUS = 9f
+private const val CONTRACT_STROKE = 1.5f
 
 private const val STATE_WAITING = "waiting"
 private const val STATE_BROKEN = "broken"
 private const val UNSEEN_WORDS = "new since you looked"
 private const val CONTRACT_WORDS = "contract"
-private const val QUESTION_LEAD = "? "
 
 /**
  * One conversation and what hangs under it, drawn as round 8 draws the inbox tree (D13): its row, then each epic's and
@@ -223,9 +220,10 @@ private fun NewDot(unseen: Boolean) {
     }
 }
 
-// A hung epic or contract: an epic's gauge or a contract's mark, its name and words, its blocker in attention, and for
-// an epic its running steps. The count of a contract sits at the row's end, its version. Under a design ([inDesign]) the
-// name and the steps are in regular weight: the design's name is the only bold one in its block.
+// A hung epic or contract: an epic's mark or a contract's mark, then three lines: its name with its count at the end (a
+// contract's count sits at the row's end, its version), its words, and its blocker in attention, else its newest
+// sentence. An epic also draws its running steps. Under a design ([inDesign]) the name and the steps are in regular
+// weight: the design's name is the only bold one in its block.
 @Composable
 internal fun HungRow(
     hung: Hung,
@@ -236,10 +234,10 @@ internal fun HungRow(
     inDesign: Boolean = false,
 ) {
     val words = epicRowWords(hung, now)
-    val gauge = words.gauge
-    val contract = gauge == null
+    val mark = words.mark
+    val contract = mark == null
     val ended = hung is EpicNode && !hung.epic.live
-    val line = if (contract) words.words else listOf(words.words, words.count).filter { it.isNotEmpty() }.joinToString(" · ")
+    val third = thirdLineOf(words)
     // Only an epic has a sheet; a contract has no archive to offer.
     val onLongClick: (() -> Unit)? = (hung as? EpicNode)?.let { node -> { onLongPress(SheetRow.Epic(node.epic)) } }
     Column(modifier = modifier.fillMaxWidth()) {
@@ -252,14 +250,14 @@ internal fun HungRow(
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
             verticalAlignment = Alignment.Top,
         ) {
-            if (hung is EpicNode && gauge != null) {
-                GaugeMark(hung.epic.id, gauge)
+            if (hung is EpicNode && mark != null) {
+                EpicMark(hung.epic.id, mark, OrreryTokens.Size.mark)
             } else {
                 ContractMark(hung.key)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    words.name,
+                    titleLineOf(words),
                     style = OrreryTokens.Type.body.copy(
                         fontWeight = if (ended) OrreryTokens.Font.Weight.regular else boldUnlessIn(inDesign),
                     ),
@@ -267,12 +265,12 @@ internal fun HungRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(line, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (words.blocker.isNotEmpty()) {
+                Text(words.words, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (third.isNotEmpty()) {
                     Text(
-                        QUESTION_LEAD + words.blocker,
+                        third,
                         style = OrreryTokens.Type.small,
-                        color = OrreryTokens.Role.attention,
+                        color = if (words.blocker.isNotEmpty()) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -283,18 +281,20 @@ internal fun HungRow(
             }
         }
         if (hung is EpicNode) {
-            EpicSteps(hung.epic, onOpen, inDesign)
+            EpicSteps(hung.epic, hung.detail, onOpen, inDesign)
         }
     }
 }
 
-// An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest.
+// An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest. A step's pips are its task's cells in the
+// epic's record, when the record is known.
 @Composable
-private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit, inDesign: Boolean) {
+private fun EpicSteps(epic: EpicRow, detail: EpicDetail?, onOpen: (String) -> Unit, inDesign: Boolean) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
+    val tasks = detail?.let { recordTasksOf(it) }.orEmpty()
     for (step in shown) {
-        StepLine(step, onOpen, inDesign)
+        StepLine(step, stepCellsOf(step.task, tasks), onOpen, inDesign)
     }
     if (more > 0) {
         Text(
@@ -305,8 +305,10 @@ private fun EpicSteps(epic: EpicRow, onOpen: (String) -> Unit, inDesign: Boolean
     }
 }
 
+// A step reads as the Now rows do: its purpose, else its task, else its role, then what it is doing, then the pips of its
+// task when it has one.
 @Composable
-private fun StepLine(step: StepRow, onOpen: (String) -> Unit, inDesign: Boolean) {
+private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> Unit, inDesign: Boolean) {
     val key = "step:${step.id}"
     Row(
         modifier = Modifier
@@ -320,19 +322,22 @@ private fun StepLine(step: StepRow, onOpen: (String) -> Unit, inDesign: Boolean)
         StateGlyph(if (step.held) "held" else "working", Modifier.padding(top = OrreryTokens.Space.two))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                step.task,
+                stepHeadlineOf(step),
                 style = OrreryTokens.Type.small.copy(fontWeight = boldUnlessIn(inDesign)),
                 color = OrreryTokens.Ink.one,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                step.doing,
+                doingOf(step),
                 style = OrreryTokens.Type.small,
                 color = if (step.held) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (step.task.isNotEmpty()) {
+            Pips(cells = cells)
         }
     }
 }
@@ -478,78 +483,6 @@ private fun DrawScope.glyphLine(color: Color, x1: Float, y1: Float, x2: Float, y
     )
 }
 
-// An epic's gauge: a planned ring in the line colour (dashed while it has no tasks), its done share as an arc in the
-// tone, and the inner mark in the tone.
-@Composable
-internal fun GaugeMark(epicId: String, share: GaugeShare) {
-    val tone = toneColorOf(share.tone)
-    val label = if (share.total > 0) "${share.done} of ${share.total} tasks done" else "no tasks yet"
-    Canvas(
-        modifier = Modifier
-            .size(OrreryTokens.Size.gauge)
-            .testTag("gauge:$epicId")
-            .semantics { contentDescription = label },
-    ) {
-        drawGauge(share, tone)
-    }
-}
-
-private fun DrawScope.drawGauge(share: GaugeShare, tone: Color) {
-    val centre = Offset(size.width / 2f, size.height / 2f)
-    val radius = gaugePx(GAUGE_RADIUS)
-    val planned = if (share.total > 0) {
-        Stroke(width = gaugePx(GAUGE_STROKE))
-    } else {
-        Stroke(
-            width = gaugePx(GAUGE_STROKE),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(gaugePx(2f), gaugePx(3f))),
-        )
-    }
-    drawCircle(OrreryTokens.Line.firm, radius, centre, style = planned)
-    if (share.total > 0 && share.done > 0) {
-        drawArc(
-            color = tone,
-            startAngle = -90f,
-            sweepAngle = 360f * share.done / share.total,
-            useCenter = false,
-            topLeft = Offset(centre.x - radius, centre.y - radius),
-            size = Size(radius * 2, radius * 2),
-            style = Stroke(width = gaugePx(GAUGE_STROKE)),
-        )
-    }
-    val inner = Stroke(width = gaugePx(GAUGE_INNER_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
-    when (share.inner) {
-        GaugeInner.CHECK -> drawPath(
-            Path().apply {
-                moveTo(gaugePx(8.6f), gaugePx(12.3f))
-                lineTo(gaugePx(10.9f), gaugePx(14.6f))
-                lineTo(gaugePx(15.3f), gaugePx(9.7f))
-            },
-            tone,
-            style = inner,
-        )
-        GaugeInner.DASH -> drawLine(
-            tone,
-            Offset(gaugePx(9f), centre.y),
-            Offset(gaugePx(15f), centre.y),
-            strokeWidth = inner.width,
-            cap = StrokeCap.Round,
-        )
-        GaugeInner.DOT -> drawCircle(tone, gaugePx(3f), centre)
-        null -> Unit
-    }
-}
-
-private fun DrawScope.gaugePx(view: Float): Float = view * size.width / GAUGE_VIEW
-
-private fun toneColorOf(tone: GaugeTone): Color = when (tone) {
-    GaugeTone.NONE -> OrreryTokens.Ink.three
-    GaugeTone.LIVE -> OrreryTokens.Role.live
-    GaugeTone.ENGINE -> OrreryTokens.Role.engine
-    GaugeTone.ATTENTION -> OrreryTokens.Role.attention
-    GaugeTone.OK -> OrreryTokens.Role.ok
-}
-
 // A contract's mark: a sheet of paper in attention, with three lines of text.
 @Composable
 internal fun ContractMark(key: String) {
@@ -559,14 +492,14 @@ internal fun ContractMark(key: String) {
             .testTag("mark:$key")
             .semantics { contentDescription = CONTRACT_WORDS },
     ) {
-        val stroke = Stroke(width = gaugePx(GAUGE_INNER_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val stroke = Stroke(width = contractPx(CONTRACT_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
         drawPath(
             Path().apply {
-                moveTo(gaugePx(7f), gaugePx(4f))
-                lineTo(gaugePx(14f), gaugePx(4f))
-                lineTo(gaugePx(17f), gaugePx(7f))
-                lineTo(gaugePx(17f), gaugePx(20f))
-                lineTo(gaugePx(7f), gaugePx(20f))
+                moveTo(contractPx(7f), contractPx(4f))
+                lineTo(contractPx(14f), contractPx(4f))
+                lineTo(contractPx(17f), contractPx(7f))
+                lineTo(contractPx(17f), contractPx(20f))
+                lineTo(contractPx(7f), contractPx(20f))
                 close()
             },
             OrreryTokens.Role.attention,
@@ -575,14 +508,16 @@ internal fun ContractMark(key: String) {
         for (y in listOf(10f, 13f, 16f)) {
             drawLine(
                 OrreryTokens.Role.attention,
-                Offset(gaugePx(10f), gaugePx(y)),
-                Offset(gaugePx(14f), gaugePx(y)),
+                Offset(contractPx(10f), contractPx(y)),
+                Offset(contractPx(14f), contractPx(y)),
                 strokeWidth = stroke.width,
                 cap = StrokeCap.Round,
             )
         }
     }
 }
+
+private fun DrawScope.contractPx(view: Float): Float = view * size.width / CONTRACT_VIEW
 
 // The age of a stamp in seconds: "30s", "12m", "3h", "2d".
 private fun ageOf(seconds: Long): String = when {

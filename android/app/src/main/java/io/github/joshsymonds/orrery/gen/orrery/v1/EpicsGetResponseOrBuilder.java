@@ -445,4 +445,44 @@ public interface EpicsGetResponseOrBuilder extends
    * @return The steererParked.
    */
   boolean getSteererParked();
+
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 23 [json_name = "centre"];</code>
+   * @return The centre.
+   */
+  java.lang.String getCentre();
+  /**
+   * <pre>
+   * The epic's centre state, one of asks, paused, releasing, shipped, ended_short or running.
+   * </pre>
+   *
+   * <code>string centre = 23 [json_name = "centre"];</code>
+   * @return The bytes for centre.
+   */
+  com.google.protobuf.ByteString
+      getCentreBytes();
+
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 24 [json_name = "newest"];</code>
+   * @return The newest.
+   */
+  java.lang.String getNewest();
+  /**
+   * <pre>
+   * The sentence of the epic's newest history entry; empty when it has none.
+   * </pre>
+   *
+   * <code>string newest = 24 [json_name = "newest"];</code>
+   * @return The bytes for newest.
+   */
+  com.google.protobuf.ByteString
+      getNewestBytes();
 }

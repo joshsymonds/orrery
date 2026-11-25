@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -165,12 +164,6 @@ func (w *releaseWorld) flowOf(id string) store.EpicFlow {
 	return flow
 }
 
-// endGate ends the Done gate check of the release run with exit.
-func (w *releaseWorld) endGate(exit int) {
-	w.t.Helper()
-	nodeEndCheck(w.t, w.s, workID(w.t, w.s, releaseNodePath, "done 1"), exit, "")
-}
-
 // TestReleaseCleanEpicWithoutStepsEndsDone: a clean epic with no release steps ends done through its Ending, with the
 // body its kind gives, which names no gap for its clean review. The recording Ending leaves the phase where it was, so
 // the pass may ask for the same ending again, and every call is that ending.
@@ -209,66 +202,11 @@ func TestReleaseCleanEpicBeginsItsReleaseAtOnce(t *testing.T) {
 	}
 }
 
-// TestReleaseRedDoneGateOnBehindCandidateStopsRelease: a candidate behind the target runs the epic's Done gate at the
-// candidate. A red gate stops the release, which parks the epic for the planner with a trigger and no tell, and moves the
-// epic to stopped, and the gate is not run again.
-func TestReleaseRedDoneGateOnBehindCandidateStopsRelease(t *testing.T) {
-	t.Parallel()
-	ending := &recordingEnding{}
-	w := newReleaseWorld(t, ending)
-	origin := mergeRemote(t, w.repo)
-	nodeEpicBranch(t, w.repo, "epic.txt")
-	mergeOriginCommit(t, origin, "origin.txt")
-	w.createEpic(runEpic, store.PhaseClean, tagStep())
-	if logs := w.pass(); logs != "" {
-		t.Fatalf("pass logged %q, want nothing while the Done gate runs", logs)
-	}
-	candidate := runAt(t, w.s, releaseNodePath).Revision
-
-	wantCheck := store.NodeCheck{
-		ID: workID(t, w.s, releaseNodePath, "done 1"), Epic: runEpic, Path: releaseNodePath, Revision: candidate,
-		Argv: []string{"./bin/lint"}, Limit: 60, Needs: []store.EpicGateNeed{{Pool: "lint", Count: 2}},
-	}
-	if want := []store.NodeCheck{wantCheck}; !reflect.DeepEqual(w.fakes.checks.calls, want) {
-		t.Fatalf("checks run = %+v, want %+v", w.fakes.checks.calls, want)
-	}
-	w.endGate(1)
-	if logs := w.pass(); logs != "" {
-		t.Fatalf("pass logged %q, want nothing once the release stops", logs)
-	}
-
-	reason := "done gate " + integrateDoneGate + " did not pass at " + candidate
-	if run := runAt(t, w.s, releaseNodePath); run.State != store.NodeParked || run.Outcome != "failed" ||
-		run.Output != reason {
-		t.Errorf("release run = %+v, want parked failed with %q", run, reason)
-	}
-	if flow := w.flowOf(runEpic); flow.Epic.Phase != store.PhaseStopped || flow.Epic.Parked != reason {
-		t.Errorf("epic phase = %q and parked = %q, want stopped and parked with %q",
-			flow.Epic.Phase, flow.Epic.Parked, reason)
-	}
-	if tells := nodeTells(t, w.path); len(tells) != 0 {
-		t.Errorf("tells = %q, want none: a stopped release at a step is a planner park", tells)
-	}
-	if got := triggerCausesOf(t, w.s, runEpic); !slices.Contains(got, reason) {
-		t.Errorf("trigger causes = %q, want one with cause %q", got, reason)
-	}
-	if len(ending.calls) != 0 {
-		t.Errorf("EndEpic calls = %+v, want none for a stopped release", ending.calls)
-	}
-
-	w.pass()
-	if tells := nodeTells(t, w.path); len(tells) != 0 {
-		t.Errorf("tells = %q after a later pass, want still none", tells)
-	}
-	if got := len(w.fakes.checks.calls); got != 1 {
-		t.Errorf("checks run = %d after a later pass, want the gate run once", got)
-	}
-}
-
-// TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts: a candidate records as a passed candidate run of its attempt, from
-// the tip it was made from. A candidate behind the target records once its Done gate has passed, with itself as its
-// commit. The release then starts its first step at the candidate.
-func TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
+// TestEpicBaseReleaseCandidateIsRecordedThenStepStarts: a candidate records as a passed candidate run of its attempt,
+// from the tip it was made from, and no Done gate runs on it. A tip behind the target has the release integrator make
+// the merge of origin's commit, and the merge records as the candidate with itself as its commit. The release then
+// starts its first step at the candidate.
+func TestEpicBaseReleaseCandidateIsRecordedThenStepStarts(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
@@ -288,37 +226,49 @@ func TestEpicBaseReleaseGatedCandidateIsRecordedThenStepStarts(t *testing.T) {
 			}
 			w.createEpic(runEpic, store.PhaseClean, tagStep())
 			w.pass()
+			candidate := tip
 			if tc.behind {
-				w.endGate(0)
+				candidate = w.integrateClean(w.integratorID())
 			}
 			logs := w.pass()
 
-			run := runAt(t, w.s, releaseNodePath)
-			if (run.Revision == tip) == tc.behind {
-				t.Fatalf("candidate = %q with tip %q, want behind = %t", run.Revision, tip, tc.behind)
+			if (candidate == tip) == tc.behind {
+				t.Fatalf("candidate = %q with tip %q, want behind = %t", candidate, tip, tc.behind)
 			}
 			want := store.ReleaseRun{
-				Part: store.ReleasePartCandidate, Attempt: run.Attempt, Start: tip, Head: run.Revision,
-				Passed: true, At: runClock(),
+				Part: store.ReleasePartCandidate, Attempt: runAt(t, w.s, releaseNodePath).Attempt, Start: tip,
+				Head: candidate, Passed: true, At: runClock(),
 			}
 			if tc.behind {
-				want.Commits = []string{run.Revision}
+				want.Commits = []string{candidate}
 			}
-			if got := w.flowOf(runEpic).Releases; !reflect.DeepEqual(got, []store.ReleaseRun{want}) {
-				t.Errorf("release runs = %+v, want the one candidate %+v", got, want)
+			flow := w.flowOf(runEpic)
+			if got := releaseRunsOf(flow.Releases, store.ReleasePartCandidate); !reflect.DeepEqual(
+				got, []store.ReleaseRun{want}) {
+				t.Errorf("candidate runs = %+v, want the one candidate %+v", got, want)
+			}
+			if rounds := releaseRunsOf(flow.Releases, store.ReleasePartIntegrator); len(rounds) != btoi(tc.behind) {
+				t.Errorf("integrator rounds = %+v, want %d", rounds, btoi(tc.behind))
 			}
 			if logs != "" {
 				t.Errorf("logs = %q, want none: the first release step starts", logs)
 			}
-			if got := len(w.fakes.steps.calls); got != 1 || w.fakes.steps.calls[0].Revision != run.Revision {
-				t.Errorf(
-					"step starts = %+v, want the one step started at candidate %s",
-					w.fakes.steps.calls,
-					run.Revision,
-				)
+			if step := w.started(w.stepID(1)); step.Revision != candidate {
+				t.Errorf("step 1 start = %+v, want it started at candidate %s", step, candidate)
+			}
+			if len(w.fakes.checks.calls) != 0 {
+				t.Errorf("checks = %+v, want no Done gate run on the candidate", w.fakes.checks.calls)
 			}
 		})
 	}
+}
+
+// btoi returns 1 for true and 0 for false.
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // TestReleaseNilEndingReportsNoEndingConfigured: a clean epic with no release steps asks its Ending to end it, and a

@@ -71,7 +71,6 @@ private const val KEPT_BREAK = "\n"
 const val COMPOSE_MAX_LINES = 5
 
 private val FIELD_TEXT_SP = OrreryTokens.Type.body.fontSize.value
-private val FIELD_LINE_SPACING = OrreryTokens.Type.body.lineHeight.value / OrreryTokens.Type.body.fontSize.value
 private val FIELD_MIN_HEIGHT = OrreryTokens.Size.controlTouch
 private val FIELD_PAD_H = OrreryTokens.Space.twelve
 private val FIELD_PAD_V = OrreryTokens.Space.eight + OrreryTokens.Space.two
@@ -284,9 +283,9 @@ private fun DockField(
                         maxLines = COMPOSE_MAX_LINES
                         isVerticalScrollBarEnabled = true
                         background = null
-                        typeface = ResourcesCompat.getFont(context, R.font.orrery_mono_regular)
+                        typeface = ResourcesCompat.getFont(context, R.font.inter_regular)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, FIELD_TEXT_SP)
-                        setLineSpacing(0f, FIELD_LINE_SPACING)
+                        with(density) { setLineHeight(OrreryTokens.Type.body.lineHeight.roundToPx()) }
                         setTextColor(OrreryTokens.Ink.one.toArgb())
                         setHintTextColor(OrreryTokens.Ink.four.toArgb())
                         setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }

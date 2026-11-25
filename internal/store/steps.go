@@ -60,7 +60,8 @@ type StepNeed struct {
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
 // Agents is the JSON object of the inline agent definitions the step is started with, empty when it has none. Caller is
 // the session or pane that started the step. It resolves to its sessions row in the same write as the step's row, and
-// the row stores that row's id, or "" when no row resolves.
+// the row stores that row's id, or "" when no row resolves. Purpose is what the step is for, stored as given; empty
+// until SetStepPurpose stores one.
 type StepAdd struct {
 	ID           string
 	Agent        string
@@ -84,6 +85,7 @@ type StepAdd struct {
 	ModelLimit   time.Duration
 	Epic         string
 	Task         string
+	Purpose      string
 	Caller       EpicCaller
 	// Host is the host the step's work lives on. A step with an epic takes its epic's host instead.
 	Host string
@@ -213,6 +215,7 @@ type StepRow struct {
 	Ended           time.Time
 	Epic            string
 	Task            string
+	Purpose         string
 	LoopRound       int
 	LoopContinues   int
 	LoopNudge       string
@@ -272,6 +275,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		GateSource: op.GateSource, GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
 		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents, Caller: caller, Host: host,
+		Purpose: op.Purpose,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -409,6 +413,20 @@ func (s *Store) Step(ctx context.Context, id string) (StepRow, error) {
 		return StepRow{}, fmt.Errorf("get step %s: %w", id, err)
 	}
 	return toStepRow(row)
+}
+
+// SetStepPurpose stores purpose as the purpose of step id when the stored purpose is empty, and leaves a stored purpose
+// as it is, so a purpose is written once. An unknown step is ErrNoStep.
+func (s *Store) SetStepPurpose(ctx context.Context, id, purpose string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if _, err := requireStep(ctx, queries, id); err != nil {
+			return err
+		}
+		if err := queries.SetStepPurpose(ctx, sqlcgen.SetStepPurposeParams{Purpose: purpose, ID: id}); err != nil {
+			return fmt.Errorf("set purpose of step %s: %w", id, err)
+		}
+		return nil
+	})
 }
 
 // StepTurn returns the last turn end of the step id's session that was stored after the session's last prompt, with
@@ -593,6 +611,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		Ended:           ended,
 		Epic:            row.Epic,
 		Task:            row.Task,
+		Purpose:         row.Purpose,
 		LoopRound:       int(row.LoopRound),
 		LoopContinues:   int(row.LoopContinues),
 		LoopNudge:       row.LoopNudge,

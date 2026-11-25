@@ -69,7 +69,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     const epic: HeldThing = { kind: "epic", key: "epic:invented-epic", convo: "convo:invented-conversation" };
     for (const move of moves) {
       render(
-        <HeldCard thing={epic} title="Invented epic" move={move} gauge={null} onFoldBack={noop}>
+        <HeldCard thing={epic} title="Invented epic" move={move} mark={null} onFoldBack={noop}>
           <p>the record</p>
         </HeldCard>,
         container,
@@ -77,7 +77,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
       assert.equal(one(container, ".held-card").getAttribute("data-move"), move, `the card carries ${move}`);
 
       render(
-        <HeldSheet thing={epic} title="Invented epic" move={move} gauge={null} onClose={noop}>
+        <HeldSheet thing={epic} title="Invented epic" move={move} mark={null} onClose={noop}>
           <p>the record</p>
         </HeldSheet>,
         container,
@@ -86,7 +86,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     }
 
     render(
-      <HeldCard thing={epic} title="Invented epic" move="" gauge={null} onFoldBack={noop}>
+      <HeldCard thing={epic} title="Invented epic" move="" mark={null} onFoldBack={noop}>
         <p>the record</p>
       </HeldCard>,
       container,
@@ -94,7 +94,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     assertNone(container.querySelector("[data-move]"), "a card with no move carries no data-move");
 
     render(
-      <HeldSheet thing={epic} title="Invented epic" move="" gauge={null} onClose={noop}>
+      <HeldSheet thing={epic} title="Invented epic" move="" mark={null} onClose={noop}>
         <p>the record</p>
       </HeldSheet>,
       container,
@@ -321,12 +321,126 @@ test("PaneMotion motion: every rule that animates a [data-move] selector is insi
   }
 });
 
-test("PaneMotion motion: the card's rising keyframes start at scale(0.86, 0.5) and var(--o-distance-drill)", () => {
-  const rise = dataMoveRules.find((rule) => rule.selector.startsWith(".held-card") && rule.body.includes("animation: held-rise"));
-  assert.ok(rise !== undefined, "the card rises by its held-rise keyframes");
-  const name = rise.body.match(/animation: ([\w-]+)/)?.[1];
-  const from = rules.find((candidate) => candidate.within[candidate.within.length - 1] === `@keyframes ${name}` && candidate.selector === "from");
-  assert.ok(from !== undefined, `style.css has the from frame of ${name}`);
-  assert.ok(from.body.includes("scale(0.86, 0.5)"), "the card starts at scale(0.86, 0.5)");
-  assert.ok(from.body.includes("var(--o-distance-drill)"), "the card starts var(--o-distance-drill) toward its row");
+// normalized is a selector with each run of whitespace made one space, since the sheet breaks its selector lines.
+function normalized(selector: string): string {
+  return selector.replace(/\s+/g, " ");
+}
+
+// animationOf is the value of a rule's animation declaration, or "" when it sets none.
+function animationOf(rule: Rule): string {
+  return rule.body.match(/(?:^|;)\s*animation:\s*([^;]+)/)?.[1].trim() ?? "";
+}
+
+// keyframesOf is the name of the keyframes a rule animates by, the first word of its animation.
+function keyframesOf(rule: Rule): string {
+  return animationOf(rule).split(" ")[0];
+}
+
+// animatedBy is the rules that animate by the keyframes name.
+function animatedBy(name: string): Rule[] {
+  return rules.filter((rule) => keyframesOf(rule) === name);
+}
+
+// ruleOf is the one animating rule whose selector, normalized, contains part.
+function ruleOf(part: string): Rule {
+  const found = rules.filter((rule) => normalized(rule.selector).includes(part) && isMoving(rule.body));
+  assert.equal(found.length, 1, `style.css has one animating rule for ${part}`);
+  return found[0];
+}
+
+// frameOf is the declarations of the frame at stop of the keyframes name, which the sheet must hold.
+function frameOf(name: string, stop: string): string {
+  const found = rules.find((rule) => rule.selector === stop && rule.within[rule.within.length - 1] === `@keyframes ${name}`);
+  assert.ok(found !== undefined, `@keyframes ${name} has a ${stop} frame`);
+  return found.body.trim();
+}
+
+// waitingRules are the rules that name var(--o-delay-rise): the card's rise, the sheet's unfold, the chat's return and the necks'
+// draw-back.
+function waitingRules(): Rule[] {
+  return rules.filter((rule) => rule.body.includes("var(--o-delay-rise)"));
+}
+
+const cardRising = '.held-card:is([data-move="open"], [data-move="switch"], [data-move="other"])';
+const cardFolding = '.held-card:is([data-move="close"], [data-move="leave"])';
+const sheetUnfolding = '.held-sheet[data-move="open"]';
+const sheetFolding = '.held-sheet:is([data-move="close"], [data-move="leave"])';
+
+test("PaneMotion RiseBolder motion: the card rises from scale(0.5, 0.2) and var(--o-distance-rise) toward its row, and is solid 30% of the way in", () => {
+  const rise = ruleOf(cardRising);
+  assert.equal(keyframesOf(rise), "held-rise", "the card rises by the held-rise keyframes");
+  const from = frameOf("held-rise", "from");
+  assert.ok(from.includes("opacity: 0;"), "the card starts transparent");
+  assert.ok(from.includes("translateX(calc(-1 * var(--o-distance-rise))) scale(0.5, 0.2)"), "the card starts scale(0.5, 0.2), var(--o-distance-rise) toward its row");
+  assert.equal(frameOf("held-rise", "30%"), "opacity: 1;", "the card is solid at 30%");
+});
+
+test("RiseBolder motion: the card's rise runs var(--o-move-rise) after var(--o-delay-rise), for an open, a switch and an other", () => {
+  assert.equal(animationOf(ruleOf(cardRising)), "held-rise var(--o-move-rise) var(--o-delay-rise) backwards", "the rise waits for the neck, then runs its own time");
+});
+
+test("RiseBolder motion: the card folds over var(--o-move-fold), and is solid until 70% of the way out", () => {
+  const fold = ruleOf(cardFolding);
+  assert.equal(animationOf(fold), "held-fold var(--o-move-fold) both", "the card folds over the fold's time, and holds its end");
+  assert.equal(frameOf("held-fold", "70%"), "opacity: 1;", "the card is solid at 70%");
+  const to = frameOf("held-fold", "to");
+  assert.ok(to.includes("opacity: 0;"), "the card is gone at its end");
+  assert.ok(to.includes("translateX(calc(-1 * var(--o-distance-rise))) scale(0.5, 0.2)"), "the card goes into its neck at scale(0.5, 0.2)");
+});
+
+test("RiseBolder motion: the necks draw back var(--o-move-leave) after var(--o-delay-rise), on the rows, the design tabs and the rail's marks", () => {
+  const draw = animatedBy("neck-draw");
+  assert.equal(draw.length, 1, "one rule draws the necks back");
+  const selector = normalized(draw[0].selector);
+  assert.ok(selector.includes('.inbox :is(.row, .design-tab)[data-held]:is([data-move="close"], [data-move="leave"])::before'), "the rows and design tabs draw back");
+  assert.ok(selector.includes('.rail-lineage .lmark[data-held]:is([data-move="close"], [data-move="leave"])::after'), "the rail's marks draw back");
+  assert.equal(animationOf(draw[0]), "neck-draw var(--o-move-leave) var(--o-delay-rise) both", "the draw-back waits for the card, then runs its own time");
+});
+
+test("RiseBolder motion: the chat moves over with the card on var(--o-move-rise) when the card opens", () => {
+  assert.equal(
+    animationOf(ruleOf('.read.held[data-move="open"] > :is(.reader, .send)')),
+    "chat-move var(--o-move-rise)",
+    "the chat moves over on the rise's time, with the card",
+  );
+});
+
+test("RiseBolder motion: the chat moves back on var(--o-move-layout) after var(--o-delay-rise) when the card folds back", () => {
+  assert.equal(
+    animationOf(ruleOf('.read[data-move="close"] > :is(.reader, .send)')),
+    "chat-move var(--o-move-layout) var(--o-delay-rise) backwards",
+    "the chat moves back on the layout's time, after the neck has begun to draw back",
+  );
+});
+
+test("RiseBolder motion: the sheet unfolds from scale(1, 0.15) and var(--o-distance-rise) over var(--o-move-rise) after var(--o-delay-rise), solid at 30%", () => {
+  const unfold = ruleOf(sheetUnfolding);
+  assert.equal(animationOf(unfold), "sheet-unfold var(--o-move-rise) var(--o-delay-rise) backwards", "the sheet unfolds over the rise's time, after the delay");
+  const from = frameOf("sheet-unfold", "from");
+  assert.ok(from.includes("translateY(calc(-1 * var(--o-distance-rise))) scale(1, 0.15)"), "the sheet starts scale(1, 0.15), var(--o-distance-rise) up");
+  assert.equal(frameOf("sheet-unfold", "30%"), "opacity: 1;", "the sheet is solid at 30%");
+});
+
+test("RiseBolder motion: the sheet folds over var(--o-move-fold), and is solid until 70% of the way out", () => {
+  assert.equal(animationOf(ruleOf(sheetFolding)), "sheet-fold var(--o-move-fold) both", "the sheet folds over the fold's time, and holds its end");
+  assert.equal(frameOf("sheet-fold", "70%"), "opacity: 1;", "the sheet is solid at 70%");
+  assert.ok(frameOf("sheet-fold", "to").includes("translateY(calc(-1 * var(--o-distance-rise))) scale(1, 0.15)"), "the sheet folds up to scale(1, 0.15)");
+});
+
+test("RiseBolder motion: every rule that waits for var(--o-delay-rise) holds its first frame, with animation fill backwards or both", () => {
+  const waiting = waitingRules();
+  assert.deepEqual(
+    waiting.map(keyframesOf).sort(),
+    ["chat-move", "held-rise", "neck-draw", "sheet-unfold"],
+    "the card's rise, the sheet's unfold, the chat's return and the necks' draw-back wait for the delay",
+  );
+  for (const rule of waiting) {
+    assert.match(animationOf(rule), /\s(backwards|both)$/, `${rule.selector} holds its first frame through the delay`);
+  }
+});
+
+test("RiseBolder motion: every rule that waits for var(--o-delay-rise) is inside prefers-reduced-motion: no-preference", () => {
+  for (const rule of waitingRules()) {
+    assert.ok(rule.within.includes(noPreference), `${rule.selector} is inside ${noPreference}`);
+  }
 });

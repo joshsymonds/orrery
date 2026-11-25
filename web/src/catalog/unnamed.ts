@@ -24,6 +24,12 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   "output-tails": { replacement: "epic-evidence", epic: "F4" },
   // EpicWidget draws the reader's tool-call card: the live card of an epic a tool call created, under the conversation's tool call.
   "epic-widget": { replacement: "convo-epic", epic: "F3" },
+  // UsageRailTile draws the account in use as two rings on the collapsed inbox's rail, above New. Round 6 draws no usage tile,
+  // and the rail's tiles stand nearest.
+  "usage-rail-tile": { replacement: "Tile", epic: "F2" },
+  // UsagePopover draws an account's windows beside the collapsed rail, where its usage tile opens it. Round 6 draws no usage
+  // popover, and the inbox page stands nearest.
+  "usage-popover": { replacement: "inbox-home", epic: "F2" },
   // AccountsPage draws the accounts and routes page at #/accounts, as App draws the pages at its addresses. The inbox page
   // stands for it.
   "accounts-page": { replacement: "inbox-home", epic: "F2" },
@@ -42,6 +48,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // AccountsNarrow draws the accounts and routes page under 760px, which round 6 does not draw. The inbox page stands for it,
   // as it does for AccountsPage.
   "accounts-narrow": { replacement: "inbox-home", epic: "F2" },
+  // UsageBand draws the usage band under the inbox head: each account's 5h, 7d and Fable windows and its reset, which round 6
+  // does not draw. The inbox page stands for it.
+  "usage-band": { replacement: "inbox-home", epic: "F2" },
   // ActivityLines draws what runs under a conversation as lines above its composer, with a count past three. Round 6
   // draws each running thing as a task line in the transcript, and no line above the composer.
   "activity-lines": { replacement: "TaskLine", epic: "F3" },

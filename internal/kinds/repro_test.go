@@ -16,8 +16,9 @@ func reproItem(conclusion string) evidence.Item {
 	return item
 }
 
-// reproEpic returns an epic at base-1 stored at base-1 with the Done gates of integrateEpic. R1 and R3 name test items
-// and R2 names a capture item, so only R1 and R3 get a reproduction.
+// reproEpic returns an epic at base-1 stored at base-1 with the Done gates of integrateEpic, whose task T1 claims R1 and
+// R3 and contributes to R2. R1 and R3 name test items and R2 names a capture item, so only R1 and R3 get a
+// reproduction.
 func reproEpic() store.EpicRow {
 	return store.EpicRow{
 		Base:       "base-1",
@@ -28,6 +29,7 @@ func reproEpic() store.EpicRow {
 			{ID: "R2", Text: "lint is clean", Item: evidenceItem("lint is clean")},
 			{ID: "R3", Text: "the parser reads", Item: reproItem("the parser reads")},
 		},
+		Tasks: []store.EpicTask{batchTask(1, []string{"R1", "R3"}, []string{"R2"})},
 	}
 }
 

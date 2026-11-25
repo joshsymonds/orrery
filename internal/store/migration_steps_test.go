@@ -117,6 +117,7 @@ func migrationChecks() map[int64]migrationCheck {
 		51:  parkBoundDownAndUp(),
 		52:  evidenceAmendmentsDownAndUp(),
 		101: {columnsAtEnd: "epics"},
+		115: stepPurposeDownAndUp(),
 	}
 }
 

@@ -103,12 +103,12 @@ func (p pass) replan(def workflow.Node, run store.NodeRun, act kinds.Action) Act
 	return out
 }
 
-// releaseGateItems is the number of items a replan that a Done gate asks for carries: its part, and the origin commit
-// the replan run records as its head.
-const releaseGateItems = 2
+// replanReviewItems is the number of items a replan that a release review's refusal asks for carries: its part, and the
+// epic's branch tip the replan run records as its head.
+const replanReviewItems = 2
 
 // noPlanStop is the stop a replan ends the release with when the workflow has no plan that can make the change. A
-// gate's replan stops with the reason a failed gate stops the release with when it cannot replan. Any other replan
+// review's replan, whose items are set, stops with the reason the review refused the candidate with. Any other replan
 // stops with its report and a note that says why the change cannot be planned.
 func noPlanStop(act kinds.Action) kinds.Action {
 	if len(act.Items) > 0 {
@@ -121,7 +121,7 @@ func noPlanStop(act kinds.Action) kinds.Action {
 	}
 }
 
-// replanRelease carries out the replan of act's run. An act whose items are set is a gate's replan (replanGate). An act
+// replanRelease carries out the replan of act's run. An act whose items are set is a review's replan (replanReview). An act
 // with a trigger sends the release back to planning in one write (store.Store.ReplanRelease): the epic moves to
 // correcting, and the replan's plan run starts with its trigger and tell. An act with no trigger is the replan of a
 // correcting epic, whose owner's correction already woke the planner, so only the plan run starts, marked below the
@@ -135,7 +135,7 @@ func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Acti
 		return err
 	}
 	if len(act.Items) > 0 {
-		return r.replanGate(ctx, epic, act, at)
+		return r.replanReview(ctx, epic, act, at)
 	}
 	if act.Trigger == nil {
 		if err := r.store.StartCorrectionPlan(ctx, epic.ID, act.Runs[0], at); err != nil {
@@ -151,15 +151,15 @@ func (r *Runner) replanRelease(ctx context.Context, epic store.EpicRow, act Acti
 	return nil
 }
 
-// replanGate sends the release of act's run back to planning for a Done gate that ran and failed on a candidate that
-// merged origin's commit, in one write (store.Store.ReplanGate). act's items name the part and the origin commit the
-// replan run records as its head, and its output is the gate's report, which the replan run records as its reason.
-func (r *Runner) replanGate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
-	if act.Trigger == nil || len(act.Items) != releaseGateItems || act.Items[0] != store.ReleasePartReplan {
+// replanReview sends the release of act's run back to planning for a release review that refused its candidate with
+// findings, in one write (store.Store.ReplanReview). act's items name the part and the epic's branch tip the replan run
+// records as its head, and its output is the review's reason, which the replan run records as its reason.
+func (r *Runner) replanReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
+	if act.Trigger == nil || len(act.Items) != replanReviewItems || act.Items[0] != store.ReleasePartReplan {
 		return releaseRefused(act)
 	}
 	replan := store.ReleaseRun{Attempt: act.Run.Attempt, Head: act.Items[1], Reason: act.Output}
-	err := r.store.ReplanGate(ctx, epic.ID, act.Path, replan, act.Runs[0], *act.Trigger, act.Reason, at)
+	err := r.store.ReplanReview(ctx, epic.ID, act.Path, replan, act.Runs[0], *act.Trigger, act.Reason, at)
 	if err != nil {
 		return fmt.Errorf("replan release of epic %s: %w", epic.ID, err)
 	}

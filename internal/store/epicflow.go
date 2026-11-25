@@ -36,7 +36,7 @@ const (
 // UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
-// of the runs.
+// of the runs. Underway holds its work that has not ended, as Underway gives it.
 type EpicFlow struct {
 	Epic     EpicRow
 	Review   Review
@@ -54,6 +54,18 @@ type EpicFlow struct {
 	Unresolvable []GapDeclaration
 	Reruns       []ReviewRerun
 	Rounds       []IntegrateRound
+	Underway     Underway
+}
+
+// Underway is the work of an epic that has not ended, whatever it is for. Steps holds the id of every step labeled with
+// the epic whose end is not stored, whatever its task label, ordered by start time then id. Evidence holds the id of
+// every evidence run of the epic that has not ended, whether or not its kept spec is current, in the order EvidenceRuns
+// gives. EpicFlow's own Steps hold only the steps of the node runs a decision reads, and its Evidence only the current
+// runs, so the step of a task integrator, a build, an evidence judge, a planner turn or a conversation's start for the
+// epic, and a run whose item has changed since it started, are in Underway alone.
+type Underway struct {
+	Steps    []string
+	Evidence []string
 }
 
 // EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs and
@@ -130,11 +142,32 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
+	underway, err := readUnderway(ctx, queries, id, stored)
+	if err != nil {
+		return EpicFlow{}, err
+	}
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
-		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds,
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds, Underway: underway,
 	}, nil
+}
+
+// readUnderway returns the work of epic that has not ended (Underway): its steps whose end is not stored, read by their
+// epic label among the open steps in one query (openEpicSteps), and those of stored, its evidence runs, that have not
+// ended.
+func readUnderway(ctx context.Context, queries *sqlcgen.Queries, epic string, stored []EvidenceRun) (Underway, error) {
+	steps, err := openEpicSteps(ctx, queries, epic)
+	if err != nil {
+		return Underway{}, err
+	}
+	var unended []string
+	for _, run := range stored {
+		if run.State != runEnded {
+			unended = append(unended, run.ID)
+		}
+	}
+	return Underway{Steps: steps, Evidence: unended}, nil
 }
 
 // readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one

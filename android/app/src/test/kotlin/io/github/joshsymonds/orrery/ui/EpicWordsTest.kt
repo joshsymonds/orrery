@@ -550,7 +550,7 @@ class EpicWordsTest {
                 StepLine(
                     id = "s-held",
                     glyph = StepGlyph.HELD,
-                    label = "example-agent",
+                    label = "",
                     task = "",
                     doing = "held · needs an answer",
                     since = NOW - 600,

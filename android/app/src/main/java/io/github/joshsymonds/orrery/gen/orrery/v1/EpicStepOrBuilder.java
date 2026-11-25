@@ -406,4 +406,24 @@ public interface EpicStepOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHostBytes();
+
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @return The purpose.
+   */
+  java.lang.String getPurpose();
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @return The bytes for purpose.
+   */
+  com.google.protobuf.ByteString
+      getPurposeBytes();
 }
