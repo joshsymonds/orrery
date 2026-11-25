@@ -34,6 +34,9 @@ func seamExemptFiles() map[string]bool {
 		"enginehost/drain.go": true,
 		// Haiku's own call: it runs claude as a process group of its own and kills that group with syscall.Kill.
 		"enginehost/haiku.go": true,
+		// The limit prober: it runs claude as a process group of its own and kills that group with syscall.Kill, like Haiku,
+		// and its Exec seam takes *exec.Cmd, so it imports os/exec.
+		"enginehost/limitprobe.go": true,
 		// Controller-side blobs: evidence bytes are stored under the controller's state directory, not on a host.
 		"enginehost/evidenceblob.go": true,
 	}
