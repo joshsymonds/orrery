@@ -63,7 +63,7 @@ func amendmentReproductionThatExitsZeroWaitsForItsJudge(images *worldImages) fun
 		for _, want := range []string{
 			"Task T1: first\n", "Task T2: second\n", "\nConclusion: the runner runs\n",
 			"\nRed at the base " + w.base + ": judged fails against the conclusion",
-			"\n- Passed (1): TestRunner\n", "Diff stat (git diff --stat " + w.base + " " + candidate + "):\n",
+			"\n  Passed (1): TestRunner\n", "Diff stat (git diff --stat " + w.base + " " + candidate + "):\n",
 		} {
 			if !strings.Contains(start.Prompt, want) {
 				t.Errorf("judge prompt lacks %q:\n%s", want, start.Prompt)

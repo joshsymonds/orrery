@@ -75,9 +75,8 @@ func TestReproJudgePromptCarriesWhatTheJudgeRulesOn(t *testing.T) {
 		"\nExit: 0\nTimed out: false\n",
 		"\nStdout, its last 4096 bytes as orrery keeps them:\n    === RUN   TestGadget\n    --- PASS: TestGadget",
 		"\nStderr, its last 4096 bytes as orrery keeps them:\n    warning: cache\n",
-		"\nTest facts orrery read from the logs. They are orrery's reading of the output, which you may overrule:\n" +
-			"- Formats recognized: go test\n",
-		"\n- Passed (1): TestGadget\n",
+		"\n" + judgeFactsHeading + "\n  Formats recognized: go test\n",
+		"\n  Passed (1): TestGadget\n",
 		"\nDiff stat (git diff --stat base-1 commit-1):\n     widget/widget.go | 4 ++--\n     1 file changed",
 	}
 	for _, want := range wants {
@@ -102,7 +101,7 @@ func TestReproJudgePromptSaysWhatIsMissing(t *testing.T) {
 	for _, want := range []string{
 		"\nRed: no red run of the item is kept.\n",
 		"\nStdout: empty\nStderr: empty\n",
-		"\n- No test runner's output was recognized.\n",
+		"\n  No test runner's output was recognized.\n",
 		"\nDiff stat (git diff --stat base-1 commit-1):\n    (no change)",
 	} {
 		if !strings.Contains(prompt, want) {

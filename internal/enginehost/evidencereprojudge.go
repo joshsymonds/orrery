@@ -49,8 +49,8 @@ type ReproJudgeInput struct {
 // contradict red by passing there. Then it names each task with its title, the lines taskspec.Lines gives it and its
 // deliverable, the conclusion, red's verdict and its judge's reason, the reproduction's command as a JSON array of its
 // argv, its revision, exit and timed out, the stdout and stderr tails the check keeps, the test facts testfacts reads
-// from those tails as orrery's reading the judge may overrule, and the diff stat. It returns an error when the argv
-// cannot be encoded.
+// from those tails under judgeFactsHeading, as the evidence judge is given them, and the diff stat. It returns an error
+// when the argv cannot be encoded.
 func ReproJudgePrompt(in ReproJudgeInput) (string, error) {
 	argv, err := json.Marshal(in.Repro.Argv)
 	if err != nil {
@@ -85,10 +85,9 @@ func ReproJudgePrompt(in ReproJudgeInput) (string, error) {
 	)
 	lines = append(lines, reproLogLines("Stdout", in.Repro.Stdout)...)
 	lines = append(lines, reproLogLines("Stderr", in.Repro.Stderr)...)
-	lines = append(lines, "Test facts orrery read from the logs. They are orrery's reading of the output, which "+
-		"you may overrule:")
+	lines = append(lines, judgeFactsHeading)
 	for _, fact := range testfacts.Read(in.Repro.Stdout, in.Repro.Stderr).Lines() {
-		lines = append(lines, "- "+fact)
+		lines = append(lines, "  "+fact)
 	}
 	lines = append(lines, fmt.Sprintf("Diff stat (git diff --stat %s %s):", in.Base, in.Commit))
 	if strings.TrimSpace(in.DiffStat) != "" {

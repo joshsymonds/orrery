@@ -232,7 +232,7 @@ func TestGreenReproductionExitZeroStartsItsJudge(t *testing.T) {
 		"\nRed at the base " + f.base + ": judged fails against the conclusion",
 		"\nReproduction command: [\"scripts/check\"]\n",
 		"\n    --- PASS: TestName (0.00s)\n",
-		"\n- Passed (1): TestName\n",
+		"\n  Passed (1): TestName\n",
 		"Diff stat (git diff --stat " + f.base + " " + commit + "):\n",
 		reproThing + " ",
 		reproTestFile + " ",

@@ -95,7 +95,7 @@ func TestIntegrateReproductionThatExitsZeroStartsItsJudge(t *testing.T) {
 		"\nRed at the base " + w.base + ": judged fails against the conclusion",
 		"\nReproduction command: [\"scripts/check\"]\n",
 		"\n    --- PASS: TestRunner (0.00s)\n",
-		"\n- Passed (1): TestRunner\n",
+		"\n  Passed (1): TestRunner\n",
 		"Diff stat (git diff --stat " + w.base + " " + candidate + "):\n",
 		reproTestFile + " ",
 	} {
