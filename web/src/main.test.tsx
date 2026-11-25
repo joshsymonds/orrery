@@ -871,6 +871,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
           sessionsPath,
           headlessPath,
           watchPath,
+          "/orrery.v1.Usage/EpicTotals",
         ].sort(),
       );
     } finally {
