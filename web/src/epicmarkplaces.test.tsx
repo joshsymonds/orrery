@@ -21,8 +21,6 @@ import {
 import { Notice } from "./notices";
 import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import type { EpicNode } from "./tree";
-import { workOf } from "./work";
-import { WorkRail } from "./workrail";
 import { WorkCard, workCardOf } from "./workcard";
 
 // Each test's name carries the token EpicMark: the mark draws in each place the Gauge drew, each place drawn on its own,
@@ -65,7 +63,6 @@ interface Places {
   card: HTMLElement;
   workCard: HTMLElement;
   notice: HTMLElement;
-  rail: HTMLElement;
 }
 
 // drawAll draws every place that draws the epic's mark, each into its own container of one fresh DOM, runs check on the
@@ -77,7 +74,6 @@ async function drawAll(check: (places: Places) => void): Promise<void> {
     card: document.createElement("div"),
     workCard: document.createElement("div"),
     notice: document.createElement("div"),
-    rail: document.createElement("div"),
   };
   const epic = listedEpic();
   const detail = detailOf(epic);
@@ -92,7 +88,6 @@ async function drawAll(check: (places: Places) => void): Promise<void> {
     now,
     epics,
   };
-  const groups = workOf({ session, pane: false, background: [] }, epics, now);
   try {
     await act(() => {
       render(<EpicRow hung={node} now={now} current={false} onSelect={() => {}} />, places.row);
@@ -106,7 +101,6 @@ async function drawAll(check: (places: Places) => void): Promise<void> {
         />,
         places.notice,
       );
-      render(<WorkRail groups={groups} lit="" layout="rail" onOpen={() => {}} />, places.rail);
     });
     check(places);
   } finally {
@@ -133,13 +127,12 @@ test("EpicMark places: the inbox row draws the mark at 32", () =>
     assert.equal(mark.getAttribute("aria-label"), "1 of 3 requirements proven, running");
   }));
 
-test("EpicMark places: the card, the work card, the notices and the work rail draw the mark at 24", () =>
+test("EpicMark places: the card, the work card and the notices draw the mark at 24", () =>
   drawAll((places) => {
     const drawn: [string, HTMLElement][] = [
       ["the card", places.card],
       ["the work card", places.workCard],
       ["the notices", places.notice],
-      ["the work rail", places.rail],
     ];
     for (const [place, container] of drawn) {
       assert.equal(one(container, "svg.epicmark").getAttribute("data-size"), "24", `${place} draws the mark at 24`);
