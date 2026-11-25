@@ -191,8 +191,8 @@ func TestGatewayRoutesForwardRefusesSeatWithoutForward(t *testing.T) {
 			rec := httptest.NewRecorder()
 			gw.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusNotImplemented {
-				t.Fatalf("status = %d; want 501 for a seat that does not forward", rec.Code)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d; want 401 for an inject seat the caller key does not admit", rec.Code)
 			}
 			requireNoUpstream(t, fake)
 		})
