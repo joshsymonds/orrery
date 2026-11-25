@@ -257,7 +257,8 @@ export ORRERY_GATE_HOST_FILE="$root/gate-host"
 # turn a slow reconnect into a give-up.
 export ORRERY_GATE_COLLECT_SECS=2
 recover_secs=30
-unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE
+# A gate run that fell back here exports its Android lock, so a check run under one would hand the tests that path.
+unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE ORRERY_ANDROID_LOCK
 
 work="$root/work"
 mkdir -p "$work/scripts"
