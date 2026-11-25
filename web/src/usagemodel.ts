@@ -163,6 +163,21 @@ export function spendTotals(spend: readonly UsageSeatSpend[] | null, registry: R
   return totals;
 }
 
+// nanoPerCent is how many nano US dollars make a cent.
+const nanoPerCent = 10_000_000n;
+
+// dollarsText draws an amount in nano US dollars as the usage figures draw money: cents under $1,000, as $47.43, and whole
+// dollars with thousands commas from $1,000, as $1,287. An amount rounds half up to the cent, or to the dollar from $1,000.
+// Amounts are what seats cost, so none is negative.
+export function dollarsText(nano: bigint): string {
+  const cents = (nano + nanoPerCent / 2n) / nanoPerCent;
+  if (cents < 100_000n) {
+    return `$${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+  }
+  const dollars = (cents + 50n) / 100n;
+  return `$${String(dollars).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+}
+
 // UseOffer is what Use offers an account: "in use" when every context that names an account names this one, and "use"
 // when some context names another account.
 export type UseOffer = "in use" | "use";

@@ -88,7 +88,7 @@ import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as 
 import { UsageBand } from "./usageband";
 import { noUsage, type UsageData } from "./usagedata";
 import { useUsage } from "./usageload";
-import { bandRows, firstInUse } from "./usagemodel";
+import { bandRows, firstInUse, spendTotals } from "./usagemodel";
 import { UsagePopover } from "./usagepopover";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
@@ -1708,11 +1708,14 @@ export function App({
     setAccountsOpen(true);
   });
 
+  // usageSpend is the seven days' spend the band's line and the usage popover's foot total, or null until a Spend read
+  // lands.
+  const usageSpend = usage.spend === null ? null : spendTotals(usage.spend, usage.registry);
   // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
   // accounts and routes page. A press on the band opens nothing yet, since the usage popover is not drawn.
   const usageBand =
     usage.answered && usage.accounts.length > 0 ? (
-      <UsageBand rows={bandRows(usage, now)} now={now} onOpen={() => undefined} onAccounts={openAccounts} />
+      <UsageBand rows={bandRows(usage, now)} now={now} spend={usageSpend} onOpen={() => undefined} onAccounts={openAccounts} />
     ) : undefined;
 
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
@@ -3222,7 +3225,7 @@ export function App({
                 : {
                     row: usageRow,
                     onOpen: () => setUsageOpen((open) => !open),
-                    popover: usageOpen ? <UsagePopover row={usageRow} now={now} /> : undefined,
+                    popover: usageOpen ? <UsagePopover row={usageRow} now={now} spend={usageSpend} /> : undefined,
                   }
             }
             onNew={() => setPickerOpen(true)}

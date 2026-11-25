@@ -4,7 +4,7 @@
 import type { JSX } from "preact";
 
 import { windowClaims } from "./usagedata";
-import type { BandRow, WindowDraw } from "./usagemodel";
+import { type BandRow, dollarsText, type SpendTotals, type WindowDraw } from "./usagemodel";
 
 // windowLabels are the column names of the windows: 7d_oi is headed Fable, as the band heads it.
 const windowLabels: Readonly<Record<(typeof windowClaims)[number], string>> = { "5h": "5h", "7d": "7d", "7d_oi": "Fable" };
@@ -27,8 +27,10 @@ function untilText(at: number, now: number): string {
 
 // UsagePopover draws one account's row: its name, the contexts that use it when any does, and a line for each window, its
 // label, its percent in its level, and when its limit resets, counted from now. A window no current reading carries reads
-// as no reading.
-export function UsagePopover({ row, now }: { row: BandRow; now: number }): JSX.Element {
+// as no reading. Under the windows, when spend is given, a foot totals the seven days' spend: what billed, each seat that
+// billed with its amount, and the subscription traffic priced at list. A null spend, which is what a page holds before a
+// Spend read lands, draws no foot.
+export function UsagePopover({ row, now, spend }: { row: BandRow; now: number; spend?: SpendTotals | null }): JSX.Element {
   return (
     <div class="upop" role="dialog" aria-label={`${row.account.name} usage`} data-account={row.account.id}>
       <div class="up-head">
@@ -38,6 +40,31 @@ export function UsagePopover({ row, now }: { row: BandRow; now: number }): JSX.E
       {windowClaims.map((claim, index) => (
         <WindowLine key={claim} label={windowLabels[claim]} draw={row.windows[index] ?? null} now={now} />
       ))}
+      {spend && <SpendFoot spend={spend} />}
+    </div>
+  );
+}
+
+// SpendFoot draws the popover's foot: the billed total over the seven days, a line for each seat that billed with its
+// amount, and the subscription traffic at list price.
+function SpendFoot({ spend }: { spend: SpendTotals }): JSX.Element {
+  return (
+    <div class="up-foot">
+      <FootLine label="billed, last 7 days" amount={spend.billed} />
+      {spend.seats.map((seat) => (
+        <FootLine key={seat.seat} label={seat.seat} amount={seat.billed} />
+      ))}
+      <FootLine label="subscription traffic, at list price" amount={spend.subscriptionList} />
+    </div>
+  );
+}
+
+// FootLine draws one line of the foot: its label, and its amount in nano US dollars drawn in dollars.
+function FootLine({ label, amount }: { label: string; amount: bigint }): JSX.Element {
+  return (
+    <div class="up-frow">
+      <span class="up-lbl">{label}</span>
+      <span class="up-v">{dollarsText(amount)}</span>
     </div>
   );
 }
