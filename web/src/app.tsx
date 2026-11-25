@@ -87,7 +87,9 @@ import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
 import { UsageBand } from "./usageband";
 import { noUsage, type UsageData } from "./usagedata";
-import { bandRows } from "./usagemodel";
+import { useUsage } from "./usageload";
+import { bandRows, firstInUse } from "./usagemodel";
+import { UsagePopover } from "./usagepopover";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 
@@ -3179,6 +3181,18 @@ export function App({
   // railed is whether the inbox draws as its rail: when the owner collapsed it at the desk, or while a card is held between 760px
   // and 1250px, where the card takes the room the inbox's list would. Fold back draws the inbox as it was.
   const railed = collapsed || (heldThing !== null && overlay);
+  // The usage the collapsed rail's tile and popover draw is read while the inbox is collapsed. usageRow is the account in use,
+  // which the tile draws, or null when none is in use or the inbox is not collapsed.
+  const usageData = useUsage(clients, collapsed);
+  const usageRow = collapsed ? firstInUse(bandRows(usageData, now)) : null;
+  // usageOpen is whether the usage popover is open beside the tile. The tile's press toggles it, and it shuts when the inbox
+  // is no longer collapsed.
+  const [usageOpen, setUsageOpen] = useState(false);
+  useEffect(() => {
+    if (!collapsed) {
+      setUsageOpen(false);
+    }
+  }, [collapsed]);
 
   return (
     <main class="app">
@@ -3202,6 +3216,15 @@ export function App({
             onFlyoutRow={openFlyoutItem}
             onFlyoutPage={openProject}
             onLineage={openLineage}
+            usage={
+              usageRow === null
+                ? undefined
+                : {
+                    row: usageRow,
+                    onOpen: () => setUsageOpen((open) => !open),
+                    popover: usageOpen ? <UsagePopover row={usageRow} now={now} /> : undefined,
+                  }
+            }
             onNew={() => setPickerOpen(true)}
             onSearch={() => {
               expandInbox();

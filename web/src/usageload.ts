@@ -2,6 +2,8 @@
 // registry and the limit readings, and the seat spend once a minute. A tick while the page is hidden makes no call, and a
 // tick while a read is still in flight makes no new one.
 
+import { useEffect, useState } from "preact/hooks";
+
 import type { createClients } from "./client";
 import { spanSeconds, type UsageData, noUsage } from "./usagedata";
 
@@ -101,4 +103,41 @@ export function createUsageReads({ clients, hidden, now, onChange }: UsageReadsO
     },
     current: () => data,
   };
+}
+
+// useUsage holds the usage that Accounts.List, Routes.Get and Usage.Readings answer. It reads them together while enabled
+// is true, and holds nothing new while enabled is false. A read that fails keeps what was held and sets failed. The
+// spend is not read here, so the spend the usage holds stays null. It reads again each time it becomes enabled, and it
+// runs no timer.
+export function useUsage(clients: Clients, enabled: boolean): UsageData {
+  const [data, setData] = useState<UsageData>(noUsage);
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    let live = true;
+    void Promise.all([clients.accounts.list({}), clients.routes.get({}), clients.usage.readings({})]).then(
+      ([listed, got, readings]) => {
+        if (live) {
+          setData((previous) => ({
+            ...previous,
+            accounts: listed.accounts,
+            registry: got.registry,
+            readings: readings.readings,
+            answered: true,
+            failed: false,
+          }));
+        }
+      },
+      () => {
+        if (live) {
+          setData((previous) => ({ ...previous, failed: true }));
+        }
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [clients, enabled]);
+  return data;
 }
