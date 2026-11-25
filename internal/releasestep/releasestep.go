@@ -93,8 +93,8 @@ const (
 	ParamUnits  = "units"
 )
 
-// kindParams returns the parameters kind needs, in the order Problem checks them, and whether kind is a kind. A kind
-// sets every one of its own and none of the others.
+// kindParams names the parameters kind needs, in the order Problem checks them, and reports whether kind is a kind. A
+// kind sets every one of its own and none of the others.
 func kindParams(kind string) ([]string, bool) {
 	switch kind {
 	case KindPushMain:
@@ -105,11 +105,12 @@ func kindParams(kind string) ([]string, bool) {
 		return []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL}, true
 	case KindUpdate:
 		return []string{ParamBranch, ParamFlake, ParamRun, ParamUnits}, true
+	default:
+		return nil, false
 	}
-	return nil, false
 }
 
-// allParams returns every parameter, in the order Problem checks them.
+// allParams names every parameter, in the order Problem checks them.
 func allParams() []string {
 	return []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL, ParamRun, ParamUnits}
 }
@@ -164,7 +165,7 @@ func Problem(kind string, params Params) (field, reason string) {
 	return formProblem(params)
 }
 
-// setParams returns the names of the parameters params sets, in the order allParams gives them. A string is set when it is not
+// setParams returns the names of the parameters params sets, in the order of allParams. A string is set when it is not
 // blank, and a list when it has an element.
 func setParams(params Params) []string {
 	values := map[string]bool{
