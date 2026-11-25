@@ -285,8 +285,6 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return helpCommand(ctx, opts.server, args, stdout, getenv)
 	case "serve":
 		return runServe(ctx, opts, args, getenv, stderr)
-	case "gateway":
-		return runGateway(ctx, args, stderr, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
 	case "notices":
@@ -299,7 +297,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence", "routes":
+	case "run", "gate", "evidence", "routes", "gateway":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
@@ -393,7 +391,8 @@ func (c unreachableCrons) CronCall(
 }
 
 // orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
-// routes imports a routes file, and evidence runs an item's evidence or reads it back.
+// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway is not one of those; it
+// serves the Claude traffic gateway itself, and is dispatched here only to keep dispatch under its complexity limit.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -410,6 +409,8 @@ func orreryCommand(
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "routes":
 		return runRoutes(ctx, opts, args, stdout, getenv)
+	case "gateway":
+		return runGateway(ctx, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
