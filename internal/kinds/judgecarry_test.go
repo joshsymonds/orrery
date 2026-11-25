@@ -23,7 +23,7 @@ func noVerdictRun(id string) store.EvidenceRun {
 
 // TestJudgeCarryNoVerdictCarries: a capture that ran and exited 0 but whose judge gave no verdict, for a Requirement
 // green at the stored base, does not fail its node. Its earlier verdict carries, with a note, so the integrate advances
-// and says so, and the release records its candidate.
+// and says so, and a round of the task integrator composes its task.
 func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 	t.Parallel()
 	t.Run("integrate", func(t *testing.T) {
@@ -34,20 +34,19 @@ func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 			Action{Kind: ActAdvance, Output: carryNote + "\nR2 green\nR3 not yet green"},
 		}})
 	})
-	t.Run("release", func(t *testing.T) {
+	t.Run("task integrator", func(t *testing.T) {
 		t.Parallel()
-		rows := integratorRows(
-			[]store.ReleaseRun{integratorRound(1, "merge-1", "")},
-			[]store.NodeCheck{{ID: roundWorkID(1, "done 1"), State: store.NodeEnded}},
-			[]store.EvidenceRun{noVerdictRun(roundWorkID(1, "capture R1"))}, nil,
-		)
 		batch, green := greenBatch()
-		rows.Epic.StoredBase = "base-1"
-		rows.Runs = []store.NodeRun{batch}
-		rows.Evidence = append(rows.Evidence, green)
-		checkDecisions(t, Release{}, []decideCase{{
-			"carried capture records the candidate", releaseNode(1, "", integratorResult), rows,
-			Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, "merge-1"}, Revision: "merge-1"},
+		rows := Rows{
+			Epic: conflictEpic(), Runs: []store.NodeRun{batch},
+			Rounds: []store.IntegrateRound{recordedRound(1, RoundMerged, "m1", "", "")}, Checks: roundChecksPassed(),
+			Evidence: []store.EvidenceRun{
+				noVerdictRun(roundWork("capture R1")), roundCapturesPassed()[1], green,
+			},
+		}
+		checkDecisions(t, Integrate{}, []decideCase{{
+			"carried capture composes the task", batchNode("cand-1", conflictLeftOut, true), rows,
+			Action{Kind: ActTaskIntegrator, Items: []string{TaskCompose, "1", "m1"}, Tasks: []int64{2}},
 		}})
 	})
 }

@@ -73,7 +73,7 @@ type Store interface {
 		ctx context.Context, epic, path string, attempt int64, plan store.NodeRun, trigger store.NodeTrigger,
 		tell string, at time.Time,
 	) error
-	ReplanGate(
+	ReplanReview(
 		ctx context.Context, epic, path string, replan store.ReleaseRun, plan store.NodeRun,
 		trigger store.NodeTrigger, tell string, at time.Time,
 	) error

@@ -12,8 +12,8 @@ import (
 
 // startMainMovedRelease stores the release epic runEpic with its release reviewer enabled and tagStep as its one
 // release step, and passes it until its candidate is held by the reviewer and its first step has started at that
-// candidate. Origin gets one commit beyond main first, so the candidate is a merge of it and is behind the target,
-// which its Done gate runs at. It returns the candidate and the reviewer the world runs.
+// candidate. Origin gets one commit beyond main first, so the candidate is the merge of it the release integrator
+// makes. It returns the candidate and the reviewer the world runs.
 func startMainMovedRelease(t *testing.T, w *releaseWorld, origin string) (string, *releaseReviewers) {
 	t.Helper()
 	nodeEpicBranch(t, w.repo, "epic.txt")
@@ -22,22 +22,23 @@ func startMainMovedRelease(t *testing.T, w *releaseWorld, origin string) (string
 	w.runner.reviewers = reviewer
 	w.createReviewedEpic(defaultReleaseReviewer(t, true), tagStep())
 	w.pass()
-	w.endGate(0)
-	w.pass()
-	candidate := runAt(t, w.s, releaseNodePath).Revision
+	candidate := w.integrateClean(w.integratorID())
 	w.endStep(w.reviewID(), "done", "done", map[string]any{"status": "done"})
 	w.pass()
 	calls := w.fakes.steps.calls
-	if len(calls) != 2 || calls[1].ID != w.stepID(1) || calls[1].Revision != candidate {
-		t.Fatalf("step starts = %+v, want the release reviewer then the first step started at %s", calls, candidate)
+	if len(calls) != 3 || calls[0].ID != w.integratorID() || calls[1].ID != w.reviewID() ||
+		calls[2].ID != w.stepID(1) || calls[2].Revision != candidate {
+		t.Fatalf("step starts = %+v, want the release integrator, the release reviewer, then the first step "+
+			"started at %s", calls, candidate)
 	}
 	return candidate, reviewer
 }
 
 // TestReleaseMainMoved: a release whose first step fails after origin's main moved past its candidate is not stopped
-// by that failure. The candidate is marked stale at the attempt, so the release prepares it again, merged with origin's
-// main, holds it at its Done gate and its release reviewer under the new generation, and starts its first step again
-// under the id of that generation. A first step that fails while origin's main is unmoved still stops the release.
+// by that failure. The candidate is marked stale at the attempt, so the release prepares it again: its release
+// integrator merges origin's main again and its release reviewer holds the merge, both under the new generation, with no
+// Done gate run, and its first step starts again under the id of that generation. A first step that fails while
+// origin's main is unmoved still stops the release.
 func TestReleaseMainMoved(t *testing.T) {
 	t.Parallel()
 	t.Run("step 1 fails after origin's main moved past the candidate", func(t *testing.T) {
@@ -76,16 +77,17 @@ func TestReleaseMainMoved(t *testing.T) {
 			t.Errorf("first step worktree stat err = %v, want it removed", err)
 		}
 
-		prepared := runAt(t, w.s, releaseNodePath).Revision
+		if merge := decodeMerge(t, runAt(t, w.s, releaseNodePath).Result); merge.Origin != moved {
+			t.Fatalf("Result origin = %s, want origin's main %s merged again", merge.Origin, moved)
+		}
+		round := w.generationID("integrator 1")
+		if starts := w.integratorStarts(); len(starts) != 2 || starts[1].ID != round {
+			t.Fatalf("integrator starts = %+v, want the round of generation 1 under %s", starts, round)
+		}
+		prepared := w.integrateClean(round)
 		if prepared == candidate || !containsCommit(t, w.repo, moved, prepared) {
 			t.Fatalf("candidate = %s, want a new candidate that contains origin's main %s", prepared, moved)
 		}
-		gate := w.lastCheck()
-		if gate.Revision != prepared || gate.ID != w.generationID("done 1") {
-			t.Fatalf("last Done gate check = %+v, want the gate run at %s under generation 1", gate, prepared)
-		}
-		w.endLastCheck(0)
-		w.pass()
 
 		candidates := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartCandidate)
 		if len(candidates) != 2 || candidates[1].Head != prepared || candidates[1].Attempt != attempt ||
@@ -96,7 +98,7 @@ func TestReleaseMainMoved(t *testing.T) {
 			t.Fatalf("reviewer starts = %+v, want the release reviewer run again over %s", reviewer.calls, prepared)
 		}
 		review := w.generationID("review " + releaseReviewerName)
-		if got := w.fakes.steps.calls; len(got) != 3 || got[2].ID != review || got[2].Revision != prepared {
+		if got := w.fakes.steps.calls; len(got) != 5 || got[4].ID != review || got[4].Revision != prepared {
 			t.Fatalf("step starts = %+v, want the reviewer started under generation 1 at %s", got, prepared)
 		}
 
@@ -109,8 +111,8 @@ func TestReleaseMainMoved(t *testing.T) {
 		}
 		again := w.fakes.steps.calls
 		stepID := w.generationID("release 1")
-		if len(again) != 4 || again[3].ID != stepID || again[3].Revision != prepared ||
-			again[3].Task != releaseNodePath {
+		if len(again) != 6 || again[5].ID != stepID || again[5].Revision != prepared ||
+			again[5].Task != releaseNodePath {
 			t.Fatalf("step starts = %+v, want the first step started again under %s at %s", again, stepID, prepared)
 		}
 		flow = w.flowOf(runEpic)
@@ -120,8 +122,8 @@ func TestReleaseMainMoved(t *testing.T) {
 		if state := store.ReleaseProofs(flow)[0].State; state != store.ReleaseRunning {
 			t.Errorf("release step 1 state = %q, want running under its generation id", state)
 		}
-		if got := len(w.fakes.checks.calls); got != 2 {
-			t.Errorf("Done gate checks = %d, want one at each candidate", got)
+		if got := len(w.fakes.checks.calls); got != 0 {
+			t.Errorf("Done gate checks = %d, want none at either candidate", got)
 		}
 	})
 	t.Run("step 1 fails while origin's main is unmoved", func(t *testing.T) {
@@ -153,7 +155,7 @@ func TestReleaseMainMoved(t *testing.T) {
 			candidates[0].Head != candidate {
 			t.Errorf("candidate runs = %+v, want the one candidate %s", candidates, candidate)
 		}
-		if got := len(w.fakes.steps.calls); got != 2 {
+		if got := len(w.fakes.steps.calls); got != 3 {
 			t.Errorf("step starts = %d, want no start after the stop", got)
 		}
 	})

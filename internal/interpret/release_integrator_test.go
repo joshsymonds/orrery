@@ -39,6 +39,20 @@ func newConflictWorld(t *testing.T, requirements ...store.EpicRequirement) confl
 	return conflictWorld{releaseWorld: w, tip: tip, origin: origin}
 }
 
+// newCleanWorld returns a conflict world whose epic's tip adds epic.txt and whose origin's main adds origin.txt, so git
+// merges origin's commit into the tip with no conflict. Its epic declares requirements, and is stored clean with the tag
+// step as its one release step.
+func newCleanWorld(t *testing.T, requirements ...store.EpicRequirement) conflictWorld {
+	t.Helper()
+	w := newReleaseWorld(t, &recordingEnding{})
+	w.requirements = requirements
+	w.createEpic(runEpic, store.PhaseClean, tagStep())
+	remote := mergeRemote(t, w.repo)
+	tip := nodeEpicBranch(t, w.repo, "epic.txt")
+	origin := mergeOriginCommit(t, remote, "origin.txt")
+	return conflictWorld{releaseWorld: w, tip: tip, origin: origin}
+}
+
 // integratorRoles returns a getenv whose role file names releaseAgent, judgeAgent and integratorAgent.
 func integratorRoles(t *testing.T) func(string) string {
 	t.Helper()
@@ -59,27 +73,27 @@ func integratorRoles(t *testing.T) func(string) string {
 	}
 }
 
-// integratorID returns the id of round of the release integrator, as the release derives it from its run at the
-// run's first generation.
-func (w conflictWorld) integratorID(round int) string {
+// integratorID returns the id of the release integrator's round of the release run's current attempt, at the first
+// generation of its candidate. It is the id a store that ran up to three rounds a generation gave the first of them.
+func (w *releaseWorld) integratorID() string {
 	w.t.Helper()
-	return workID(w.t, w.s, releaseNodePath, fmt.Sprintf("integrator %d", round))
+	return workID(w.t, w.s, releaseNodePath, "integrator 1")
 }
 
 // integratorDir returns the directory the release integrator's worktree is under, named by the run and its attempt.
-func (w conflictWorld) integratorDir() string {
+func (w *releaseWorld) integratorDir() string {
 	w.t.Helper()
 	return filepath.Join(w.state, "release-worktrees", workID(w.t, w.s, releaseNodePath, "integrator"))
 }
 
 // worktree returns the worktree the release integrator runs in.
-func (w conflictWorld) worktree() string {
+func (w *releaseWorld) worktree() string {
 	w.t.Helper()
 	return filepath.Join(w.integratorDir(), "wt")
 }
 
 // started returns the start of the step with id, which must have been started.
-func (w conflictWorld) started(id string) enginehost.StepStart {
+func (w *releaseWorld) started(id string) enginehost.StepStart {
 	w.t.Helper()
 	i := slices.IndexFunc(w.fakes.steps.calls, func(start enginehost.StepStart) bool { return start.ID == id })
 	if i < 0 {
@@ -89,7 +103,7 @@ func (w conflictWorld) started(id string) enginehost.StepStart {
 }
 
 // integratorStarts returns the starts of release integrator steps, in order.
-func (w conflictWorld) integratorStarts() []enginehost.StepStart {
+func (w *releaseWorld) integratorStarts() []enginehost.StepStart {
 	var starts []enginehost.StepStart
 	for _, start := range w.fakes.steps.calls {
 		if start.Schema == IntegratorSchema {
@@ -97,6 +111,48 @@ func (w conflictWorld) integratorStarts() []enginehost.StepStart {
 		}
 	}
 	return starts
+}
+
+// commitCleanMerge commits the merge git made with no conflict in the release integrator's worktree, as the integrator
+// would once its checks passed, with the message the prompt gives for the tip and origin's commit the run's Result
+// names. It returns the merge commit.
+func (w *releaseWorld) commitCleanMerge() string {
+	w.t.Helper()
+	merge := decodeMerge(w.t, runAt(w.t, w.s, releaseNodePath).Result)
+	wt := w.worktree()
+	nodeGit(w.t, wt, "commit", "-q", "-m", mergeMessage(merge.Tip, merge.Origin))
+	return nodeGit(w.t, wt, "rev-parse", "HEAD")
+}
+
+// integrateClean commits the clean merge in the release integrator's worktree (commitCleanMerge), ends the integrator's
+// step id done with a return that names the merge (cleanReturn), and passes. It returns the merge commit.
+func (w *releaseWorld) integrateClean(id string) string {
+	w.t.Helper()
+	merge := w.commitCleanMerge()
+	w.endStep(id, "done", "done", cleanReturn(merge))
+	if logged := w.pass(); logged != "" {
+		w.t.Fatalf("pass logged: %s", logged)
+	}
+	return merge
+}
+
+// integratorChecks are the checks a done return of the release integrator lists in the tests: one build that passed.
+func integratorChecks() []map[string]any {
+	return []map[string]any{{"command": "go build ./...", "result": "passed"}}
+}
+
+// cleanReturn is a done return of the release integrator that names commit, the merge of a merge that did not
+// conflict, so it resolves no path, and lists the one build it ran.
+func cleanReturn(commit string) map[string]any {
+	return map[string]any{
+		"status":        "done",
+		"commit":        commit,
+		"resolutions":   []map[string]any{},
+		"other_changes": []map[string]any{},
+		"checks":        integratorChecks(),
+		"unresolved":    []map[string]any{},
+		"evidence":      "the two sides add different files and touch nothing the other reads, so a build shows the merge holds",
+	}
 }
 
 // commitMerge finishes the merge in the integrator's worktree as the integrator would: README keeps both sides' lines,
@@ -110,8 +166,8 @@ func (w conflictWorld) commitMerge() string {
 	return nodeGit(w.t, wt, "rev-parse", "HEAD")
 }
 
-// doneReturn is a done return of the release integrator that names commit and resolves README by keeping both sides,
-// with others as its other_changes.
+// doneReturn is a done return of the release integrator that names commit, resolves README by keeping both sides and
+// lists the one build it ran, with others as its other_changes.
 func doneReturn(commit string, others ...map[string]any) map[string]any {
 	if others == nil {
 		others = []map[string]any{}
@@ -119,13 +175,13 @@ func doneReturn(commit string, others ...map[string]any) map[string]any {
 	return map[string]any{
 		"status": "done", "commit": commit,
 		"resolutions":   []map[string]any{{"path": "README", "took": "both", "kept": "both lines stay"}},
-		"other_changes": others, "checks": []map[string]any{}, "unresolved": []map[string]any{},
+		"other_changes": others, "checks": integratorChecks(), "unresolved": []map[string]any{},
 		"evidence": "README keeps both lines",
 	}
 }
 
 // checkReturn runs the return check of the step with id on ret and returns its failure lines.
-func (w conflictWorld) checkReturn(id string, ret map[string]any) []string {
+func (w *releaseWorld) checkReturn(id string, ret map[string]any) []string {
 	w.t.Helper()
 	check := w.started(id).ReturnCheck
 	if check == nil {
@@ -138,17 +194,10 @@ func (w conflictWorld) checkReturn(id string, ret map[string]any) []string {
 	return check(encoded)
 }
 
-// gateID returns the id of the Done gate check the release runs on the commit of round of the release integrator.
-func (w conflictWorld) gateID(round int) string {
+// endIntegrator ends the release integrator's round done with a return that names commit, and passes.
+func (w conflictWorld) endIntegrator(commit string) {
 	w.t.Helper()
-	run := runAt(w.t, w.s, releaseNodePath)
-	return store.NodeWorkID(fmt.Sprintf("%s-integrator-%d", run.ID, round), run.Attempt, "done 1")
-}
-
-// endIntegrator ends round of the release integrator done with a return that names commit, and passes.
-func (w conflictWorld) endIntegrator(round int, commit string) {
-	w.t.Helper()
-	w.endStep(w.integratorID(round), "done", "done", doneReturn(commit))
+	w.endStep(w.integratorID(), "done", "done", doneReturn(commit))
 	w.pass()
 }
 
@@ -157,20 +206,41 @@ func hasLine(failures []string, prefix string) bool {
 	return slices.ContainsFunc(failures, func(line string) bool { return strings.HasPrefix(line, prefix) })
 }
 
+// requireSections fails unless prompt holds each of headings, as a `## ` heading on a line of its own, in order.
+func requireSections(t *testing.T, prompt string, headings ...string) {
+	t.Helper()
+	at := -1
+	for _, heading := range headings {
+		i := strings.Index(prompt, "\n## "+heading+"\n")
+		if i <= at {
+			t.Errorf("prompt has %q at %d, want it after the section before it at %d", heading, i, at)
+		}
+		at = i
+	}
+}
+
+// integratorSections returns the sections of the release integrator's prompt, in order.
+func integratorSections() []string {
+	return []string{
+		"Contract", "Decisions", "Merge", "Conflicted paths", "Tasks", "Candidate commits", "Origin commits",
+		"Same change", "Candidate changes", "Origin changes", "Changed on both sides", "Verification references",
+	}
+}
+
 // TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress: a merge of origin's commit that conflicts records the
 // conflict, origin's commit and its branch, and no candidate or revision, and does not stop the release. It starts the
 // release integrator as an unowned writing step, labeled with the epic and the run's path, in a worktree that holds the
 // merge in progress at the tip with zdiff3 conflicts. Its role file names no integrator, so it runs under the release
-// agent. Its prompt is the role text, then each section in order.
+// agent. Its prompt is the role text, then each section in order: both sides' changed paths, the paths both changed,
+// and the epic's Done gates and evidence commands as references.
 func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
 	t.Parallel()
-	w := newConflictWorld(t)
+	w := newConflictWorld(t, nodeRequirements()...)
 	w.pass()
 
 	run := runAt(t, w.s, releaseNodePath)
 	var got struct {
 		mergeWire
-		Origin    string   `json:"origin"`
 		Branch    string   `json:"branch"`
 		Conflicts []string `json:"conflicts"`
 	}
@@ -186,7 +256,7 @@ func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T
 		t.Errorf("epic phase = %q, parked %q, want releasing and not parked", flow.Epic.Phase, flow.Epic.Parked)
 	}
 
-	start := w.started(w.integratorID(1))
+	start := w.started(w.integratorID())
 	if start.Agent != releaseAgent || start.Workspace != w.worktree() || start.Revision != w.tip || start.ReadOnly ||
 		!start.Unowned || start.DoneValue != "done" || start.Epic != runEpic || start.Task != releaseNodePath ||
 		start.Schema != IntegratorSchema || start.ReturnCheck == nil {
@@ -214,20 +284,10 @@ func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T
 	}
 
 	prompt := start.Prompt
-	if !strings.HasPrefix(prompt, "You are the release integrator for one epic.") {
+	if !strings.HasPrefix(prompt, strings.TrimRight(integratorRole, "\n")+"\n") {
 		t.Errorf("prompt starts %q, want the role text", prompt[:min(len(prompt), 80)])
 	}
-	at := -1
-	for _, heading := range []string{
-		"## Contract", "## Decisions", "## Merge", "## Conflicted paths", "## Tasks", "## Candidate commits",
-		"## Origin commits", "## Same change", "## Checks after you", "## Previous attempt",
-	} {
-		i := strings.Index(prompt, "\n"+heading+"\n")
-		if i <= at {
-			t.Errorf("prompt has %q at %d, want it after the section before it at %d", heading, i, at)
-		}
-		at = i
-	}
+	requireSections(t, prompt, integratorSections()...)
 	for _, want := range []string{
 		"Worktree: " + wt,
 		"Release tip: " + w.tip,
@@ -237,12 +297,103 @@ func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T
 		"- UU README\n  candidate: " + w.tip + " epic work\n  origin: " + w.origin + " origin README\n",
 		"## Candidate commits\n" + nodeGit(t, w.repo, "log", "--oneline", "-n1", w.tip) + "\n",
 		"## Origin commits\n" + nodeGit(t, w.repo, "log", "--oneline", "-n1", w.origin) + "\n",
-		"Done gates:\n- lint: [\"./bin/lint\"]\nCaptures: None.\n",
-		"## Previous attempt\nNone.\n",
+		"## Candidate changes\n- M README\n",
+		"## Origin changes\n- M README\n",
+		"## Changed on both sides\n- README\n",
+		"## Verification references\nDone gates:\n- lint: [\"./bin/lint\"]\nEvidence commands:\n- R1: [\"scripts/check\"]\n",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "## Previous attempt") {
+		t.Errorf("prompt has a Previous attempt section, want none: the integrator runs one round:\n%s", prompt)
+	}
+}
+
+// TestReleaseCleanMergeStartsIntegrator: a merge of origin's commit that git makes with no conflict is not committed at
+// the prepare: its Result names origin's commit and its branch, no conflict, no candidate and no revision, nothing is
+// pinned under the run's release ref, and no Done gate starts. The release integrator starts with the merge in progress
+// and no unmerged path, and its prompt says no path conflicts and names each side's change. Once it commits the merge
+// and returns done, the merge, with the tip and origin's commit as its parents, is pinned and recorded as the candidate
+// with no Done gate or capture run, and the first release step starts from it.
+func TestReleaseCleanMergeStartsIntegrator(t *testing.T) {
+	t.Parallel()
+	w := newCleanWorld(t, nodeRequirements()...)
+	w.pass()
+
+	run := runAt(t, w.s, releaseNodePath)
+	if strings.Contains(run.Result, `"conflicts"`) {
+		t.Errorf("Result = %s, want no conflicts key for a clean merge", run.Result)
+	}
+	got := decodeMerge(t, run.Result)
+	if got.Error != "" || !got.Behind || got.Tip != w.tip || got.Origin != w.origin || got.Candidate != "" ||
+		run.Revision != "" || !strings.Contains(run.Result, `"branch":"refs/heads/main"`) {
+		t.Errorf("Result = %s with revision %q, want origin's commit %s and its branch, and no candidate",
+			run.Result, run.Revision, w.origin)
+	}
+	ref := fmt.Sprintf("refs/orrery/epic-runner/release/%s-%d", run.ID, run.Attempt)
+	if pinned := nodeGit(t, w.repo, "for-each-ref", ref); pinned != "" {
+		t.Errorf("%s = %q at the prepare, want nothing pinned before the integrator commits", ref, pinned)
+	}
+	if len(w.fakes.checks.calls) != 0 {
+		t.Errorf("checks = %+v, want no Done gate run on the merge", w.fakes.checks.calls)
+	}
+
+	start := w.started(w.integratorID())
+	if start.Workspace != w.worktree() || start.Revision != w.tip || !start.Unowned || start.ReturnCheck == nil {
+		t.Errorf("integrator start = %+v, want an unowned writing step in %s at %s", start, w.worktree(), w.tip)
+	}
+	wt := w.worktree()
+	if mergeHead := nodeGit(t, wt, "rev-parse", "MERGE_HEAD"); mergeHead != w.origin {
+		t.Errorf("worktree MERGE_HEAD = %s, want origin's commit %s", mergeHead, w.origin)
+	}
+	if head := nodeGit(t, wt, "rev-parse", "HEAD"); head != w.tip {
+		t.Errorf("worktree HEAD = %s, want the tip %s: the merge is not committed", head, w.tip)
+	}
+	if unmerged := nodeGit(t, wt, "ls-files", "-u"); unmerged != "" {
+		t.Errorf("unmerged paths = %q, want none", unmerged)
+	}
+	requireSections(t, start.Prompt, integratorSections()...)
+	for _, want := range []string{
+		"## Conflicted paths\nNone.\n",
+		"## Candidate changes\n- A epic.txt\n",
+		"## Origin changes\n- A origin.txt\n",
+		"## Changed on both sides\nNone.\n",
+		"Evidence commands:\n- R1: [\"scripts/check\"]\n",
+	} {
+		if !strings.Contains(start.Prompt, want) {
+			t.Errorf("prompt lacks %q:\n%s", want, start.Prompt)
+		}
+	}
+
+	if failures := w.checkReturn(w.integratorID(), cleanReturn(w.commitCleanMerge())); len(failures) != 0 {
+		t.Fatalf("return check of the clean merge = %q, want no failure", failures)
+	}
+	merge := nodeGit(t, wt, "rev-parse", "HEAD")
+	w.endStep(w.integratorID(), "done", "done", cleanReturn(merge))
+	if logged := w.pass(); logged != "" {
+		t.Fatalf("pass logged: %s", logged)
+	}
+
+	parents := strings.Fields(nodeGit(t, w.repo, "rev-list", "--parents", "-n", "1", merge))
+	if want := []string{merge, w.tip, w.origin}; !slices.Equal(parents, want) {
+		t.Errorf("merge and parents = %q, want %q", parents, want)
+	}
+	if pinned := nodeGit(t, w.repo, "rev-parse", ref); pinned != merge {
+		t.Errorf("%s = %s, want the merge %s", ref, pinned, merge)
+	}
+	candidates := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartCandidate)
+	if len(candidates) != 1 || candidates[0].Head != merge || candidates[0].Start != w.tip ||
+		!slices.Equal(candidates[0].Commits, []string{merge}) {
+		t.Errorf("candidate runs = %+v, want the merge %s from the tip %s", candidates, merge, w.tip)
+	}
+	if len(w.fakes.checks.calls) != 0 || len(w.fakes.evidence.calls) != 0 {
+		t.Errorf("checks = %+v and captures = %+v, want no Done gate or capture run on the merge",
+			w.fakes.checks.calls, w.fakes.evidence.calls)
+	}
+	if step := w.started(w.stepID(1)); step.Revision != merge {
+		t.Errorf("release step 1 starts at %s, want the merge %s", step.Revision, merge)
 	}
 }
 
@@ -254,98 +405,115 @@ func TestReleaseIntegratorRunsUnderItsOwnRole(t *testing.T) {
 	w.runner.getenv = integratorRoles(t)
 	w.pass()
 
-	if got := w.started(w.integratorID(1)).Agent; got != integratorAgent {
+	if got := w.started(w.integratorID()).Agent; got != integratorAgent {
 		t.Errorf("integrator agent = %q, want %q from the role file", got, integratorAgent)
 	}
 }
 
-// TestReleaseConflictWithoutRoleStopsWithConflictReason: with no role file the integrator cannot start, so the release
-// stops at once with the conflict, which names the conflicted path, and the reason the integrator did not start. Its
-// worktree is not left behind.
-func TestReleaseConflictWithoutRoleStopsWithConflictReason(t *testing.T) {
+// TestReleaseIntegratorWithoutRoleStopsNamingTheMerge: with no role file the integrator cannot start, so the release
+// stops at once with the merge and the reason the integrator did not start. A merge that conflicts is named with its
+// conflicted path, and a clean merge is named without a word of conflict. The integrator's worktree is not left behind.
+func TestReleaseIntegratorWithoutRoleStopsNamingTheMerge(t *testing.T) {
 	t.Parallel()
-	w := newConflictWorld(t)
-	w.runner.getenv = func(string) string { return "" }
-	w.pass()
+	cases := []struct {
+		name  string
+		world func(t *testing.T) conflictWorld
+		want  func(w conflictWorld) string
+	}{
+		{
+			name:  "conflicting merge",
+			world: func(t *testing.T) conflictWorld { t.Helper(); return newConflictWorld(t) },
+			want: func(w conflictWorld) string {
+				return conflictMessage(w.tip, w.origin, []string{"README"}) + "; the release integrator did not start: "
+			},
+		},
+		{
+			name:  "clean merge",
+			world: func(t *testing.T) conflictWorld { t.Helper(); return newCleanWorld(t) },
+			want: func(w conflictWorld) string {
+				return fmt.Sprintf("merge of origin's commit %s into %s; the release integrator did not start: ",
+					w.origin, w.tip)
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := tc.world(t)
+			w.runner.getenv = func(string) string { return "" }
+			w.pass()
 
-	flow := w.flowOf(runEpic)
-	if flow.Epic.Phase != store.PhaseStopped {
-		t.Fatalf("epic phase = %q, want stopped", flow.Epic.Phase)
-	}
-	want := conflictMessage(w.tip, w.origin, []string{"README"}) + "; the release integrator did not start: "
-	if !strings.HasPrefix(flow.Epic.Parked, want) {
-		t.Errorf("parked = %q, want it to open with %q", flow.Epic.Parked, want)
-	}
-	if len(w.integratorStarts()) != 0 {
-		t.Errorf("integrator starts = %+v, want none", w.integratorStarts())
-	}
-	if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
-		t.Errorf("integrator directory stat = %v, want it absent", err)
+			flow := w.flowOf(runEpic)
+			if flow.Epic.Phase != store.PhaseStopped {
+				t.Fatalf("epic phase = %q, want stopped", flow.Epic.Phase)
+			}
+			if want := tc.want(w); !strings.HasPrefix(flow.Epic.Parked, want) {
+				t.Errorf("parked = %q, want it to open with %q", flow.Epic.Parked, want)
+			}
+			if tc.name == "clean merge" && strings.Contains(flow.Epic.Parked, "conflict") {
+				t.Errorf("parked = %q, want a clean merge not named as conflicting", flow.Epic.Parked)
+			}
+			if len(w.integratorStarts()) != 0 {
+				t.Errorf("integrator starts = %+v, want none", w.integratorStarts())
+			}
+			if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
+				t.Errorf("integrator directory stat = %v, want it absent", err)
+			}
+		})
 	}
 }
 
-// TestReleaseIntegratorMergeRunsGatesAndCapturesThenBecomesCandidate: a done return whose merge passes the return check
-// is recorded as a passed round with the merge as its head, and the merge is pinned under the run's release ref. The
-// epic's Done gate runs at the merge, then its capture, in the green phase, and once both pass the merge is recorded as
-// the candidate, the integrator's worktree is removed, and the first release step starts from the merge.
-func TestReleaseIntegratorMergeRunsGatesAndCapturesThenBecomesCandidate(t *testing.T) {
+// TestReleaseIntegratorMergeBecomesCandidateWithNoGateOrCapture: a done return whose merge passes the return check is
+// recorded as a passed round at position 1 with the merge as its head, and the merge is pinned under the run's release
+// ref. The merge is recorded as the candidate in the same pass, though the epic has a Done gate and a Requirement whose
+// item captures: neither runs on it. The integrator's worktree is removed and the first release step starts from the
+// merge.
+func TestReleaseIntegratorMergeBecomesCandidateWithNoGateOrCapture(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t, nodeRequirements()...)
 	w.pass()
 	merge := w.commitMerge()
-	if failures := w.checkReturn(w.integratorID(1), doneReturn(merge)); len(failures) != 0 {
+	if failures := w.checkReturn(w.integratorID(), doneReturn(merge)); len(failures) != 0 {
 		t.Fatalf("return check of a correct merge = %q, want no failure", failures)
 	}
-	w.endIntegrator(1, merge)
+	w.endIntegrator(merge)
 
 	run := runAt(t, w.s, releaseNodePath)
-	rounds := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartIntegrator)
+	flow := w.flowOf(runEpic)
+	rounds := releaseRunsOf(flow.Releases, store.ReleasePartIntegrator)
 	if len(rounds) != 1 || !rounds[0].Passed || rounds[0].Head != merge || rounds[0].Start != w.tip ||
 		rounds[0].Position != 1 {
-		t.Fatalf("integrator runs = %+v, want round 1 passed at %s", rounds, merge)
+		t.Fatalf("integrator runs = %+v, want the round passed at %s at position 1", rounds, merge)
 	}
 	ref := fmt.Sprintf("refs/orrery/epic-runner/release/%s-%d", run.ID, run.Attempt)
 	if pinned := nodeGit(t, w.repo, "rev-parse", ref); pinned != merge {
 		t.Errorf("%s = %s, want the merge %s", ref, pinned, merge)
 	}
-	gate, err := w.s.NodeCheck(t.Context(), w.gateID(1))
-	if err != nil || gate.Revision != merge {
-		t.Fatalf("Done gate check = %+v, %v, want it started at the merge %s", gate, err, merge)
-	}
-	if len(w.fakes.evidence.calls) != 0 {
-		t.Errorf("captures = %+v before the Done gate passed, want none", w.fakes.evidence.calls)
-	}
-
-	nodeEndCheck(t, w.s, w.gateID(1), 0, "")
-	w.pass()
-	if len(w.fakes.evidence.calls) != 1 {
-		t.Fatalf("captures = %+v, want the capture of R1", w.fakes.evidence.calls)
-	}
-	capture := w.fakes.evidence.calls[0]
-	if capture.item != "R1" || capture.revision != merge || capture.phase != "green" {
-		t.Errorf("capture = %+v, want R1 green at %s", capture, merge)
-	}
-
-	nodeEndEvidence(t, w.s, capture.id)
-	w.pass()
-	candidates := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartCandidate)
+	candidates := releaseRunsOf(flow.Releases, store.ReleasePartCandidate)
 	if len(candidates) != 1 || candidates[0].Head != merge || candidates[0].Start != w.tip ||
 		!slices.Equal(candidates[0].Commits, []string{merge}) {
 		t.Errorf("candidate runs = %+v, want the merge %s from the tip %s", candidates, merge, w.tip)
 	}
-	if _, err = os.Stat(w.integratorDir()); !os.IsNotExist(err) {
+	if len(w.fakes.checks.calls) != 0 || len(w.fakes.evidence.calls) != 0 {
+		t.Errorf("checks = %+v and captures = %+v, want no Done gate or capture started on the merge",
+			w.fakes.checks.calls, w.fakes.evidence.calls)
+	}
+	if _, err := os.Stat(w.integratorDir()); !os.IsNotExist(err) {
 		t.Errorf("integrator directory stat = %v, want it removed once the candidate is recorded", err)
 	}
-	step := w.started(w.stepID(1))
-	if step.Revision != merge {
+	if step := w.started(w.stepID(1)); step.Revision != merge {
 		t.Errorf("release step 1 starts at %s, want the merge %s", step.Revision, merge)
+	}
+	if starts := w.integratorStarts(); len(starts) != 1 {
+		t.Errorf("integrator starts = %d, want the one round", len(starts))
 	}
 }
 
 // TestReleaseIntegratorReturnCheckRefusesBadCommits: the return check passes a correct merge and refuses each commit or
 // return the engine's checks rule out, naming the check: parents other than the tip and then origin's commit, a commit
 // added on top of the merge, a conflict marker left in, a change outside the conflicts that other_changes does not
-// list, a merge not committed, a resolution missing, and a blocked return that names a commit.
+// list, a merge not committed, a resolution missing, a done return that lists no check it ran, and a blocked return
+// that names a commit.
 func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -420,6 +588,15 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 			want: "resolutions: conflicted path README has no resolution",
 		},
 		{
+			name: "no check listed",
+			do: func(w conflictWorld) map[string]any {
+				ret := doneReturn(w.commitMerge())
+				ret["checks"] = []map[string]any{}
+				return ret
+			},
+			want: "checks: a done return lists each command it ran to verify the merged tree",
+		},
+		{
 			name: "blocked naming a commit",
 			do: func(w conflictWorld) map[string]any {
 				return map[string]any{
@@ -436,7 +613,64 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 			t.Parallel()
 			w := newConflictWorld(t)
 			w.pass()
-			failures := w.checkReturn(w.integratorID(1), tc.do(w))
+			failures := w.checkReturn(w.integratorID(), tc.do(w))
+			if tc.want == "" {
+				if len(failures) != 0 {
+					t.Errorf("failures = %q, want none", failures)
+				}
+				return
+			}
+			if !hasLine(failures, tc.want) {
+				t.Errorf("failures = %q, want a line that opens with %q", failures, tc.want)
+			}
+		})
+	}
+}
+
+// TestReleaseCleanMergeReturnCheck: the return check of a clean merge passes the merge committed with no resolution, and
+// refuses a resolution of a path that did not conflict, a change to what git merged that other_changes does not list,
+// and a merge not committed, whose HEAD is still the tip.
+func TestReleaseCleanMergeReturnCheck(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		do   func(w conflictWorld) map[string]any
+		want string
+	}{
+		{
+			name: "merge committed with no resolution",
+			do:   func(w conflictWorld) map[string]any { return cleanReturn(w.commitCleanMerge()) },
+		},
+		{
+			name: "a resolution of a path that did not conflict",
+			do: func(w conflictWorld) map[string]any {
+				ret := cleanReturn(w.commitCleanMerge())
+				ret["resolutions"] = []map[string]any{{"path": "epic.txt", "took": "candidate", "kept": "the epic's"}}
+				return ret
+			},
+			want: "resolutions: epic.txt is not a conflicted path",
+		},
+		{
+			name: "unlisted change",
+			do: func(w conflictWorld) map[string]any {
+				nodeWrite(w.t, w.worktree(), "notes.txt", "notes\n")
+				nodeGit(w.t, w.worktree(), "add", "notes.txt")
+				return cleanReturn(w.commitCleanMerge())
+			},
+			want: "other_changes: the commit changes what git merged without conflict in notes.txt",
+		},
+		{
+			name: "merge not committed",
+			do:   func(w conflictWorld) map[string]any { return cleanReturn(w.tip) },
+			want: "parents: ",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			w := newCleanWorld(t)
+			w.pass()
+			failures := w.checkReturn(w.integratorID(), tc.do(w))
 			if tc.want == "" {
 				if len(failures) != 0 {
 					t.Errorf("failures = %q, want none", failures)
@@ -458,7 +692,7 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
 	w.pass()
-	w.endStep(w.integratorID(1), "returned", "blocked", map[string]any{
+	w.endStep(w.integratorID(), "returned", "blocked", map[string]any{
 		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
 		"checks": []map[string]any{},
 		"unresolved": []map[string]any{{
@@ -514,99 +748,38 @@ func TestBlockedReasonFitsThePark(t *testing.T) {
 	}
 }
 
-// TestReleaseIntegratorGateFailureSendsBackTwiceThenStops: a Done gate that fails on the integrator's merge starts the
-// next round in the same worktree, with the merge as HEAD and the gate's exit and output under Previous attempt. A gate
-// that fails on the merges of all three rounds stops the release with the gate's reason, and no fourth round starts.
-func TestReleaseIntegratorGateFailureSendsBackTwiceThenStops(t *testing.T) {
+// TestReleaseIntegratorEndWithoutDoneStopsNamingTheMerge: a round whose step ends without a done return, as one whose
+// checks failed four times does, stops the release with the merge and how the step ended. A merge that conflicts is
+// named with its conflicted path, and a clean merge without a word of conflict.
+func TestReleaseIntegratorEndWithoutDoneStopsNamingTheMerge(t *testing.T) {
 	t.Parallel()
-	w := newConflictWorld(t)
-	w.pass()
-	merge := w.commitMerge()
-	w.endIntegrator(1, merge)
-	nodeEndCheck(t, w.s, w.gateID(1), 2, "lint: README has two lines")
-	w.pass()
+	t.Run("conflicting merge", func(t *testing.T) {
+		t.Parallel()
+		w := newConflictWorld(t)
+		w.pass()
+		w.endStep(w.integratorID(), "checks_failed", "", doneReturn(w.tip))
+		w.pass()
 
-	second := w.started(w.integratorID(2))
-	if second.Workspace != w.worktree() || second.Revision != w.tip || second.Agent != releaseAgent {
-		t.Errorf("second round start = %+v, want it in %s at the tip %s", second, w.worktree(), w.tip)
-	}
-	for _, want := range []string{
-		"Committed: an earlier round committed this merge as " + merge + ", which is HEAD now.",
-		"## Previous attempt\nDone gate lint failed on commit " + merge + ": it exited 2.\nstderr tail:\n" +
-			"lint: README has two lines\n",
-	} {
-		if !strings.Contains(second.Prompt, want) {
-			t.Errorf("second round prompt lacks %q:\n%s", want, second.Prompt)
+		flow := w.flowOf(runEpic)
+		want := conflictMessage(w.tip, w.origin, []string{"README"}) + "; release integrator ended checks_failed"
+		if flow.Epic.Phase != store.PhaseStopped || !strings.HasPrefix(flow.Epic.Parked, want) {
+			t.Errorf("epic phase = %q, parked %q, want stopped with %q", flow.Epic.Phase, flow.Epic.Parked, want)
 		}
-	}
-	if flow := w.flowOf(runEpic); flow.Epic.Phase != store.PhaseReleasing {
-		t.Errorf("epic phase = %q after one failed gate, want releasing", flow.Epic.Phase)
-	}
+	})
+	t.Run("clean merge", func(t *testing.T) {
+		t.Parallel()
+		w := newCleanWorld(t)
+		w.pass()
+		w.endStep(w.integratorID(), "checks_failed", "", cleanReturn(w.tip))
+		w.pass()
 
-	w.endIntegrator(2, merge)
-	nodeEndCheck(t, w.s, w.gateID(2), 2, "lint: still two lines")
-	w.pass()
-	w.endIntegrator(3, merge)
-	nodeEndCheck(t, w.s, w.gateID(3), 2, "lint: still two lines")
-	w.pass()
-
-	if starts := w.integratorStarts(); len(starts) != 3 {
-		t.Errorf("integrator starts = %d, want three rounds", len(starts))
-	}
-	flow := w.flowOf(runEpic)
-	if want := fmt.Sprintf("done gate lint did not pass at %s", merge); flow.Epic.Phase != store.PhaseStopped ||
-		flow.Epic.Parked != want {
-		t.Errorf("epic phase = %q, parked %q, want stopped with %q", flow.Epic.Phase, flow.Epic.Parked, want)
-	}
-}
-
-// TestReleaseIntegratorChecksFailedStopsWithConflict: a round whose step ends without a done return, as one whose
-// checks failed four times does, stops the release with the conflict and how the step ended.
-func TestReleaseIntegratorChecksFailedStopsWithConflict(t *testing.T) {
-	t.Parallel()
-	w := newConflictWorld(t)
-	w.pass()
-	w.endStep(w.integratorID(1), "checks_failed", "", doneReturn(w.tip))
-	w.pass()
-
-	flow := w.flowOf(runEpic)
-	want := conflictMessage(w.tip, w.origin, []string{"README"}) + "; release integrator ended checks_failed"
-	if flow.Epic.Phase != store.PhaseStopped || !strings.HasPrefix(flow.Epic.Parked, want) {
-		t.Errorf("epic phase = %q, parked %q, want stopped with %q", flow.Epic.Phase, flow.Epic.Parked, want)
-	}
-}
-
-// TestReleaseCleanMergeStartsNoIntegrator: a merge of origin's commit that does not conflict is the candidate as it
-// always was: its Result names no conflict and no branch, but the origin commit it merged, it is held at the Done gate,
-// and no release integrator starts.
-func TestReleaseCleanMergeStartsNoIntegrator(t *testing.T) {
-	t.Parallel()
-	w := newMergeWorld(t)
-	origin := mergeRemote(t, w.repo)
-	nodeEpicBranch(t, w.repo, "epic.txt")
-	originHead := mergeOriginCommit(t, origin, "origin.txt")
-	w.pass()
-
-	run := runAt(t, w.s, releaseNodePath)
-	for _, key := range []string{`"conflicts"`, `"branch"`} {
-		if strings.Contains(run.Result, key) {
-			t.Errorf("Result = %s, want no %s key for a clean merge", run.Result, key)
+		flow := w.flowOf(runEpic)
+		want := fmt.Sprintf("merge of origin's commit %s into %s; release integrator ended checks_failed",
+			w.origin, w.tip)
+		if flow.Epic.Phase != store.PhaseStopped || !strings.HasPrefix(flow.Epic.Parked, want) {
+			t.Errorf("epic phase = %q, parked %q, want stopped with %q", flow.Epic.Phase, flow.Epic.Parked, want)
 		}
-	}
-	if got := decodeMerge(t, run.Result); got.Origin != originHead {
-		t.Errorf("Result origin = %q, want origin's commit %q", got.Origin, originHead)
-	}
-	if run.Revision == "" {
-		t.Errorf("revision is empty, want the clean merge")
-	}
-	for _, start := range w.fakes.steps.calls {
-		if start.Schema == IntegratorSchema {
-			t.Errorf("step start = %+v, want no release integrator", start)
-		}
-	}
-	if _, err := w.s.NodeCheck(t.Context(), workID(t, w.s, releaseNodePath, "done 1")); err != nil {
-		t.Errorf("Done gate check of the clean merge: %v, want it started", err)
-	}
+	})
 }
 
 // TestReleaseIntegratorRestartFindsStepByID: a runner started again over the same store and state directory finds the
@@ -625,7 +798,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 		t.Errorf("starts after the restart = %+v, want none: the round is running", fakes.steps.calls)
 	}
 
-	id := w.integratorID(1)
+	id := w.integratorID()
 	row, err := w.runner.storedStep(t.Context(), runEpic, id)
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
@@ -659,6 +832,43 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	}
 }
 
+// TestReleaseCleanMergeReadoptCheck: the re-adopted row of an integrator that makes a clean merge gets its return check
+// back, though the merge conflicts in no path: the check refuses the merge not committed and passes it committed. A row
+// whose release run records no merge of origin's commit into the row's revision is refused, so it is not re-adopted.
+func TestReleaseCleanMergeReadoptCheck(t *testing.T) {
+	t.Parallel()
+	w := newCleanWorld(t)
+	w.pass()
+	row, err := w.runner.storedStep(t.Context(), runEpic, w.integratorID())
+	if err != nil {
+		t.Fatalf("stored integrator step: %v", err)
+	}
+	readopt := ReadoptCheck(w.s, hostexec.LocalHosts())
+	check, err := readopt(t.Context(), row)
+	if err != nil || check == nil {
+		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check for the clean merge", check != nil, err)
+	}
+	uncommitted, err := json.Marshal(cleanReturn(w.tip))
+	if err != nil {
+		t.Fatalf("encode return: %v", err)
+	}
+	if failures := check(uncommitted); !hasLine(failures, "parents: ") {
+		t.Errorf("re-adopted check of the merge not committed = %q, want a parents line", failures)
+	}
+	committed, err := json.Marshal(cleanReturn(w.commitCleanMerge()))
+	if err != nil {
+		t.Fatalf("encode return: %v", err)
+	}
+	if failures := check(committed); len(failures) != 0 {
+		t.Errorf("re-adopted check of the committed merge = %q, want none", failures)
+	}
+
+	row.Revision = w.origin
+	if other, otherErr := readopt(t.Context(), row); other != nil || otherErr == nil {
+		t.Errorf("ReadoptCheck of a row at another revision = %v, %v, want it refused", other != nil, otherErr)
+	}
+}
+
 // TestStopEpicStopsTheOpenIntegrator: StopEpic on a releasing epic whose release integrator runs names that step as
 // the one to stop.
 func TestStopEpicStopsTheOpenIntegrator(t *testing.T) {
@@ -670,8 +880,78 @@ func TestStopEpicStopsTheOpenIntegrator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)
 	}
-	if step != w.integratorID(1) {
-		t.Errorf("StopEpic step = %q, want the integrator %s", step, w.integratorID(1))
+	if step != w.integratorID() {
+		t.Errorf("StopEpic step = %q, want the integrator %s", step, w.integratorID())
+	}
+}
+
+// TestChangeLinesNameEachPathAndCountThePathsPastTheLimit: each side's changed paths are listed with their status, past
+// integratorChangeLimit the list stops with a line that counts them all and names the command that lists them, and the
+// paths both sides changed are listed in the candidate's order.
+func TestChangeLinesNameEachPathAndCountThePathsPastTheLimit(t *testing.T) {
+	t.Parallel()
+	candidate := []pathChange{{status: "A", path: "a.go"}, {status: "M", path: "b.go"}, {status: "D", path: "c.go"}}
+	origin := []pathChange{{status: "M", path: "c.go"}, {status: "M", path: "b.go"}}
+	if got, want := changeLines(candidate, "base", "tip"), []string{"- A a.go", "- M b.go", "- D c.go"}; !slices.Equal(
+		got, want) {
+		t.Errorf("changeLines = %q, want %q", got, want)
+	}
+	if got, want := bothLines(candidate, origin), []string{"- b.go", "- c.go"}; !slices.Equal(got, want) {
+		t.Errorf("bothLines = %q, want %q", got, want)
+	}
+	many := make([]pathChange, integratorChangeLimit+2)
+	for i := range many {
+		many[i] = pathChange{status: "M", path: fmt.Sprintf("f%d.go", i)}
+	}
+	lines := changeLines(many, "base", "tip")
+	want := fmt.Sprintf("These are the first %d of %d changed paths; git diff --name-status base tip lists them all.",
+		integratorChangeLimit, integratorChangeLimit+2)
+	if len(lines) != integratorChangeLimit+1 || lines[len(lines)-1] != want {
+		t.Errorf("changeLines of %d paths ends %q after %d lines, want %d lines ending %q", len(many),
+			lines[len(lines)-1], len(lines), integratorChangeLimit+1, want)
+	}
+	both := bothLines(many, many)
+	if len(both) != integratorChangeLimit+1 || !strings.HasPrefix(both[len(both)-1], "These are the first ") {
+		t.Errorf("bothLines of %d shared paths = %d lines, want %d and a count", len(many), len(both),
+			integratorChangeLimit+1)
+	}
+}
+
+// TestNameStatusReadsEachSidesChange: nameStatus reads each path a side changed from the merge base with its status, an
+// added, a modified and a deleted path among them, in git's order.
+func TestNameStatusReadsEachSidesChange(t *testing.T) {
+	t.Parallel()
+	repo, base := nodeRepo(t)
+	nodeWrite(t, repo, "added.txt", "added\n")
+	nodeWrite(t, repo, "README", "changed\n")
+	nodeGit(t, repo, "add", "added.txt", "README")
+	nodeGit(t, repo, "commit", "-q", "-m", "change")
+	nodeGit(t, repo, "rm", "-q", "added.txt")
+	nodeWrite(t, repo, "kept.txt", "kept\n")
+	nodeGit(t, repo, "add", "kept.txt")
+	nodeGit(t, repo, "commit", "-q", "-m", "more")
+	middle := nodeGit(t, repo, "rev-parse", "HEAD~1")
+	tip := nodeGit(t, repo, "rev-parse", "HEAD")
+
+	got, err := nameStatus(t.Context(), hostexec.NewLocal(), repo, base, middle)
+	if err != nil {
+		t.Fatalf("nameStatus: %v", err)
+	}
+	if want := []pathChange{{status: "M", path: "README"}, {status: "A", path: "added.txt"}}; !slices.Equal(got, want) {
+		t.Errorf("nameStatus(base, middle) = %+v, want %+v", got, want)
+	}
+	got, err = nameStatus(t.Context(), hostexec.NewLocal(), repo, middle, tip)
+	if err != nil {
+		t.Fatalf("nameStatus: %v", err)
+	}
+	if want := []pathChange{
+		{status: "D", path: "added.txt"},
+		{status: "A", path: "kept.txt"},
+	}; !slices.Equal(
+		got,
+		want,
+	) {
+		t.Errorf("nameStatus(middle, tip) = %+v, want %+v", got, want)
 	}
 }
 

@@ -160,7 +160,7 @@ func (r *Runner) start(ctx context.Context, epic store.EpicRow, act Action) erro
 			return missingService("reviewers")
 		}
 		return r.startReviewUnits(ctx, epic, act)
-	case kindGate, kindCost, kindCommand, kindIntegrate, kindRelease:
+	case kindGate, kindCost, kindCommand, kindIntegrate:
 		if r.checks == nil {
 			return missingService("checks")
 		}
@@ -187,8 +187,8 @@ func missingService(service string) error {
 	return fmt.Errorf("the runner was not given a %s service", service)
 }
 
-// startCheck starts the check of a gate, cost or command run under the id its action names, at the run's revision. The
-// check of an integrate or release run is one of its Done gates, which the action names, and the check of a cost
+// startCheck starts the check of a gate, cost, command or integrate run under the id its action names, at the run's
+// revision. The check of an integrate run is one of its Done gates, which the action names, and the check of a cost
 // run is the epic's first Done gate.
 func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action) error {
 	check := store.NodeCheck{ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: act.Run.Revision}
@@ -198,7 +198,7 @@ func (r *Runner) startCheck(ctx context.Context, epic store.EpicRow, act Action)
 		check, err = r.withGate(ctx, epic, act.Def.Settings.Gate, check)
 	case kindCost:
 		check, err = r.withCostGate(ctx, epic, check)
-	case kindIntegrate, kindRelease:
+	case kindIntegrate:
 		check, err = r.withGate(ctx, epic, act.Items[0], check)
 	default:
 		check.Argv = act.Def.Settings.Argv

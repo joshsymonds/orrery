@@ -13,10 +13,10 @@ import (
 )
 
 // release carries out one work action of a release run: the prepare of its candidate, the begin of the release of a
-// clean epic, a stop, the epic's ending, a Done gate check or a capture at the candidate, the start of a round of the
-// release integrator, of a release step, of a release reviewer or of the judge, the record of a candidate, a round of
-// the release integrator, a release step, a release reviewer or the judge, or the replan that sends the release back to
-// planning and the resume once that plan has ended.
+// clean epic, a stop, the epic's ending, the start of the release integrator's round, of a release step, of a release
+// reviewer or of the judge, the record of a candidate, of the release integrator's round, of a release step, of a
+// release reviewer or of the judge, or the replan that sends the release back to planning and the resume once that
+// plan has ended.
 func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	switch act.Work {
 	case kinds.ActPrepare:
@@ -27,10 +27,6 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 		return r.stopRelease(ctx, epic, act, at)
 	case kinds.ActEnding:
 		return r.endEpic(ctx, epic, act, at)
-	case kinds.ActStart:
-		return r.start(ctx, epic, act)
-	case kinds.ActCapture:
-		return r.capture(ctx, epic, act)
 	case kinds.ActIntegrator:
 		return r.startIntegrator(ctx, epic, act, at)
 	case kinds.ActStep:
@@ -48,7 +44,7 @@ func (r *Runner) release(ctx context.Context, epic store.EpicRow, act Action, at
 	}
 }
 
-// recordRelease records the run act names: the candidate, the judge, a round of the release integrator, a release
+// recordRelease records the run act names: the candidate, the judge, the release integrator's round, a release
 // reviewer's review, or else a release step, which its label names.
 func (r *Runner) recordRelease(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if len(act.Items) == 0 {
@@ -204,9 +200,9 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 
 // recordCandidate stores the candidate of the run's attempt as passed, after the one it replaces when it was prepared
 // again. Its Start is the tip the candidate was made from and its Head the candidate, which is the merge the release
-// integrator committed when the action names that revision. Its Commits name the candidate when it is behind the
-// target, since then the candidate is the merge the release made. The run's release integrator worktree, when it has
-// one, is removed first: the merge it holds is pinned.
+// integrator committed when the action names that revision. Its Commits name the candidate when the tip is behind the
+// target, since then the candidate is the merge the release integrator made. The run's release integrator worktree,
+// when it has one, is removed first: the merge it holds is pinned.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {

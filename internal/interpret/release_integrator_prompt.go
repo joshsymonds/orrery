@@ -55,13 +55,13 @@ type sideCommit struct {
 	id, subject, date, patch string
 }
 
-// integratorPrompt renders the prompt of a round of the release integrator that finishes merge, whose origin commit was
+// integratorPrompt renders the prompt of the round of the release integrator that makes merge, whose origin commit was
 // fetched from origin's branch: the role text, then the sections Contract, Decisions, Merge, Conflicted paths, Tasks,
-// Candidate commits, Origin commits, Same change, Checks after you and Previous attempt, each under a `## ` heading and
-// None. when it has no lines (planner.WriteSection). head is the merge commit the round before made, "" for the first
-// round, and previous the failure that commit met. Git runs on host, the host the epic lives on.
+// Candidate commits, Origin commits, Same change, Candidate changes, Origin changes, Changed on both sides and
+// Verification references, each under a `## ` heading and None. when it has no lines (planner.WriteSection). Git runs
+// on host, the host the epic lives on.
 func (r *Runner) integratorPrompt(
-	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch, head, previous string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch string,
 ) (string, error) {
 	flow, err := r.store.EpicFlow(ctx, epic.ID)
 	if err != nil {
@@ -76,19 +76,7 @@ func (r *Runner) integratorPrompt(
 	if err != nil {
 		return "", err
 	}
-	conflicted, err := conflictedLines(ctx, host, merge, base)
-	if err != nil {
-		return "", err
-	}
-	candidate, err := logLines(ctx, host, merge.repo, base, merge.tip)
-	if err != nil {
-		return "", err
-	}
-	origin, err := logLines(ctx, host, merge.repo, base, merge.origin)
-	if err != nil {
-		return "", err
-	}
-	same, err := sameChangeLines(ctx, host, merge.repo, base, merge)
+	sides, err := integratorSides(ctx, host, merge, base)
 	if err != nil {
 		return "", err
 	}
@@ -96,15 +84,57 @@ func (r *Runner) integratorPrompt(
 	fmt.Fprintln(&out, strings.TrimRight(integratorRole, "\n"))
 	planner.WriteSection(&out, "Contract", contract)
 	planner.WriteSection(&out, "Decisions", planner.DecisionLines(epic, math.MaxInt64))
-	planner.WriteSection(&out, "Merge", mergeLines(merge, branch, base, head))
-	planner.WriteSection(&out, "Conflicted paths", conflicted)
+	planner.WriteSection(&out, "Merge", mergeLines(merge, branch, base))
+	planner.WriteSection(&out, "Conflicted paths", sides.conflicted)
 	planner.WriteSection(&out, "Tasks", integratorTaskLines(epic.Tasks, flow.Runs))
-	planner.WriteSection(&out, "Candidate commits", candidate)
-	planner.WriteSection(&out, "Origin commits", origin)
-	planner.WriteSection(&out, "Same change", same)
-	planner.WriteSection(&out, "Checks after you", r.checkLines(ctx, epic))
-	planner.WriteSection(&out, "Previous attempt", previousLines(previous))
+	planner.WriteSection(&out, "Candidate commits", sides.candidateLog)
+	planner.WriteSection(&out, "Origin commits", sides.originLog)
+	planner.WriteSection(&out, "Same change", sides.same)
+	planner.WriteSection(&out, "Candidate changes", sides.candidateChanges)
+	planner.WriteSection(&out, "Origin changes", sides.originChanges)
+	planner.WriteSection(&out, "Changed on both sides", sides.both)
+	planner.WriteSection(&out, "Verification references", r.verificationLines(ctx, epic))
 	return out.String(), nil
+}
+
+// mergeSides is what the prompt of a release integrator says of each side of its merge since the merge base: the
+// conflicted paths with the commits of each side that touched them, each side's commits, the pairs of commits that hold
+// one change, the paths each side changed, and the paths both sides changed.
+type mergeSides struct {
+	conflicted, candidateLog, originLog, same, candidateChanges, originChanges, both []string
+}
+
+// integratorSides reads, on host, what each side of merge did since base, as mergeSides holds it (conflictedLines,
+// logLines, sameChangeLines, changeLines, bothLines).
+func integratorSides(
+	ctx context.Context, host hostexec.Host, merge integratorMerge, base string,
+) (mergeSides, error) {
+	var sides mergeSides
+	var err error
+	if sides.conflicted, err = conflictedLines(ctx, host, merge, base); err != nil {
+		return mergeSides{}, err
+	}
+	if sides.candidateLog, err = logLines(ctx, host, merge.repo, base, merge.tip); err != nil {
+		return mergeSides{}, err
+	}
+	if sides.originLog, err = logLines(ctx, host, merge.repo, base, merge.origin); err != nil {
+		return mergeSides{}, err
+	}
+	if sides.same, err = sameChangeLines(ctx, host, merge.repo, base, merge); err != nil {
+		return mergeSides{}, err
+	}
+	candidate, err := nameStatus(ctx, host, merge.repo, base, merge.tip)
+	if err != nil {
+		return mergeSides{}, err
+	}
+	origin, err := nameStatus(ctx, host, merge.repo, base, merge.origin)
+	if err != nil {
+		return mergeSides{}, err
+	}
+	sides.candidateChanges = changeLines(candidate, base, merge.tip)
+	sides.originChanges = changeLines(origin, base, merge.origin)
+	sides.both = bothLines(candidate, origin)
+	return sides, nil
 }
 
 // integratorContract returns the contract lines a release integrator decides by: the Intent, each Requirement with its
@@ -124,10 +154,9 @@ func integratorContract(epic store.EpicRow) ([]string, error) {
 }
 
 // mergeLines returns the Merge section: the worktree, the release tip and origin's commit with the names git gives each
-// side, the branch of origin the commit was fetched from, the merge base, and the message the merge commit carries. A
-// round after the first also names head, the merge commit the round before made, which is HEAD and is amended.
-func mergeLines(merge integratorMerge, branch, base, head string) []string {
-	lines := []string{
+// side, the branch of origin the commit was fetched from, the merge base, and the message the merge commit carries.
+func mergeLines(merge integratorMerge, branch, base string) []string {
+	return []string{
 		"Worktree: " + merge.worktree,
 		fmt.Sprintf("Release tip: %s, the candidate's side: HEAD when the merge began, ours, stage 2", merge.tip),
 		fmt.Sprintf("Origin's commit: %s from origin's %s, origin's side: MERGE_HEAD, theirs, stage 3",
@@ -135,12 +164,6 @@ func mergeLines(merge integratorMerge, branch, base, head string) []string {
 		"Merge base: " + base,
 		"Commit message: " + mergeMessage(merge.tip, merge.origin),
 	}
-	if head != "" {
-		lines = append(lines, fmt.Sprintf(
-			"Committed: an earlier round committed this merge as %s, which is HEAD now. Amend it; its parents stay "+
-				"the release tip and origin's commit.", head))
-	}
-	return lines
 }
 
 // conflictedLines returns each conflicted path of merge as `- <code> <path>`, with the status code git status gives it
@@ -364,9 +387,69 @@ func patchIDs(ctx context.Context, host hostexec.Host, repo, span string) (map[s
 	return ids, nil
 }
 
-// checkLines returns what checks the integrator's commit after it returns done: each Done gate with its argv, or with
-// why it does not resolve, then each capture with its Requirement and its argv.
-func (r *Runner) checkLines(ctx context.Context, epic store.EpicRow) []string {
+// pathChange is one path a side of the merge changed since the merge base, with the status git diff --name-status gives
+// it, such as A, M or D.
+type pathChange struct {
+	status, path string
+}
+
+// nameStatus returns each path that differs between base and tip in repo on host, in git's order, with its status, both
+// sides of a rename included as a delete and an add.
+func nameStatus(ctx context.Context, host hostexec.Host, repo, base, tip string) ([]pathChange, error) {
+	out, err := gitOutput(ctx, host, repo, "diff", "--name-status", "-z", "--no-renames", base, tip)
+	if err != nil {
+		return nil, err
+	}
+	fields := strings.Split(strings.TrimSuffix(out, "\x00"), "\x00")
+	var changes []pathChange
+	for i := 0; i+1 < len(fields); i += 2 {
+		changes = append(changes, pathChange{status: fields[i], path: fields[i+1]})
+	}
+	return changes, nil
+}
+
+// changeLines returns each of changes, a side's changes from base to tip, as `- <status> <path>`. Past
+// integratorChangeLimit paths it gives the first of them and a last line that says how many there are and how to list
+// them all.
+func changeLines(changes []pathChange, base, tip string) []string {
+	shown := changes[:min(len(changes), integratorChangeLimit)]
+	lines := make([]string, 0, len(shown)+1)
+	for _, change := range shown {
+		lines = append(lines, fmt.Sprintf("- %s %s", change.status, change.path))
+	}
+	if len(changes) > len(shown) {
+		lines = append(lines, fmt.Sprintf("These are the first %d of %d changed paths; git diff --name-status %s %s "+
+			"lists them all.", len(shown), len(changes), base, tip))
+	}
+	return lines
+}
+
+// bothLines returns each path that both candidate and origin, the changes of each side since the merge base, changed,
+// as `- <path>`, in the candidate's order. Past integratorChangeLimit paths it gives the first of them and a last line
+// that says how many there are.
+func bothLines(candidate, origin []pathChange) []string {
+	var paths []string
+	for _, change := range candidate {
+		if slices.ContainsFunc(origin, func(theirs pathChange) bool { return theirs.path == change.path }) {
+			paths = append(paths, change.path)
+		}
+	}
+	shown := paths[:min(len(paths), integratorChangeLimit)]
+	lines := make([]string, 0, len(shown)+1)
+	for _, path := range shown {
+		lines = append(lines, "- "+path)
+	}
+	if len(paths) > len(shown) {
+		lines = append(lines, fmt.Sprintf("These are the first %d of %d paths both sides changed.", len(shown),
+			len(paths)))
+	}
+	return lines
+}
+
+// verificationLines returns the epic's own checks, which the release integrator reads as references for the checks the
+// merged tree needs: each Done gate with its argv, or with why it does not resolve, then each Requirement's evidence
+// command with its argv.
+func (r *Runner) verificationLines(ctx context.Context, epic store.EpicRow) []string {
 	gates := make([]string, 0, len(epic.DoneGates))
 	host, hostErr := r.hostOf(epic)
 	for _, name := range epic.DoneGates {
@@ -384,13 +467,13 @@ func (r *Runner) checkLines(ctx context.Context, epic store.EpicRow) []string {
 			gates = append(gates, fmt.Sprintf("- %s: %s", name, jsonList(gate.Argv)))
 		}
 	}
-	var captures []string
+	var commands []string
 	for _, requirement := range epic.Requirements {
 		if len(requirement.Item.Capture) > 0 {
-			captures = append(captures, fmt.Sprintf("- %s: %s", requirement.ID, jsonList(requirement.Item.Capture)))
+			commands = append(commands, fmt.Sprintf("- %s: %s", requirement.ID, jsonList(requirement.Item.Capture)))
 		}
 	}
-	return append(planner.ListLines("Done gates", gates), planner.ListLines("Captures", captures)...)
+	return append(planner.ListLines("Done gates", gates), planner.ListLines("Evidence commands", commands)...)
 }
 
 // jsonList returns items as a JSON array, the form a gate's argv takes in a prompt.
@@ -400,15 +483,6 @@ func jsonList(items []string) string {
 		return strings.Join(items, " ")
 	}
 	return string(encoded)
-}
-
-// previousLines returns the lines of previous, the failure the commit of the round before met, or none for the first
-// round.
-func previousLines(previous string) []string {
-	if previous == "" {
-		return nil
-	}
-	return strings.Split(strings.TrimRight(previous, "\n"), "\n")
 }
 
 // nonEmptyLines returns the lines of text that are not empty.

@@ -229,6 +229,92 @@ func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.In
 	}, false
 }
 
+// mergedChecks walks the epic's Done gates and then the captures of every Requirement that names an evidence item at the
+// revision of checked, the commit a round of the task integrator made, under checked's id: a merge of a task into the
+// candidate can change any of them. Until they settle it returns the action the first one that is not decided asks
+// for. Once they settle, failure is "" when every gate passed and no capture failed. Otherwise it is the reason of the
+// first gate that failed, or of the captures that failed, and previous is what that failure was, with the gate's exit
+// and output tails or each capture's verdict, as the next round of the task integrator reads it. A capture fails as an
+// integrate run's does (captureCauses): it was not captured or not judged, or its Requirement was green at the stored
+// base and its capture does not pass at the commit.
+func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, bool) {
+	gate, act, settled := doneGates(checked, rows)
+	if !settled {
+		return "", "", act, false
+	}
+	if gate != "" {
+		failure := fmt.Sprintf("done gate %s did not pass at %s", gate, checked.Revision)
+		return failure, gateFailure(checked, rows), Action{}, true
+	}
+	captured, act, settled := captures(checked, rows, itemRequirements(rows.Epic.Requirements))
+	if !settled {
+		return "", "", act, false
+	}
+	causes := captureCauses(rows, captured)
+	if len(causes) == 0 {
+		return "", "", Action{}, true
+	}
+	failure := fmt.Sprintf("%s at %s", strings.Join(causes, "; "), checked.Revision)
+	return failure, captureFailures(checked.Revision, rows, captured), Action{}, true
+}
+
+// gateFailure returns what the first Done gate that did not pass at the revision of checked, the commit of a round of
+// the task integrator, was: its name and how it ended, then the tails of its stdout and stderr that are not empty.
+func gateFailure(checked store.NodeRun, rows Rows) string {
+	for i, gate := range rows.Epic.DoneGates {
+		check, _, decided := gateCheck(checked, i, gate, rows.Checks)
+		if !decided || checkPassed(check) {
+			continue
+		}
+		var how string
+		switch {
+		case check.NotRun != "":
+			how = "it did not run: " + check.NotRun
+		case check.TimedOut:
+			how = "it ran past its limit and was killed"
+		default:
+			how = fmt.Sprintf("it exited %d", check.Exit)
+		}
+		lines := []string{fmt.Sprintf("Done gate %s failed on commit %s: %s.", gate, checked.Revision, how)}
+		if tail := strings.TrimSpace(check.Stdout); tail != "" {
+			lines = append(lines, "stdout tail:", tail)
+		}
+		if tail := strings.TrimSpace(check.Stderr); tail != "" {
+			lines = append(lines, "stderr tail:", tail)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return ""
+}
+
+// captureFailures returns one line for each capture at revision, the commit of a round of the task integrator, that
+// captureCauses finds failing: one that was not captured, with why, one that was not judged, and one whose Requirement
+// was green at the stored base and whose capture does not pass, with its exit, its verdict and its judge's reason. A
+// carried capture writes no line.
+func captureFailures(revision string, rows Rows, captured map[string]store.EvidenceRun) string {
+	green := GreenAt(rows, rows.Epic.StoredBase)
+	var lines []string
+	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
+		capture := captured[requirement.ID]
+		if carried(capture, green[requirement.ID]) {
+			continue
+		}
+		switch {
+		case capture.NotCaptured != "":
+			lines = append(lines, fmt.Sprintf("The capture of %s did not run on commit %s: %s.",
+				requirement.ID, revision, capture.NotCaptured))
+		case capture.Verdict == "":
+			lines = append(lines, fmt.Sprintf("The capture of %s on commit %s was not judged.",
+				requirement.ID, revision))
+		case green[requirement.ID] && !capture.Passed:
+			lines = append(lines, fmt.Sprintf(
+				"%s was green at the stored base %s, and its capture on commit %s exited %d and was judged %s: %s",
+				requirement.ID, rows.Epic.StoredBase, revision, capture.Exit, capture.Verdict, capture.JudgeReason))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // taskStepWork is the part of the work of a task integrator round's step: the task's seq and the round.
 func taskStepWork(seq, round int64) string {
 	return fmt.Sprintf("task integrator T%d %d", seq, round)
