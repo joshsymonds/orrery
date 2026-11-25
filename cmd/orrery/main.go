@@ -173,6 +173,7 @@ subcommands:
         [--host-status-cmd PATH] [--metrics-listen ADDR]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
+  gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -284,6 +285,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return helpCommand(ctx, opts.server, args, stdout, getenv)
 	case "serve":
 		return runServe(ctx, opts, args, getenv, stderr)
+	case "gateway":
+		return runGateway(ctx, args, stderr, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
 	case "notices":
