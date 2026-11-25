@@ -335,7 +335,7 @@ func TestGathererPromptHoldsBriefsEarlierCapturesRunnersAndRules(t *testing.T) {
 		"  ended captures at " + head + ":\n    ended-capture: argv " +
 			"[\"/bin/sh\",\"-c\",\"echo earlier\"], runner local, exit 0,",
 		"Brief brief-2:\n  item: R1\n  phase: red\n  commit: " + base + "\n",
-		"  ended captures at " + base + ":\n    none\n",
+		"  ended captures at " + base + ":\n    none\n  earlier judged runs of R1, oldest first:\n    none\n",
 		"local: always available, with no prefix.",
 		"fake: argv prefix [\"/bin/sh\",\"runner.sh\"]; note: Echoes a line, then runs the argv it is given.",
 		"Run one capture per distinct command at a commit, with a --brief for every brief it shows.",

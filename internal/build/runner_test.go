@@ -917,7 +917,8 @@ func TestPassConfirmedFindingSpendsAttemptAndStartsSecondImplementer(t *testing.
 }
 
 // TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees: a green run that is not met at attempt two climbs the
-// task to rung 3, the orchestrator's own attempt, with its reason, adds no trigger, and keeps its worktrees.
+// task to rung 3, the orchestrator's own attempt, with its reason and the judge's, adds no trigger, and keeps its
+// worktrees.
 func TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees(t *testing.T) {
 	t.Parallel()
 	f := newPassFixture(t)
@@ -927,7 +928,7 @@ func TestPassSecondAttemptGreenNotMetClimbsTaskAndKeepsWorktrees(t *testing.T) {
 	before := ladderClimbBefore(f, 2)
 	f.writeRoles("planner = \"claude-planner\"\n")
 	f.pass()
-	const failure = "green not met: exit 0, verdict fails"
+	const failure = "green not met: exit 0, verdict fails: the judge read the log"
 	if task := f.task(); task.Build.Failure != failure {
 		t.Errorf("task failure %q, want %q", task.Build.Failure, failure)
 	}

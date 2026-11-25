@@ -101,9 +101,19 @@ func decideGreen(view View) Action {
 		return noted(view, greenToReview(build, run), note)
 	}
 	if !run.Passed {
-		return spend(view, fmt.Sprintf("green not met: exit %d, verdict %s", run.Exit, run.Verdict))
+		return spend(view, greenNotMet(*run))
 	}
 	return Action{Kind: ActMove, Next: greenToReview(build, run)}
+}
+
+// greenNotMet returns the failure of a green run that was judged not met: `green not met: exit <n>, verdict <v>`, and
+// then `: <reason>` when the judge gave a reason, so the planner reads why the run did not show its conclusion.
+func greenNotMet(run store.EvidenceRun) string {
+	failure := fmt.Sprintf("green not met: exit %d, verdict %s", run.Exit, run.Verdict)
+	if run.JudgeReason == "" {
+		return failure
+	}
+	return failure + ": " + run.JudgeReason
 }
 
 // greenToReview returns build moved to the review gates with run as its green run: at the first gate, with its rerun

@@ -169,6 +169,13 @@ func TestDecideGreen(t *testing.T) {
 			}, Task: store.EpicTask{Seq: 3, Build: secondAttempt}},
 			want: Action{Kind: ActFail, Reason: "green not met: exit 1, verdict fails"},
 		},
+		{
+			name: "not met with a judge reason fails with the reason",
+			view: View{Epic: decideEpic, Run: &store.EvidenceRun{
+				ID: "green-run", Ended: ended, Verdict: "fails", JudgeReason: "the run matched no test",
+			}, Task: store.EpicTask{Seq: 3, Build: firstAttempt}},
+			want: Action{Kind: ActFail, Reason: "green not met: exit 0, verdict fails: the run matched no test"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

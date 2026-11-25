@@ -41,7 +41,11 @@ const gathererIDNamespace = "orrery-evidence-gatherer"
 // gathererIDLen is the number of hex digits of a gatherer's step id, the form StepStart.ID requires.
 const gathererIDLen = 32
 
-// GathererStore is the store a gatherer records its steps in and takes its briefs with. *store.Store satisfies it.
+// gathererHistoryLimit is how many earlier judged runs of a brief's item the brief's block lists: the latest 3.
+const gathererHistoryLimit = 3
+
+// GathererStore is the store a gatherer records its steps in, takes its briefs with, and reads the earlier judged runs
+// of each brief's item and their captures from. *store.Store satisfies it.
 type GathererStore interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	OpenBriefs(ctx context.Context, epic string) ([]store.EvidenceRun, error)
@@ -55,6 +59,8 @@ type GathererStore interface {
 	RunningEvidenceGatherers(ctx context.Context) ([]store.EvidenceGatherer, error)
 	EvidenceGathererOf(ctx context.Context, step string) (store.EvidenceGatherer, bool, error)
 	CapturesAt(ctx context.Context, repository, commit string) ([]store.Capture, error)
+	Capture(ctx context.Context, id string) (store.Capture, error)
+	EvidenceRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	EpicHost(ctx context.Context, epic string) (string, error)
 }
 
@@ -502,14 +508,74 @@ func gathererLeftReason(row store.StepRow) string {
 	return row.End + ": " + row.Reason
 }
 
-// briefText returns the block a gatherer is told of run, with the ended captures at run's commit in the repository of
-// row.
+// briefText returns the block a gatherer is told of run, as block gives it, with the judged runs of the epic of row.
 func (g *Gatherers) briefText(ctx context.Context, row store.EpicRow, run store.EvidenceRun) (string, error) {
+	judged, err := g.judgedRuns(ctx, row.ID)
+	if err != nil {
+		return "", err
+	}
+	return g.block(ctx, row, run, judged)
+}
+
+// block returns the block a gatherer is told of run, as briefBlock gives it: the brief, the ended captures at its
+// commit in the repository of row, and the runs of judged that earlierJudged gives for it.
+func (g *Gatherers) block(
+	ctx context.Context, row store.EpicRow, run store.EvidenceRun, judged []store.EvidenceRun,
+) (string, error) {
 	captures, err := g.endedCapturesAt(ctx, row.Repository, run.Revision)
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(briefBlock(run, captures), "\n"), nil
+	earlier, err := g.earlierJudged(ctx, judged, run)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(briefBlock(run, captures, earlier), "\n"), nil
+}
+
+// judgedRun is an earlier judged run of a brief's item, as the brief's block lists it: the run, and the argv its
+// capture ran. captured is false when the run names no capture, and argv is then its brief's capture argv.
+type judgedRun struct {
+	run      store.EvidenceRun
+	argv     []string
+	captured bool
+}
+
+// judgedRuns returns the runs of epic that a judge gave a verdict, in the order EvidenceRuns gives them: by created,
+// then id.
+func (g *Gatherers) judgedRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error) {
+	runs, err := g.cfg.Store.EvidenceRuns(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("evidence runs of epic %s: %w", epic, err)
+	}
+	return slices.DeleteFunc(runs, func(run store.EvidenceRun) bool { return run.Verdict == "" }), nil
+}
+
+// earlierJudged returns the runs of judged that are of run's item, in any phase, other than run itself: the latest
+// gathererHistoryLimit of them, oldest first, each with the argv of the capture it names, which it reads from the store.
+func (g *Gatherers) earlierJudged(
+	ctx context.Context, judged []store.EvidenceRun, run store.EvidenceRun,
+) ([]judgedRun, error) {
+	var same []store.EvidenceRun
+	for _, prior := range judged {
+		if prior.Item == run.Item && prior.ID != run.ID {
+			same = append(same, prior)
+		}
+	}
+	same = same[max(0, len(same)-gathererHistoryLimit):]
+	earlier := make([]judgedRun, 0, len(same))
+	for _, prior := range same {
+		if prior.Capture == "" {
+			earlier = append(earlier, judgedRun{run: prior, argv: prior.Spec.Capture})
+			continue
+		}
+		capture, err := g.cfg.Store.Capture(ctx, prior.Capture)
+		if err != nil {
+			return nil, fmt.Errorf("capture of evidence run %s: %w", prior.ID, err)
+		}
+		earlier = append(earlier, judgedRun{run: prior, argv: capture.Argv, captured: true})
+	}
+	return earlier, nil
 }
 
 // endedCapturesAt returns the ended captures of repository at commit, in the order CapturesAt gives them.
@@ -521,9 +587,8 @@ func (g *Gatherers) endedCapturesAt(ctx context.Context, repository, commit stri
 	return slices.DeleteFunc(captures, func(capture store.Capture) bool { return capture.Ended.IsZero() }), nil
 }
 
-// prompt returns the prompt of the gatherer of the epic row describes, which holds each brief of open, the ended
-// captures at each brief's commit, and the runners the project names at the epic's base, read on the host the epic
-// lives on.
+// prompt returns the prompt of the gatherer of the epic row describes, which holds the block of each brief of open, as
+// block gives it, and the runners the project names at the epic's base, read on the host the epic lives on.
 func (g *Gatherers) prompt(ctx context.Context, row store.EpicRow, open []store.EvidenceRun) (string, error) {
 	host, err := hostOfEpic(ctx, g.cfg.Store, g.cfg.Hosts, row.ID)
 	if err != nil {
@@ -533,22 +598,28 @@ func (g *Gatherers) prompt(ctx context.Context, row store.EpicRow, open []store.
 	if err != nil {
 		return "", fmt.Errorf("runners of epic %s: %w", row.ID, err)
 	}
+	judged, err := g.judgedRuns(ctx, row.ID)
+	if err != nil {
+		return "", err
+	}
 	blocks := make([]string, 0, len(open))
 	for _, run := range open {
-		var captures []store.Capture
-		captures, err = g.endedCapturesAt(ctx, row.Repository, run.Revision)
+		var text string
+		text, err = g.block(ctx, row, run, judged)
 		if err != nil {
 			return "", err
 		}
-		blocks = append(blocks, strings.Join(briefBlock(run, captures), "\n"))
+		blocks = append(blocks, text)
 	}
 	return gathererPrompt(row.ID, runners, blocks), nil
 }
 
 // briefBlock returns the lines that tell a gatherer of run: its run id, item, phase, commit, capture argv, limit,
 // artifacts and conclusion, then each capture of its commit that has ended, with its id, argv, runner, exit, whether it
-// timed out and its end, or a line that there is none.
-func briefBlock(run store.EvidenceRun, captures []store.Capture) []string {
+// timed out and its end, or a line that there is none, then each run of earlier, with its id, revision, phase, the argv
+// its capture ran (its brief's capture argv when it names no capture), exit, verdict and judge reason, or a line that
+// there is none. A judge reason's later lines are indented under its run's line.
+func briefBlock(run store.EvidenceRun, captures []store.Capture, earlier []judgedRun) []string {
 	lines := []string{
 		"Brief " + run.ID + ":",
 		"  item: " + run.Item,
@@ -570,15 +641,33 @@ func briefBlock(run store.EvidenceRun, captures []store.Capture) []string {
 			capture.Ended.UTC().Format(time.RFC3339),
 		))
 	}
+	lines = append(lines, "  earlier judged runs of "+run.Item+", oldest first:")
+	if len(earlier) == 0 {
+		lines = append(lines, "    none")
+	}
+	for _, prior := range earlier {
+		argv := "argv " + argvText(prior.argv)
+		if !prior.captured {
+			argv = "no capture, brief argv " + argvText(prior.argv)
+		}
+		lines = append(lines, fmt.Sprintf(
+			"    %s at %s, phase %s: %s, exit %d, verdict %s: %s",
+			prior.run.ID, prior.run.Revision, prior.run.Phase, argv, prior.run.Exit, prior.run.Verdict,
+			strings.ReplaceAll(prior.run.JudgeReason, "\n", "\n      "),
+		))
+	}
 	return lines
 }
 
 // gathererPrompt returns the prompt of the gatherer of epic. It says what the gatherer is for, lists the runners a
 // capture can run under, with local first, names the orrery commands that capture and attach evidence, which the
-// gatherer runs from its shell, and says that a capture reaches its briefs when it ends, so the gatherer does not wait for it, since a step has no orrery MCP tools, and states the rules it gathers by. blocks are the
-// briefs, each as briefBlock gives it.
+// gatherer runs from its shell, since a step has no orrery MCP tools, and says that a capture reaches its briefs when it
+// ends, so the gatherer does not wait for it. It states the rules it gathers by, among them that a command an earlier
+// judged run showed to run no test, or not the tests its conclusion names, is changed rather than run again, and that a
+// brief no command can show is left with a note that its item's evidence needs amending. blocks are the briefs, each as
+// briefBlock gives it.
 func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) string {
-	lines := make([]string, 0, 3+2*len(blocks)+len(runners)+12)
+	lines := make([]string, 0, 3+2*len(blocks)+len(runners)+13)
 	lines = append(lines,
 		"You are the evidence gatherer of epic "+epic+". Each brief below asks for evidence that one conclusion holds "+
 			"at one commit, in one phase. Evidence reaches a brief only as a capture: a command orrery runs at a commit, "+
@@ -618,6 +707,12 @@ func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) strin
 		"  Run a heavy command on the runner whose note favors it.",
 		"  An earlier capture at a brief's commit may be attached to that brief when it shows the conclusion; "+
 			"judge that yourself.",
+		"  When an earlier judged run of a brief's item was judged not to show its conclusion because its command "+
+			"ran no test, or not the tests the conclusion names, the same command at a commit with the same tests "+
+			"shows the same. Change the command so it runs what the conclusion names: a capture may run any argv, "+
+			"not only the brief's capture argv. When no command at the brief's commit can show it, leave the brief "+
+			"without a capture, and say in the note that the item's evidence needs amending, naming the item and "+
+			"the judge's reason.",
 		"",
 		"Finish as soon as every brief has a capture started or attached, with status done and a note: what you "+
 			"started or attached, and the reason any brief is left without a capture. A capture that captures "+

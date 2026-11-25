@@ -545,22 +545,28 @@ func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 			causes = append(causes, requirement.ID+" capture failed")
 		}
 		if green[requirement.ID] && capture.Verdict != "" && !capture.Passed {
-			regression := fmt.Sprintf(
-				"%s regressed from green at the stored base %s", requirement.ID, rows.Epic.StoredBase,
-			)
-			if capture.JudgeReason != "" {
-				regression += fmt.Sprintf(": its capture exited %d and was judged %s: %s",
-					capture.Exit, capture.Verdict, capture.JudgeReason)
-			}
-			causes = append(causes, regression)
+			causes = append(causes, fmt.Sprintf(
+				"%s regressed from green at the stored base %s%s",
+				requirement.ID, rows.Epic.StoredBase, judged(capture),
+			))
 		}
 	}
 	return causes
 }
 
+// judged returns what the judge found of capture, for a line that names its Requirement: `: its capture exited <exit>
+// and was judged <verdict>: <reason>` when the capture has a verdict and a judge reason, and "" otherwise.
+func judged(capture store.EvidenceRun) string {
+	if capture.Verdict == "" || capture.JudgeReason == "" {
+		return ""
+	}
+	return fmt.Sprintf(": its capture exited %d and was judged %s: %s",
+		capture.Exit, capture.Verdict, capture.JudgeReason)
+}
+
 // requirementLines returns a line for each Requirement in contract order: green when its capture passed, green with a
 // note when its capture is carried (see carried), green with a note when it was not captured and is green at the stored
-// base, and not yet green otherwise.
+// base, and not yet green otherwise, with what the judge found of its capture when it has one (see judged).
 func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	lines := make([]string, 0, len(rows.Epic.Requirements))
@@ -582,7 +588,7 @@ func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string
 				rows.Epic.StoredBase,
 			))
 		default:
-			lines = append(lines, requirement.ID+" not yet green")
+			lines = append(lines, requirement.ID+" not yet green"+judged(capture))
 		}
 	}
 	return lines
@@ -718,11 +724,12 @@ func amendedGreen(rows Rows, id, revision string) bool {
 }
 
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
-// evidence item, or it is not green at the stored base. Only a Requirement not green at the stored base holds the plan.
-// A missing red at the epic's base, and a reproduction that is missing or that disagrees with its red, hold nothing, so
-// neither is named. A Requirement that a task whose status is taskGap claims is not named at all: that task ended its
-// ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored base or
-// is held by a gap.
+// evidence item, or it is not green at the stored base, with what the judge found of the capture that decided so when
+// there is one (see failedAt and judged). Only a Requirement not green at the stored base holds the plan. A missing red
+// at the epic's base, and a reproduction that is missing or that disagrees with its red, hold nothing, so neither is
+// named. A Requirement that a task whose status is taskGap claims is not named at all: that task ended its ladder as a
+// gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored base or is held by a
+// gap.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
@@ -734,12 +741,37 @@ func Unbuilt(rows Rows) []string {
 			lines = append(lines, requirement.ID+" names no evidence item")
 			continue
 		}
-		lines = append(
-			lines,
-			fmt.Sprintf("%s is not green at the stored base %s", requirement.ID, rows.Epic.StoredBase),
-		)
+		lines = append(lines, fmt.Sprintf(
+			"%s is not green at the stored base %s%s", requirement.ID, rows.Epic.StoredBase,
+			judged(failedAt(rows, requirement.ID, rows.Epic.StoredBase)),
+		))
 	}
 	return lines
+}
+
+// failedAt returns the judged capture of Requirement id at revision that did not pass: the green run of its evidence
+// amendment when that ran at revision, and otherwise the last, in run order, of its captures in the integrate and legacy
+// sync runs that ended passed at revision. It returns the zero run when there is none.
+func failedAt(rows Rows, id, revision string) store.EvidenceRun {
+	failed := func(capture store.EvidenceRun) bool { return capture.Verdict != "" && !capture.Passed }
+	if amended, ok := amendment(rows, id); ok && amended.GreenRun != "" && amended.StoredBase == revision {
+		green, found := evidenceByID(rows.Evidence, amended.GreenRun)
+		if found && green.Revision == revision && failed(green) {
+			return green
+		}
+		return store.EvidenceRun{}
+	}
+	var last store.EvidenceRun
+	for _, run := range rows.Runs {
+		if !integrated(run) || run.Outcome != outcomePassed || run.Revision != revision {
+			continue
+		}
+		capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(id), true)
+		if outcome != chainNone && failed(capture) {
+			last = capture
+		}
+	}
+	return last
 }
 
 // Disagreement returns the line that names test-item Requirement id when its judged red disagrees with its reproduction
