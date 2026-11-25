@@ -190,7 +190,6 @@ func (e epicsServer) Get(
 		resp.SupersededBy = stored.GetSupersededBy()
 	} else {
 		resp.Epic = epicMessage(rec, tasks, taskProblems, counts, e.now())
-		resp.Requirements = recordRequirementMessages(recordMarkTasks(tasks), resp.GetSteps())
 	}
 	resp.Newest = historyNewest(epicHistoryEntries(stored, resp.GetSteps(), runs))
 	resp.Centre = epicCentre(resp, stored)

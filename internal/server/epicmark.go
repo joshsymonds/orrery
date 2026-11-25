@@ -66,16 +66,6 @@ func orreryMarkTasks(tasks []*enginev1.EpicTask) []markTask {
 	return out
 }
 
-// recordMarkTasks returns each task of a record epic as a markTask, in order. A record task's steps carry its slug, and
-// it has no stage.
-func recordMarkTasks(tasks []taskRecord) []markTask {
-	out := make([]markTask, 0, len(tasks))
-	for _, task := range tasks {
-		out = append(out, markTask{label: task.Slug, status: task.Status, requirements: task.Requirements})
-	}
-	return out
-}
-
 // started reports whether the task has started: its build has a stage, its status is one a started task holds, or one
 // of its labeled steps exists.
 func (t markTask) started(steps []*orreryv1.EpicStep) bool {
@@ -97,16 +87,6 @@ func (t markTask) heldIn(steps []*orreryv1.EpicStep) bool {
 // failed reports whether the task's build failed.
 func (t markTask) failed() bool {
 	return t.status == taskStatusFailed
-}
-
-// integrated reports whether the task reads as integrated: its status is done or integrated, compared without case, as
-// the client reads a task's status.
-func (t markTask) integrated() bool {
-	switch strings.ToLower(t.status) {
-	case taskStatusDone, taskStatusIntegrated:
-		return true
-	}
-	return false
 }
 
 // taskStatusStarted reports whether a status is one a started task holds, compared without case. A task whose status is
@@ -162,8 +142,7 @@ func runningRun(id string, runs []*enginev1.EvidenceRun) bool {
 // requirementState returns the state of the Requirement id, the first state that holds: proven when proven is set,
 // failed when its latest green run failed or a task naming it failed, held when a task naming it has a held running
 // step, in_flight when a task naming it has started or a run of it is running, and not_reached otherwise. The caller
-// decides proven: a passed green run for an orreryd epic, and every task naming the Requirement integrated for a
-// record epic.
+// decides proven: a passed green run of the Requirement.
 func requirementState(
 	id string,
 	proven bool,
@@ -201,30 +180,6 @@ func orreryRequirements(
 	return requirements
 }
 
-// recordRequirementMessages returns one EpicRequirement per id the record tasks name, in first-named order, carrying
-// its id and state only. A record epic has no evidence runs, and its Requirement is proven when every task naming it is
-// integrated.
-func recordRequirementMessages(tasks []markTask, steps []*orreryv1.EpicStep) []*orreryv1.EpicRequirement {
-	var out []*orreryv1.EpicRequirement
-	for _, task := range tasks {
-		for _, id := range task.requirements {
-			if slices.ContainsFunc(out, func(requirement *orreryv1.EpicRequirement) bool {
-				return requirement.GetId() == id
-			}) {
-				continue
-			}
-			out = append(out, &orreryv1.EpicRequirement{Id: id})
-		}
-	}
-	for _, requirement := range out {
-		id := requirement.GetId()
-		naming := tasksNaming(id, tasks)
-		proven := !slices.ContainsFunc(naming, func(task markTask) bool { return !task.integrated() })
-		requirement.State = requirementState(id, proven, tasks, steps, nil)
-	}
-	return out
-}
-
 // asksOwner reports whether something asks the owner: an open question, a failed release step, a park the owner
 // holds, a held running step, or an orreryd epic that ended with gaps, which asks the owner to release it anyway or
 // close it.
@@ -242,12 +197,9 @@ func asksOwner(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) boo
 		endedWithGaps
 }
 
-// endedPhase reports whether phase is one an epic ends in, closed phases included. A record epic has ended once its
-// outcome is set. The list is the store's own, which it keeps unexported, so it is repeated here.
-func endedPhase(phase string, record bool) bool {
-	if record {
-		return phase != ""
-	}
+// endedPhase reports whether phase is one an epic ends in, closed phases included. The list is the store's own, which it
+// keeps unexported, so it is repeated here.
+func endedPhase(phase string) bool {
 	switch phase {
 	case epicPhaseMetAtBase, "clean", phaseEndedWithGaps, epicPhaseReleased, epicPhaseDone, "stopped":
 		return true
@@ -255,13 +207,11 @@ func endedPhase(phase string, record bool) bool {
 	return store.IsClosedPhase(phase)
 }
 
-// epicCentre returns the center of an epic from its answer and its stored epic, which is nil for a record epic. The
-// first that holds decides it: asks when asksOwner holds, paused when the epic is paused, releasing when its phase is
-// releasing, shipped when it is released (a record's outcome that starts with released, as epicLive reads it),
-// ended_short for any other ended phase, and running otherwise.
+// epicCentre returns the center of an epic from its answer and its stored epic. The first that holds decides it: asks
+// when asksOwner holds, paused when the epic is paused, releasing when its phase is releasing, shipped when it is
+// released (an outcome that starts with released), ended_short for any other ended phase, and running otherwise.
 func epicCentre(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) string {
 	phase := resp.GetEpic().GetOutcome()
-	record := resp.GetEpic().GetSource() == epicSourceRecord
 	switch {
 	case asksOwner(resp, stored):
 		return centerAsks
@@ -271,7 +221,7 @@ func epicCentre(resp *orreryv1.EpicsGetResponse, stored *enginev1.StoredEpic) st
 		return centerReleasing
 	case leadingLetters(phase) == epicPhaseReleased:
 		return centerShipped
-	case endedPhase(phase, record):
+	case endedPhase(phase):
 		return centerEndedShort
 	}
 	return centerRunning

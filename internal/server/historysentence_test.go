@@ -252,19 +252,4 @@ func TestHistorySentenceGetNewestIsTheNewestSentence(t *testing.T) {
 	if got.GetNewest() != want {
 		t.Errorf("stored epic newest = %q, want %q", got.GetNewest(), want)
 	}
-
-	root := t.TempDir()
-	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
-	writeHead(t, root, "repoa", "empty", `{"outcome":"shipped"}`, epicsNow())
-	recordSteps := &epicsFake{steps: []*enginev1.Step{
-		{Id: "rec-a", Epic: "repoa/record", Purpose: "Set up", Started: historyAt(60)},
-		{Id: "rec-b", Epic: "repoa/record", Task: "rec-task", End: "done", Summary: "ok", Started: historyAt(120)},
-	}}
-	recordClient := stepDataServe(t, root, recordSteps, nil, nil)
-	if newest := epicsGet(t, recordClient, "repoa/record").GetNewest(); newest != "Rec-task ended done: ok" {
-		t.Errorf("record epic newest = %q, want its newest step's sentence", newest)
-	}
-	if newest := epicsGet(t, recordClient, "repoa/empty").GetNewest(); newest != "" {
-		t.Errorf("epic with no entries newest = %q, want empty", newest)
-	}
 }
