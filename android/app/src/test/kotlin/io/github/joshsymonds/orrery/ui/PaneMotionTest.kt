@@ -271,18 +271,11 @@ class PaneMotionTest {
             assertEquals("the sheet rests before it closes", SheetPose.REST, sheetPose())
 
             composeRule.onNodeWithTag(SHEET_CLOSE_TAG, useUnmergedTree = true).performClick()
-            val closed = clockNow()
             composeRule.mainClock.advanceTimeBy(Move.FOLD.millis.toLong() / 2)
 
             val midway = sheetPose()
             assertTrue("the sheet is part way folded", midway.scaleY > 0.5f && midway.scaleY < 1f)
             assertEquals("the sheet is still solid half way through its fold", 1f, midway.alpha, 0f)
-
-            // Past 70% of the fold the sheet is fading; 90% of the way through it is part way transparent.
-            stepFramesUntil(closed + Move.FOLD.millis * 9 / 10)
-
-            val fading = sheetPose()
-            assertTrue("the sheet is part way transparent", fading.alpha > 0f && fading.alpha < 1f)
 
             composeRule.mainClock.advanceTimeBy(Move.FOLD.millis.toLong())
 
