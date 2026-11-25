@@ -11,7 +11,8 @@ import (
 // EpicTotalsQuery totals the finalized requests of the Claude sessions its n ? marks name, for each Claude session,
 // resolved model and agent type, in Claude session, model then agent type order. It selects the columns of
 // SessionTotalsQuery with claude_session first. It reads only requests, and it finds the rows through the
-// requests_claude_session index. A SUM skips a NULL cost, and a cost sum with no known cost is 0.
+// requests_claude_session index. A SUM skips a NULL cost, and a cost sum with no known cost is 0. Each per-kind list
+// cost is the sum of its column when every finalized request of the total has it, and NULL when any lacks it.
 func EpicTotalsQuery(n int) string {
 	var marks strings.Builder
 	for i := range n {
@@ -22,7 +23,11 @@ func EpicTotalsQuery(n int) string {
 	}
 	return fmt.Sprintf(`SELECT claude_session, resolved_model, agent_type, COUNT(*),
 	SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens),
-	COALESCE(SUM(billed_cost_nano_usd), 0), COALESCE(SUM(list_cost_nano_usd), 0)
+	COALESCE(SUM(billed_cost_nano_usd), 0), COALESCE(SUM(list_cost_nano_usd), 0),
+	CASE WHEN COUNT(list_input_nano_usd) = COUNT(*) THEN SUM(list_input_nano_usd) END,
+	CASE WHEN COUNT(list_output_nano_usd) = COUNT(*) THEN SUM(list_output_nano_usd) END,
+	CASE WHEN COUNT(list_cache_read_nano_usd) = COUNT(*) THEN SUM(list_cache_read_nano_usd) END,
+	CASE WHEN COUNT(list_cache_write_nano_usd) = COUNT(*) THEN SUM(list_cache_write_nano_usd) END
 	FROM requests
 	WHERE claude_session IN (%s) AND completed_at IS NOT NULL
 	GROUP BY claude_session, resolved_model, agent_type
@@ -89,6 +94,7 @@ func scanEpicTotals(rows *sql.Rows) (map[string][]SessionTotal, error) {
 		if err := rows.Scan(
 			&claudeSession, &total.Model, &total.AgentType, &total.Requests, &total.InputTokens, &total.OutputTokens,
 			&total.CacheReadTokens, &total.CacheWriteTokens, &total.BilledCostNanoUSD, &total.ListCostNanoUSD,
+			&total.ListInputNanoUSD, &total.ListOutputNanoUSD, &total.ListCacheReadNanoUSD, &total.ListCacheWriteNanoUSD,
 		); err != nil {
 			return nil, fmt.Errorf("scan epic total: %w", err)
 		}

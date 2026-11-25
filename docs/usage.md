@@ -49,6 +49,21 @@ One request is one row in `requests`. [`Start`](../internal/ledger/write.go) ins
 
 **One transaction.** `Finish` writes the request's completion fields, its `request_claims` rows, and the changes to `limit_claim_models` and `limit_readings` that section 3 gives, in one transaction. A request and what it implies for the readings are never seen apart.
 
+### 2.1 Per-kind list costs
+
+Migration [`00002_kind_costs.sql`](../internal/ledger/migrations/00002_kind_costs.sql) adds four nullable columns to `requests`. Each holds one token kind's cost at list price, in nano US dollars:
+
+- `list_input_nano_usd`: the input tokens.
+- `list_output_nano_usd`: the output tokens.
+- `list_cache_read_nano_usd`: the tokens read from the prompt cache.
+- `list_cache_write_nano_usd`: the tokens written to the prompt cache. A write at the 5-minute price and a write at the 1-hour price both count here.
+
+The migration specifies that the four sum to `list_cost_nano_usd`, and that each is NULL where the request has no list cost. `Finish` takes no per-kind cost, so it leaves the four columns NULL. A NULL kind is a cost the ledger does not know.
+
+**The unknown rule for totals.** A session total (section 5) and an epic total each carry the four kinds. For each kind, the total's value is the sum of that kind's column over the total's finalized requests, when every one of them has a non-NULL value for the kind. When any finalized request of the total is NULL for the kind, the total's value for that kind is NULL: the total is unknown for that kind, and no partial sum is given. An in-flight request is not counted, so it does not make its total unknown.
+
+This rule differs from the billed and list cost sums, which skip NULL rows and read 0 when no cost is known. A per-kind sum never skips a row.
+
 ## 3. Limit readings
 
 A limit reading is the latest state of one usage limit claim for one account. `limit_readings` has one row for each `(account, claim)`, and [`ledger.Reading`](../internal/ledger/read_readings.go) returns it with these fields:
@@ -102,9 +117,9 @@ Orrery sessions are the only sessions that the ledger joins. Each pane, headless
 - **Empty ids join nothing.** A `sessions` row whose `claude_session` is empty joins no request. A session view must skip that row.
 - **No SQL across files.** A session view reads the `sessions` row from `orrery.db`. It then calls [`SessionTotals`](../internal/ledger/read_session.go) on `ledger.db` with that `claude_session`. The join is the equality of the two strings.
 
-`SessionTotals` returns one [`SessionTotal`](../internal/ledger/read_session.go) for each `(resolved_model, agent_type)` of the session's requests. A total holds the number of requests, the four token sums, and the billed and list cost sums. The cost sums skip rows whose cost is NULL. An in-flight request counts as a request with model `''` and zero tokens.
+`SessionTotals` returns one [`SessionTotal`](../internal/ledger/read_session.go) for each `(resolved_model, agent_type)` of the session's requests. A total holds the number of requests, the four token sums, and the billed and list cost sums. The cost sums skip rows whose cost is NULL. It also holds the four per-kind list costs of section 2.1, each NULL when the total is unknown for that kind. An in-flight request counts as a request with model `''` and zero tokens.
 
-**Epic totals.** `EpicTotals` answers the same totals for many sessions in one read. Its input is a list of Claude sessions, and its result is a map keyed by Claude session, holding for each one the totals `SessionTotals` gives. A Claude session with no finalized request has no entry. Empty ids are skipped and a duplicate id is read once. An empty list, or an absent ledger, reads nothing and returns nil. The read is one query, [`EpicTotalsQuery`](../internal/ledger/read_epic.go), with one `?` for each id in its `IN` list. It finds the rows through the same `requests_claude_session` index as `SessionTotals`. Its rows are grouped by Claude session, resolved model and agent type.
+**Epic totals.** `EpicTotals` answers the same totals for many sessions in one read. Its input is a list of Claude sessions, and its result is a map keyed by Claude session, holding for each one the totals `SessionTotals` gives. A Claude session with no finalized request has no entry. Empty ids are skipped and a duplicate id is read once. An empty list, or an absent ledger, reads nothing and returns nil. The read is one query, [`EpicTotalsQuery`](../internal/ledger/read_epic.go), with one `?` for each id in its `IN` list. It finds the rows through the same `requests_claude_session` index as `SessionTotals`. Its rows are grouped by Claude session, resolved model and agent type. Each total carries the per-kind list costs of section 2.1, under the same unknown rule.
 
 The Usage API's `EpicTotals` answers an epic's sessions with it. [`EpicUsageSessions`](../internal/store/epicusage.go) in `orrery.db` lists the epic's sessions: its step sessions, and its steerer marked shared. A record epic has no steerer row, so its shared sessions are the distinct callers of its steps. Each listed session's Claude session then gets one `EpicTotals` read. Each session with at least one total is answered once, ordered by session id, with its `Shared` flag. A session with no Claude session, and a session no request names, is left out. The listing never reads `epic_sessions`, so a session linked to the epic only by an `epic_sessions` row, such as one whose only link is an `epic_get` read, is left out too.
 
