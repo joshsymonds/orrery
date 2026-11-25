@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                         onOpenSettings = { screen = Screen.Settings },
                                         onOpenPools = { screen = Screen.Pools },
                                         onOpenNotices = { screen = Screen.Notices },
+                                        onOpenAccounts = { screen = Screen.Accounts },
                                         state = paneListState,
                                     )
                                     is Screen.Project -> {

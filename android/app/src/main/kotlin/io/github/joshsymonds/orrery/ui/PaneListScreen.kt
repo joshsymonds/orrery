@@ -98,7 +98,9 @@ internal class TreeData(
  * at the foot, whose Undo reads the tree again. New opens the picker as a bottom sheet; a
  * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
  * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
- * read on start and every minute while started, and opens the notices through [onOpenNotices].
+ * read on start and every minute while started, and opens the notices through [onOpenNotices]. Under the head, the usage
+ * band shows the accounts the usage reads hold, when they hold one; a tap on it opens the accounts sheet, whose Accounts
+ * and routes calls [onOpenAccounts].
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -114,6 +116,7 @@ fun PaneListScreen(
     modifier: Modifier = Modifier,
     onOpenPools: () -> Unit = {},
     onOpenNotices: () -> Unit = {},
+    onOpenAccounts: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     onOpenProject: (String) -> Unit = {},
     onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
@@ -121,6 +124,8 @@ fun PaneListScreen(
     state: PaneListState = rememberPaneListState(),
 ) {
     val notices = rememberNoticeRows(client)
+    val usage = rememberUsageReads(client)
+    var usageOpen by remember { mutableStateOf(false) }
     var data by remember(client) { mutableStateOf<TreeData?>(null) }
     var failed by remember(client) { mutableStateOf(false) }
     var generation by remember(client) { mutableIntStateOf(0) }
@@ -143,6 +148,11 @@ fun PaneListScreen(
 
     BackHandler(enabled = state.search != null) { state.search = null }
 
+    // The usage band's rows, drawn when the reads hold an account. A failed read keeps what it held, so it never hides the inbox.
+    val at = now()
+    val accounts = usage.accounts?.takeIf { it.accounts.isNotEmpty() }
+    val bandRows = accounts?.let { usageRows(it.accounts, it.routes, usage.readings.orEmpty(), at) }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             InboxHead(
@@ -153,6 +163,14 @@ fun PaneListScreen(
                 onSettings = onOpenSettings,
                 onNew = { picking = true },
             )
+            if (accounts != null && bandRows != null) {
+                UsageBand(
+                    rows = bandRows,
+                    spend = usage.spend?.let { spendTotals(it, accounts.routes) },
+                    now = at,
+                    onOpen = { usageOpen = true },
+                )
+            }
             state.search?.let { words ->
                 SearchField(
                     words = words,
@@ -207,6 +225,17 @@ fun PaneListScreen(
                     onLongPress = { sheet = it },
                 )
             }
+        }
+        if (usageOpen && bandRows != null) {
+            UsageSheet(
+                rows = bandRows,
+                now = at,
+                onClose = { usageOpen = false },
+                onOpenAccounts = {
+                    usageOpen = false
+                    onOpenAccounts()
+                },
+            )
         }
         ArchiveToast(
             state = toast,
