@@ -258,8 +258,7 @@ export ORRERY_GATE_HOST_FILE="$root/gate-host"
 # turn a slow reconnect into a give-up.
 export ORRERY_GATE_COLLECT_SECS=2
 recover_secs=30
-# A gate run that fell back here exports its Android lock, so a check run under one would hand the tests that path.
-unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE ORRERY_ANDROID_LOCK
+unset ORRERY_GATE_DEST ORRERY_GATE_PROBE ORRERY_GATE_USER ORRERY_GATE_REMOTE
 
 work="$root/work"
 mkdir -p "$work/scripts"
@@ -517,8 +516,6 @@ expect_line "$root/err" '^gate-remote: running bash .* here \(no orrery-gate box
 expect_line "$root/err" '^gate-remote: bash .*exited 4 after [0-9]+s here$' "fallback reports its exit and time"
 expect_line "$root/out" '^here-ran$' "fallback runs the command"
 expect "fallback goes through ORRERY_GATE_LOCAL" test -e "$root/ran-here"
-gate "$root/out" "$root/err" sh -c 'echo "$ORRERY_ANDROID_LOCK"'
-expect_line "$root/out" "^$root/run/orrery-android-build.lock\$" "fallback has its Android builds take turns on this machine's lock"
 
 # The wake ends with a box that does not answer either: the command runs here.
 echo "orrery@fake-box" >"$root/wake-brings"

@@ -186,8 +186,16 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	for _, entry := range entries {
 		names = append(names, entry.Name())
 	}
-	if want := []string{"caches", "gradle.properties", "wrapper"}; !slices.Equal(names, want) {
+	if want := []string{"caches", "gradle.properties", "init.d", "wrapper"}; !slices.Equal(names, want) {
 		t.Fatalf("gradle home holds %q, want %q", names, want)
+	}
+	script, err := os.ReadFile(filepath.Join(home, "init.d", "orrery-build-lock.gradle"))
+	if err != nil {
+		t.Fatalf("read the build lock script: %v", err)
+	}
+	if !strings.Contains(string(script), "new File(gradle.gradleUserHomeDir, 'orrery-build.lock')") ||
+		!strings.Contains(string(script), "channel.lock()") {
+		t.Fatalf("init.d/orrery-build-lock.gradle = %q, want a script that holds the home's orrery-build.lock", script)
 	}
 	for _, name := range []string{"caches", "wrapper"} {
 		target, linkErr := os.Readlink(filepath.Join(home, name))
