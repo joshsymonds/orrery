@@ -51,6 +51,18 @@ func carryTestPrompt(t *testing.T, run store.EvidenceRun, runs []store.EvidenceR
 	return starts[0].Prompt
 }
 
+// carryTestBare returns the prompt a judge of run has when nothing is carried to it: judgePrompt's, then a blank line and
+// the test facts judgeFactsLines gives for run through an Evidence over the blobs carryTestPrompt reads.
+func carryTestBare(t *testing.T, run store.EvidenceRun) string {
+	t.Helper()
+	prompt, err := judgePrompt(run, evidenceBlobs{dir: judgeTestBlobDir})
+	if err != nil {
+		t.Fatalf("judgePrompt: %v", err)
+	}
+	ev := &Evidence{blobs: evidenceBlobs{dir: judgeTestBlobDir}}
+	return prompt + "\n\n" + strings.Join(ev.judgeFactsLines(run), "\n")
+}
+
 // TestJudgeCarryPromptEarlierRuns judges a green Requirement run at a third revision, after an earlier holds run and an
 // earlier fails run at other revisions, each with a reason. The prompt shows each earlier run's revision, verdict and
 // reason, the latest holds run's logs, and both the latest earlier revision and the judged revision.
@@ -96,24 +108,20 @@ func TestJudgeCarryPromptEarlierRuns(t *testing.T) {
 }
 
 // TestJudgeCarryPromptFirstRun judges a green Requirement run that has no earlier judged run of its item: an earlier run
-// with no verdict is not judged, so the prompt is judgePrompt's alone.
+// with no verdict is not judged, so the prompt is judgePrompt's with its facts alone.
 func TestJudgeCarryPromptFirstRun(t *testing.T) {
 	t.Parallel()
 	unjudged := carryTestRun("run-1", "rev-1")
 	judged := carryTestRun("run-2", "rev-2")
 
 	prompt := carryTestPrompt(t, judged, []store.EvidenceRun{unjudged, judged})
-	want, err := judgePrompt(judged, evidenceBlobs{dir: judgeTestBlobDir})
-	if err != nil {
-		t.Fatalf("judgePrompt: %v", err)
-	}
-	if prompt != want {
-		t.Errorf("prompt = %q, want judgePrompt's %q", prompt, want)
+	if want := carryTestBare(t, judged); prompt != want {
+		t.Errorf("prompt = %q, want judgePrompt's with its facts alone, %q", prompt, want)
 	}
 }
 
 // TestJudgeCarryPromptOtherItemIgnored judges a green Requirement run whose earlier runs are of another item, and of its
-// own item with another spec. Neither is listed, so the prompt is judgePrompt's alone.
+// own item with another spec. Neither is listed, so the prompt is judgePrompt's with its facts alone.
 func TestJudgeCarryPromptOtherItemIgnored(t *testing.T) {
 	t.Parallel()
 	otherItem := carryTestRun("run-1", "rev-1")
@@ -125,11 +133,7 @@ func TestJudgeCarryPromptOtherItemIgnored(t *testing.T) {
 	judged := carryTestRun("run-3", "rev-3")
 
 	prompt := carryTestPrompt(t, judged, []store.EvidenceRun{otherItem, otherSpec, judged})
-	want, err := judgePrompt(judged, evidenceBlobs{dir: judgeTestBlobDir})
-	if err != nil {
-		t.Fatalf("judgePrompt: %v", err)
-	}
-	if prompt != want {
-		t.Errorf("prompt = %q, want judgePrompt's %q", prompt, want)
+	if want := carryTestBare(t, judged); prompt != want {
+		t.Errorf("prompt = %q, want judgePrompt's with its facts alone, %q", prompt, want)
 	}
 }

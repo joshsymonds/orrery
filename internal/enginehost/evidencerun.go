@@ -284,9 +284,8 @@ func (e *Evidence) StderrLog(ctx context.Context, run string) ([]byte, string, e
 }
 
 // readLog returns the log of run stored under hash, redacted, and the sha256 of the bytes returned. Every read redacts,
-// so a log stored before redaction is redacted when shown. A log at least as long as the capture tail filled its
-// capture's tail, so it was cut at its start, and its first line is dropped with redact.CutTail. A run with no log
-// under hash returns an error matching ErrNoEvidenceArtifact.
+// so a log stored before redaction is redacted when shown, and a log cut at its start has its first line dropped (see
+// logText). A run with no log under hash returns an error matching ErrNoEvidenceArtifact.
 func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, error) {
 	if hash == "" {
 		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
@@ -295,15 +294,24 @@ func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, 
 	if err != nil {
 		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, err)
 	}
-	var redacted string
-	if len(raw) >= e.captures.tail() {
-		redacted = redact.CutTail(string(raw))
-	} else {
-		redacted = redact.Text(string(raw))
-	}
-	data := []byte(redacted)
+	data := []byte(e.logText(raw))
 	sum := sha256.Sum256(data)
 	return data, hex.EncodeToString(sum[:]), nil
+}
+
+// logText returns raw, the bytes of a kept log, as a read shows them: redacted, with the first line dropped by
+// redact.CutTail when the log was cut at its start (see logCut).
+func (e *Evidence) logText(raw []byte) string {
+	if e.logCut(raw) {
+		return redact.CutTail(string(raw))
+	}
+	return redact.Text(string(raw))
+}
+
+// logCut reports whether raw, the bytes of a kept log, was cut at its start: a log at least as long as the capture tail
+// filled its capture's tail.
+func (e *Evidence) logCut(raw []byte) bool {
+	return len(raw) >= e.captures.tail()
 }
 
 // Close cancels every drive and waits for each to return. A supplied run whose read has ended is recorded even so, but a
@@ -576,18 +584,23 @@ func (e *Evidence) judgeOnce(
 	return true, verdict, reason, nil
 }
 
-// startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
-// the reason the step did not start: its prompt could not be built, its capture or task could not be read, or Start refused
-// it. A run of a task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives for the
-// task, then a blank line. A run with a capture reads the capture, and its prompt has the lines judgeCaptureLines gives after
-// judgePrompt's, after a blank line. A green run that is not a task's reads its epic's runs, and its prompt ends with the lines
-// judgeCarryLines gives, after a blank line. A red run that is not a task's, with no capture, reads nothing, and its prompt is
-// judgePrompt's alone. Start returns the id of a step whose StartStep failed after its row was written, with that row ended
-// failed, so such a judge returns its id and its end gives the reason; the start's error is that end's reason.
+// startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id,
+// or the reason the step did not start: its prompt could not be built, its capture or task could not be read, or Start
+// refused it. A run of a task (T<seq>) reads the task from its epic, and its prompt opens with the lines judgeSpecLines gives
+// for the task, then a blank line. A run with a log or a kept XML artifact has the test facts judgeFactsLines reads from them
+// after judgePrompt's lines, after a blank line. A run with a capture reads the capture, and its prompt has the lines
+// judgeCaptureLines gives after those, after a blank line. A green run that is not a task's reads its epic's runs, and its
+// prompt ends with the lines judgeCarryLines gives, after a blank line. A red run that is not a task's, with no capture,
+// reads no row, and its prompt is judgePrompt's with its facts. Start returns the id of a step whose StartStep failed after
+// its row was written, with that row ended failed, so such a judge returns its id and its end gives the reason; the start's
+// error is that end's reason.
 func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
 	prompt, err := judgePrompt(run, e.blobs)
 	if err != nil {
 		return "", err.Error()
+	}
+	if facts := e.judgeFactsLines(run); len(facts) > 0 {
+		prompt += "\n\n" + strings.Join(facts, "\n")
 	}
 	captureLines, err := e.judgeCapture(ctx, run)
 	if err != nil {
