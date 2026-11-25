@@ -172,7 +172,10 @@ func TestGradleEnvironMakesADaemonlessHomeSharingTheUsersCaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gradle.properties: %v", err)
 	}
-	if string(props) != "org.gradle.daemon=false\nkotlin.compiler.execution.strategy=in-process\n" {
+	const wantProps = "org.gradle.daemon=false\n" +
+		"kotlin.compiler.execution.strategy=in-process\n" +
+		"org.gradle.workers.max=8\n"
+	if string(props) != wantProps {
 		t.Fatalf("gradle.properties = %q", props)
 	}
 	entries, err := os.ReadDir(home)

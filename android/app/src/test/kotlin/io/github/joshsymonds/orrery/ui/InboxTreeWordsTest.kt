@@ -143,8 +143,7 @@ class InboxTreeWordsTest {
         orreryId = "conv-1",
     )
 
-    private fun convo(pane: Pane? = null, standIn: StandIn = StandIn.NONE) =
-        Convo(key = "k", pane = pane, standIn = standIn, again = false, hung = emptyList())
+    private fun convo(pane: Pane? = null) = Convo(key = "k", pane = pane, hung = emptyList(), folded = emptyList())
 
     private fun epicWords(node: EpicNode): EpicRowWords = epicRowWords(node, now)
 
@@ -398,12 +397,7 @@ class InboxTreeWordsTest {
     }
 
     @Test
-    fun aStandInWhoseConversationIsNotListedSaysSo() {
-        assertEquals("its conversation is not listed", convoLineOf(convo(standIn = StandIn.UNLISTED), now))
-    }
-
-    @Test
-    fun aStandInWhoseConversationIsArchivedSaysSo() {
-        assertEquals("its conversation is archived", convoLineOf(convo(standIn = StandIn.ARCHIVED), now))
+    fun aRowWithNoPaneHasNoConversationLineOfItsOwn() {
+        assertEquals("", convoLineOf(convo(), now))
     }
 }

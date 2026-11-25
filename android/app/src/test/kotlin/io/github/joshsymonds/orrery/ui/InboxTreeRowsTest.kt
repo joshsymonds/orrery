@@ -1,5 +1,10 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -69,16 +74,19 @@ class InboxTreeRowsTest {
         orreryId = "conv-1",
     )
 
-    private fun convo(pane: Pane? = paneOf(), standIn: StandIn = StandIn.NONE, hung: List<Hung> = emptyList()) =
-        Convo(key = CONVO_KEY, pane = pane, standIn = standIn, again = false, hung = hung)
+    private fun convo(
+        pane: Pane? = paneOf(),
+        hung: List<Hung> = emptyList(),
+        folded: List<EpicNode> = emptyList(),
+    ) = Convo(key = CONVO_KEY, pane = pane, hung = hung, folded = folded)
 
-    private fun epic(steps: List<StepRow> = emptyList()) = EpicRow(
-        id = EPIC_ID,
+    private fun epic(steps: List<StepRow> = emptyList(), live: Boolean = true, id: String = EPIC_ID) = EpicRow(
+        id = id,
         repository = "/home/user/lighthouse",
         slug = "rota-export",
         outcome = "accepted",
         changed = 0L,
-        live = true,
+        live = live,
         runningSteps = steps,
         endedSteps = 0,
         phaseAt = NOW - 49 * 60,
@@ -128,9 +136,19 @@ class InboxTreeRowsTest {
         pressed: MutableList<SheetRow> = mutableListOf(),
     ) {
         composeRule.setContent {
-            ConvoRowItem(convo = convo, now = NOW, onOpen = { opened.add(it) }, onLongPress = { pressed.add(it) })
+            ConvoRowItem(
+                convo = convo,
+                now = NOW,
+                foldOpen = false,
+                onFold = {},
+                onOpen = { opened.add(it) },
+                onLongPress = { pressed.add(it) },
+            )
         }
     }
+
+    /** An ended epic, which folds under its conversation's row. */
+    private fun endedNode(id: String = EPIC_ID) = EpicNode(epic(live = false, id = id), detail = null, contract = null)
 
     private fun assertTagShown(tag: String) = composeRule.onAllNodesWithTag(tag, useUnmergedTree = true).assertCountEquals(1)
 
@@ -172,10 +190,11 @@ class InboxTreeRowsTest {
     }
 
     @Test
-    fun aStandInDrawsItsWordsInPlaceOfARow() {
-        setRow(convo(pane = null, standIn = StandIn.UNLISTED))
+    fun aRowWithNoPaneDrawsItsOneThingAloneWithNoConversationLine() {
+        setRow(convo(pane = null, hung = listOf(contractNode())))
 
-        assertTextShown("its conversation is not listed")
+        assertTagShown("hung:contract:$CONTRACT_ID")
+        assertTextShown("tide-alerts")
         assertTagAbsent("convo:$CONVO_KEY")
     }
 
@@ -251,6 +270,44 @@ class InboxTreeRowsTest {
 
         assertEquals(listOf(SheetRow.Conversation(pane)), pressed)
         assertEquals(emptyList<String>(), opened)
+    }
+
+    @Test
+    fun endedEpicsFoldUnderTheirRowAsAShutButtonWithTheirCount() {
+        setRow(convo(folded = listOf(endedNode())))
+
+        assertTextShown("1 ended")
+        composeRule.onNodeWithTag("fold:$CONVO_KEY", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "shut"))
+        assertTagAbsent("hung:epic:$EPIC_ID")
+    }
+
+    @Test
+    fun aTapOnTheFoldLineDrawsItsEndedEpicsUnderTheRowAndATapShutsThemAgain() {
+        val row = convo(folded = listOf(endedNode(EPIC_ID), endedNode("lighthouse/older-sweep")))
+        composeRule.setContent {
+            var open by remember { mutableStateOf(false) }
+            ConvoRowItem(
+                convo = row,
+                now = NOW,
+                foldOpen = open,
+                onFold = { open = !open },
+                onOpen = {},
+                onLongPress = {},
+            )
+        }
+
+        assertTextShown("2 ended")
+        composeRule.onNodeWithTag("fold:$CONVO_KEY", useUnmergedTree = true).performClick()
+        assertTagShown("hung:epic:$EPIC_ID")
+        assertTagShown("hung:epic:lighthouse/older-sweep")
+        composeRule.onNodeWithTag("fold:$CONVO_KEY", useUnmergedTree = true)
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "open"))
+
+        composeRule.onNodeWithTag("fold:$CONVO_KEY", useUnmergedTree = true).performClick()
+        assertTagAbsent("hung:epic:$EPIC_ID")
+        assertTagAbsent("hung:epic:lighthouse/older-sweep")
     }
 
     @Test

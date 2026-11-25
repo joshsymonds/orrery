@@ -533,6 +533,8 @@ expect_line "$root/err" '^gate-remote: running bash .* here \(no orrery-gate box
 expect_line "$root/err" '^gate-remote: bash .*exited 4 after [0-9]+s here$' "fallback reports its exit and time"
 expect_line "$root/out" '^here-ran$' "fallback runs the command"
 expect "fallback goes through ORRERY_GATE_LOCAL" test -e "$root/ran-here"
+gate "$root/out" "$root/err" sh -c 'echo "$ORRERY_ANDROID_LOCK"'
+expect_line "$root/out" "^$root/run/orrery-android-build.lock\$" "fallback has its Android builds take turns on this machine's lock"
 
 # The wake ends with a box that does not answer either: the command runs here.
 echo "orrery@fake-box" >"$root/wake-brings"

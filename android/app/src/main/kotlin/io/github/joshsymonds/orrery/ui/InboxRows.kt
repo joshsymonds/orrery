@@ -29,13 +29,19 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.ui.theme.OrreryMono
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /** Most running step rows one epic shows; the rest fold into one "more" line. */
@@ -50,6 +56,7 @@ private const val GAUGE_INNER_STROKE = 1.5f
 private const val GAUGE_RADIUS = 9f
 
 private const val STATE_WAITING = "waiting"
+private const val STATE_BROKEN = "broken"
 private const val UNSEEN_WORDS = "new since you looked"
 private const val CONTRACT_WORDS = "contract"
 private const val QUESTION_LEAD = "? "
@@ -57,21 +64,26 @@ private const val QUESTION_LEAD = "? "
 /**
  * One conversation and what hangs under it, drawn as round 8 draws the inbox tree (D13): its row, then each epic's and
  * contract's row in order. A conversation with anything of its own is a block on the side's ground, headed by its row,
- * with its design blocks in served order and then its loose hung rows inside it. A tap on a row or a step calls [onOpen]
- * with its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's [SheetRow]. A
- * stand-in draws its words in place of a row.
+ * with its design blocks in served order, then its loose hung rows, then its fold line with the ended epics it folds,
+ * which draw under the line while [foldOpen] holds its key. A tap on the fold line calls [onFold]. A row with no pane is
+ * an own row: it has no conversation line, and its things draw in the same block. A tap on a row or a step calls
+ * [onOpen] with its key; a long press on a conversation's row or an epic's row calls [onLongPress] with the row's
+ * [SheetRow]. [moving] marks the conversation's row as moving to a new place, which is what its line carries.
  */
 @Composable
 internal fun ConvoRowItem(
     convo: Convo,
     now: Long,
+    foldOpen: Boolean,
+    onFold: () -> Unit,
     onOpen: (String) -> Unit,
     onLongPress: (SheetRow) -> Unit,
     modifier: Modifier = Modifier,
+    moving: Boolean = false,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        if (convo.hung.isEmpty() && convo.designs.isEmpty()) {
-            ConvoHead(convo, now, onOpen, onLongPress)
+        if (convo.hung.isEmpty() && convo.designs.isEmpty() && convo.folded.isEmpty()) {
+            ConvoHead(convo, now, onOpen, onLongPress, moving)
         } else {
             Column(
                 modifier = Modifier
@@ -81,48 +93,79 @@ internal fun ConvoRowItem(
                     .background(OrreryTokens.Surface.side, RoundedCornerShape(OrreryTokens.Radius.three))
                     .padding(horizontal = OrreryTokens.Space.eight, vertical = OrreryTokens.Space.four),
             ) {
-                ConvoHead(convo, now, onOpen, onLongPress)
+                ConvoHead(convo, now, onOpen, onLongPress, moving)
                 for (design in convo.designs) {
                     DesignBlockItem(design, now, onOpen, onLongPress)
                 }
                 for (hung in convo.hung) {
                     HungRow(hung, now, onOpen, onLongPress)
                 }
+                if (convo.folded.isNotEmpty()) {
+                    FoldLine(convo, foldOpen, onFold)
+                    if (foldOpen) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            for (epic in convo.folded) {
+                                HungRow(epic, now, onOpen, onLongPress)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-// A conversation's own row: its pane's line, or a stand-in's words in place of one.
+// A conversation's own row: its pane's line. An own row has no pane, so it draws no line and its things draw under it.
 @Composable
-private fun ConvoHead(convo: Convo, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
-    val pane = convo.pane
-    if (pane == null) {
-        Text(
-            convoLineOf(convo, now),
-            modifier = Modifier.fillMaxWidth().testTag("standin:${convo.key}").padding(vertical = OrreryTokens.Space.eight),
-            style = OrreryTokens.Type.small,
-            color = OrreryTokens.Ink.three,
-        )
-    } else {
-        ConvoLine(convo, pane, now, onOpen, onLongPress)
+private fun ConvoHead(convo: Convo, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit, moving: Boolean) {
+    val pane = convo.pane ?: return
+    ConvoLine(convo, pane, now, onOpen, onLongPress, moving)
+}
+
+private const val FOLD_OPEN = "open"
+private const val FOLD_SHUT = "shut"
+
+/**
+ * The fold line of a conversation's folded ended epics: their count in words, as a button whose state is open or shut.
+ * A tap calls [onFold]. The epics it folds draw under the row, so the line itself is not indented.
+ */
+@Composable
+internal fun FoldLine(convo: Convo, open: Boolean, onFold: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("fold:${convo.key}")
+            .semantics { stateDescription = if (open) FOLD_OPEN else FOLD_SHUT }
+            .clickable(role = Role.Button, onClick = onFold)
+            .padding(vertical = OrreryTokens.Space.four),
+    ) {
+        Text("${convo.folded.size} ended", style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
     }
 }
 
 @Composable
-private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> Unit, onLongPress: (SheetRow) -> Unit) {
+private fun ConvoLine(
+    convo: Convo,
+    pane: Pane,
+    now: Long,
+    onOpen: (String) -> Unit,
+    onLongPress: (SheetRow) -> Unit,
+    moving: Boolean,
+) {
     val unseen = pane.unread()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("convo:${convo.key}")
+            .then(if (moving) Modifier.semantics { this.moving = true } else Modifier)
+            .arrival(moving)
             .combinedClickable(onClick = { onOpen(convo.key) }, onLongClick = { onLongPress(SheetRow.Conversation(pane)) })
             .padding(vertical = OrreryTokens.Space.eight),
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.Top,
     ) {
         NewDot(unseen)
-        StateGlyph(pane.state, Modifier.padding(top = OrreryTokens.Space.four))
+        StateGlyph(glyphOfRow(pane), Modifier.padding(top = OrreryTokens.Space.four))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 pane.label,
@@ -134,7 +177,7 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                convoLineOf(convo, now),
+                convoLineText(convo, now),
                 style = OrreryTokens.Type.small,
                 color = if (pane.state == STATE_WAITING) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
                 maxLines = 1,
@@ -150,6 +193,19 @@ private fun ConvoLine(convo: Convo, pane: Pane, now: Long, onOpen: (String) -> U
         }
     }
 }
+
+// A conversation's second line; an unbound pane's command is set in the mono family.
+private fun convoLineText(convo: Convo, now: Long): AnnotatedString {
+    val line = convoLineOf(convo, now)
+    val command = if (convo.pane?.unbound == true) line.indexOf(UNBOUND_COMMAND) else -1
+    return buildAnnotatedString {
+        append(line)
+        if (command >= 0) addStyle(SpanStyle(fontFamily = OrreryMono), command, command + UNBOUND_COMMAND.length)
+    }
+}
+
+// A conversation's glyph: broken for a session that failed or a pane with no Claude session bound to it, else its state's.
+private fun glyphOfRow(pane: Pane): String = if (pane.state == "failed" || pane.unbound) STATE_BROKEN else pane.state
 
 // The new dot: drawn only for a row unseen since its owner last looked, else a gap of the same width.
 @Composable
@@ -303,7 +359,7 @@ private fun glyphColorOf(state: String): Color = when (state) {
     "done" -> OrreryTokens.State.done
     "interrupted" -> OrreryTokens.State.interrupted
     "interrupting" -> OrreryTokens.State.interrupting
-    "failed" -> OrreryTokens.State.failed
+    "failed", STATE_BROKEN -> OrreryTokens.State.failed
     "stopped" -> OrreryTokens.State.stopped
     else -> OrreryTokens.State.idle
 }
@@ -317,6 +373,7 @@ internal fun glyphWordOf(state: String): String = when (state) {
     "interrupted" -> "cut off"
     "interrupting" -> "interrupting"
     "failed" -> "failed"
+    STATE_BROKEN -> STATE_BROKEN
     "stopped" -> "stopped"
     else -> "idle"
 }
@@ -377,6 +434,29 @@ private fun DrawScope.drawGlyph(state: String, color: Color) {
             ring(color)
             glyphLine(color, 5.8f, 5.8f, 10.2f, 10.2f, stroke.width)
             glyphLine(color, 10.2f, 5.8f, 5.8f, 10.2f, stroke.width)
+        }
+        STATE_BROKEN -> {
+            // The ring is open at its top, and a jagged line runs across the inside where a crack would.
+            drawArc(
+                color = color,
+                startAngle = -80f,
+                sweepAngle = 320f,
+                useCenter = false,
+                topLeft = Offset(centre.x - radius, centre.y - radius),
+                size = Size(radius * 2, radius * 2),
+                style = stroke,
+            )
+            drawPath(
+                Path().apply {
+                    moveTo(glyphPx(5f), glyphPx(8f))
+                    lineTo(glyphPx(6.5f), glyphPx(6.2f))
+                    lineTo(glyphPx(7.9f), glyphPx(9.8f))
+                    lineTo(glyphPx(9.4f), glyphPx(6.2f))
+                    lineTo(glyphPx(11f), glyphPx(8f))
+                },
+                color,
+                style = stroke,
+            )
         }
         "stopped" -> {
             ring(color)

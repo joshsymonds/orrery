@@ -249,7 +249,20 @@ data class Pane(
     val archived: Boolean = false,
     /** True while the owner has put this question off and not brought it back. */
     val putOff: Boolean = false,
+    /**
+     * Serve's ended flag for the pane's tracked session: the conversation ended and the owner has not unarchived it since.
+     */
+    val ended: Boolean = false,
+    /** Unix seconds the pane's tracked session ended, from serve's ended_at; 0 when it has not ended or is unknown. */
+    val endedAt: Long = 0L,
+    /** True when claude runs in the pane and no Claude session is bound to it. */
+    val unbound: Boolean = false,
+    /** The pane's @orrery_claude_session option, the Claude session bound to it; "" when unset. */
+    val claudeSession: String = "",
 )
+
+/** One tracked session's marks from Sessions.List: its [id], whether the owner archived it, and whether its conversation ended. */
+data class SessionMark(val id: String, val archived: Boolean, val ended: Boolean, val endedAt: Long)
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
 
@@ -1134,6 +1147,16 @@ class OrreryClient(
             call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }.sessionsList
         }
         return sessions.filter { it.archived }.map { it.id }.toSet()
+    }
+
+    /**
+     * Every tracked session with its archived and ended marks. A server with no session list gives an empty list.
+     */
+    fun sessionMarks(): List<SessionMark> {
+        val sessions = absentAsEmpty {
+            call(write = false) { standard.sessions.list(ListRequest.getDefaultInstance(), CLIENT_HEADERS) }.sessionsList
+        }
+        return sessions.map { SessionMark(id = it.id, archived = it.archived, ended = it.ended, endedAt = it.endedAt) }
     }
 
     /**
@@ -2408,6 +2431,8 @@ class OrreryClient(
             lastTurnEnd = lastTurnEnd,
             orreryId = orreryId,
             putOff = putOff,
+            unbound = unbound,
+            claudeSession = claudeSession,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
@@ -2432,6 +2457,8 @@ class OrreryClient(
             archived = archived,
             orreryId = id,
             putOff = putOff,
+            ended = ended,
+            endedAt = endedAt,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =

@@ -12,7 +12,15 @@ import org.junit.Test
 class InboxTreeDesignsTest {
     private val serving = "laptop"
 
-    private fun tmux(paneId: String, orreryId: String, cwd: String, state: String = "working") = Pane(
+    private fun Pane.setClaudeSession(session: String): Pane = copy(claudeSession = session)
+
+    private fun tmux(
+        paneId: String,
+        orreryId: String,
+        cwd: String,
+        state: String = "working",
+        ended: Boolean = false,
+    ) = Pane(
         id = paneId,
         host = serving,
         session = "work",
@@ -28,7 +36,8 @@ class InboxTreeDesignsTest {
         question = "",
         questionHash = "",
         orreryId = orreryId,
-    )
+        ended = ended,
+    ).setClaudeSession("synthetic-claude")
 
     private fun epic(id: String, steering: String = "", live: Boolean = true) = EpicRow(
         id = id,
@@ -140,14 +149,14 @@ class InboxTreeDesignsTest {
     }
 
     @Test
-    fun aDesignOfAnUnlistedConversationSitsOnTheUnlistedStandInAtItsContractsRepository() {
+    fun aDesignOfAnUnlistedConversationIsItsOwnRowInItsFirstKidsProject() {
         val project = tree(
             contracts = listOf(contract("c1", conversation = "ghost", repository = "/home/user/other")),
             designs = listOf(design("d1", "ghost", listOf(kid("c1", 1, repository = "/home/user/other")))),
         ).single()
         assertEquals("|/home/user/other", project.key)
         val row = project.convos.single()
-        assertEquals(StandIn.UNLISTED, row.standIn)
+        assertEquals("design:d1", row.key)
         assertNull(row.pane)
         assertEquals(listOf("d1"), row.designs.map { it.design.id })
         assertEquals(listOf("contract:c1"), row.designs.single().kids.map { it.key })
@@ -173,16 +182,17 @@ class InboxTreeDesignsTest {
     }
 
     @Test
-    fun aDesignOfAnArchivedConversationSitsOnTheArchivedStandInInTheInbox() {
+    fun aDesignOfAnArchivedConversationIsItsOwnRowInTheInbox() {
         val project = tree(
             panes = listOf(tmux("%1", "o1", "/home/user/repo"), tmux("%2", "o2", "/home/user/repo")),
             archivedIds = setOf("o1"),
             epics = listOf(epic("e1", steering = "o1"), epic("e2", steering = "o2")),
             designs = listOf(design("d1", "o1", listOf(kid("c1", 1, epic = "e1"), kid("c2", 2, epic = "e2")))),
         ).single()
-        val standIn = project.convos.single { it.standIn == StandIn.ARCHIVED }
-        assertEquals(listOf("d1"), standIn.designs.map { it.design.id })
-        assertEquals(listOf("epic:e1", "epic:e2"), standIn.designs.single().kids.map { it.key })
+        val row = project.convo("design:d1")
+        assertNull(row.pane)
+        assertEquals(listOf("d1"), row.designs.map { it.design.id })
+        assertEquals(listOf("epic:e1", "epic:e2"), row.designs.single().kids.map { it.key })
         assertEquals(emptyList<Hung>(), project.convo("pane:laptop:%2").hung)
     }
 
@@ -211,26 +221,38 @@ class InboxTreeDesignsTest {
     }
 
     @Test
-    fun aDesignWhoseKidsAreAllEndedEpicsSitsOnItsConversationsEndedRow() {
+    fun aDesignOnAnEndedConversationSitsOnThatRowBehindTheEndedLine() {
         val project = tree(
-            panes = listOf(tmux("%1", "o1", "/home/user/repo")),
+            panes = listOf(tmux("%1", "o1", "/home/user/repo", ended = true)),
             epics = listOf(epic("e1", live = false)),
             designs = listOf(design("d1", "o1", listOf(kid("c1", 1, epic = "e1")))),
         ).single()
-        assertEquals(emptyList<DesignBlock>(), project.convo("pane:laptop:%1").designs)
+        assertEquals(emptyList<Convo>(), project.convos)
         val ended = project.ended.single()
         assertEquals("pane:laptop:%1", ended.key)
+        assertEquals(listOf("d1"), ended.designs.map { it.design.id })
         assertEquals(listOf("epic:e1"), ended.designs.single().kids.map { it.key })
     }
 
     @Test
-    fun aConversationWhoseDesignHasALiveKidIsNotBehindTheEndedLine() {
+    fun anOwnRowDesignWithALiveKidIsNotBehindTheEndedLine() {
         val project = tree(
-            panes = listOf(tmux("%1", "o1", "/home/user/repo", state = "done")),
-            epics = listOf(epic("e0", steering = "o1", live = false), epic("e1")),
-            designs = listOf(design("d1", "o1", listOf(kid("c1", 1, epic = "e1")))),
+            epics = listOf(epic("e1")),
+            designs = listOf(design("d1", "ghost", listOf(kid("c1", 1, epic = "e1")))),
         ).single()
-        assertEquals(listOf("epic:e1"), project.convo("pane:laptop:%1").designs.single().kids.map { it.key })
-        assertEquals(listOf("epic:e0"), project.ended.single().hung.map { it.key })
+        assertEquals(listOf("design:d1"), project.convos.map { it.key })
+        assertEquals(listOf("epic:e1"), project.convos.single().designs.single().kids.map { it.key })
+        assertEquals(emptyList<Convo>(), project.ended)
+    }
+
+    @Test
+    fun anOwnRowDesignWhoseKidsAllEndedIsBehindTheEndedLine() {
+        val project = tree(
+            epics = listOf(epic("e1", live = false)),
+            designs = listOf(design("d1", "ghost", listOf(kid("c1", 1, epic = "e1")))),
+        ).single()
+        assertEquals(emptyList<Convo>(), project.convos)
+        assertEquals(listOf("design:d1"), project.ended.map { it.key })
+        assertEquals(listOf("epic:e1"), project.ended.single().designs.single().kids.map { it.key })
     }
 }

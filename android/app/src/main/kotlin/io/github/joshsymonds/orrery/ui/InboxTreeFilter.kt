@@ -22,18 +22,19 @@ internal fun projectWaiting(project: Project): Int = countsOf(listOf(project)).w
 
 /**
  * The projects narrowed to what waits on you, keeping each conversation that waits as the parent of what waits under
- * it, or to unseen rows with nothing hung under them. Either narrowing drops the ended line.
+ * it, or to unseen rows with nothing hung under them. Either narrowing drops the ended line, and the ended epics folded
+ * under each row.
  */
 internal fun narrow(projects: List<Project>, by: Narrow): List<Project> = when (by) {
     Narrow.NONE -> projects
     Narrow.WAITING -> projects.mapNotNull { project ->
         val convos = project.convos.filter { convoWaits(it) }.map { convo ->
-            convo.copy(hung = convo.hung.filter { waits(it) }, designs = waitingDesigns(convo.designs))
+            convo.copy(hung = convo.hung.filter { waits(it) }, designs = waitingDesigns(convo.designs), folded = emptyList())
         }
         if (convos.isEmpty()) null else project.copy(convos = convos, ended = emptyList())
     }
     Narrow.NEW -> projects.mapNotNull { project ->
-        val rows = unseenRows(project).map { it.copy(again = false, hung = emptyList(), designs = emptyList()) }
+        val rows = unseenRows(project).map { it.copy(hung = emptyList(), folded = emptyList(), designs = emptyList()) }
         if (rows.isEmpty()) null else project.copy(convos = rows, ended = emptyList())
     }
 }
@@ -52,8 +53,8 @@ internal fun search(projects: List<Project>, query: String): List<Project> {
 }
 
 /**
- * What waits on you in one conversation: its own row when the row is waiting, and each hung thing that counts. An
- * archived conversation counts nothing.
+ * What waits on you in one conversation: its own row when the row is waiting, and each thing under it or under its
+ * designs that counts. An archived conversation counts nothing.
  */
 private fun waitingThings(convo: Convo): Int {
     if (convo.pane?.archived == true) return 0
@@ -76,16 +77,21 @@ private fun countsHung(hung: Hung, ownWaiting: Boolean): Boolean = when (hung) {
     is ContractNode -> waits(hung) && !ownWaiting
 }
 
-/** A project's unseen rows, each once, archived ones never: a row drawn in the tree and again behind the line counts once. */
+/** A project's unseen rows, archived ones never. Each conversation draws in one place, so each is listed once. */
 private fun unseenRows(project: Project): List<Convo> =
-    (project.convos + project.ended).filter { it.pane?.unread() == true && !it.pane.archived }.distinctBy { it.key }
+    (project.convos + project.ended).filter { it.pane?.unread() == true && !it.pane.archived }
 
 private fun matchingConvos(project: Project, convos: List<Convo>, words: List<String>): List<Convo> =
     convos.mapNotNull { convo ->
         val own = matches(words, rowFields(project, convo))
         val hung = if (own) convo.hung else convo.hung.filter { matches(words, hungFields(project, it)) }
+        val folded = if (own) convo.folded else convo.folded.filter { matches(words, hungFields(project, it)) }
         val designs = if (own) convo.designs else matchingDesigns(project, convo.designs, words)
-        if (own || hung.isNotEmpty() || designs.isNotEmpty()) convo.copy(hung = hung, designs = designs) else null
+        if (own || hung.isNotEmpty() || folded.isNotEmpty() || designs.isNotEmpty()) {
+            convo.copy(hung = hung, folded = folded, designs = designs)
+        } else {
+            null
+        }
     }
 
 /** The design blocks that match: a block whose own text matches keeps every kid, otherwise only the matching kids stay. */

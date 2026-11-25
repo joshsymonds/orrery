@@ -24,11 +24,18 @@ const turnRunning = "running"
 // evidenceEnded is the state of an evidence run that has ended. Its other states, capturing and judging, are running.
 const evidenceEnded = "ended"
 
+// stallable is an epic a pass may find stalled: one it started nothing for and that may stall. decided holds the rows
+// the pass's walk of the epic last decided on, and is nil when the pass made no decision for it, as for an epic at rest.
+type stallable struct {
+	epic    string
+	decided *store.EpicFlow
+}
+
 // passStalls checks each of the stallable epics a pass covered: one that started nothing. It parks or wakes the planner
 // of each idle one (see stallCheck). The open amendments are read once for the pass, and a read that fails is logged,
 // so no epic is judged this pass. An epic whose check fails is logged, and a later pass judges it again.
-func (r *Runner) passStalls(ctx context.Context, stallable []string) {
-	if len(stallable) == 0 {
+func (r *Runner) passStalls(ctx context.Context, candidates []stallable) {
+	if len(candidates) == 0 {
 		return
 	}
 	amendments, err := r.store.OpenAmendments(ctx)
@@ -40,22 +47,29 @@ func (r *Runner) passStalls(ctx context.Context, stallable []string) {
 	for _, amended := range amendments {
 		amending[amended.Epic] = true
 	}
-	for _, epic := range stallable {
+	for _, candidate := range candidates {
 		if ctx.Err() != nil {
 			return
 		}
-		if err = r.stallCheck(ctx, epic, amending[epic]); err != nil {
-			r.logger.ErrorContext(ctx, "check epic for a stall", "epic", epic, "err", err)
+		if err = r.stallCheck(ctx, candidate, amending[candidate.epic]); err != nil {
+			r.logger.ErrorContext(ctx, "check epic for a stall", "epic", candidate.epic, "err", err)
 		}
 	}
 }
 
-// stallCheck reads epic's flow again. When the epic is idle (stallIdle), it is judged as follows. An epic with no
-// running plan run is parked at once with a stall park (see parkStall). Otherwise, when its latest stall has the mark
-// the epic has now, so no task, node run or action came since that stall, it is parked too. Any other idle epic gets
-// its stall: a pending stall trigger whose cause names the epic's phase, open tasks and running node runs, so the next
-// pass gives the plan run its turn. amending reports whether one of the epic's amendments is checking or capturing.
-func (r *Runner) stallCheck(ctx context.Context, epic string, amending bool) error {
+// stallCheck judges the epic of candidate idle only when both the rows the pass's walk last decided on and the epic's
+// flow read again now are idle (stallIdle). Work that was under way when the walk decided, and has ended since, is
+// what the walk waited on, and its end wakes a pass that decides the next action, so the epic is not idle. An epic the
+// pass did not walk is judged on the flow read now alone. An idle epic is judged as follows. An epic with no running
+// plan run is parked at once with a stall park (see parkStall). Otherwise, when its latest stall has the mark the epic
+// has now, so no task, node run or action came since that stall, it is parked too. Any other idle epic gets its stall:
+// a pending stall trigger whose cause names the epic's phase, open tasks and running node runs, so the next pass gives
+// the plan run its turn. amending reports whether one of the epic's amendments is checking or capturing.
+func (r *Runner) stallCheck(ctx context.Context, candidate stallable, amending bool) error {
+	if candidate.decided != nil && !stallIdle(*candidate.decided, amending) {
+		return nil
+	}
+	epic := candidate.epic
 	flow, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return fmt.Errorf("read epic %s: %w", epic, err)
@@ -97,15 +111,20 @@ func (r *Runner) parkStall(
 
 // stallIdle reports whether the epic whose rows are flow is idle, so the pass that read them left it as it was. Its
 // phase is live, it is neither paused nor parked, and no step, node check, evidence run, planner turn or amendment
-// (amending) is under way. It has no pending planner action and no open question, and it has no pending trigger while
-// a plan run is running. A step at stage limited has not ended, so it is running; a step that ended keeps its stage,
-// so the stage is not read.
+// (amending) is under way. The steps read are every step labeled with the epic, whatever its task label, so the step
+// of a task integrator, a build, an evidence judge, a planner turn or a conversation's start for the epic counts, and
+// the evidence runs read are every run of the epic, current or not (store.Underway). It has no pending planner action
+// and no open question, and it has no pending trigger while a plan run is running. A step at stage limited has not
+// ended, so it is running; a step that ended keeps its stage, so the stage is not read.
 func stallIdle(flow store.EpicFlow, amending bool) bool {
 	epic := flow.Epic
 	if !mayStall(epic) || amending {
 		return false
 	}
 	if flow.Actions != 0 || epic.OpenQuestions != 0 || slices.ContainsFunc(epic.Turns, turnIsRunning) {
+		return false
+	}
+	if len(flow.Underway.Steps) != 0 || len(flow.Underway.Evidence) != 0 {
 		return false
 	}
 	if slices.ContainsFunc(flow.Steps, stepRunning) || slices.ContainsFunc(flow.Checks, checkRunning) ||

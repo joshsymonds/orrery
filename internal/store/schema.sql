@@ -1150,6 +1150,7 @@ CREATE TABLE epic_stalls (
     parked INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (epic, seq)
 );
+CREATE INDEX steps_epic_open ON steps (epic, started, id) WHERE end_value = '';
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1165,6 +1166,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (109,10
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (11,10,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (110,109,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (111,110,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (112,111,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
