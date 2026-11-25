@@ -292,9 +292,9 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 }
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
-// attempt, and records a step whose end is stored. Otherwise it waits while the step runs, or starts it when it has no
-// row, unless the owner stopped the release at this attempt, is paused, the step's undo is none after an earlier
-// failure, or the first step's candidate is not yet held by the release reviewers (releaseReviewGate).
+// attempt, and records a step whose work has ended (releaseWork). Otherwise it waits while that work runs, or starts it
+// when it has none, unless the owner stopped the release at this attempt, is paused, the step's undo is none after an
+// earlier failure, or the first step's candidate is not yet held by the release reviewers (releaseReviewGate).
 func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
@@ -307,8 +307,8 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 	}
 	label := fmt.Sprintf("release %d", position)
 	id := store.ReleaseStepWorkID(run, rows.Releases, position)
-	if row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id }); found {
-		return recordAction(row, []string{label, start})
+	if act, found := releaseWork(rows, step, id, []string{label, start}); found {
+		return act
 	}
 	if ownerStopped(rows, run.Attempt) {
 		return Action{
@@ -337,6 +337,27 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 		}
 	}
 	return Action{Kind: ActStep, IDs: []string{id}, Items: []string{label, start}}
+}
+
+// releaseWork decides the work stored under id for step, and reports whether any is. A step that names a kind runs as a
+// check, which waits while it runs and is recorded with items once it has ended. Any other step runs as an agent step,
+// which recordAction decides.
+func releaseWork(rows Rows, step store.EpicReleaseStep, id string, items []string) (Action, bool) {
+	if step.Kind != "" {
+		check, found := checkByID(rows.Checks, id)
+		switch {
+		case !found:
+			return Action{}, false
+		case check.State == store.NodeRunning:
+			return Action{Kind: ActNone}, true
+		}
+		return Action{Kind: ActRecord, IDs: []string{id}, Items: items}, true
+	}
+	row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id })
+	if !found {
+		return Action{}, false
+	}
+	return recordAction(row, items), true
 }
 
 // releaseReviewGate decides whether the release reviewers have held candidate, the candidate the first release step
@@ -444,10 +465,16 @@ func undoNoneStopped(run store.NodeRun, rows Rows, position int64, step store.Ep
 	return failed && !named
 }
 
-// judgeAction decides the judge after the last release step, from the candidate. It ends released when the judge of this
-// attempt passed, stops on one that failed, and otherwise starts the judge, waits while it runs, or records it. It
-// stops without starting the judge when the owner stopped the release at this attempt.
+// judgeAction decides the judge after the last release step, from the candidate. A release whose every step names a kind
+// has no judge: each step's postcondition was checked in code before its run passed, so it ends released at once.
+// Otherwise it ends released when the judge of this attempt passed, stops on one that failed, and otherwise starts the
+// judge, waits while it runs, or records it. It stops without starting the judge when the owner stopped the release at
+// this attempt.
 func judgeAction(run store.NodeRun, rows Rows, candidate string) Action {
+	steps := rows.Epic.ReleaseSteps
+	if len(steps) > 0 && !slices.ContainsFunc(steps, func(step store.EpicReleaseStep) bool { return step.Kind == "" }) {
+		return endingAction(outcomeReleased, rows)
+	}
 	judged, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartJudge && r.Attempt == run.Attempt
 	})

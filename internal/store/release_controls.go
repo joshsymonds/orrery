@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -223,15 +224,22 @@ func parkedReleaseRun(ctx context.Context, queries *sqlcgen.Queries, epic string
 	return NodeRun{}, RefusalError(fmt.Sprintf("epic %s has no parked release run", epic))
 }
 
-// releaseStepsOf returns the release steps of epic in position order, numbered from 1 by position.
+// releaseStepsOf returns the release steps of epic in position order, numbered from 1 by position, each with its kind
+// and the parameters its JSON params hold.
 func releaseStepsOf(ctx context.Context, queries *sqlcgen.Queries, epic string) ([]EpicReleaseStep, error) {
 	stored, err := queries.ListEpicReleaseSteps(ctx, epic)
 	if err != nil {
 		return nil, fmt.Errorf("list release steps of epic %s: %w", epic, err)
 	}
-	return mapInOrder(stored, func(r sqlcgen.EpicReleaseStep) EpicReleaseStep {
-		return EpicReleaseStep{Step: r.Step, Target: r.Target, Undo: r.Undo}
-	}), nil
+	return convertInOrder(stored, func(r sqlcgen.EpicReleaseStep) (EpicReleaseStep, error) {
+		step := EpicReleaseStep{Step: r.Step, Target: r.Target, Undo: r.Undo, Kind: r.Kind}
+		if decodeErr := json.Unmarshal([]byte(r.Params), &step.Params); decodeErr != nil {
+			return EpicReleaseStep{}, fmt.Errorf(
+				"decode params of release step %d of epic %s: %w", r.Position, epic, decodeErr,
+			)
+		}
+		return step, nil
+	})
 }
 
 // namedUndoNone returns the distinct positions in undoNone, in the order given, after checking that each is an undo-none

@@ -1165,9 +1165,7 @@ func epicRowOf(
 				Alternative: a.GetAlternative(), WhyNot: a.GetWhyNot(), Reconsider: a.GetReconsider(),
 			}
 		}),
-		ReleaseSteps: epicMap(contract.GetReleaseSteps(), func(s *v1.EpicReleaseStep) store.EpicReleaseStep {
-			return store.EpicReleaseStep{Step: s.GetStep(), Target: s.GetTarget(), Undo: s.GetUndo()}
-		}),
+		ReleaseSteps: epicMap(contract.GetReleaseSteps(), storeReleaseStep),
 		Decisions: epicMap(decisions, func(d *v1.EpicDecisionInput) store.EpicDecision {
 			return store.EpicDecision{ID: d.GetId(), Text: d.GetText()}
 		}),
@@ -1485,11 +1483,9 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 		Alternatives: epicMap(row.Alternatives, func(a store.EpicAlternative) *v1.EpicAlternative {
 			return &v1.EpicAlternative{Alternative: a.Alternative, WhyNot: a.WhyNot, Reconsider: a.Reconsider}
 		}),
-		ReleaseSteps: epicMap(row.ReleaseSteps, func(s store.EpicReleaseStep) *v1.EpicReleaseStep {
-			return &v1.EpicReleaseStep{Step: s.Step, Target: s.Target, Undo: s.Undo}
-		}),
-		ReleaseThen: row.ReleaseThen,
-		Checks:      row.Checks,
+		ReleaseSteps: epicMap(row.ReleaseSteps, releaseStepMessage),
+		ReleaseThen:  row.ReleaseThen,
+		Checks:       row.Checks,
 	}
 }
 

@@ -255,11 +255,15 @@ func alternativeItems(alternatives []store.EpicAlternative) []string {
 	return items
 }
 
-// releaseStepItems returns each release step, then its target and how to undo it.
+// releaseStepItems returns each release step, then its target, how to undo it, and the kind it runs as when it names
+// one.
 func releaseStepItems(steps []store.EpicReleaseStep) []string {
 	items := make([]string, 0, 3*len(steps))
 	for _, s := range steps {
 		items = append(items, "- "+s.Step, "  target: "+s.Target, "  undo: "+s.Undo)
+		if s.Kind != "" {
+			items = append(items, "  runs as code: "+s.Kind)
+		}
 	}
 	return items
 }

@@ -760,7 +760,7 @@ INSERT INTO epic_alternatives (epic, position, alternative, why_not, reconsider)
 SELECT * FROM epic_alternatives WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicReleaseStep :exec
-INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?);
+INSERT INTO epic_release_steps (epic, position, step, target, undo, kind, params) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;

@@ -13,7 +13,9 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -91,11 +93,12 @@ func (r *Runner) releaseStepDir(id string) (string, error) {
 	return filepath.Join(r.stateDir, releaseWorktrees, id), nil
 }
 
-// startReleaseStep starts the release step act names, at the start revision act names, as an unowned writing step in a
-// worktree of its own, detached at that commit. The first step starts only once origin's main is verified to be in its
-// candidate, whether the candidate was passed at an earlier attempt or recorded at this one, since origin's main may
-// have moved past it while its release integrator ran. Its role, worktree or start refused for good records the step as
-// failed at once, and the release stops at it on its next decision.
+// startReleaseStep starts the release step act names, at the start revision act names. A step that names a kind starts
+// as the check startKindStep makes. Any other step starts as an unowned writing step in a worktree of its own, detached
+// at that commit. The first step starts only once origin's main is verified to be in its candidate, whether the
+// candidate was passed at an earlier attempt or recorded at this one, since origin's main may have moved past it while
+// its release integrator ran. Its role, worktree or start refused for good records the step as failed at once, and the
+// release stops at it on its next decision.
 func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -111,6 +114,9 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 		if verifyErr != nil || !current {
 			return verifyErr
 		}
+	}
+	if step.Kind != "" {
+		return r.startKindStep(ctx, epic, act, position, step, at)
 	}
 	dir, err := r.releaseStepDir(id)
 	if err != nil {
@@ -145,6 +151,31 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 	)
 }
 
+// startKindStep starts the release step at position of epic, which names a kind, as a check of the release run act
+// names, stored under act's id, so the release reads the check as the step's work. The check runs `orrery release-step`
+// with the step's kind and parameters (releasestep.Argv) under a holder, in a worktree of the epic's repository detached
+// at act's start, within the kind's limit (releasestep.Limit). That command carries out the step's mechanics and checks
+// its postcondition in code, and the step passes when it exits 0 (recordKindStep). The command names the epic's title
+// as the change. An orrery binary that cannot be found records the step failed at once.
+func (r *Runner) startKindStep(
+	ctx context.Context, epic store.EpicRow, act Action, position int64, step store.EpicReleaseStep, at time.Time,
+) error {
+	orrery, err := holder.Binary(r.orrery)
+	if err != nil {
+		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
+	}
+	start := act.Items[1]
+	check := store.NodeCheck{
+		ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: start,
+		Argv:  releasestep.Argv(orrery, step.Kind, step.Params, start, epic.Title),
+		Limit: int64(releasestep.Limit(step.Kind) / time.Second),
+	}
+	if _, err = r.checks.Run(ctx, check); err != nil {
+		return fmt.Errorf("start release step %d of epic %s: %w", position, epic.ID, err)
+	}
+	return nil
+}
+
 // releaseStepTask returns the task the start of the release step at position, under id, carries. The rows of a release
 // read a step under its run's id, so a step under any other id, such as the first step of a candidate prepared again,
 // carries the release run's path as its task, as the release reviewer's start does, and is read under that path. Any
@@ -173,14 +204,18 @@ func (r *Runner) failReleaseStep(
 }
 
 // releaseStepPrompt returns the prompt of a release step: the one step, its target and undo, the release's
-// postconditions then, the commit it starts at, what it may not do, and how a judge decides the postconditions from the
-// evidence the step returns.
+// postconditions then, the commit it starts at, what it may not do, that it never moves a target back past the commit
+// (releaseHeldRule), and how a judge decides the postconditions from the evidence the step returns.
 func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 	return fmt.Sprintf("Carry out this one release step and no other: %s.\n\n"+
 		"Its target is %s, and its undo is %s.\n\n"+
 		"The release promises: %s\n\n"+
 		"This worktree is checked out detached at %s, the commit the step starts from.\n\n"+
 		"Do only this step. Do not carry out any other release step.\n\n"+
+		releaseHeldRule+" So when the step's target already holds or runs a commit or build that contains the commit "+
+		"the step starts from, the step's postcondition is met: carry out nothing that would replace it with an "+
+		"older one, such as installing or deploying the step's own build over a newer one, and return status done with "+
+		"evidence naming what the target holds and that it contains the start commit.\n\n"+
 		"When the step is carried out, return status done. Return commits as the full id of every commit you "+
 		"added on top of %s, and an empty list when you added none. Return commit as the full id of HEAD. "+
 		"Return evidence showing the effect of the step: what changed and where it can be seen. If you cannot "+
@@ -191,11 +226,19 @@ func releaseStepPrompt(step store.EpicReleaseStep, start, then string) string {
 		step.Step, step.Target, step.Undo, then, start, start)
 }
 
-// recordReleaseStep records the release step act names once its end is stored. The step passes only when it ended done
-// and HEAD descends from its start. Otherwise it is recorded failed with the reason named. Its worktree is removed once
-// the run is recorded. The first step's failure is not recorded when origin's main has moved past the candidate it
-// started from, since that is no failure of the release: redoCandidate marks the candidate stale instead. A check of
-// origin's main that errors records the failure with the error named, and the release stops.
+// releaseHeldRule is how a release step and the judge read a postcondition that names the released commit: a target
+// that has moved past the commit still holds it, since another release may have shipped a newer commit that contains
+// it while this one ran.
+const releaseHeldRule = "A postcondition that names the released commit is met by any commit or build that contains " +
+	"it: origin's main, a tag or a running build that has moved past the released commit still holds it, since a " +
+	"later release may have shipped a newer commit that contains it."
+
+// recordReleaseStep records the release step act names once its work has ended. A step that names a kind is recorded
+// from its check (recordKindStep). Any other step passes only when it ended done and HEAD descends from its start.
+// Otherwise it is recorded failed with the reason named. Its worktree is removed once the run is recorded. The first
+// step's failure is not recorded when origin's main has moved past the candidate it started from, since that is no
+// failure of the release: redoCandidate marks the candidate stale instead. A check of origin's main that errors records
+// the failure with the error named, and the release stops.
 func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, ok := releaseStepPosition(act.Items[0])
 	if !ok {
@@ -204,6 +247,9 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	step, err := releaseStepAt(epic, position)
 	if err != nil {
 		return err
+	}
+	if step.Kind != "" {
+		return r.recordKindStep(ctx, epic, act, position, step, at)
 	}
 	id, start := act.IDs[0], act.Items[1]
 	row, err := r.storedStep(ctx, epic.ID, id)
@@ -225,12 +271,9 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 		return err
 	}
 	if position == 1 && reason != "" {
-		contained, checkErr := candidateContainsOrigin(ctx, host, epic, start)
-		switch {
-		case checkErr != nil:
-			reason += "; origin's main could not be checked against the step's start: " + checkErr.Error()
-		case !contained:
-			return r.redoCandidate(ctx, host, epic, act, start, dir, reason, at)
+		var stale bool
+		if reason, stale, err = r.staleFirstStep(ctx, host, epic, act, start, reason, at); err != nil || stale {
+			return errors.Join(err, removeReleaseWorktree(ctx, host, epic, act, dir))
 		}
 	}
 	run := store.ReleaseRun{
@@ -250,27 +293,123 @@ func (r *Runner) recordReleaseStep(ctx context.Context, epic store.EpicRow, act 
 	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
 		return fmt.Errorf("record release step %d of epic %s: %w", position, epic.ID, err)
 	}
-	if err = build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
-		return fmt.Errorf("remove worktree of release step %s: %w", id, err)
-	}
-	return nil
+	return removeReleaseWorktree(ctx, host, epic, act, dir)
 }
 
-// redoCandidate handles the first release step act names, which failed for reason after origin's main moved past the
-// candidate start it started from. No failed run is recorded for it, since the failure is no failure of the release.
-// The candidate is marked stale at act's attempt, so the release prepares it again, merged with origin's main, gates,
-// reviews and starts its first step under a new generation. The step's worktree in dir is then removed.
-func (r *Runner) redoCandidate(
-	ctx context.Context, host hostexec.Host, epic store.EpicRow, act Action, start, dir, reason string, at time.Time,
-) error {
-	stale := fmt.Sprintf("release step 1 failed after origin's main moved past candidate %s: %s", start, reason)
-	if err := r.store.MarkCandidateStale(ctx, epic.ID, act.Path, act.Run.Attempt, start, stale, at); err != nil {
-		return fmt.Errorf("mark candidate %s of epic %s stale: %w", start, epic.ID, err)
-	}
+// removeReleaseWorktree removes the worktree of the release step act names, which is under dir.
+func removeReleaseWorktree(ctx context.Context, host hostexec.Host, epic store.EpicRow, act Action, dir string) error {
 	if err := build.RemoveWorktrees(ctx, host, epic.Repository, dir); err != nil {
 		return fmt.Errorf("remove worktree of release step %s: %w", act.IDs[0], err)
 	}
 	return nil
+}
+
+// staleFirstStep handles the first release step act names, which failed for reason from the candidate start, and
+// returns the reason the step is recorded failed with and whether it is not recorded at all. When origin's main has
+// moved past the candidate, the failure is no failure of the release, so no failed run is recorded for it: the
+// candidate is marked stale at act's attempt, and the release prepares it again, merged with origin's main, gates,
+// reviews and starts its first step under a new generation. When origin's main is in the candidate, the step's failure
+// stands as reason gives it. A check of origin's main that errors adds the error to the reason, and the failure stands.
+func (r *Runner) staleFirstStep(
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, act Action, start, reason string, at time.Time,
+) (string, bool, error) {
+	contained, failure := originHeld(ctx, host, epic, start)
+	switch {
+	case failure != "":
+		return reason + "; origin's main could not be checked against the step's start: " + failure, false, nil
+	case contained:
+		return reason, false, nil
+	}
+	stale := fmt.Sprintf("release step 1 failed after origin's main moved past candidate %s: %s", start, reason)
+	if err := r.store.MarkCandidateStale(ctx, epic.ID, act.Path, act.Run.Attempt, start, stale, at); err != nil {
+		return "", false, fmt.Errorf("mark candidate %s of epic %s stale: %w", start, epic.ID, err)
+	}
+	return reason, true, nil
+}
+
+// originHeld reports whether origin's current main is in start (candidateContainsOrigin), or why that could not be
+// checked, which is "" when it could.
+func originHeld(ctx context.Context, host hostexec.Host, epic store.EpicRow, start string) (bool, string) {
+	contained, err := candidateContainsOrigin(ctx, host, epic, start)
+	if err != nil {
+		return false, err.Error()
+	}
+	return contained, ""
+}
+
+// releaseCheckFailed is the end a release step that names a kind is recorded with when its check did not pass. One that
+// passed is recorded with releaseDone.
+const releaseCheckFailed = "failed"
+
+// releaseReasonMax caps how many bytes of the last line a failed check wrote to its stderr the step's reason carries.
+const releaseReasonMax = 1024
+
+// recordKindStep records the release step at position of epic, which names a kind, once its check has ended. The step
+// passes when the check ran, did not time out and exited 0, which `orrery release-step` does only once it has checked
+// the step's postcondition in code and found it held. Its evidence is what the check wrote to its stdout, the facts that
+// show the postcondition. It added no commit, so its head is its start. Otherwise it is recorded failed with the reason
+// kindStepReason names. The first step's failure is handled as staleFirstStep does.
+func (r *Runner) recordKindStep(
+	ctx context.Context, epic store.EpicRow, act Action, position int64, step store.EpicReleaseStep, at time.Time,
+) error {
+	start := act.Items[1]
+	check, err := r.store.NodeCheck(ctx, act.IDs[0])
+	if err != nil {
+		return fmt.Errorf("read the check of release step %d of epic %s: %w", position, epic.ID, err)
+	}
+	reason := kindStepReason(check)
+	if position == 1 && reason != "" {
+		host, hostErr := r.hostOf(epic)
+		if hostErr != nil {
+			return hostErr
+		}
+		var stale bool
+		if reason, stale, err = r.staleFirstStep(ctx, host, epic, act, start, reason, at); err != nil || stale {
+			return err
+		}
+	}
+	end := releaseDone
+	if reason != "" {
+		end = releaseCheckFailed
+	}
+	run := store.ReleaseRun{
+		Part: store.ReleasePartStep, Position: position, Attempt: act.Run.Attempt, Step: step.Step, Start: start,
+		Head: start, End: end, Evidence: strings.TrimSpace(check.Stdout), Passed: reason == "", Reason: reason, At: at,
+	}
+	if err = r.store.RecordRelease(ctx, epic.ID, run); err != nil {
+		return fmt.Errorf("record release step %d of epic %s: %w", position, epic.ID, err)
+	}
+	return nil
+}
+
+// kindStepReason returns why the check of a release step that names a kind did not pass, or "" when it did: the reason
+// it did not run, its limit when it ran past it, or the status it exited with and the last line it wrote to its stderr,
+// which is where the command says why the step failed.
+func kindStepReason(check store.NodeCheck) string {
+	switch {
+	case check.NotRun != "":
+		return "the step did not run: " + check.NotRun
+	case check.TimedOut:
+		return fmt.Sprintf("the step ran past its limit of %ds", check.Limit)
+	case check.Exit != 0:
+		reason := fmt.Sprintf("the step exited %d", check.Exit)
+		if line := lastLine(check.Stderr); line != "" {
+			reason += ": " + line
+		}
+		return reason
+	}
+	return ""
+}
+
+// lastLine returns the last line of text that is not blank, trimmed and cut to releaseReasonMax bytes, or "" when every
+// line is blank.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	line := strings.TrimSpace(lines[len(lines)-1])
+	if len(line) > releaseReasonMax {
+		line = strings.ToValidUTF8(line[:releaseReasonMax], "")
+	}
+	return line
 }
 
 // releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt on host from start, and
@@ -338,8 +477,8 @@ func (r *Runner) startJudge(ctx context.Context, epic store.EpicRow, act Action,
 		return fmt.Errorf("read epic %s: %w", epic.ID, err)
 	}
 	_, err = r.steps.Start(ctx, enginehost.StepStart{
-		ID: id, Agent: agent, Prompt: releaseJudgePrompt(epic.ReleaseThen, flow.Releases), Schema: releaseJudgeSchema,
-		Workspace: epic.Repository, Revision: candidate, ReadOnly: true, Epic: epic.ID,
+		ID: id, Agent: agent, Prompt: releaseJudgePrompt(epic.ReleaseThen, epic.ReleaseSteps, flow.Releases),
+		Schema: releaseJudgeSchema, Workspace: epic.Repository, Revision: candidate, ReadOnly: true, Epic: epic.ID,
 		Purpose: fmt.Sprintf("Judge %s's release.", build.Slug(epic.ID)),
 	})
 	if err == nil {
@@ -365,20 +504,41 @@ func (r *Runner) failJudge(ctx context.Context, epic store.EpicRow, act Action, 
 	return nil
 }
 
-// releaseJudgePrompt returns the prompt of a release judge: the release's promise, and the step, commits and evidence
-// of each release step that passed. The judge decides from that and from read-only checks of the repository.
-func releaseJudgePrompt(then string, runs []store.ReleaseRun) string {
+// releaseJudgePrompt returns the prompt of a release judge: the release's promise, how a postcondition that names the
+// released commit is read (releaseHeldRule), the step, commits and evidence of each agent step of steps that passed,
+// and the step and evidence of each step that names a kind and passed, whose postcondition code checked and found held,
+// so the judge takes it as met. The judge decides from that and from read-only checks of the repository.
+func releaseJudgePrompt(then string, steps []store.EpicReleaseStep, runs []store.ReleaseRun) string {
 	var prompt strings.Builder
 	prompt.WriteString(
 		"Judge whether this release met its postconditions, from the evidence below and read-only checks of the " +
 			"repository.\n\n",
 	)
-	fmt.Fprintf(&prompt, "The release promised:\n%s\n\n", then)
-	prompt.WriteString("The release steps that passed, each with the commits it added and the evidence it returned:\n")
+	fmt.Fprintf(&prompt, "The release promised:\n%s\n\n%s\n\n", then, releaseHeldRule)
+	var agentRuns, kindRuns []store.ReleaseRun
 	for _, run := range runs {
-		if run.Part == store.ReleasePartStep && run.Passed {
-			fmt.Fprintf(&prompt, "- %s\n  commits: %s\n  evidence: %s\n",
-				run.Step, strings.Join(run.Commits, ", "), run.Evidence)
+		if run.Part != store.ReleasePartStep || !run.Passed {
+			continue
+		}
+		if run.Position >= 1 && run.Position <= int64(len(steps)) && steps[run.Position-1].Kind != "" {
+			kindRuns = append(kindRuns, run)
+		} else {
+			agentRuns = append(agentRuns, run)
+		}
+	}
+	prompt.WriteString("The release steps that passed, each with the commits it added and the evidence it returned:\n")
+	for _, run := range agentRuns {
+		fmt.Fprintf(&prompt, "- %s\n  commits: %s\n  evidence: %s\n",
+			run.Step, strings.Join(run.Commits, ", "), run.Evidence)
+	}
+	if len(kindRuns) > 0 {
+		prompt.WriteString(
+			"\nThese release steps ran as code, which checked each one's postcondition against origin and " +
+				"the machine after the step and found it held. Take the postconditions they show as met, and do not check " +
+				"them again:\n",
+		)
+		for _, run := range kindRuns {
+			fmt.Fprintf(&prompt, "- %s\n  evidence: %s\n", run.Step, run.Evidence)
 		}
 	}
 	prompt.WriteString(

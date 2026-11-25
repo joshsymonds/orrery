@@ -7,9 +7,11 @@ import (
 	"slices"
 
 	"github.com/BurntSushi/toml"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 )
 
 // projectReleaseKey is the top-level key of a project file's release table.
@@ -18,10 +20,11 @@ const projectReleaseKey = "release"
 // projectFileRel is the path of the project file in a repository, relative to its root.
 const projectFileRel = ".orrery/project.toml"
 
-// reasonNotString and reasonUnknownKey are the reasons a project file refuses a value of the wrong type, and a key the
-// format does not define.
+// reasonNotString, reasonNotStrings and reasonUnknownKey are the reasons a project file refuses a value that should be a
+// string, one that should be an array of strings, and a key the format does not define.
 const (
 	reasonNotString  = "not a string"
+	reasonNotStrings = "not an array of strings"
 	reasonUnknownKey = "unknown key"
 )
 
@@ -90,24 +93,40 @@ func releaseStepTables(value any) ([]map[string]any, error) {
 	return tables, nil
 }
 
-// parseReleaseStep reads the table of the step at index i. It holds step, target and undo, each a string. The step
-// and the undo must not be blank after trimming, and a missing one counts as blank. The keys are checked in name
-// order.
+// parseReleaseStep reads the table of the step at index i. It holds step, target and undo, each a string, and
+// optionally the step's kind and the parameters of that kind: branch, prefix, flake, input and url, each a string, and
+// run and units, each an array of strings (see releasestep.Params). The step and the undo must not be blank after
+// trimming, and a missing one counts as blank. The keys are checked in name order. The kind and its parameters must fit
+// together as releasestep.Problem says, and a parameter is named by its key, as release.steps[0].branch.
 func parseReleaseStep(i int, table map[string]any) (*v1.EpicReleaseStep, error) {
-	step := &v1.EpicReleaseStep{}
+	step := &v1.EpicReleaseStep{Params: &v1.EpicReleaseParams{}}
 	path := fmt.Sprintf("%s.steps[%d]", projectReleaseKey, i)
-	fields := map[string]*string{"step": &step.Step, "target": &step.Target, "undo": &step.Undo}
+	texts := map[string]*string{
+		"step": &step.Step, "target": &step.Target, "undo": &step.Undo, "kind": &step.Kind,
+		releasestep.ParamBranch: &step.Params.Branch, releasestep.ParamPrefix: &step.Params.Prefix,
+		releasestep.ParamFlake: &step.Params.Flake, releasestep.ParamInput: &step.Params.Input,
+		releasestep.ParamURL: &step.Params.Url,
+	}
+	lists := map[string]*[]string{releasestep.ParamRun: &step.Params.Run, releasestep.ParamUnits: &step.Params.Units}
 	for _, key := range slices.Sorted(maps.Keys(table)) {
 		field := path + "." + key
-		dst, known := fields[key]
-		if !known {
+		if dst, isText := texts[key]; isText {
+			text, isString := table[key].(string)
+			if !isString {
+				return nil, &epicFieldError{field: field, reason: reasonNotString}
+			}
+			*dst = text
+			continue
+		}
+		dst, isList := lists[key]
+		if !isList {
 			return nil, &epicFieldError{field: field, reason: reasonUnknownKey}
 		}
-		text, isString := table[key].(string)
-		if !isString {
-			return nil, &epicFieldError{field: field, reason: reasonNotString}
+		list, err := stringList(field, table[key])
+		if err != nil {
+			return nil, err
 		}
-		*dst = text
+		*dst = list
 	}
 	if isBlank(step.Step) {
 		return nil, &epicFieldError{field: path + ".step", reason: epicReasonEmpty}
@@ -115,7 +134,31 @@ func parseReleaseStep(i int, table map[string]any) (*v1.EpicReleaseStep, error) 
 	if isBlank(step.Undo) {
 		return nil, &epicFieldError{field: path + ".undo", reason: epicReasonEmpty}
 	}
+	if field, reason := releasestep.Problem(step.GetKind(), storeReleaseStep(step).Params); field != "" {
+		return nil, &epicFieldError{field: path + "." + field, reason: reason}
+	}
+	if proto.Equal(step.Params, &v1.EpicReleaseParams{}) {
+		step.Params = nil
+	}
 	return step, nil
+}
+
+// stringList returns value, the value of field, as a list of strings. It must be an array whose every element is a
+// string, and is refused naming the field otherwise.
+func stringList(field string, value any) ([]string, error) {
+	items, isList := value.([]any)
+	if !isList {
+		return nil, &epicFieldError{field: field, reason: reasonNotStrings}
+	}
+	list := make([]string, 0, len(items))
+	for _, item := range items {
+		text, isString := item.(string)
+		if !isString {
+			return nil, &epicFieldError{field: field, reason: reasonNotStrings}
+		}
+		list = append(list, text)
+	}
+	return list, nil
 }
 
 // applyProjectRelease gives a contract that names no release step the project's release at the contract's base. It

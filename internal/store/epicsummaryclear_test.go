@@ -9,9 +9,9 @@ import (
 const epicSummaryClearOther = "orrery-0123456/epic-two"
 
 // TestEpicSummaryClearedByTheRewriteMigration stages the store at version 113, stores a summary on each of two epics,
-// and steps it up to the rewrite migration at 00114. It shows that the migration leaves every stored summary empty, and
-// that SetEpicSummary then writes a summary only while the summary is empty: the first write stays and a second is
-// refused.
+// and steps it up to the rewrite migration at 00114. It shows that the migration leaves every stored summary empty, and,
+// once the store is stepped up to the newest migration, that the epic reads with no summary and SetEpicSummary then
+// writes a summary only while the summary is empty: the first write stays and a second is refused.
 func TestEpicSummaryClearedByTheRewriteMigration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -37,6 +37,11 @@ func TestEpicSummaryClearedByTheRewriteMigration(t *testing.T) {
 	}
 	if stored != 0 {
 		t.Fatalf("%d epics keep a summary after the Up, want none", stored)
+	}
+	// The store's reads name the newest schema's columns, so the store is stepped up to the newest migration before it
+	// reads the epic. No later migration writes a summary, so the epic keeps the empty summary 00114 left it.
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up to the newest migration: %v", err)
 	}
 	got, err := s.Epic(ctx, seededEpic)
 	if err != nil {

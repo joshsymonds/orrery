@@ -175,6 +175,9 @@ type Config struct {
 	Reviewers Reviewers
 	Ending    Ending
 	StateDir  string
+	// Orrery is the orrery binary a release step that names a kind runs as `orrery release-step` (releasestep.Argv).
+	// Empty takes the one holder.Binary finds: orrery beside the running executable, else orrery on PATH.
+	Orrery string
 	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
 	// are given. A nil Hosts is hostexec.LocalHosts.
 	Hosts hostexec.Hosts
@@ -209,6 +212,7 @@ type Runner struct {
 	reviewers  Reviewers
 	ending     Ending
 	stateDir   string
+	orrery     string
 	hosts      hostexec.Hosts
 	originMain func(ctx context.Context, host hostexec.Host, repository string) (string, error)
 	heldRetry  time.Duration
@@ -242,7 +246,8 @@ const builtinEpic = "epic"
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
-		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, hosts: cfg.Hosts,
+		steps: cfg.Steps, reviewers: cfg.Reviewers, ending: cfg.Ending, stateDir: cfg.StateDir, orrery: cfg.Orrery,
+		hosts:      cfg.Hosts,
 		originMain: cfg.OriginMain, heldRetry: cfg.HeldRetry,
 		getenv: cfg.Getenv, now: cfg.Now, logger: cfg.Logger, ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{

@@ -591,6 +591,8 @@ type EpicReleaseStep struct {
 	Step     string
 	Target   string
 	Undo     string
+	Kind     string
+	Params   string
 }
 
 type EpicRequirement struct {

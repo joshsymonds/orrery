@@ -4347,7 +4347,7 @@ func (q *Queries) InsertEpicReleaseRun(ctx context.Context, arg InsertEpicReleas
 }
 
 const insertEpicReleaseStep = `-- name: InsertEpicReleaseStep :exec
-INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?)
+INSERT INTO epic_release_steps (epic, position, step, target, undo, kind, params) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicReleaseStepParams struct {
@@ -4356,6 +4356,8 @@ type InsertEpicReleaseStepParams struct {
 	Step     string
 	Target   string
 	Undo     string
+	Kind     string
+	Params   string
 }
 
 func (q *Queries) InsertEpicReleaseStep(ctx context.Context, arg InsertEpicReleaseStepParams) error {
@@ -4365,6 +4367,8 @@ func (q *Queries) InsertEpicReleaseStep(ctx context.Context, arg InsertEpicRelea
 		arg.Step,
 		arg.Target,
 		arg.Undo,
+		arg.Kind,
+		arg.Params,
 	)
 	return err
 }
@@ -8313,7 +8317,7 @@ func (q *Queries) ListEpicReleaseRuns(ctx context.Context, epic string) ([]EpicR
 }
 
 const listEpicReleaseSteps = `-- name: ListEpicReleaseSteps :many
-SELECT epic, position, step, target, undo FROM epic_release_steps WHERE epic = ? ORDER BY position
+SELECT epic, position, step, target, undo, kind, params FROM epic_release_steps WHERE epic = ? ORDER BY position
 `
 
 func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]EpicReleaseStep, error) {
@@ -8331,6 +8335,8 @@ func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]Epic
 			&i.Step,
 			&i.Target,
 			&i.Undo,
+			&i.Kind,
+			&i.Params,
 		); err != nil {
 			return nil, err
 		}

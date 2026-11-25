@@ -169,7 +169,7 @@ CREATE TABLE epic_release_steps (
     position INTEGER NOT NULL,
     step TEXT NOT NULL,
     target TEXT NOT NULL,
-    undo TEXT NOT NULL,
+    undo TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', params TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (epic, position)
 );
 CREATE TABLE epic_decisions (
@@ -1228,6 +1228,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (113,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (114,113,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,114,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (117,116,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);

@@ -11,6 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 )
 
 // epicIDMaxBytes caps the length of a contract's id.
@@ -341,11 +342,21 @@ func checkEpicAdditions(contract *v1.EpicContract) error {
 	return nil
 }
 
-// checkEpicReleaseSteps refuses a release step whose undo is empty.
+// checkEpicReleaseSteps refuses a release step whose undo is empty, and then one whose kind and parameters do not fit
+// together (releasestep.Problem): a kind that is not one of releasestep.Kinds, a parameter the kind needs and the step
+// does not set, one the step sets and its kind does not read, and a parameter whose value has the wrong form. A
+// parameter is named under params, as release_steps[i].params.branch.
 func checkEpicReleaseSteps(steps []*v1.EpicReleaseStep) error {
 	for i, step := range steps {
 		if isBlank(step.GetUndo()) {
 			return &epicFieldError{field: epicRowField("release_steps", i, "undo"), reason: epicReasonEmpty}
+		}
+		stored := storeReleaseStep(step)
+		if field, reason := releasestep.Problem(stored.Kind, stored.Params); field != "" {
+			if field != "kind" {
+				field = "params." + field
+			}
+			return &epicFieldError{field: epicRowField("release_steps", i, field), reason: reason}
 		}
 	}
 	return nil

@@ -366,18 +366,20 @@ func ReleaseStepWorkID(run NodeRun, runs []ReleaseRun, position int64) string {
 	return NodeWorkID(id, run.Attempt, fmt.Sprintf("release %d", position))
 }
 
-// runningStep reports whether a running release node run of flow's epic has the work step for `release position` at
-// its attempt, and that step has no end yet.
+// runningStep reports whether a running release node run of flow's epic has the work for `release position` at its
+// attempt, and that work has not ended: the agent step of a step with no kind, which has no end yet, or the check of a
+// step that names a kind, which is still running.
 func runningStep(flow EpicFlow, position int64) bool {
 	for _, run := range flow.Runs {
 		if run.Kind != releaseKind || run.State != NodeRunning {
 			continue
 		}
 		id := ReleaseStepWorkID(run, flow.Releases, position)
-		for _, step := range flow.Steps {
-			if step.ID == id && step.End == "" {
-				return true
-			}
+		if slices.ContainsFunc(flow.Steps, func(step StepRow) bool { return step.ID == id && step.End == "" }) ||
+			slices.ContainsFunc(flow.Checks, func(check NodeCheck) bool {
+				return check.ID == id && check.State == NodeRunning
+			}) {
+			return true
 		}
 	}
 	return false

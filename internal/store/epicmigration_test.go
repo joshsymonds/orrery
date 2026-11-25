@@ -45,7 +45,7 @@ func epicTableColumns() map[string][]string {
 		"epic_premises":      {"epic", "position", "id", "text", "if_wrong"},
 		"epic_exclusions":    {"epic", "position", "text"},
 		"epic_alternatives":  {"epic", "position", "alternative", "why_not", "reconsider"},
-		"epic_release_steps": {"epic", "position", "step", "target", "undo"},
+		"epic_release_steps": {"epic", "position", "step", "target", "undo", "kind", "params"},
 		"epic_gates": {
 			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not",
 		},

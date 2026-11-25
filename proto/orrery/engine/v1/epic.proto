@@ -442,6 +442,40 @@ message EpicReleaseStep {
 
   // How the step is undone.
   string undo = 3;
+
+  // The built-in mechanics the step runs as: push-main, tag, pin-flake or update. orreryd carries out a step that names
+  // a kind as code and checks its postcondition in code. Empty runs the step as an agent step, which the release judge
+  // rules on.
+  string kind = 4;
+
+  // The parameters of the step's kind. A step with no kind sets none.
+  EpicReleaseParams params = 5;
+}
+
+// EpicReleaseParams are the parameters of a release step's kind. Each kind sets the ones it reads and no others.
+message EpicReleaseParams {
+  // The branch of origin a push-main step fast-forwards, and the branch of the flake repository's origin a pin-flake
+  // step pins on and an update step builds from.
+  string branch = 1;
+
+  // What every version tag starts with, before MAJOR.MINOR.PATCH: the tags a tag step names and a pin-flake step pins.
+  string prefix = 2;
+
+  // The flake repository a pin-flake step pins in and an update step builds: an absolute path, or one that starts with
+  // ~/.
+  string flake = 3;
+
+  // The flake input a pin-flake step pins.
+  string input = 4;
+
+  // The url a pin-flake step sets the input to, with {tag} where the tag goes.
+  string url = 5;
+
+  // The argv an update step runs in the flake repository to switch the machine to it.
+  repeated string run = 6;
+
+  // The systemd user units an update step checks run a build that holds the candidate.
+  repeated string units = 7;
 }
 
 // EpicDecisionInput is a decision the owner made before the contract was created.

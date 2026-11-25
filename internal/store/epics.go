@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -190,11 +191,15 @@ type EpicAlternative struct {
 	Reconsider  string
 }
 
-// EpicReleaseStep is one thing that leaves the machine, and how to undo it.
+// EpicReleaseStep is one thing that leaves the machine, and how to undo it. Kind names the built-in mechanics orreryd
+// carries out and checks for the step, and Params the parameters of that kind (see releasestep). A step with no kind is
+// an agent step, and sets no parameters.
 type EpicReleaseStep struct {
 	Step   string
 	Target string
 	Undo   string
+	Kind   string
+	Params releasestep.Params
 }
 
 // EpicDecision is one recorded answer on an epic. Seq counts from 1 in recording order, and ID is the caller's id
@@ -357,9 +362,14 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	}); err != nil {
 		return fmt.Errorf("alternatives: %w", err)
 	}
-	if err := insertInOrder(row.ReleaseSteps, func(position int64, r EpicReleaseStep) error {
+	if err := insertInOrder(row.ReleaseSteps, func(position int64, step EpicReleaseStep) error {
+		params, err := json.Marshal(step.Params)
+		if err != nil {
+			return fmt.Errorf("encode params of release step %d: %w", position, err)
+		}
 		return queries.InsertEpicReleaseStep(ctx, sqlcgen.InsertEpicReleaseStepParams{
-			Epic: row.ID, Position: position, Step: r.Step, Target: r.Target, Undo: r.Undo,
+			Epic: row.ID, Position: position, Step: step.Step, Target: step.Target, Undo: step.Undo, Kind: step.Kind,
+			Params: string(params),
 		})
 	}); err != nil {
 		return fmt.Errorf("release steps: %w", err)
@@ -677,13 +687,9 @@ func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 		return EpicAlternative{Alternative: a.Alternative, WhyNot: a.WhyNot, Reconsider: a.Reconsider}
 	})
 
-	releaseSteps, err := queries.ListEpicReleaseSteps(ctx, row.ID)
-	if err != nil {
-		return fmt.Errorf("list release steps: %w", err)
+	if row.ReleaseSteps, err = releaseStepsOf(ctx, queries, row.ID); err != nil {
+		return err
 	}
-	row.ReleaseSteps = mapInOrder(releaseSteps, func(r sqlcgen.EpicReleaseStep) EpicReleaseStep {
-		return EpicReleaseStep{Step: r.Step, Target: r.Target, Undo: r.Undo}
-	})
 
 	decisions, err := queries.ListEpicDecisions(ctx, row.ID)
 	if err != nil {

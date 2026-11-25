@@ -105,7 +105,11 @@ func aboveChecks(contract *v1.EpicContract, decisions []*v1.ContractDecision) st
 
 	doc.WriteString("## What leaves this machine or can't be undone\n")
 	steps := tableRows(contract.GetReleaseSteps(), func(i int, s *v1.EpicReleaseStep) []string {
-		return []string{strconv.Itoa(i+1) + " " + s.GetStep(), s.GetTarget(), s.GetUndo()}
+		step := strconv.Itoa(i+1) + " " + s.GetStep()
+		if s.GetKind() != "" {
+			step += " (runs as code: " + s.GetKind() + ")"
+		}
+		return []string{step, s.GetTarget(), s.GetUndo()}
 	})
 	writeTable(&doc, []string{"Step", "Target", "Undo"}, steps)
 	fmt.Fprintf(&doc, "Then: %s\n\n", contract.GetReleaseThen())

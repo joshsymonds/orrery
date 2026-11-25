@@ -37,8 +37,10 @@ const (
 	KindUpdate = "update"
 )
 
-// Kinds lists every kind, in the order a release runs them.
-var Kinds = []string{KindPushMain, KindTag, KindPinFlake, KindUpdate}
+// Kinds returns every kind, in the order a release runs them.
+func Kinds() []string {
+	return []string{KindPushMain, KindTag, KindPinFlake, KindUpdate}
+}
 
 // Remote is the remote every kind reads and pushes.
 const Remote = "origin"
@@ -91,17 +93,26 @@ const (
 	ParamUnits  = "units"
 )
 
-// kindParams names the parameters each kind needs, in the order Problem checks them. A kind sets every one of its own
-// and none of the others.
-var kindParams = map[string][]string{
-	KindPushMain: {ParamBranch},
-	KindTag:      {ParamPrefix},
-	KindPinFlake: {ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL},
-	KindUpdate:   {ParamBranch, ParamFlake, ParamRun, ParamUnits},
+// kindParams returns the parameters kind needs, in the order Problem checks them, and whether kind is a kind. A kind
+// sets every one of its own and none of the others.
+func kindParams(kind string) ([]string, bool) {
+	switch kind {
+	case KindPushMain:
+		return []string{ParamBranch}, true
+	case KindTag:
+		return []string{ParamPrefix}, true
+	case KindPinFlake:
+		return []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL}, true
+	case KindUpdate:
+		return []string{ParamBranch, ParamFlake, ParamRun, ParamUnits}, true
+	}
+	return nil, false
 }
 
-// allParams names every parameter, in the order Problem checks them.
-var allParams = []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL, ParamRun, ParamUnits}
+// allParams returns every parameter, in the order Problem checks them.
+func allParams() []string {
+	return []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL, ParamRun, ParamUnits}
+}
 
 // prefixPattern is the form of a tag prefix: letters, digits, dots, dashes, underscores and slashes, so a prefix never
 // holds a glob character or white space.
@@ -136,9 +147,9 @@ func Problem(kind string, params Params) (field, reason string) {
 		}
 		return "", ""
 	}
-	needed, known := kindParams[kind]
+	needed, known := kindParams(kind)
 	if !known {
-		return "kind", fmt.Sprintf(reasonUnknownKind, kind, strings.Join(Kinds, ", "))
+		return "kind", fmt.Sprintf(reasonUnknownKind, kind, strings.Join(Kinds(), ", "))
 	}
 	for _, name := range needed {
 		if !slices.Contains(set, name) {
@@ -153,7 +164,7 @@ func Problem(kind string, params Params) (field, reason string) {
 	return formProblem(params)
 }
 
-// setParams returns the names of the parameters params sets, in the order of allParams. A string is set when it is not
+// setParams returns the names of the parameters params sets, in the order allParams gives them. A string is set when it is not
 // blank, and a list when it has an element.
 func setParams(params Params) []string {
 	values := map[string]bool{
@@ -166,7 +177,7 @@ func setParams(params Params) []string {
 		ParamUnits:  len(params.Units) > 0,
 	}
 	var set []string
-	for _, name := range allParams {
+	for _, name := range allParams() {
 		if values[name] {
 			set = append(set, name)
 		}

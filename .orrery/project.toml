@@ -1,27 +1,46 @@
 # orrery's own project file. An epic whose contract names no release steps releases by these, read at its base.
+#
+# Each step names a kind, so orreryd carries it out as code and checks its postcondition in code, and the release needs
+# no judge (internal/releasestep). A postcondition that already holds is met: a main, a tag, a pin or a running build
+# that has moved past the release's commit and still contains it is never moved back.
 
 [release]
 then = "origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
 
 [[release.steps]]
-step = "1 Fast-forward main to the epic's release candidate and push main to origin, so main holds the change; do not wait for CI. If origin refuses the push of main, the step returns status blocked with the refusal as evidence and never merges, rebases or force-pushes."
+step = "1 Fast-forward origin's main to the epic's release candidate and push it, so main holds the change; do not wait for CI. A refused push stops the release, and the step never merges, rebases or force-pushes."
 target = "github.com/joshsymonds/orrery, branch main"
 undo = "Push a revert of the change to main."
+kind = "push-main"
+branch = "main"
 
 [[release.steps]]
-step = "2 Create a signed annotated tag at that main commit, named the next patch version above the newest v* tag on origin when this step runs, its message one sentence naming the change, and push it. If that tag already exists locally or on origin, take the next free patch above it instead. Never move or delete a tag this step did not create. If origin already has a newer v* tag whose commit contains this release's main commit, skip the tag and return done with evidence naming that newer tag."
+step = "2 Push a signed annotated tag at the candidate, named the next patch version above the newest v* tag, with a message naming the change. A newer v* tag on origin that contains the candidate meets the step."
 target = "github.com/joshsymonds/orrery, the new tag"
 undo = "git push --delete origin <tag> and delete the local tag."
+kind = "tag"
+prefix = "v"
 
 [[release.steps]]
-step = "3 In ~/nix-config set flake.nix's orrery input url to the new tag, run `nix flake update orrery`, and commit only flake.nix and flake.lock with a message naming the tag, then push nix-config's main to origin, so the pin is on origin. If origin refuses the push because its main moved, fetch and rebase the pin commit onto origin's main, resolving flake.lock by running `nix flake update orrery` again, and push once more; never force-push. If origin already has a newer v* tag whose commit contains this release's main commit, skip the pin and return done with evidence naming that newer tag."
-target = "~/nix-config"
+step = "3 Pin ~/nix-config's orrery input to the newest v* tag that contains the candidate, in flake.nix and flake.lock, and push the pin to nix-config's origin main; never force-push."
+target = "~/nix-config, branch main on its origin"
 undo = "Commit flake.nix and flake.lock back to the previous tag."
+kind = "pin-flake"
+branch = "main"
+prefix = "v"
+flake = "~/nix-config"
+input = "orrery"
+url = "github:joshsymonds/orrery/{tag}"
 
 [[release.steps]]
-step = "4 Run `update` in ~/nix-config and confirm orreryd and orrery-serve run the new store path and the store is at the tag's newest migration. If origin already has a newer v* tag whose commit contains this release's main commit, skip `update` and return done with evidence naming that newer tag, and read the confirmation as met by that tag: origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
+step = "4 Bring ~/nix-config up to its origin main, run `update`, and check that orreryd and orrery-serve run a build that contains the candidate."
 target = "vermissian user services and the orrery store"
 undo = "Undo step 3, then run `update`; when the tag added a store migration, fix forward with a new release instead, since an older orreryd refuses the migrated store."
+kind = "update"
+branch = "main"
+flake = "~/nix-config"
+run = ["update"]
+units = ["orreryd", "orrery-serve"]
 
 # The runner sits under [release], not at the top level: orreryd refuses any unknown top-level key of this file on every
 # gate grant, and it accepts every key under release.
