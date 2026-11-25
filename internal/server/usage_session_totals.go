@@ -41,20 +41,25 @@ func (u usageServer) SessionTotals(
 	return connect.NewResponse(&orreryv1.UsageSessionTotalsResponse{Totals: usageTotalMessages(totals)}), nil
 }
 
-// usageTotalMessages converts each total to its proto message, in the order given.
+// usageTotalMessages converts each total to its proto message, in the order given. A per-kind list cost the total
+// leaves nil is unset in its message.
 func usageTotalMessages(totals []ledger.SessionTotal) []*orreryv1.UsageSessionTotal {
 	messages := make([]*orreryv1.UsageSessionTotal, 0, len(totals))
 	for _, total := range totals {
 		messages = append(messages, &orreryv1.UsageSessionTotal{
-			Model:             total.Model,
-			AgentType:         total.AgentType,
-			Requests:          total.Requests,
-			InputTokens:       total.InputTokens,
-			OutputTokens:      total.OutputTokens,
-			CacheReadTokens:   total.CacheReadTokens,
-			CacheWriteTokens:  total.CacheWriteTokens,
-			BilledCostNanoUsd: total.BilledCostNanoUSD,
-			ListCostNanoUsd:   total.ListCostNanoUSD,
+			Model:                 total.Model,
+			AgentType:             total.AgentType,
+			Requests:              total.Requests,
+			InputTokens:           total.InputTokens,
+			OutputTokens:          total.OutputTokens,
+			CacheReadTokens:       total.CacheReadTokens,
+			CacheWriteTokens:      total.CacheWriteTokens,
+			BilledCostNanoUsd:     total.BilledCostNanoUSD,
+			ListCostNanoUsd:       total.ListCostNanoUSD,
+			ListInputNanoUsd:      total.ListInputNanoUSD,
+			ListOutputNanoUsd:     total.ListOutputNanoUSD,
+			ListCacheReadNanoUsd:  total.ListCacheReadNanoUSD,
+			ListCacheWriteNanoUsd: total.ListCacheWriteNanoUSD,
 		})
 	}
 	return messages
