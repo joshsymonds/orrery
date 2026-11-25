@@ -16,8 +16,9 @@ import (
 // was prepared again, a round of the release integrator, which made and verified a merge of origin's commit, a replan,
 // which sends the release back to planning for a change to its candidate that a blocked round or a refusing review
 // asked for, a review, which records whether a release reviewer held the candidate before the first release step
-// started from it, and a stop, which records that the owner stopped the release at an attempt, so no further step of it
-// starts.
+// started from it, a rereview, which records that a release reviewer reviews a candidate prepared again with the
+// change since the candidate it last reviewed, and a stop, which records that the owner stopped the release at an
+// attempt, so no further step of it starts.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
@@ -27,8 +28,14 @@ const (
 	ReleasePartIntegrator = "integrator"
 	ReleasePartReplan     = "replan"
 	ReleasePartReview     = "review"
+	ReleasePartRereview   = "rereview"
 	ReleasePartStop       = "stop"
 )
+
+// ReleaseCarriedEnd is the end of a review release run that no step of its own decided: the release integrator found
+// that the reviewer's verdict on the candidate it last reviewed still stands for a candidate prepared again, so the
+// verdict is carried to it. Its Start is that earlier candidate and its Head the candidate prepared again.
+const ReleaseCarriedEnd = "carried"
 
 // The phases an epic's release moves through: clean until its release starts, releasing while its release runs, and
 // stopped when a release step stops it. Clean is also the phase an epic whose frozen review found it clean ends in, and
@@ -352,6 +359,53 @@ func ReleaseGeneration(runs []ReleaseRun, attempt int64) int64 {
 		}
 	}
 	return count
+}
+
+// ReplacedCandidate returns the candidate that the candidate of attempt at generation replaces: the head of the
+// generation-th verify run of attempt that did not pass, each a candidate origin's main was found not in. It reports
+// false at generation 0, which replaces none, and when runs hold no such verify run.
+func ReplacedCandidate(runs []ReleaseRun, attempt, generation int64) (string, bool) {
+	var count int64
+	for _, run := range runs {
+		if run.Part != ReleasePartVerify || run.Passed || run.Attempt != attempt {
+			continue
+		}
+		count++
+		if count == generation {
+			return run.Head, true
+		}
+	}
+	return "", false
+}
+
+// releaseIntegratorStride is how many positions each generation of a release run's candidate holds among the release
+// runs of its release integrator. The integrator once ran up to three rounds of a generation, recorded at
+// generation*3+1 to generation*3+3, and a live store holds rows at those positions. It now runs one round of a
+// generation, recorded at generation*3+1, the position the first round always had, so a round a store already holds is
+// read where it was recorded.
+const releaseIntegratorStride = 3
+
+// ReleaseIntegratorPosition returns the position of the release run that records the round of the release integrator of
+// the candidate at generation (releaseIntegratorStride). Each generation's round has a position after the one before
+// it, so every round of an attempt has a position of its own.
+func ReleaseIntegratorPosition(generation int64) int64 {
+	return generation*releaseIntegratorStride + 1
+}
+
+// ReleaseReviewPosition returns the position of the review run of the release reviewer at index, counted from 1 among
+// the n enabled release reviewers, which reviews the candidate of generation. Each generation numbers its reviews after
+// those of the generation before it, as ReleaseIntegratorPosition numbers the release integrator's round of each
+// generation, so every review of an attempt has a position of its own. A rereview run of the reviewer at that
+// generation has the same position.
+func ReleaseReviewPosition(generation, n, index int64) int64 {
+	return generation*n + index
+}
+
+// ReleaseReviewWorkID returns the id of the step of the release reviewer named reviewer, which reviews the candidate
+// of the release node run runID at attempt and generation: the work `review <reviewer>` under the id ReleaseGatedID
+// gives the run at that generation.
+func ReleaseReviewWorkID(runID string, attempt, generation int64, reviewer string) string {
+	return NodeWorkID(ReleaseGatedID(runID, generation), attempt, "review "+reviewer)
 }
 
 // ReleaseStepWorkID returns the id the release step at position is recorded under, for the release node run run whose

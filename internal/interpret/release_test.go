@@ -37,7 +37,8 @@ func tagStep() store.EpicReleaseStep {
 }
 
 // releaseWorld is one release test's world: the store, the check fake, the runner, the scratch repository its epics are
-// in, what each of its passes logged, and the Requirements the epics it creates declare, none unless a test sets them.
+// in, what each of its passes logged, the Requirements the epics it creates declare, none unless a test sets them, their
+// merged reviewers, and their gates, nodeGates unless a test sets them.
 type releaseWorld struct {
 	t            *testing.T
 	s            *store.Store
@@ -50,6 +51,15 @@ type releaseWorld struct {
 	logs         *bytes.Buffer
 	requirements []store.EpicRequirement
 	reviewerList []reviewers.Reviewer
+	gates        []store.EpicGate
+}
+
+// epicGates returns the gates the world's epics carry: the world's own when a test set them, and nodeGates otherwise.
+func (w *releaseWorld) epicGates() []store.EpicGate {
+	if w.gates != nil {
+		return w.gates
+	}
+	return nodeGates()
 }
 
 // newReleaseWorld returns a world with no epic stored, over a scratch repository on main, and a runner that ends epics
@@ -101,7 +111,7 @@ func (w *releaseWorld) createEpicOn(flow, base, id, phase string, steps ...store
 	}
 	if err = w.s.CreateEpic(w.t.Context(), store.EpicRow{
 		ID: id, Repository: w.repo, Base: base, Title: "Release the epic", Phase: phase, Created: runClock(),
-		Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
+		Changed: runClock(), Gates: w.epicGates(), DoneGates: []string{integrateDoneGate}, ReleaseSteps: steps,
 		ReleaseThen: releaseThen, Requirements: w.requirements, Reviewers: w.reviewerList,
 		Workflow: store.EpicWorkflow{
 			Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256, Nodes: pinnedNodes(pinned.Workflow.Nodes, ""),

@@ -48,14 +48,14 @@ func TestRecordIntegratorRoundStoresOneReplanPerTip(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
-	if err := s.RecordIntegratorRound(ctx, resumeEpic, blockedRound(1), false); err != nil {
+	if err := s.RecordIntegratorRound(ctx, resumeEpic, blockedRound(1), false, nil); err != nil {
 		t.Fatalf("RecordIntegratorRound without replan: %v", err)
 	}
 	if got := replansOf(t, s); len(got) != 0 {
 		t.Fatalf("replans = %+v, want none for a round that asks for none", got)
 	}
 	again := blockedRound(2)
-	if err := s.RecordIntegratorRound(ctx, resumeEpic, again, true); err != nil {
+	if err := s.RecordIntegratorRound(ctx, resumeEpic, again, true, nil); err != nil {
 		t.Fatalf("RecordIntegratorRound with replan: %v", err)
 	}
 	want := []store.ReleaseRun{{
@@ -67,7 +67,7 @@ func TestRecordIntegratorRoundStoresOneReplanPerTip(t *testing.T) {
 	}
 	later := blockedRound(1)
 	later.Attempt = 2
-	if err := s.RecordIntegratorRound(ctx, resumeEpic, later, true); err != nil {
+	if err := s.RecordIntegratorRound(ctx, resumeEpic, later, true, nil); err != nil {
 		t.Fatalf("RecordIntegratorRound at the same tip: %v", err)
 	}
 	if got := replansOf(t, s); !slices.EqualFunc(got, want, sameReleaseRun) {
@@ -79,6 +79,135 @@ func TestRecordIntegratorRoundStoresOneReplanPerTip(t *testing.T) {
 func sameReleaseRun(a, b store.ReleaseRun) bool {
 	return a.Part == b.Part && a.Position == b.Position && a.Attempt == b.Attempt && a.Step == b.Step &&
 		a.Start == b.Start && a.Head == b.Head && a.Reason == b.Reason && a.Passed == b.Passed && a.At.Equal(b.At)
+}
+
+// passedRound returns a round of the release integrator at attempt 1 and position 4, the round of generation 1, that
+// passed with the merge m2 as its head.
+func passedRound() store.ReleaseRun {
+	return store.ReleaseRun{
+		Part: store.ReleasePartIntegrator, Position: store.ReleaseIntegratorPosition(1), Attempt: 1,
+		Step: "release integrator", Start: replanTip, Head: "m2", End: "done", Commits: []string{"m2"}, Passed: true,
+		Reason: "verification ran Done gate lint: the merge touches Go", At: releaseRunAt(),
+	}
+}
+
+// TestRecordIntegratorRoundStoresItsReviews: a passed round stores, in its own write, the carried review of a reviewer
+// whose verdict stands and the rereview run of one that reviews again, each at its own position. A review a round cannot
+// settle, a carried review of a round that did not pass or a run of another part, is refused, and nothing is stored.
+func TestRecordIntegratorRoundStoresItsReviews(t *testing.T) {
+	t.Parallel()
+	carried := store.ReleaseRun{
+		Part: store.ReleasePartReview, Position: store.ReleaseReviewPosition(1, 2, 1), Attempt: 1, Step: "release",
+		Start: "m1", Head: "m2", End: store.ReleaseCarriedEnd, Passed: true, Reason: "carried", At: releaseRunAt(),
+	}
+	again := store.ReleaseRun{
+		Part: store.ReleasePartRereview, Position: store.ReleaseReviewPosition(1, 2, 2), Attempt: 1, Step: "security",
+		Start: "m1", Head: "m2", Evidence: "held candidate m1", Reason: "origin moved the auth code",
+		At: releaseRunAt(),
+	}
+	t.Run("a passed round stores both", func(t *testing.T) {
+		t.Parallel()
+		s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
+		ctx := t.Context()
+		reviews := []store.ReleaseRun{carried, again}
+		if err := s.RecordIntegratorRound(ctx, resumeEpic, passedRound(), false, reviews); err != nil {
+			t.Fatalf("RecordIntegratorRound: %v", err)
+		}
+		flow, err := s.EpicFlow(ctx, resumeEpic)
+		if err != nil {
+			t.Fatalf("EpicFlow: %v", err)
+		}
+		want := []store.ReleaseRun{passedRound(), again, carried}
+		if !slices.EqualFunc(flow.Releases, want, sameReleaseRun) {
+			t.Errorf("release runs = %+v, want the round, the rereview and the carried review %+v", flow.Releases, want)
+		}
+		if i := slices.IndexFunc(flow.Releases, func(run store.ReleaseRun) bool {
+			return run.Part == store.ReleasePartReview
+		}); i < 0 || flow.Releases[i].End != store.ReleaseCarriedEnd {
+			t.Errorf(
+				"release runs = %+v, want the review stored with the end %s",
+				flow.Releases,
+				store.ReleaseCarriedEnd,
+			)
+		}
+		if i := slices.IndexFunc(flow.Releases, func(run store.ReleaseRun) bool {
+			return run.Part == store.ReleasePartRereview
+		}); i < 0 || flow.Releases[i].Evidence != again.Evidence {
+			t.Errorf("release runs = %+v, want the rereview stored with its evidence %q", flow.Releases, again.Evidence)
+		}
+	})
+	refused := []struct {
+		name   string
+		round  store.ReleaseRun
+		review store.ReleaseRun
+	}{
+		{name: "a carried review of a blocked round", round: blockedRound(4), review: carried},
+		{name: "a review whose step ran", round: passedRound(), review: func() store.ReleaseRun {
+			ran := carried
+			ran.End = "done"
+			return ran
+		}()},
+		{name: "a run of another part", round: passedRound(), review: func() store.ReleaseRun {
+			judge := carried
+			judge.Part = store.ReleasePartJudge
+			return judge
+		}()},
+	}
+	for _, tc := range refused {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
+			ctx := t.Context()
+			reviews := []store.ReleaseRun{tc.review}
+			if err := s.RecordIntegratorRound(ctx, resumeEpic, tc.round, false, reviews); err == nil {
+				t.Fatal("RecordIntegratorRound = nil, want it refused")
+			}
+			flow, err := s.EpicFlow(ctx, resumeEpic)
+			if err != nil {
+				t.Fatalf("EpicFlow: %v", err)
+			}
+			if len(flow.Releases) != 0 {
+				t.Errorf("release runs = %+v, want none stored", flow.Releases)
+			}
+		})
+	}
+}
+
+// TestReleaseGenerationArithmetic: each generation's integrator round and reviews have positions of their own, the
+// candidate a generation replaces is the head of the attempt's verify run that made it, and the review step of a
+// generation runs under the run's id at that generation.
+func TestReleaseGenerationArithmetic(t *testing.T) {
+	t.Parallel()
+	if got := []int64{store.ReleaseIntegratorPosition(0), store.ReleaseIntegratorPosition(2)}; !slices.Equal(
+		got, []int64{1, 7}) {
+		t.Errorf("integrator positions = %v, want [1 7]", got)
+	}
+	if got := []int64{store.ReleaseReviewPosition(0, 2, 1), store.ReleaseReviewPosition(1, 2, 2)}; !slices.Equal(
+		got, []int64{1, 4}) {
+		t.Errorf("review positions = %v, want [1 4]", got)
+	}
+	runs := []store.ReleaseRun{
+		{Part: store.ReleasePartVerify, Attempt: 1, Position: 0, Head: "c1"},
+		{Part: store.ReleasePartVerify, Attempt: 2, Position: 0, Head: "d1"},
+		{Part: store.ReleasePartVerify, Attempt: 2, Position: 1, Head: "d2"},
+	}
+	for _, tc := range []struct {
+		attempt, generation int64
+		want                string
+		ok                  bool
+	}{
+		{attempt: 1, generation: 0}, {attempt: 1, generation: 1, want: "c1", ok: true},
+		{attempt: 2, generation: 2, want: "d2", ok: true}, {attempt: 2, generation: 3},
+	} {
+		if got, ok := store.ReplacedCandidate(runs, tc.attempt, tc.generation); got != tc.want || ok != tc.ok {
+			t.Errorf("ReplacedCandidate(attempt %d, generation %d) = %q, %t, want %q, %t", tc.attempt, tc.generation,
+				got, ok, tc.want, tc.ok)
+		}
+	}
+	want := store.NodeWorkID(store.ReleaseGatedID("run", 1), 2, "review release")
+	if got := store.ReleaseReviewWorkID("run", 2, 1, "release"); got != want {
+		t.Errorf("ReleaseReviewWorkID = %s, want %s", got, want)
+	}
 }
 
 // TestRetryOfReleaseStoppedByIntegratorEndsTheStop: retry on a release its integrator stopped with a blocked round stores

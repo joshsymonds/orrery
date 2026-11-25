@@ -36,9 +36,9 @@ func startMainMovedRelease(t *testing.T, w *releaseWorld, origin string) (string
 
 // TestReleaseMainMoved: a release whose first step fails after origin's main moved past its candidate is not stopped
 // by that failure. The candidate is marked stale at the attempt, so the release prepares it again: its release
-// integrator merges origin's main again and its release reviewer holds the merge, both under the new generation, with no
-// Done gate run, and its first step starts again under the id of that generation. A first step that fails while
-// origin's main is unmoved still stops the release.
+// integrator merges origin's main again and finds the release reviewer's earlier verdict no longer stands, so the
+// reviewer holds the merge again, both under the new generation, with no Done gate run, and its first step starts again
+// under the id of that generation. A first step that fails while origin's main is unmoved still stops the release.
 func TestReleaseMainMoved(t *testing.T) {
 	t.Parallel()
 	t.Run("step 1 fails after origin's main moved past the candidate", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestReleaseMainMoved(t *testing.T) {
 		if starts := w.integratorStarts(); len(starts) != 2 || starts[1].ID != round {
 			t.Fatalf("integrator starts = %+v, want the round of generation 1 under %s", starts, round)
 		}
-		prepared := w.integrateClean(round)
+		prepared := w.integrateCleanSaying(round, reviewSaid(false, "origin-2.txt is new beside what the tag reads"))
 		if prepared == candidate || !containsCommit(t, w.repo, moved, prepared) {
 			t.Fatalf("candidate = %s, want a new candidate that contains origin's main %s", prepared, moved)
 		}

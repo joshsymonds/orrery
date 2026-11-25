@@ -128,21 +128,44 @@ func (w *releaseWorld) commitCleanMerge() string {
 // step id done with a return that names the merge (cleanReturn), and passes. It returns the merge commit.
 func (w *releaseWorld) integrateClean(id string) string {
 	w.t.Helper()
+	return w.integrateCleanSaying(id, noReviews())
+}
+
+// integrateCleanSaying is integrateClean with reviews as the return's word on the earlier verdicts of the release
+// reviewers its prompt lists.
+func (w *releaseWorld) integrateCleanSaying(id string, reviews []map[string]any) string {
+	w.t.Helper()
 	merge := w.commitCleanMerge()
-	w.endStep(id, "done", "done", cleanReturn(merge))
+	ret := cleanReturn(merge)
+	ret["reviews"] = reviews
+	w.endStep(id, "done", "done", ret)
 	if logged := w.pass(); logged != "" {
 		w.t.Fatalf("pass logged: %s", logged)
 	}
 	return merge
 }
 
-// integratorChecks are the checks a done return of the release integrator lists in the tests: one build that passed.
+// integratorChecks are the checks a done return of the release integrator lists in the tests: the epic's one Done gate,
+// lint, and a build, both of which passed.
 func integratorChecks() []map[string]any {
-	return []map[string]any{{"command": "go build ./...", "result": "passed"}}
+	return []map[string]any{
+		{"command": "./bin/lint", "result": "passed"}, {"command": "go build ./...", "result": "passed"},
+	}
+}
+
+// lintRan is the gate choice a done return of the release integrator makes in the tests: it ran the epic's one Done
+// gate, lint, by default.
+func lintRan() []map[string]any {
+	return []map[string]any{{"gate": integrateDoneGate, "run": true, "reason": "a Done gate runs by default"}}
+}
+
+// noReviews is the reviews of a return whose prompt lists no earlier verdict of a release reviewer.
+func noReviews() []map[string]any {
+	return []map[string]any{}
 }
 
 // cleanReturn is a done return of the release integrator that names commit, the merge of a merge that did not
-// conflict, so it resolves no path, and lists the one build it ran.
+// conflict, so it resolves no path, runs the epic's Done gate and a build, and says nothing of an earlier review.
 func cleanReturn(commit string) map[string]any {
 	return map[string]any{
 		"status":        "done",
@@ -150,8 +173,23 @@ func cleanReturn(commit string) map[string]any {
 		"resolutions":   []map[string]any{},
 		"other_changes": []map[string]any{},
 		"checks":        integratorChecks(),
+		"gates":         lintRan(),
+		"reviews":       noReviews(),
 		"unresolved":    []map[string]any{},
-		"evidence":      "the two sides add different files and touch nothing the other reads, so a build shows the merge holds",
+		"evidence":      "the two sides add different files and touch nothing the other reads, so lint and a build hold",
+	}
+}
+
+// blockedReturn is a blocked return of the release integrator that stops on unresolved and gives evidence, having run
+// no check and chosen no gate.
+func blockedReturn(evidence string, unresolved ...map[string]any) map[string]any {
+	if unresolved == nil {
+		unresolved = []map[string]any{}
+	}
+	return map[string]any{
+		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
+		"checks": []map[string]any{}, "gates": []map[string]any{}, "reviews": noReviews(), "unresolved": unresolved,
+		"evidence": evidence,
 	}
 }
 
@@ -166,8 +204,8 @@ func (w conflictWorld) commitMerge() string {
 	return nodeGit(w.t, wt, "rev-parse", "HEAD")
 }
 
-// doneReturn is a done return of the release integrator that names commit, resolves README by keeping both sides and
-// lists the one build it ran, with others as its other_changes.
+// doneReturn is a done return of the release integrator that names commit, resolves README by keeping both sides, runs
+// the epic's Done gate and a build, and says nothing of an earlier review, with others as its other_changes.
 func doneReturn(commit string, others ...map[string]any) map[string]any {
 	if others == nil {
 		others = []map[string]any{}
@@ -175,8 +213,8 @@ func doneReturn(commit string, others ...map[string]any) map[string]any {
 	return map[string]any{
 		"status": "done", "commit": commit,
 		"resolutions":   []map[string]any{{"path": "README", "took": "both", "kept": "both lines stay"}},
-		"other_changes": others, "checks": integratorChecks(), "unresolved": []map[string]any{},
-		"evidence": "README keeps both lines",
+		"other_changes": others, "checks": integratorChecks(), "gates": lintRan(), "reviews": noReviews(),
+		"unresolved": []map[string]any{}, "evidence": "README keeps both lines",
 	}
 }
 
@@ -223,8 +261,8 @@ func requireSections(t *testing.T, prompt string, headings ...string) {
 func integratorSections() []string {
 	return []string{
 		"Contract", "Decisions", "Merge", "Conflicted paths", "Migration collisions", "Tasks", "Candidate commits",
-		"Origin commits",
-		"Same change", "Candidate changes", "Origin changes", "Changed on both sides", "Verification references",
+		"Origin commits", "Same change", "Candidate changes", "Origin changes", "Changed on both sides", "Done gates",
+		"Evidence commands", "Earlier reviews", "Origin since the reviewed candidates",
 	}
 }
 
@@ -233,7 +271,8 @@ func integratorSections() []string {
 // release integrator as an unowned writing step, labeled with the epic and the run's path, in a worktree that holds the
 // merge in progress at the tip with zdiff3 conflicts. Its role file names no integrator, so it runs under the release
 // agent. Its prompt is the role text, then each section in order: both sides' changed paths, the paths both changed,
-// and the epic's Done gates and evidence commands as references.
+// each Done gate as its check resolves it with its argv, limit and needs, the evidence commands, and no earlier review,
+// since no candidate of the release came before.
 func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t, nodeRequirements()...)
@@ -301,7 +340,10 @@ func TestEpicBaseReleaseConflictStartsIntegratorWithMergeInProgress(t *testing.T
 		"## Candidate changes\n- M README\n",
 		"## Origin changes\n- M README\n",
 		"## Changed on both sides\n- README\n",
-		"## Verification references\nDone gates:\n- lint: [\"./bin/lint\"]\nEvidence commands:\n- R1: [\"scripts/check\"]\n",
+		"## Done gates\n- lint: command [\"./bin/lint\"]\n  limit: 60s\n  needs: lint x 2\n",
+		"## Evidence commands\n- R1: [\"scripts/check\"]\n",
+		"## Earlier reviews\nNone.\n",
+		"## Origin since the reviewed candidates\nNone.\n",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
@@ -362,7 +404,7 @@ func TestReleaseCleanMergeStartsIntegrator(t *testing.T) {
 		"## Candidate changes\n- A epic.txt\n",
 		"## Origin changes\n- A origin.txt\n",
 		"## Changed on both sides\nNone.\n",
-		"Evidence commands:\n- R1: [\"scripts/check\"]\n",
+		"## Evidence commands\n- R1: [\"scripts/check\"]\n",
 	} {
 		if !strings.Contains(start.Prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, start.Prompt)
@@ -601,11 +643,9 @@ func TestReleaseIntegratorReturnCheckRefusesBadCommits(t *testing.T) {
 		{
 			name: "blocked naming a commit",
 			do: func(w conflictWorld) map[string]any {
-				return map[string]any{
-					"status": "blocked", "commit": w.tip, "resolutions": []map[string]any{},
-					"other_changes": []map[string]any{}, "checks": []map[string]any{},
-					"unresolved": []map[string]any{}, "evidence": "stopped",
-				}
+				ret := blockedReturn("stopped")
+				ret["commit"] = w.tip
+				return ret
 			},
 			want: "commit: a blocked return names no commit",
 		},
@@ -694,15 +734,13 @@ func TestReleaseIntegratorBlockedParksWithUnresolved(t *testing.T) {
 	t.Parallel()
 	w := newConflictWorld(t)
 	w.pass()
-	w.endStep(w.integratorID(), "returned", "blocked", map[string]any{
-		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
-		"checks": []map[string]any{},
-		"unresolved": []map[string]any{{
+	w.endStep(w.integratorID(), "returned", "blocked", blockedReturn(
+		"the two sides decide the greeting differently",
+		map[string]any{
 			"path": "README", "candidate": "the epic greets in English", "origin": "main greets in French",
 			"decision": "which greeting the product ships", "side": "merge",
-		}},
-		"evidence": "the two sides decide the greeting differently",
-	})
+		},
+	))
 	w.pass()
 
 	flow := w.flowOf(runEpic)
@@ -805,7 +843,7 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
 	}
-	check, err := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row)
+	check, err := ReadoptCheck(w.s, hostexec.LocalHosts(), w.runner.getenv)(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check", check != nil, err)
 	}
@@ -829,7 +867,15 @@ func TestReleaseIntegratorRestartFindsStepByID(t *testing.T) {
 	}
 
 	row.Schema = wantReleaseStepSchema
-	if other, otherErr := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row); other != nil || otherErr != nil {
+	if other, otherErr := ReadoptCheck(
+		w.s,
+		hostexec.LocalHosts(),
+		w.runner.getenv,
+	)(
+		t.Context(),
+		row,
+	); other != nil ||
+		otherErr != nil {
 		t.Errorf("ReadoptCheck of another step = %v, %v, want no check", other != nil, otherErr)
 	}
 }
@@ -845,7 +891,7 @@ func TestReleaseCleanMergeReadoptCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stored integrator step: %v", err)
 	}
-	readopt := ReadoptCheck(w.s, hostexec.LocalHosts())
+	readopt := ReadoptCheck(w.s, hostexec.LocalHosts(), w.runner.getenv)
 	check, err := readopt(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck = %v, %v, want the integrator's check for the clean merge", check != nil, err)

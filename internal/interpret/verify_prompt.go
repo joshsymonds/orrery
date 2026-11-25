@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -59,9 +60,9 @@ const VerifySchema = `{
 }`
 
 // verifyPrompt renders the prompt of a verification step from facts: the role text, then the sections Commit, Diff
-// stat, Changed paths, Conflict resolutions, Tasks, Done gates, Requirements and Captured whatever you choose, each
-// under a `## ` heading and None. when it has no lines (planner.WriteSection). An evidence item that does not encode
-// fails it.
+// stat, Changed paths, Conflict resolutions, Tasks, Done gates, Passed at this commit, Requirements and Captured
+// whatever you choose, each under a `## ` heading and None. when it has no lines (planner.WriteSection). An evidence
+// item that does not encode fails it.
 func verifyPrompt(facts verifyFacts) (string, error) {
 	requirements, err := planner.RequirementItems(facts.requirements)
 	if err != nil {
@@ -78,6 +79,7 @@ func verifyPrompt(facts verifyFacts) (string, error) {
 	planner.WriteSection(&out, "Conflict resolutions", facts.resolutions)
 	planner.WriteSection(&out, "Tasks", verifyTaskLines(facts.tasks, facts.merged))
 	planner.WriteSection(&out, "Done gates", doneGateLines(facts.gates))
+	planner.WriteSection(&out, "Passed at this commit", passedLines(facts.passed, facts.head))
 	planner.WriteSection(&out, "Requirements", requirements)
 	planner.WriteSection(&out, "Captured whatever you choose", floorLines(facts.scope.Floor))
 	return out.String(), nil
@@ -133,6 +135,17 @@ func doneGateLines(gates []resolvedGate) []string {
 		if gate.gate.Note != "" {
 			lines = append(lines, "  note: "+gate.gate.Note)
 		}
+	}
+	return lines
+}
+
+// passedLines returns each of passed, a Done gate whose check passed at head under a task integrator round, as `- <gate>:
+// its check passed at <head> under T<seq>'s round <round>`.
+func passedLines(passed []kinds.PassedGate, head string) []string {
+	lines := make([]string, 0, len(passed))
+	for _, gate := range passed {
+		lines = append(lines, fmt.Sprintf("- %s: its check passed at %s under T%d's round %d", gate.Gate, head,
+			gate.Task, gate.Round))
 	}
 	return lines
 }

@@ -21,7 +21,7 @@ func TestTriageReadoptedStepKeepsItsReturnCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step %s: %v", start.ID, err)
 	}
-	readopt := ReadoptCheck(w.s, hostexec.LocalHosts())
+	readopt := ReadoptCheck(w.s, hostexec.LocalHosts(), w.runner.getenv)
 	check, err := readopt(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck of the triage row = %v, %v; want the triage's return check", check != nil, err)
@@ -65,7 +65,7 @@ func TestTriageReadoptedRoundStepKeepsItsReturnCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Step %s: %v", start.ID, err)
 	}
-	check, err := ReadoptCheck(w.s, hostexec.LocalHosts())(t.Context(), row)
+	check, err := ReadoptCheck(w.s, hostexec.LocalHosts(), w.runner.getenv)(t.Context(), row)
 	if err != nil || check == nil {
 		t.Fatalf("ReadoptCheck of the round's triage row = %v, %v; want the triage's return check", check != nil, err)
 	}

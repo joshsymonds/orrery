@@ -22,7 +22,8 @@ import (
 )
 
 // integratorRole is the role text of the release integrator: the writing step that merges origin's commit into a release
-// tip that lacks it, resolves any conflicts, runs the verifications the merged tree needs, and commits the merge.
+// tip that lacks it, resolves any conflicts, runs the epic's Done gates on the merged tree unless it shows a skip is
+// safe, says whether each listed release reviewer's earlier verdict still stands, and commits the merge.
 //
 //go:embed integrator.md
 var integratorRole string
@@ -40,13 +41,16 @@ const integratorPart = "integrator"
 const integratorStepName = "release integrator"
 
 // IntegratorSchema is the schema the release integrator returns: its status, the merge commit, how each conflicted path
-// was resolved, each change outside the conflicts, each command it ran to verify the merged tree with its result, each
-// path it stopped on with the side its decision is on, and an account of the merge.
+// was resolved, each change outside the conflicts, each command it ran to verify the merged tree with its result,
+// whether it ran or skipped each Done gate and why, whether each listed release reviewer's earlier verdict stands for
+// the merge and why, each path it stopped on with the side its decision is on, and an account of the merge.
 const IntegratorSchema = `{
   "title": "Release integrator return",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "commit", "resolutions", "other_changes", "checks", "unresolved", "evidence"],
+  "required": [
+    "status", "commit", "resolutions", "other_changes", "checks", "gates", "reviews", "unresolved", "evidence"
+  ],
   "properties": {
     "status": {"type": "string", "enum": ["done", "blocked"]},
     "commit": {"type": "string"},
@@ -82,6 +86,35 @@ const IntegratorSchema = `{
         "additionalProperties": false,
         "required": ["command", "result"],
         "properties": {"command": {"type": "string"}, "result": {"type": "string"}}
+      }
+    },
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate", "run", "reason"],
+        "properties": {
+          "gate": {"type": "string", "description": "The Done gate's name."},
+          "run": {"type": "boolean", "description": "true when you ran the gate on the merged tree, false when you skipped it."},
+          "reason": {
+            "type": "string",
+            "description": "Why it ran, or what in the two sides' changes shows that nothing it checks could have changed."
+          }
+        }
+      }
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reviewer", "stands", "reason"],
+        "properties": {
+          "reviewer": {"type": "string", "description": "A release reviewer Earlier reviews lists."},
+          "stands": {"type": "boolean", "description": "true when its earlier verdict still stands for the merge you made."},
+          "reason": {"type": "string", "description": "What in origin's change since that review bears on its verdict, or why nothing does."}
+        }
       }
     },
     "unresolved": {
@@ -121,8 +154,18 @@ type integratorReturn struct {
 		Command string `json:"command"`
 		Result  string `json:"result"`
 	} `json:"checks"`
+	Gates      []kinds.GateChoice     `json:"gates"`
+	Reviews    []integratorReview     `json:"reviews"`
 	Unresolved []integratorUnresolved `json:"unresolved"`
 	Evidence   string                 `json:"evidence"`
+}
+
+// integratorReview is a release integrator's word on the earlier verdict of one release reviewer that its prompt lists:
+// the reviewer, whether the verdict still stands for the merge the integrator made, and why.
+type integratorReview struct {
+	Reviewer string `json:"reviewer"`
+	Stands   bool   `json:"stands"`
+	Reason   string `json:"reason"`
 }
 
 // otherChangesKey is the key of the changes a release integrator's return lists outside the conflicts, which
@@ -244,13 +287,31 @@ func mergesOrigin(run store.NodeRun) bool {
 	return err == nil && result.Origin != ""
 }
 
+// integratorFacts is what a round of the release integrator decides beyond its merge: the epic's Done gates as their
+// checks resolve them, each of which its done return names once, and the earlier verdicts of the release reviewers it
+// decides on (earlierReviews), none when every reviewer reviews the new candidate in full.
+type integratorFacts struct {
+	gates   []resolvedGate
+	earlier []earlierReview
+}
+
+// integratorFactsOf returns the facts of the round of the release integrator of run, whose prepare recorded result,
+// from the epic's rows flow: its Done gates resolved on the epic's host (resolveDoneGates) and the earlier verdicts the
+// rows hold.
+func (r *Runner) integratorFactsOf(
+	ctx context.Context, epic store.EpicRow, flow store.EpicFlow, run store.NodeRun, result kinds.ReleaseResult,
+) integratorFacts {
+	return integratorFacts{gates: r.resolveDoneGates(ctx, epic), earlier: earlierReviews(flow, run, result)}
+}
+
 // startIntegrator starts the round of the release integrator act names, as an unowned writing step in the run's
 // integrator worktree. The worktree is added afresh at the release tip, and the merge of origin's commit is started
 // there with merge.conflictStyle zdiff3, leaving any conflicts in place, unless the tip already holds that commit
-// (startMerge). Its prompt carries the migration collisions the prepare recorded. The step is labeled with the epic
-// and the run's path, and carries the integrator's return check (integratorCheck). A role, worktree, merge, prompt or
-// return check that fails, or a start refused for good, records the round as failed at once, and the release stops at
-// it on its next decision.
+// (startMerge). Its prompt carries the migration collisions the prepare recorded, the Done gates and the earlier
+// verdicts of the release reviewers it decides on (integratorFactsOf). The step is labeled with the epic and the run's
+// path, and carries the integrator's return check (integratorCheck), which holds it to the same facts. A role, rows,
+// worktree, merge, prompt or return check that fails, or a start refused for good, records the round as failed at
+// once, and the release stops at it on its next decision.
 func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[0], 10, 64)
 	if err != nil {
@@ -275,14 +336,19 @@ func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Ac
 	if err != nil {
 		return fail(err)
 	}
+	flow, err := r.store.EpicFlow(ctx, epic.ID)
+	if err != nil {
+		return fail(fmt.Errorf("read epic %s: %w", epic.ID, err))
+	}
+	facts := r.integratorFactsOf(ctx, epic, flow, act.Run, result)
 	if err = startMerge(ctx, host, merge, dir); err != nil {
 		return fail(err)
 	}
-	prompt, err := r.integratorPrompt(ctx, host, epic, merge, result.Branch, result.Collisions)
+	prompt, err := r.integratorPrompt(ctx, host, epic, flow, merge, result, facts)
 	if err != nil {
 		return fail(err)
 	}
-	check, err := integratorCheck(ctx, host, merge)
+	check, err := integratorCheck(ctx, host, merge, facts)
 	if err != nil {
 		return fail(err)
 	}
@@ -372,18 +438,22 @@ func (r *Runner) pinIntegrator(ctx context.Context, epic store.EpicRow, run stor
 }
 
 // recordIntegrator records the round of the release integrator act names once its step's end is stored. The round
-// passes only when the step ended done and its commit passes the engine's checks again (integratorFailures); the commit
-// is then pinned under the run's release ref and recorded as the round's head. A round that does not pass is recorded
-// failed: a blocked return with its report (blockedReason), and any other end with the merge (integratorReason) and
-// how the step ended.
-// A blocked return that names at least one unresolved path, on either side (namesDecisions), asks for a replan, which
-// the store records with the round (store.Store.RecordIntegratorRound).
+// passes only when the step ended done and passIntegrator passes it. A round that does not pass is recorded failed: a
+// blocked return with its report (blockedReason), and any other end with the merge (integratorReason) and how the step
+// ended. A failed round's reason ends with the Done gates its return said it ran or skipped, when it named any
+// (givenGateLines), so its stop or replan says what the merged tree was checked by. A blocked return that names at
+// least one unresolved path, on either side (namesDecisions), asks for a replan, which the store records with the round
+// (store.Store.RecordIntegratorRound), and so are the reviews a passed round settles, in the same write.
 func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	position, err := strconv.ParseInt(act.Items[1], 10, 64)
 	if err != nil {
 		return releaseRefused(act)
 	}
-	row, err := r.storedStep(ctx, epic.ID, act.IDs[0])
+	flow, err := r.store.EpicFlow(ctx, epic.ID)
+	if err != nil {
+		return fmt.Errorf("read epic %s: %w", epic.ID, err)
+	}
+	row, err := stepIn(flow, act.IDs[0])
 	if err != nil {
 		return err
 	}
@@ -402,21 +472,13 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 		Start: merge.tip, End: row.End, Evidence: ret.Evidence, At: at,
 	}
 	replan := false
+	var reviews []store.ReleaseRun
 	switch {
 	case row.End == releaseDone && decodeReason == "":
-		head, failures, checkErr := r.integratorCommitOf(ctx, epic, merge, ret)
-		if checkErr != nil {
-			return checkErr
+		facts := r.integratorFactsOf(ctx, epic, flow, act.Run, result)
+		if run, reviews, err = r.passIntegrator(ctx, epic, act, merge, ret, facts, run); err != nil {
+			return err
 		}
-		if len(failures) > 0 {
-			run.Reason = integratorReason(merge) + "; the release integrator's commit was refused: " +
-				strings.Join(failures, "; ")
-			break
-		}
-		if pinErr := r.pinIntegrator(ctx, epic, act.Run, head); pinErr != nil {
-			return pinErr
-		}
-		run.Head, run.Commits, run.Passed = head, []string{head}, true
 	case row.End == stepReturned && ret.Status == releaseBlocked && decodeReason == "":
 		run.Reason = blockedReason(merge, ret)
 		replan = namesDecisions(ret)
@@ -425,10 +487,72 @@ func (r *Runner) recordIntegrator(ctx context.Context, epic store.EpicRow, act A
 	default:
 		run.Reason = integratorReason(merge) + "; " + releaseEndReason("release integrator", row)
 	}
-	if err = r.store.RecordIntegratorRound(ctx, epic.ID, run, replan); err != nil {
+	if !run.Passed {
+		run.Reason = withLines(run.Reason, givenGateLines(row.ID, ret))
+	}
+	if err = r.store.RecordIntegratorRound(ctx, epic.ID, run, replan, reviews); err != nil {
 		return fmt.Errorf("record release integrator of epic %s: %w", epic.ID, err)
 	}
 	return nil
+}
+
+// passIntegrator settles run, the round of the release integrator act names, whose step ended done with ret, for the
+// merge it made with facts, and returns it with the reviews its write stores. The round passes only when its gate
+// choice holds code's floors again (kinds.GateChoiceFailures) and its commit passes the engine's checks again
+// (integratorFailures), as the return check held them; a round that does not is returned failed with the merge and the
+// lines it failed on. A passing commit is pinned under the run's release ref and recorded as the round's head. Its
+// reason records the round's choice: each Done gate, in Done gate order, as run or skipped with its reason and the floor
+// that held it (kinds.SettleGates, kinds.VerificationLines), then what the round settled for each release reviewer whose
+// earlier verdict its prompt listed (settleReviews).
+func (r *Runner) passIntegrator(
+	ctx context.Context, epic store.EpicRow, act Action, merge integratorMerge, ret integratorReturn,
+	facts integratorFacts, run store.ReleaseRun,
+) (store.ReleaseRun, []store.ReleaseRun, error) {
+	done := doneGatesOf(facts.gates)
+	if refused := kinds.GateChoiceFailures(done, ret.Gates); len(refused) > 0 {
+		run.Reason = integratorReason(merge) + "; the release integrator's gate choice was refused: " +
+			strings.Join(refused, "; ")
+		return run, nil, nil
+	}
+	head, failures, err := r.integratorCommitOf(ctx, epic, merge, ret)
+	if err != nil {
+		return run, nil, err
+	}
+	if len(failures) > 0 {
+		run.Reason = integratorReason(merge) + "; the release integrator's commit was refused: " +
+			strings.Join(failures, "; ")
+		return run, nil, nil
+	}
+	if pinErr := r.pinIntegrator(ctx, epic, act.Run, head); pinErr != nil {
+		return run, nil, pinErr
+	}
+	reviews, lines, err := r.settleReviews(ctx, epic, act.Run, merge, ret, facts.earlier, head, run.At)
+	if err != nil {
+		return run, nil, err
+	}
+	settled, _ := kinds.SettleGates(done, ret.Gates)
+	chosen := kinds.VerificationLines(kinds.Verification{Step: act.IDs[0], Gates: settled})
+	run.Head, run.Commits, run.Passed = head, []string{head}, true
+	run.Reason = strings.Join(slices.Concat(chosen, lines), "\n")
+	return run, reviews, nil
+}
+
+// givenGateLines returns the lines of the Done gates ret, a release integrator's return, says it ran or skipped, as it
+// gave them, with no floor applied (kinds.VerificationLines), and none when it named none. step is the integrator's
+// step.
+func givenGateLines(step string, ret integratorReturn) []string {
+	if len(ret.Gates) == 0 {
+		return nil
+	}
+	return kinds.VerificationLines(kinds.Verification{Step: step, Gates: ret.Gates})
+}
+
+// withLines returns reason followed by lines, each on a line of its own, or reason alone when there are none.
+func withLines(reason string, lines []string) string {
+	if len(lines) == 0 {
+		return reason
+	}
+	return reason + "\n" + strings.Join(lines, "\n")
 }
 
 // integratorReason is the merge a round of the release integrator of merge makes, as the reason of a round that did not
@@ -495,17 +619,20 @@ func mergeTreeOf(ctx context.Context, host hostexec.Host, merge integratorMerge)
 	return tree, nil
 }
 
-// integratorCheck returns the return check of a release integrator step on host that finishes merge. Each return is
-// checked for its shape (integratorShape), and a done return's commit is checked by integratorFailures. Each failure is
-// one line, which the step loop sends back to the integrator. The tree git's own merge writes is computed once, here.
+// integratorCheck returns the return check of a release integrator step on host that finishes merge with facts. Each
+// return is checked for its shape (integratorShape), a done return's gate choice and reviews against facts
+// (integratorChoiceShape), and a done return's commit by integratorFailures. Each failure is one line, which the step
+// loop sends back to the integrator, so a round that ends done holds a complete choice within code's floors. The tree
+// git's own merge writes is computed once, here.
 func integratorCheck(
-	ctx context.Context, host hostexec.Host, merge integratorMerge,
+	ctx context.Context, host hostexec.Host, merge integratorMerge, facts integratorFacts,
 ) (func(json.RawMessage) []string, error) {
 	tree, err := mergeTreeOf(ctx, host, merge)
 	if err != nil {
 		return nil, err
 	}
 	checkCtx := context.WithoutCancel(ctx)
+	gates, listed := doneGatesOf(facts.gates), reviewerNames(facts.earlier)
 	return func(value json.RawMessage) []string {
 		ret, decodeErr := parseIntegratorReturn(value)
 		if decodeErr != nil {
@@ -515,14 +642,50 @@ func integratorCheck(
 		if ret.Status != releaseDone {
 			return failures
 		}
+		failures = append(failures, integratorChoiceShape(ret, gates, listed)...)
 		return append(failures, integratorFailures(checkCtx, host, merge, tree, ret)...)
 	}, nil
 }
 
+// integratorChoiceShape returns the lines on which the choice of ret, a done return, fails code's floors. Its Done gate
+// choice holds kinds.GateChoiceFailures: every Done gate of gates named once with a reason, an always gate run, an
+// unknown gate refused, and no gate that does not resolve. Its reviews give exactly one entry, with a reason, for each
+// release reviewer of listed, the reviewers whose earlier verdicts the prompt lists, and none for any other reviewer,
+// so a prompt that lists none takes none.
+func integratorChoiceShape(ret integratorReturn, gates []kinds.DoneGate, listed []string) []string {
+	failures := kinds.GateChoiceFailures(gates, ret.Gates)
+	counts := make(map[string]int, len(ret.Reviews))
+	for _, review := range ret.Reviews {
+		if !slices.Contains(listed, review.Reviewer) {
+			failures = append(failures, fmt.Sprintf(
+				"reviews: Earlier reviews lists no verdict of %s, so reviews has no entry for it", review.Reviewer))
+			continue
+		}
+		counts[review.Reviewer]++
+	}
+	for _, name := range listed {
+		i := slices.IndexFunc(ret.Reviews, func(review integratorReview) bool { return review.Reviewer == name })
+		switch {
+		case i < 0:
+			failures = append(failures, fmt.Sprintf(
+				"reviews: release reviewer %s is not named; say whether its earlier verdict stands for the merge, "+
+					"and why", name))
+		case counts[name] > 1:
+			failures = append(failures, fmt.Sprintf("reviews: release reviewer %s is named %d times; name it once",
+				name, counts[name]))
+		case strings.TrimSpace(ret.Reviews[i].Reason) == "":
+			failures = append(failures, fmt.Sprintf(
+				"reviews: release reviewer %s gives no reason; say what in origin's change since the candidate it "+
+					"reviewed bears on its verdict, or why nothing does", name))
+		}
+	}
+	return failures
+}
+
 // integratorShape returns the lines on which the shape of ret fails. A done return names its commit, has exactly one
 // resolution for each conflicted path and none for any other path, so a clean merge has none, lists at least one
-// command it ran to verify the merged tree, leaves unresolved empty and gives evidence. A blocked return names no
-// commit, and gives unresolved or evidence.
+// command it ran to verify the merged tree, leaves unresolved empty and gives evidence; its gate choice and reviews are
+// integratorChoiceShape's. A blocked return names no commit, and gives unresolved or evidence.
 func integratorShape(ret integratorReturn, conflicts []string) []string {
 	if ret.Status != releaseDone {
 		var failures []string
@@ -806,16 +969,18 @@ func cutText(text string, limit int) string {
 
 // ReadoptCheck returns the return check a re-adopted step row of the interpreter is restored with: the check its start
 // gave it. A release integrator step's is rebuilt from the running release run the row's Task label names and the
-// Result that run recorded, whether that merge conflicts or not, and its git runs on the host the row's epic names in
-// hosts. A gate triage step's is kinds.TriageFailures against the check it triages, read from the store as its start
-// read it (readoptTriageCheck). Any other row gets a nil check. A release run that is not running, a Result that merges
-// no origin commit into the row's revision, and a triage step whose check is not stored are errors, so the row is not
-// re-adopted.
+// Result that run recorded, whether that merge conflicts or not, with the facts its start read (integratorFacts): the
+// epic's Done gates, resolved on the host the row's epic names in hosts with getenv as a runner resolves them, and the
+// earlier verdicts of the release reviewers the epic's rows hold. Its git runs on that host. A gate triage step's is
+// kinds.TriageFailures against the check it triages, read from the store as its start read it (readoptTriageCheck).
+// Any other row gets a nil check. A release run that is not running, a Result that merges no origin commit into the
+// row's revision, and a triage step whose check is not stored are errors, so the row is not re-adopted.
 func ReadoptCheck(
 	epics interface {
 		EpicFlow(ctx context.Context, id string) (store.EpicFlow, error)
 	},
 	hosts hostexec.Hosts,
+	getenv func(string) string,
 ) func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 	return func(ctx context.Context, row store.StepRow) (func(json.RawMessage) []string, error) {
 		if row.Schema == TriageSchema {
@@ -846,6 +1011,10 @@ func ReadoptCheck(
 		if err != nil {
 			return nil, fmt.Errorf("host of epic %s: %w", row.Epic, err)
 		}
-		return integratorCheck(ctx, host, releaseMerge(flow.Epic.Repository, row.Workspace, result))
+		facts := integratorFacts{
+			gates:   resolveGatesOn(ctx, host, nil, flow.Epic, getenv),
+			earlier: earlierReviews(flow, flow.Runs[i], result),
+		}
+		return integratorCheck(ctx, host, releaseMerge(flow.Epic.Repository, row.Workspace, result), facts)
 	}
 }

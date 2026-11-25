@@ -243,13 +243,6 @@ func candidateAction(run store.NodeRun, rows Rows) Action {
 	return Action{Kind: ActRecord, Items: []string{store.ReleasePartCandidate, run.Revision}}
 }
 
-// replacedCount returns how many candidates of attempt origin's main was found not in, each a verify run of the attempt
-// that did not pass. Each one is a candidate the attempt has prepared again, so it is the generation of the candidate
-// the run has now.
-func replacedCount(attempt int64, runs []store.ReleaseRun) int64 {
-	return store.ReleaseGeneration(runs, attempt)
-}
-
 // gatedRun returns run as the work of its candidate at generation runs under: its release integrator, its release
 // reviewers and its first release step. The first candidate of an attempt runs under the run's own id. A candidate
 // prepared again runs under an id that carries its generation, so the work the attempt ran for the candidate it replaces
@@ -372,14 +365,15 @@ func releaseWork(rows Rows, step store.EpicReleaseStep, id string, items []strin
 // starts from. Each enabled reviewer of the release stage, in merged order, reviews candidate once at this attempt, as its
 // step is started and recorded: a review that failed is decided by reviewRefused, and the next reviewer waits for the one
 // before it. A reviewer with no review starts (ActStep), waits while its step runs, or is recorded once its step has
-// ended. It holds when no release reviewer is enabled.
+// ended. A review the release integrator's round carried to candidate, a passed review with the end
+// store.ReleaseCarriedEnd, holds as any passed review does, so that reviewer starts no step. It holds when no release
+// reviewer is enabled.
 func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, bool) {
-	generation := replacedCount(run.Attempt, rows.Releases)
-	gated := gatedRun(run, generation)
+	generation := store.ReleaseGeneration(rows.Releases, run.Attempt)
 	enabled := reviewers.ForStage(rows.Epic.Reviewers, reviewers.StageRelease)
 	for i, reviewer := range enabled {
-		position := releaseReviewPosition(generation, int64(len(enabled)), int64(i+1))
-		id := store.NodeWorkID(gated.ID, run.Attempt, "review "+reviewer.Name)
+		position := store.ReleaseReviewPosition(generation, int64(len(enabled)), int64(i+1))
+		id := store.ReleaseReviewWorkID(run.ID, run.Attempt, generation, reviewer.Name)
 		row, found := firstMatch(rows.Steps, func(s store.StepRow) bool { return s.ID == id })
 		review, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 			return r.Part == store.ReleasePartReview && r.Attempt == run.Attempt && r.Position == position
@@ -407,7 +401,7 @@ func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, 
 // replan's head. Once per tip: when an earlier replan already recorded that tip, the planner left the branch where it was,
 // and the release stops with the review's reason and a note saying so. Any other failed review stops it with its reason.
 func reviewRefused(rows Rows, row store.StepRow, review store.ReleaseRun, candidate string) Action {
-	tip, ok := candidateTip(rows.Releases, candidate)
+	tip, ok := CandidateTip(rows.Releases, candidate)
 	if !ok || len(ReleaseRefusalClaims(row)) == 0 {
 		return Action{Kind: ActStop, Output: review.Reason}
 	}
@@ -422,23 +416,15 @@ func reviewRefused(rows Rows, row store.StepRow, review store.ReleaseRun, candid
 	}
 }
 
-// candidateTip returns the epic's branch tip that the latest passed candidate run whose head is candidate was made
+// CandidateTip returns the epic's branch tip that the latest passed candidate run whose head is candidate was made
 // from, and false when no such run records one.
-func candidateTip(runs []store.ReleaseRun, candidate string) (string, bool) {
+func CandidateTip(runs []store.ReleaseRun, candidate string) (string, bool) {
 	for _, run := range slices.Backward(runs) {
 		if run.Part == store.ReleasePartCandidate && run.Passed && run.Head == candidate {
 			return run.Start, run.Start != ""
 		}
 	}
 	return "", false
-}
-
-// releaseReviewPosition returns the position of the review run of the release reviewer at index, counted from 1 among the
-// n enabled release reviewers, which reviews the candidate of generation. Each generation numbers its reviews after those
-// of the generation before it, as integratorPosition numbers the release integrator's round of each generation, so every
-// review of an attempt has a position of its own.
-func releaseReviewPosition(generation, n, index int64) int64 {
-	return generation*n + index
 }
 
 // ReleaseRefusalClaims returns the claim of each finding that the release reviewer whose step is row refused its

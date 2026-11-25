@@ -85,7 +85,9 @@ type Store interface {
 	) error
 	ResumeReplannedRelease(ctx context.Context, epic, path string, attempt int64, at time.Time) error
 	RecordRelease(ctx context.Context, epic string, run store.ReleaseRun) error
-	RecordIntegratorRound(ctx context.Context, epic string, round store.ReleaseRun, replan bool) error
+	RecordIntegratorRound(
+		ctx context.Context, epic string, round store.ReleaseRun, replan bool, reviews []store.ReleaseRun,
+	) error
 	RecordCandidate(ctx context.Context, epic string, run store.ReleaseRun) error
 	MarkCandidateStale(
 		ctx context.Context, epic, path string, attempt int64, head, reason string, at time.Time,

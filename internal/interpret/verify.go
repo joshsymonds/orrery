@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -201,18 +202,27 @@ type resolvedGate struct {
 	unresolved string
 }
 
-// resolveDoneGates returns each Done gate of epic, in order, resolved as its check resolves it (build.ResolveGate): from
-// the epic's gates, else the project file of its repository, read on the epic's host. A gate that does not resolve,
-// including one when the host does not, and an agent gate, which a check does not run, carry why.
+// resolveDoneGates returns each Done gate of epic, in order, resolved as its check resolves it (resolveGatesOn), on the
+// epic's host.
 func (r *Runner) resolveDoneGates(ctx context.Context, epic store.EpicRow) []resolvedGate {
-	out := make([]resolvedGate, 0, len(epic.DoneGates))
 	host, hostErr := r.hostOf(epic)
+	return resolveGatesOn(ctx, host, hostErr, epic, r.getenv)
+}
+
+// resolveGatesOn returns each Done gate of epic, in order, resolved as its check resolves it (build.ResolveGate): from
+// the epic's gates, else the project file of its repository, read on host, which hostErr says did not resolve when it is
+// set. getenv reads the environment the project file is found by. A gate that does not resolve, every one when the host
+// does not, and an agent gate, which a check does not run, carry why.
+func resolveGatesOn(
+	ctx context.Context, host hostexec.Host, hostErr error, epic store.EpicRow, getenv func(string) string,
+) []resolvedGate {
+	out := make([]resolvedGate, 0, len(epic.DoneGates))
 	for _, name := range epic.DoneGates {
 		if hostErr != nil {
 			out = append(out, resolvedGate{name: name, unresolved: hostErr.Error()})
 			continue
 		}
-		gate, err := build.ResolveGate(ctx, host, epic, name, r.getenv)
+		gate, err := build.ResolveGate(ctx, host, epic, name, getenv)
 		switch {
 		case err != nil:
 			out = append(out, resolvedGate{name: name, unresolved: err.Error()})
@@ -240,7 +250,8 @@ func doneGatesOf(resolved []resolvedGate) []kinds.DoneGate {
 // verifyFacts is what the prompt of a verification step gives: what it verifies, the commit its change runs from and
 // the commit it verifies, git's diff stat and name-status lines between them, the conflict resolutions that made the
 // commit, the tasks whose change it holds with the one a round merged first, the epic's Done gates as their checks
-// resolve them, its Requirements, and the scope its Requirements settle within.
+// resolve them, the Done gates whose checks already passed at the commit under a task integrator round of the run, its
+// Requirements, and the scope its Requirements settle within.
 type verifyFacts struct {
 	what         string
 	base, head   string
@@ -250,6 +261,7 @@ type verifyFacts struct {
 	tasks        []store.EpicTask
 	merged       int64
 	gates        []resolvedGate
+	passed       []kinds.PassedGate
 	requirements []store.EpicRequirement
 	scope        kinds.VerifyScope
 }
@@ -257,8 +269,10 @@ type verifyFacts struct {
 // verifyFacts reads the facts of act's target from the store and git. The batch's change runs from the base its result
 // names to the run's revision, its candidate, and its tasks are the ones it composed; its resolutions are those of its
 // rounds that composed a task. A round's change runs from the candidate its step merged into to its merged commit, act's
-// revision; its tasks are its own and the ones composed before it, and its resolution is its own. A result that does not
-// decode, a round that is not recorded and a git read that fails are errors.
+// revision; its tasks are its own and the ones composed before it, and its resolution is its own. Either way the gates
+// that passed at the commit are read from the run's rows (kinds.GatesPassedAt): a batch whose last conflicting round
+// composed has that round's merged commit as its candidate, so the round's passed checks ran on the same tree. A result
+// that does not decode, a round that is not recorded and a git read that fails are errors.
 func (r *Runner) verifyFacts(
 	ctx context.Context, epic store.EpicRow, act Action, target verifyTarget,
 ) (verifyFacts, error) {
@@ -316,6 +330,7 @@ func (r *Runner) verifyFacts(
 		return verifyFacts{}, changeErr
 	}
 	facts.gates = r.resolveDoneGates(ctx, epic)
+	facts.passed = kinds.GatesPassedAt(act.Run, flowRows(flow), facts.head)
 	return facts, nil
 }
 

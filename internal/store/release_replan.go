@@ -23,10 +23,30 @@ const integratorReturnedEnd = "returned"
 // also stores a replan release run at the round's attempt, with the round's start as its start and the round's reason
 // as its reason, unless a replan release run of epic already names that start: a replan that left the release tip
 // where it was would only send the same merge back to the integrator, so the release stops on the round instead.
-func (s *Store) RecordIntegratorRound(ctx context.Context, epic string, round ReleaseRun, replan bool) error {
+//
+// reviews are what a passed round settles for the release reviewers of the candidate it made, stored in the same write
+// as RecordRelease stores each: a carried review, of part review, passed, with the end ReleaseCarriedEnd, for each
+// reviewer whose earlier verdict still stands, and a rereview run for each reviewer that reviews the candidate again
+// with the change since the candidate it last reviewed. A review of any other kind, and any review of a round that did
+// not pass, is an error, and the write stores nothing.
+func (s *Store) RecordIntegratorRound(
+	ctx context.Context, epic string, round ReleaseRun, replan bool, reviews []ReleaseRun,
+) error {
+	for _, review := range reviews {
+		carried := review.Part == ReleasePartReview && review.Passed && review.End == ReleaseCarriedEnd
+		if !round.Passed || (!carried && review.Part != ReleasePartRereview) {
+			return fmt.Errorf("release integrator round of epic %s: %s run of %s is not a review it can settle",
+				epic, review.Part, review.Step)
+		}
+	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := recordRelease(ctx, queries, epic, round); err != nil {
 			return err
+		}
+		for _, review := range reviews {
+			if err := recordRelease(ctx, queries, epic, review); err != nil {
+				return err
+			}
 		}
 		if !replan {
 			return nil

@@ -60,15 +60,13 @@ func newReplanWorld(t *testing.T, requirements ...store.EpicRequirement) replanW
 // block ends the release integrator's round blocked on README, with its decision on side, and passes.
 func (w replanWorld) block(side string) {
 	w.t.Helper()
-	w.endStep(w.integratorID(), "returned", "blocked", map[string]any{
-		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
-		"checks": []map[string]any{},
-		"unresolved": []map[string]any{{
+	w.endStep(w.integratorID(), "returned", "blocked", blockedReturn(
+		"the candidate's README must change before the merge",
+		map[string]any{
 			"path": "README", "candidate": "the epic's README says change", "origin": "main's README says origin",
 			"decision": "make the candidate's README say origin, as main's does", "side": side,
-		}},
-		"evidence": "the candidate's README must change before the merge",
-	})
+		},
+	))
 	if logged := w.pass(); logged != "" {
 		w.t.Fatalf("pass logged: %s", logged)
 	}
@@ -81,10 +79,7 @@ const pathlessEvidence = "the worktree is not as the role text describes it"
 // release, and passes.
 func (w replanWorld) blockWithoutPaths() {
 	w.t.Helper()
-	w.endStep(w.integratorID(), "returned", "blocked", map[string]any{
-		"status": "blocked", "commit": "", "resolutions": []map[string]any{}, "other_changes": []map[string]any{},
-		"checks": []map[string]any{}, "unresolved": []map[string]any{}, "evidence": pathlessEvidence,
-	})
+	w.endStep(w.integratorID(), "returned", "blocked", blockedReturn(pathlessEvidence))
 	if logged := w.pass(); logged != "" {
 		w.t.Fatalf("pass logged: %s", logged)
 	}

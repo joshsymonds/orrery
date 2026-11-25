@@ -81,7 +81,7 @@ func (w *releaseWorld) createReviewedEpic(reviewerList []reviewers.Reviewer, ste
 		Phase:        store.PhaseClean,
 		Created:      runClock(),
 		Changed:      runClock(),
-		Gates:        nodeGates(),
+		Gates:        w.epicGates(),
 		DoneGates:    []string{integrateDoneGate},
 		ReleaseSteps: steps,
 		ReleaseThen:  releaseThen,

@@ -315,6 +315,46 @@ func TestVerifyRoundStartsAtItsMergeWithItsResolution(t *testing.T) {
 	}
 }
 
+// TestVerifyBatchPromptNamesTheGatesThatPassedAtItsCandidate: once the only conflicting task's round composes, the
+// batch's candidate is that round's merged commit, and the batch's verification step is told that the Done gate whose
+// check passed there under the round already passed at this commit. The round's own verification, before its gate ran,
+// is told none passed. Code skips nothing for it: a choice that names no gate still runs the gate at the candidate.
+func TestVerifyBatchPromptNamesTheGatesThatPassedAtItsCandidate(t *testing.T) {
+	t.Parallel()
+	w := newRoundWorld(t)
+	head := w.mergeRound(w.roundStart(1), "both\n")
+	endTaskStep(t, w.s, w.roundID(1), "done", "done", taskReturn(verdictMerged, head, "b.go keeps both lines"))
+	w.pass()
+	w.endGateAt(head, 0, "")
+	w.pass()
+	nodeEndEvidence(t, w.s, w.captureAt(head))
+	w.pass()
+
+	run := runAt(t, w.s, integrateBatch)
+	if run.Revision != head {
+		t.Fatalf("batch revision = %s, want the composed commit %s", run.Revision, head)
+	}
+	round := verifyStart(t, w.integrateWorld, kinds.VerifyID(run, 2, 1)).Prompt
+	if want := "\n## Passed at this commit\nNone.\n"; !strings.Contains(round, want) {
+		t.Errorf("round's verification prompt lacks %q:\n%s", want, round)
+	}
+	batch := verifyStart(t, w.integrateWorld, kinds.VerifyID(run, 0, 0)).Prompt
+	want := "\n## Done gates\n- lint: command [\"./bin/lint\"]\n  limit: 60s\n  needs: lint x 2\n" +
+		"\n## Passed at this commit\n- lint: its check passed at " + head + " under T2's round 1\n\n## Requirements\n"
+	if !strings.Contains(batch, want) {
+		t.Errorf("batch's verification prompt lacks %q:\n%s", want, batch)
+	}
+	var atHead int
+	for _, check := range w.fakes.checks.calls {
+		if check.Revision == head {
+			atHead++
+		}
+	}
+	if atHead != 2 {
+		t.Errorf("checks at %s = %d, want the round's and the batch's: code skips no gate for a pass", head, atHead)
+	}
+}
+
 // TestWithVerificationKeepsTheBatch: recording a batch's verification and then a round's keeps every field the batch
 // result held, and composedRound keeps both when it moves the round's task to the composed tasks.
 func TestWithVerificationKeepsTheBatch(t *testing.T) {

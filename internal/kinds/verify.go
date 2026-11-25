@@ -271,6 +271,83 @@ func SettleGates(gates []DoneGate, chosen []GateChoice) ([]GateChoice, []string)
 	return out, ignored
 }
 
+// GateChoiceFailures returns the lines on which chosen, the Done gate choice of a step that runs the gates it chooses
+// itself, as the release integrator does, fails code's floors. Code cannot run a gate after such a step returns, so
+// where SettleGates applies a floor, this refuses the choice: every gate of gates is named exactly once, each entry
+// gives a reason, a gate declared always runs, and an entry that names no gate of gates is refused. A gate that does not
+// resolve has no command to run and fails as such a gate's check always has, so it refuses any choice: a step that met
+// one cannot verify the commit, and stops. It returns no line when chosen holds.
+func GateChoiceFailures(gates []DoneGate, chosen []GateChoice) []string {
+	var failures []string
+	counts := make(map[string]int, len(chosen))
+	for _, choice := range chosen {
+		if !slices.ContainsFunc(gates, func(gate DoneGate) bool { return gate.Name == choice.Gate }) {
+			failures = append(
+				failures,
+				fmt.Sprintf("gates: %s is not a Done gate of the epic; name only the Done gates",
+					choice.Gate),
+			)
+			continue
+		}
+		counts[choice.Gate]++
+	}
+	for _, gate := range gates {
+		i := slices.IndexFunc(chosen, func(choice GateChoice) bool { return choice.Gate == gate.Name })
+		switch {
+		case gate.Unresolved != "":
+			failures = append(failures, fmt.Sprintf(
+				"gates: Done gate %s does not resolve (%s), so it cannot run and the merged tree cannot pass it: "+
+					"return blocked and name it in evidence", gate.Name, gate.Unresolved))
+		case i < 0:
+			failures = append(failures, fmt.Sprintf(
+				"gates: Done gate %s is not named; name every Done gate once, with whether you ran it and why",
+				gate.Name))
+		case counts[gate.Name] > 1:
+			failures = append(failures, fmt.Sprintf("gates: Done gate %s is named %d times; name it once", gate.Name,
+				counts[gate.Name]))
+		case strings.TrimSpace(chosen[i].Reason) == "":
+			failures = append(failures, fmt.Sprintf(
+				"gates: Done gate %s gives no reason; say why it ran, or what in the two sides' changes shows "+
+					"nothing it checks could have changed", gate.Name))
+		case gate.Always && !chosen[i].Run:
+			failures = append(failures, fmt.Sprintf(
+				"gates: Done gate %s is declared always, so it is never skipped: run it and return run true",
+				gate.Name))
+		}
+	}
+	return failures
+}
+
+// PassedGate is a Done gate whose check passed at a commit under a task integrator round of an integrate run: the
+// gate, and the task and round whose checks ran it.
+type PassedGate struct {
+	Gate        string
+	Task, Round int64
+}
+
+// GatesPassedAt returns each Done gate of rows' epic, in Done gate order, whose check passed at revision under a task
+// integrator round of run's attempt, with the first such round in the order rows hold them. Each round's gate is read
+// as its round's checks read it (gateCheck, under roundRun's id), its triage reruns included, so only the check that
+// decided the gate counts, and only when it ended, exited 0, did not time out and ran at revision. A gate the round's
+// choice skipped has no check there, so it is never given. A batch whose last round composed its task has that round's
+// merged commit as its candidate, so these are the gates that already passed on the candidate's own tree.
+func GatesPassedAt(run store.NodeRun, rows Rows, revision string) []PassedGate {
+	var passed []PassedGate
+	for i, gate := range rows.Epic.DoneGates {
+		for _, round := range rows.Rounds {
+			if round.Path != run.Path || round.Attempt != run.Attempt || round.Head != revision {
+				continue
+			}
+			check, end := checkChain(roundRun(run, round.Task, round.Round), rows, donePart(i), true, true)
+			if end.outcome == chainEnded && checkPassed(check) && check.Revision == revision {
+				passed = append(passed, PassedGate{Gate: gate, Task: round.Task, Round: round.Round})
+				break
+			}
+		}
+	}
+	return passed
+}
+
 // SettleRequirements returns the choice of each Requirement of scope's Items, in contract order, from chosen, the
 // verification step's choice, with code's floors applied: a Requirement of scope's Floor is captured whatever chosen
 // says (FloorClaimed), and one chosen does not name and no floor holds is not captured (FloorUnmentioned). Each keeps

@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/taskspec"
@@ -55,20 +55,19 @@ type sideCommit struct {
 	id, subject, date, patch string
 }
 
-// integratorPrompt renders the prompt of the round of the release integrator that makes merge, whose origin commit was
-// fetched from origin's branch: the role text, then the sections Contract, Decisions, Merge, Conflicted paths,
-// Migration collisions, Tasks, Candidate commits, Origin commits, Same change, Candidate changes, Origin changes,
-// Changed on both sides and Verification references, each under a `## ` heading and None. when it has no lines
-// (planner.WriteSection). collisions are the lines of Migration collisions, as the prepare recorded them. Git runs on
-// host, the host the epic lives on.
+// integratorPrompt renders the prompt of the round of the release integrator that makes merge, from result, what the
+// release's prepare recorded, flow, the epic's rows, and facts, what the round decides beyond its merge: the role text,
+// then the sections Contract, Decisions, Merge, Conflicted paths, Migration collisions, Tasks, Candidate commits,
+// Origin commits, Same change, Candidate changes, Origin changes, Changed on both sides, Done gates, Evidence commands,
+// Earlier reviews and Origin since the reviewed candidates, each under a `## ` heading and None. when it has no lines
+// (planner.WriteSection). Merge names the branch of origin result's commit was fetched from, and Migration collisions
+// holds result's collision lines. Done gates gives each Done gate as its check resolves it (doneGateLines). Earlier
+// reviews and Origin since the reviewed candidates give facts' earlier verdicts (earlierReviewLines, originSinceLines).
+// Git runs on host, the host the epic lives on.
 func (r *Runner) integratorPrompt(
-	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch string,
-	collisions []string,
+	ctx context.Context, host hostexec.Host, epic store.EpicRow, flow store.EpicFlow, merge integratorMerge,
+	result kinds.ReleaseResult, facts integratorFacts,
 ) (string, error) {
-	flow, err := r.store.EpicFlow(ctx, epic.ID)
-	if err != nil {
-		return "", fmt.Errorf("read epic %s: %w", epic.ID, err)
-	}
 	base, err := gitOutput(ctx, host, merge.repo, "merge-base", merge.tip, merge.origin)
 	if err != nil {
 		return "", err
@@ -82,13 +81,17 @@ func (r *Runner) integratorPrompt(
 	if err != nil {
 		return "", err
 	}
+	since, err := originSinceLines(ctx, host, merge.repo, facts.earlier, merge.origin)
+	if err != nil {
+		return "", err
+	}
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(integratorRole, "\n"))
 	planner.WriteSection(&out, "Contract", contract)
 	planner.WriteSection(&out, "Decisions", planner.DecisionLines(epic, math.MaxInt64))
-	planner.WriteSection(&out, "Merge", mergeLines(merge, branch, base))
+	planner.WriteSection(&out, "Merge", mergeLines(merge, result.Branch, base))
 	planner.WriteSection(&out, "Conflicted paths", sides.conflicted)
-	planner.WriteSection(&out, migrationsSection, collisions)
+	planner.WriteSection(&out, migrationsSection, result.Collisions)
 	planner.WriteSection(&out, "Tasks", integratorTaskLines(epic.Tasks, flow.Runs))
 	planner.WriteSection(&out, "Candidate commits", sides.candidateLog)
 	planner.WriteSection(&out, "Origin commits", sides.originLog)
@@ -96,7 +99,10 @@ func (r *Runner) integratorPrompt(
 	planner.WriteSection(&out, "Candidate changes", sides.candidateChanges)
 	planner.WriteSection(&out, "Origin changes", sides.originChanges)
 	planner.WriteSection(&out, "Changed on both sides", sides.both)
-	planner.WriteSection(&out, "Verification references", r.verificationLines(ctx, epic))
+	planner.WriteSection(&out, "Done gates", doneGateLines(facts.gates))
+	planner.WriteSection(&out, "Evidence commands", evidenceLines(epic))
+	planner.WriteSection(&out, "Earlier reviews", earlierReviewLines(facts.earlier))
+	planner.WriteSection(&out, "Origin since the reviewed candidates", since)
 	return out.String(), nil
 }
 
@@ -460,34 +466,17 @@ func bothLines(candidate, origin []pathChange) []string {
 	return lines
 }
 
-// verificationLines returns the epic's own checks, which the release integrator reads as references for the checks the
-// merged tree needs: each Done gate with its argv, or with why it does not resolve, then each Requirement's evidence
-// command with its argv.
-func (r *Runner) verificationLines(ctx context.Context, epic store.EpicRow) []string {
-	gates := make([]string, 0, len(epic.DoneGates))
-	host, hostErr := r.hostOf(epic)
-	for _, name := range epic.DoneGates {
-		if hostErr != nil {
-			gates = append(gates, fmt.Sprintf("- %s: does not resolve: %v", name, hostErr))
-			continue
-		}
-		gate, err := build.ResolveGate(ctx, host, epic, name, r.getenv)
-		switch {
-		case err != nil:
-			gates = append(gates, fmt.Sprintf("- %s: does not resolve: %v", name, err))
-		case gate.Agent != "":
-			gates = append(gates, fmt.Sprintf("- %s: agent %s", name, gate.Agent))
-		default:
-			gates = append(gates, fmt.Sprintf("- %s: %s", name, jsonList(gate.Argv)))
-		}
-	}
+// evidenceLines returns each Requirement of epic whose evidence item captures a command, as `- <id>: <argv>` with its
+// argv as a JSON array: the commands the epic's own work was judged by, which the release integrator reads as
+// references for what the repository checks and how.
+func evidenceLines(epic store.EpicRow) []string {
 	var commands []string
 	for _, requirement := range epic.Requirements {
 		if len(requirement.Item.Capture) > 0 {
 			commands = append(commands, fmt.Sprintf("- %s: %s", requirement.ID, jsonList(requirement.Item.Capture)))
 		}
 	}
-	return append(planner.ListLines("Done gates", gates), planner.ListLines("Evidence commands", commands)...)
+	return commands
 }
 
 // jsonList returns items as a JSON array, the form a gate's argv takes in a prompt.

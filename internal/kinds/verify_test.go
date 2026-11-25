@@ -59,6 +59,100 @@ func TestSettleGatesFloors(t *testing.T) {
 	}
 }
 
+// TestGateChoiceFailuresRefuseWhatCodeCannotRun: a step that runs the gates it chooses must name every Done gate once,
+// each with a reason, run a gate declared always and name no other gate, and no choice holds while a Done gate does not
+// resolve. A complete choice that runs the always gate and skips another with a reason holds.
+func TestGateChoiceFailuresRefuseWhatCodeCannotRun(t *testing.T) {
+	t.Parallel()
+	gates := []DoneGate{{Name: "check", Always: true}, {Name: "android"}}
+	complete := []GateChoice{
+		{Gate: "check", Run: true, Reason: "it is declared always"},
+		{Gate: "android", Run: false, Reason: "neither side changed android/ or proto/"},
+	}
+	if got := GateChoiceFailures(gates, complete); len(got) != 0 {
+		t.Errorf("GateChoiceFailures(complete) = %q, want none", got)
+	}
+	cases := []struct {
+		name   string
+		gates  []DoneGate
+		chosen []GateChoice
+		want   string
+	}{
+		{
+			name: "a gate left out", gates: gates, chosen: complete[:1],
+			want: "gates: Done gate android is not named; name every Done gate once",
+		},
+		{
+			name: "a gate named twice", gates: gates, chosen: append(slices.Clone(complete), complete[1]),
+			want: "gates: Done gate android is named 2 times; name it once",
+		},
+		{
+			name: "a reasonless entry", gates: gates,
+			chosen: []GateChoice{complete[0], {Gate: "android", Run: true, Reason: "  "}},
+			want:   "gates: Done gate android gives no reason",
+		},
+		{
+			name: "an always gate skipped", gates: gates,
+			chosen: []GateChoice{{Gate: "check", Run: false, Reason: "only docs changed"}, complete[1]},
+			want:   "gates: Done gate check is declared always, so it is never skipped",
+		},
+		{
+			name: "an unknown gate", gates: gates,
+			chosen: append(slices.Clone(complete), GateChoice{Gate: "lint", Run: true, Reason: "ran it"}),
+			want:   "gates: lint is not a Done gate of the epic",
+		},
+		{
+			name:  "a gate that does not resolve",
+			gates: []DoneGate{gates[0], {Name: "android", Unresolved: "no gate android"}},
+			chosen: []GateChoice{
+				complete[0], {Gate: "android", Run: true, Reason: "it runs whatever the choice says"},
+			},
+			want: "gates: Done gate android does not resolve (no gate android), so it cannot run",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := GateChoiceFailures(tc.gates, tc.chosen)
+			if len(got) != 1 || !strings.HasPrefix(got[0], tc.want) {
+				t.Errorf("GateChoiceFailures = %q, want the one line %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGatesPassedAtReadsTheRoundsChecksAtTheCommit: a Done gate whose check passed at the commit under the round of task
+// 2 whose merge it is passed there; a gate whose check failed, a gate whose check is still running and a gate whose
+// check ran at another commit did not, and no gate passed at a commit no round of the run merged.
+func TestGatesPassedAtReadsTheRoundsChecksAtTheCommit(t *testing.T) {
+	t.Parallel()
+	run := store.NodeRun{ID: testRunID, Path: batchPath, Kind: "integrate", Attempt: 1, Revision: "m1"}
+	epic := integrateEpic()
+	epic.DoneGates = []string{"just check", "just lint", "just web", "just docs"}
+	rows := Rows{
+		Epic:   epic,
+		Rounds: []store.IntegrateRound{recordedRound(1, RoundMerged, "m1", "composed", "")},
+		Checks: []store.NodeCheck{
+			{ID: roundWork("done 1"), State: store.NodeEnded, Revision: "m1"},
+			{ID: roundWork("done 2"), State: store.NodeEnded, Exit: 1, Revision: "m1"},
+			{ID: roundWork("done 3"), State: store.NodeRunning, Revision: "m1"},
+			{ID: roundWork("done 4"), State: store.NodeEnded, Revision: "m0"},
+		},
+	}
+	want := []PassedGate{{Gate: "just check", Task: 2, Round: 1}}
+	if got := GatesPassedAt(run, rows, "m1"); !reflect.DeepEqual(got, want) {
+		t.Errorf("GatesPassedAt(m1) = %+v, want %+v", got, want)
+	}
+	if got := GatesPassedAt(run, rows, "m0"); len(got) != 0 {
+		t.Errorf("GatesPassedAt(m0) = %+v, want none: no round of the run merged m0", got)
+	}
+	other := run
+	other.Attempt = 2
+	if got := GatesPassedAt(other, rows, "m1"); len(got) != 0 {
+		t.Errorf("GatesPassedAt at attempt 2 = %+v, want none: the round ran at attempt 1", got)
+	}
+}
+
 // TestSettleRequirementsFloors: a Requirement the floor holds is captured whatever the step chose, the step may add one
 // the floor does not hold, one it chose not to capture is not, one it does not name is not captured, and a name that
 // is no Requirement with an evidence item is ignored and noted.

@@ -99,8 +99,12 @@ func releaseReviewOf(act Action, at time.Time) (store.ReleaseRun, error) {
 }
 
 // startReleaseReview starts the release reviewer act names, read-only at the candidate act names, over the epic's own
-// change: from where the candidate meets origin's main (releaseReviewBase) to the candidate. A reviewer or start refused
-// for good records the review failed at once, and the release stops at it on its next decision.
+// change: from where the candidate meets origin's main (releaseReviewBase) to the candidate. A reviewer whose earlier
+// verdict the release integrator's round of a candidate prepared again did not carry, as a rereview release run at its
+// attempt and position records (rereviewOf), reads after that prompt its earlier verdict, why it was not carried and
+// the change from the candidate it last read to this one (rereviewText). Any other reviewer reads the plain prompt. A
+// reviewer or start refused for good records the review failed at once, and the release stops at it on its next
+// decision.
 func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	run, err := releaseReviewOf(act, at)
 	if err != nil {
@@ -110,6 +114,10 @@ func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act
 	host, err := r.hostOf(epic)
 	if err != nil {
 		return err
+	}
+	flow, err := r.store.EpicFlow(ctx, epic.ID)
+	if err != nil {
+		return fmt.Errorf("read epic %s: %w", epic.ID, err)
 	}
 	base, err := releaseReviewBase(ctx, host, epic, run.Head)
 	if err != nil {
@@ -121,6 +129,9 @@ func (r *Runner) startReleaseReview(ctx context.Context, epic store.EpicRow, act
 			return fmt.Errorf("start release reviewer %s of epic %s: %w", run.Step, epic.ID, err)
 		}
 		return r.failReleaseReview(ctx, epic, run, err)
+	}
+	if rereview, again := rereviewOf(flow.Releases, run); again {
+		start.Prompt += "\n\n" + rereviewText(rereview)
 	}
 	// The step's task is the release run's path. The rows of a release read a step under that path, which is how they
 	// read a review's steps, since the review's label is none the release reads by name.

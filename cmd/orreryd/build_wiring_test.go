@@ -190,7 +190,10 @@ func TestReadoptCheckComposesPlannerThenBuild(t *testing.T) {
 	if err := st.SetTurnStep(ctx, buildWiringEpic, 1, "plan-step"); err != nil {
 		t.Fatalf("set turn step: %v", err)
 	}
-	check := readoptCheck(st, planner.NewResolver(nil, t.TempDir(), hostexec.LocalHosts()), hostexec.LocalHosts())
+	check := readoptCheck(
+		st, planner.NewResolver(nil, t.TempDir(), hostexec.LocalHosts()), hostexec.LocalHosts(),
+		func(string) string { return "" },
+	)
 	rows := []struct {
 		name string
 		row  store.StepRow

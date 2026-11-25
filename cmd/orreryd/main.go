@@ -1171,7 +1171,7 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts),
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts, getenv),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
 			Host: hostName, Hosts: hosts,
@@ -1404,16 +1404,18 @@ func serveOpts(opts options, st *store.Store, logger *slog.Logger) []connect.Han
 }
 
 // readoptCheck is the ReadoptCheck of the steps. A re-adopted row gets the planner's return check when it is the step of a
-// running planner turn, and when that check is nil, the interpreter's check when it is a release integrator step or a
-// gate triage step, and then the build's verifier or orchestrator check, which reads the epic's tasks on the host that
-// hosts resolves the epic to. An error from any of them is returned.
+// running planner turn, and when that check is nil, the interpreter's check when it is a release integrator step, whose
+// Done gates it resolves with getenv as the interpreter does, or a gate triage step, and then the build's verifier or
+// orchestrator check, which reads the epic's tasks on the host that hosts resolves the epic to. An error from any of
+// them is returned.
 func readoptCheck(
 	st *store.Store,
 	resolve planner.Resolver,
 	hosts hostexec.Hosts,
+	getenv func(string) string,
 ) func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 	plan := planner.ReadoptCheck(st, resolve)
-	integrate := interpret.ReadoptCheck(st, hosts)
+	integrate := interpret.ReadoptCheck(st, hosts, getenv)
 	verify := build.ReadoptCheck(st, hosts)
 	return func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error) {
 		check, err := plan(ctx, row)

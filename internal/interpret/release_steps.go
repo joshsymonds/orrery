@@ -593,15 +593,20 @@ func releaseJudgeReason(row store.StepRow, result releaseJudgeResult, decodeReas
 	return ""
 }
 
-// storedStep returns the stored step row with id of epic, read from the epic's rows.
+// storedStep returns the stored step row with id of epic, read from the epic's rows (stepIn).
 func (r *Runner) storedStep(ctx context.Context, epic, id string) (store.StepRow, error) {
 	flow, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
 		return store.StepRow{}, fmt.Errorf("read epic %s: %w", epic, err)
 	}
+	return stepIn(flow, id)
+}
+
+// stepIn returns the step row with id among the rows flow holds of its epic. A step flow does not hold is an error.
+func stepIn(flow store.EpicFlow, id string) (store.StepRow, error) {
 	i := slices.IndexFunc(flow.Steps, func(row store.StepRow) bool { return row.ID == id })
 	if i < 0 {
-		return store.StepRow{}, fmt.Errorf("step %s of epic %s is not stored", id, epic)
+		return store.StepRow{}, fmt.Errorf("step %s of epic %s is not stored", id, flow.Epic.ID)
 	}
 	return flow.Steps[i], nil
 }
