@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
+	"github.com/joshsymonds/orrery/internal/stepmcp"
 )
 
 // fakeRefusal is the message every refusal of the fake Evidence service carries.
@@ -32,6 +34,7 @@ type fakeEvidence struct {
 	run      *v1.EvidenceRun
 	runs     []*v1.EvidenceRun
 	data     []byte
+	capture  string
 	refusals []connect.Code
 
 	mu    sync.Mutex
@@ -93,20 +96,33 @@ func (f *fakeEvidence) GetEvidenceArtifact(
 	return connect.NewResponse(&v1.GetEvidenceArtifactResponse{Data: f.data}), nil
 }
 
-// CaptureEvidence implements enginev1connect.EvidenceHandler. The fake answers every capture as unimplemented.
+// CaptureEvidence implements enginev1connect.EvidenceHandler. It records the capture with the caller session its
+// header names, and answers with capture.
 func (f *fakeEvidence) CaptureEvidence(
 	_ context.Context,
-	_ *connect.Request[v1.CaptureEvidenceRequest],
+	req *connect.Request[v1.CaptureEvidenceRequest],
 ) (*connect.Response[v1.CaptureEvidenceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New(fakeRefusal))
+	call := fmt.Sprintf("capture session=%q commit=%q runner=%q briefs=%q files=%q argv=%q",
+		req.Header().Get(protocol.HeaderSession), req.Msg.GetCommit(), req.Msg.GetRunner(), req.Msg.GetBriefs(),
+		req.Msg.GetFiles(), req.Msg.GetArgv())
+	if err := f.answer(call); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.CaptureEvidenceResponse{Capture: f.capture}), nil
 }
 
-// AttachEvidence implements enginev1connect.EvidenceHandler. The fake answers every attach as unimplemented.
+// AttachEvidence implements enginev1connect.EvidenceHandler. It records the attach with the caller session its header
+// names, and answers with runs.
 func (f *fakeEvidence) AttachEvidence(
 	_ context.Context,
-	_ *connect.Request[v1.AttachEvidenceRequest],
+	req *connect.Request[v1.AttachEvidenceRequest],
 ) (*connect.Response[v1.AttachEvidenceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New(fakeRefusal))
+	call := fmt.Sprintf("attach session=%q capture=%q briefs=%q",
+		req.Header().Get(protocol.HeaderSession), req.Msg.GetCapture(), req.Msg.GetBriefs())
+	if err := f.answer(call); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.AttachEvidenceResponse{Runs: f.runs}), nil
 }
 
 // serveEvidence serves fake as Evidence on the session socket beside a daemon socket in a temporary directory. It
@@ -445,6 +461,128 @@ func TestEvidenceReadsRetryUnavailable(t *testing.T) {
 			}
 			if got := stdout.String(); got != tc.want {
 				t.Errorf("stdout %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// runOrreryAs runs orrery with args as the session named session, the ORRERY_SESSION a step's shell carries, and returns
+// its exit status and stderr.
+func runOrreryAs(t *testing.T, stdout io.Writer, session string, args ...string) runResult {
+	t.Helper()
+	stdin, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer func() { _ = stdin.Close() }()
+	var stderr bytes.Buffer
+	getenv := func(name string) string {
+		if name == protocol.EnvSession {
+			return session
+		}
+		return ""
+	}
+	return runResult{code: run(args, stdin, stdout, &stderr, getenv), stderr: stderr.String()}
+}
+
+// TestEvidenceCaptureSendsTheCaptureAsTheCallerSession sends the commit, briefs, runner, files and argv of
+// `evidence capture` to CaptureEvidence, in the session the environment names, so orreryd can tell the epic's gatherer
+// asked, and prints the capture's id and that its end arrives as an event.
+func TestEvidenceCaptureSendsTheCaptureAsTheCallerSession(t *testing.T) {
+	t.Parallel()
+	fake := &fakeEvidence{capture: "capture-1"}
+	daemon := serveEvidence(t, fake)
+	var stdout bytes.Buffer
+	res := runOrreryAs(t, &stdout, "gatherer-step", "--socket", daemon, "evidence", "capture",
+		"--commit", "abc123", "--brief", "run-1", "--runner", "box", "--brief", "run-2", "--file", "out/a.txt",
+		"--", "go", "test", "--", "./x")
+	if res.code != exitOK {
+		t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitOK, res.stderr)
+	}
+	want := []string{`capture session="gatherer-step" commit="abc123" runner="box" briefs=["run-1" "run-2"] ` +
+		`files=["out/a.txt"] argv=["go" "test" "--" "./x"]`}
+	if got := fake.received(); !slices.Equal(got, want) {
+		t.Errorf("orreryd received %q, want %q", got, want)
+	}
+	if got, want := stdout.String(), "capture-1\n"+stepmcp.CaptureNext+"\n"; got != want {
+		t.Errorf("stdout %q, want %q", got, want)
+	}
+}
+
+// TestEvidenceAttachSendsTheAttachAsTheCallerSession sends the capture and briefs of `evidence attach` to
+// AttachEvidence in the session the environment names, and prints each run it moved on one line.
+func TestEvidenceAttachSendsTheAttachAsTheCallerSession(t *testing.T) {
+	t.Parallel()
+	fake := &fakeEvidence{runs: []*v1.EvidenceRun{{Id: "run-1", Item: "R1", Phase: "red", State: "judging"}}}
+	daemon := serveEvidence(t, fake)
+	var stdout bytes.Buffer
+	res := runOrreryAs(t, &stdout, "gatherer-step", "--socket", daemon, "evidence", "attach", "capture-1",
+		"run-1", "run-2")
+	if res.code != exitOK {
+		t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitOK, res.stderr)
+	}
+	want := []string{`attach session="gatherer-step" capture="capture-1" briefs=["run-1" "run-2"]`}
+	if got := fake.received(); !slices.Equal(got, want) {
+		t.Errorf("orreryd received %q, want %q", got, want)
+	}
+	if got, want := stdout.String(), "run-1 R1 red judging\n"; got != want {
+		t.Errorf("stdout %q, want %q", got, want)
+	}
+}
+
+// TestEvidenceCaptureAndAttachRefusalsExitOne exits 1 with orreryd's message on stderr when orreryd refuses a capture
+// or an attach, as it refuses a caller that is not the epic's running gatherer, and sends each refused call once.
+func TestEvidenceCaptureAndAttachRefusalsExitOne(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"capture", "--commit", "abc", "--brief", "run-1", "--", "true"},
+		{"attach", "capture-1", "run-1"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeEvidence{refusals: []connect.Code{connect.CodeFailedPrecondition}}
+			daemon := serveEvidence(t, fake)
+			res := runOrreryAs(t, io.Discard, "not-the-gatherer", append([]string{"--socket", daemon, "evidence"},
+				args...)...)
+			if res.code != exitFailure {
+				t.Fatalf("exit status %d, want %d", res.code, exitFailure)
+			}
+			if !strings.Contains(res.stderr, fakeRefusal) {
+				t.Errorf("stderr %q, want orreryd's refusal", res.stderr)
+			}
+			if got := fake.received(); len(got) != 1 {
+				t.Errorf("orreryd received %q, want the refused call once", got)
+			}
+		})
+	}
+}
+
+// TestEvidenceCaptureUsage exits 2 and calls nothing for a capture with no commit, no brief, no argv, a flag with no
+// value, a flag given twice or an unknown flag, and for an attach with no brief.
+func TestEvidenceCaptureUsage(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"capture", "--brief", "run-1", "--", "true"},
+		{"capture", "--commit", "abc", "--", "true"},
+		{"capture", "--commit", "abc", "--brief", "run-1"},
+		{"capture", "--commit", "abc", "--brief", "run-1", "--"},
+		{"capture", "--commit", "abc", "--brief"},
+		{"capture", "--commit", "abc", "--commit", "def", "--brief", "run-1", "--", "true"},
+		{"capture", "--commit", "abc", "--runner", "a", "--runner", "b", "--brief", "run-1", "--", "true"},
+		{"capture", "--commit", "abc", "--brief", "run-1", "--limit", "5", "--", "true"},
+		{"attach", "capture-1"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeEvidence{}
+			daemon := serveEvidence(t, fake)
+			res := runOrreryAs(t, io.Discard, "gatherer-step", append([]string{"--socket", daemon, "evidence"},
+				args...)...)
+			if res.code != exitUsage {
+				t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitUsage, res.stderr)
+			}
+			if got := fake.received(); len(got) != 0 {
+				t.Errorf("orreryd received %q, want nothing", got)
 			}
 		})
 	}

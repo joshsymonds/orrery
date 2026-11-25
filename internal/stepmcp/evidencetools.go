@@ -52,9 +52,9 @@ type evidenceAttachArgs struct {
 	Briefs  []string `json:"briefs"  jsonschema:"the ids of the evidence runs to attach the capture to; at least one"`
 }
 
-// captureNext is the next of evidence_capture's result: what the caller does with the started capture. Its end arrives
+// CaptureNext is the next of evidence_capture's result, and the line `orrery evidence capture` prints after the id: what the caller does with the started capture. Its end arrives
 // as an event, so the caller does not poll.
-const captureNext = "The capture runs in the background. Its end arrives in this conversation as an orrery-event, " +
+const CaptureNext = "The capture runs in the background. Its end arrives in this conversation as an orrery-event, " +
 	"so do not poll for it."
 
 // evidenceTools returns the evidence tools, each calling evidence.
@@ -173,7 +173,7 @@ func evidenceGetHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
 }
 
 // evidenceCaptureHandler answers evidence_capture. It refuses a missing commit, argv or briefs before the capture is
-// asked for, and answers with the capture id and captureNext.
+// asked for, and answers with the capture id and CaptureNext.
 func evidenceCaptureHandler(evidence enginev1connect.EvidenceClient) ToolHandler {
 	return func(ctx context.Context, call Call) (ToolResult, error) {
 		var req v1.CaptureEvidenceRequest
@@ -193,7 +193,7 @@ func evidenceCaptureHandler(evidence enginev1connect.EvidenceClient) ToolHandler
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return textResult(map[string]string{"capture": captured.Msg.GetCapture(), "next": captureNext})
+		return textResult(map[string]string{"capture": captured.Msg.GetCapture(), "next": CaptureNext})
 	}
 }
 

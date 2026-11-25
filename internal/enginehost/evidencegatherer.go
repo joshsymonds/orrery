@@ -574,14 +574,16 @@ func briefBlock(run store.EvidenceRun, captures []store.Capture) []string {
 }
 
 // gathererPrompt returns the prompt of the gatherer of epic. It says what the gatherer is for, lists the runners a
-// capture can run under, with local first, names the tools that capture and attach evidence, and states the rules it
-// gathers by. blocks are the briefs, each as briefBlock gives it.
+// capture can run under, with local first, names the orrery commands that capture and attach evidence, which the
+// gatherer runs from its shell, since a step has no orrery MCP tools, and states the rules it gathers by. blocks are the
+// briefs, each as briefBlock gives it.
 func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) string {
 	lines := make([]string, 0, 3+2*len(blocks)+len(runners)+12)
 	lines = append(lines,
 		"You are the evidence gatherer of epic "+epic+". Each brief below asks for evidence that one conclusion holds "+
 			"at one commit, in one phase. Evidence reaches a brief only as a capture: a command orrery runs at a commit, "+
-			"which you start with evidence_capture and attach with evidence_attach. This step is read-only: change no file.",
+			"which you start with `orrery evidence capture` and attach with `orrery evidence attach`, both run from your "+
+			"shell. This step is read-only: change no file.",
 		"",
 		"Briefs:",
 	)
@@ -601,10 +603,14 @@ func gathererPrompt(epic string, runners []ProjectRunner, blocks []string) strin
 	lines = append(
 		lines,
 		"",
-		"Tools:",
-		"  evidence_capture (commit, argv, runner, briefs, files): runs argv at commit under runner, as a capture of the "+
-			"briefs it answers, and keeps the files listed. Its end arrives as an event; do not poll for it.",
-		"  evidence_attach (capture, briefs): attaches a capture to the briefs it answers.",
+		"Commands, run from your shell:",
+		"  orrery evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- "+
+			"ARGV...: runs ARGV at SHA under the runner (local when --runner is left out), as a capture of each brief "+
+			"RUN it answers, and keeps each file listed. It prints the capture's id. Its end arrives in this "+
+			"conversation as an orrery-event; do not poll for it.",
+		"  orrery evidence attach CAPTURE RUN...: attaches a capture to the briefs it answers, and prints each run it "+
+			"moved.",
+		"  orrery evidence get RUN [NAME]: writes an evidence run's kept file NAME, or its log, to stdout.",
 		"",
 		"Rules:",
 		"  Run one capture per distinct command at a commit, and attach it to every brief it shows.",
