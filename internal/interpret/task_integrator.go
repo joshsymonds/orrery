@@ -475,9 +475,10 @@ func (r *Runner) taskStep(ctx context.Context, epic, path, id string) (store.Ste
 }
 
 // checkRunSteps returns the steps labeled with each running integrate, gate or command run among runs: the steps of an
-// integrate run's task integrator rounds and reproduction judges, and the triage steps of the failed checks of any of
-// them. EpicFlow reads no step of those kinds, and each such step is labeled with its run's path, so each running
-// run's labeled steps are read here for the rows its rounds, judges and triages are decided on.
+// integrate run's task integrator rounds, reproduction judges and verification choices, and the triage steps of the
+// failed checks of any of them. EpicFlow reads no step of those kinds, and each such step is labeled with its run's
+// path, so each running run's labeled steps are read here for the rows its rounds, judges, choices and triages are
+// decided on.
 func (r *Runner) checkRunSteps(ctx context.Context, epic string, runs []store.NodeRun) ([]store.StepRow, error) {
 	var steps []store.StepRow
 	for _, run := range runs {

@@ -700,7 +700,8 @@ func integrated(run store.NodeRun) bool {
 // which only the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement such a run did
 // not capture, since no task of its batch touched it, is green when it is green at the base the run composed its batch
 // on. A Requirement whose evidence amendment ran its green run at revision is green there too when that run passed (see
-// amendedGreen).
+// amendedGreen). A passed run's Done gates are not read: a gate its verification choice skipped did not run there, and
+// the green a run holds is its captures' and its base's, never its gates'.
 func GreenAt(rows Rows, revision string) map[string]bool {
 	return greenAt(rows, revision, make(map[string]map[string]bool))
 }

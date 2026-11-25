@@ -494,8 +494,8 @@ func requirementLine(choice RequirementChoice) string {
 	return withWhy(line, floor, choice.Reason)
 }
 
-// withWhy returns line with why it holds: `: <floor>` when a floor decided it, then `; the step said: <reason>` when the
-// step gave a reason, or `: <reason>` alone when no floor did.
+// withWhy returns line with why it holds: `: <floor>` when a floor decided it, then `; the step said: <reason>` when
+// the step gave a reason, or `: <reason>` alone when no floor did.
 func withWhy(line, floor, reason string) string {
 	switch {
 	case floor != "" && reason != "":

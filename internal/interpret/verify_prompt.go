@@ -111,8 +111,8 @@ func verifyTaskLines(tasks []store.EpicTask, merged int64) []string {
 
 // doneGateLines returns each Done gate of gates, in order, as a verification reads it. A command gate is `- <name>:
 // command <argv>` with its argv as a JSON array, then its limit, the pools it needs, `always: runs on every
-// verification, whatever the choice says` when it is declared always, and its note when it has one. A gate that does not
-// resolve is `- <name>: does not resolve: <why>`, with the line that says it runs whatever the choice says.
+// verification, whatever the choice says` when it is declared always, and its note when it has one. A gate that does
+// not resolve is `- <name>: does not resolve: <why>`, with the line that says it runs whatever the choice says.
 func doneGateLines(gates []resolvedGate) []string {
 	lines := make([]string, 0, 4*len(gates))
 	for _, gate := range gates {
