@@ -81,7 +81,7 @@ type Config struct {
 	// Routes reads the route registry. It is required.
 	Routes RoutesReader
 
-	// Interval is how often Run re-reads the route registry. Zero means DefaultInterval.
+	// Interval is how often Run re-reads the route registry. Zero means DefaultInterval. A negative interval is refused.
 	Interval time.Duration
 
 	// Clock is the time source Run waits on. Nil means SystemClock.
@@ -125,21 +125,23 @@ type Gateway struct {
 	client   *http.Client
 	upstream *url.URL
 	getenv   func(string) string
+	clock    Clock
+	interval time.Duration
 
 	// callerKey is the key a request to an inject or sigv4 seat must present. New reads it once. Empty means no key was
 	// loaded, and every such request is refused.
 	callerKey string
 
-	// snapshot is the route registry requests are served from. Load sets it. It stays nil, and every request is refused
-	// with 503, until a read has succeeded.
+	// snapshot is the route registry requests are served from. Load and Run set it. It stays nil, and every request is
+	// refused with 503, until a read has succeeded.
 	snapshot atomic.Pointer[store.RoutesSnapshot]
 
 	// admission holds one permit for each request being served, so that no more than requestAdmissionCapacity are.
 	admission chan struct{}
 }
 
-// New returns a Gateway serving cfg. It refuses a Config whose Routes or Ledger is nil, and an AnthropicUpstream that
-// is not an absolute http or https URL.
+// New returns a Gateway serving cfg. It refuses a Config whose Routes or Ledger is nil, an AnthropicUpstream that is
+// not an absolute http or https URL, and a negative Interval.
 func New(cfg Config) (*Gateway, error) {
 	if cfg.Routes == nil {
 		return nil, errors.New("gateway: Config.Routes is required")
@@ -150,6 +152,13 @@ func New(cfg Config) (*Gateway, error) {
 	upstream, err := anthropicUpstream(cfg.AnthropicUpstream)
 	if err != nil {
 		return nil, err
+	}
+	interval := cfg.Interval
+	if interval == 0 {
+		interval = DefaultInterval
+	}
+	if interval < 0 {
+		return nil, fmt.Errorf("gateway: Config.Interval %v is negative", interval)
 	}
 
 	client := cfg.Client
@@ -168,6 +177,10 @@ func New(cfg Config) (*Gateway, error) {
 	if err != nil {
 		logger.Warn("gateway: no caller key is loaded; inject and sigv4 seats will be refused", slog.Any("error", err))
 	}
+	clock := cfg.Clock
+	if clock == nil {
+		clock = SystemClock{}
+	}
 
 	return &Gateway{
 		routes:    cfg.Routes,
@@ -177,6 +190,8 @@ func New(cfg Config) (*Gateway, error) {
 		upstream:  upstream,
 		getenv:    getenv,
 		callerKey: callerKey,
+		clock:     clock,
+		interval:  interval,
 		admission: make(chan struct{}, requestAdmissionCapacity),
 	}, nil
 }
@@ -191,11 +206,6 @@ func (g *Gateway) Load(ctx context.Context) error {
 	g.snapshot.Store(&snap)
 
 	return nil
-}
-
-// Run re-reads the route registry every interval until ctx ends.
-func (*Gateway) Run(_ context.Context) error {
-	return errNotImplemented
 }
 
 // anthropicUpstream parses the base URL forward seats send to: configured, or Anthropic's own URL when configured is
