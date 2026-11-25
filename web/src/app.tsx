@@ -3050,7 +3050,9 @@ export function App({
     }
   }, [motion.card]);
   // endMove runs on each animationend the panes hear. The element that carries a move clears its data-move when its own
-  // animation ends, and a leaving card or tab is taken out of the state once its own animation ends.
+  // animation ends, and a leaving card or sheet is taken out of the state once its own animation ends. The tab's ground
+  // fades out before its necks have drawn back (D20), so the leaving tree is taken out at the animationend of a leaving neck,
+  // or at the tab's, when no neck is still drawing back.
   const endMove = (event: AnimationEvent) => {
     const target = event.target;
     if (!(target instanceof Element)) {
@@ -3066,7 +3068,7 @@ export function App({
       carrier.removeAttribute("data-move");
     } else if (carrier.matches(".held-card, .held-sheet")) {
       setMotion((current) => (current.card === null ? current : { ...current, card: null }));
-    } else {
+    } else if (carrier.matches(leavingNeckSelector) || !animating(panesRef.current, leavingNeckSelector)) {
       setMotion((current) => (current.tree === null ? current : { ...current, tree: null }));
     }
   };
@@ -3510,20 +3512,25 @@ function deskPlace(panes: HTMLElement | null): { chatLeft: number | null; aim: n
 // they carry leave.
 const leavingCardSelector = '.held-card[data-move="leave"], .held-sheet[data-move="leave"]';
 const leavingTreeSelector = '[data-held][data-move="leave"]';
+// leavingNeckSelector names the necks of a leaving tree, the rows and marks that draw back into their rows, which are every leaving
+// element but the tab, .convo-block[data-held="tab"].
+const leavingNeckSelector = '[data-held][data-move="leave"]:not(.convo-block[data-held="tab"])';
 // columnMarkSelector is the column that carries a move, and columnFadeSelector the parts of it whose animations run on their own,
 // as style.css draws them: the chat's reader and send box, which move or fade, and the head's crumbs, which fade.
 const columnMarkSelector = ".read[data-move]";
 const columnFadeSelector = ".read[data-move] > .reader, .read[data-move] > .send, .read[data-move] .convo-head .crumbs";
 
-// animating says whether an element under root that matches selector runs an animation now. An element with no Web Animations
-// runs none.
+// animating says whether an element under root that matches selector runs an animation now, on the element itself or on its
+// ::before or ::after, where a neck draws back. An element's own getAnimations leaves out its pseudo-elements, so the animations
+// are read from the document, each by the element it is on. A document with no Web Animations runs none.
 function animating(root: HTMLElement | null, selector: string): boolean {
-  if (root === null) {
+  if (root === null || typeof root.ownerDocument.getAnimations !== "function") {
     return false;
   }
-  return [...root.querySelectorAll<HTMLElement>(selector)].some(
-    (element) => typeof element.getAnimations === "function" && element.getAnimations().length > 0,
-  );
+  return root.ownerDocument.getAnimations().some((animation) => {
+    const target = (animation.effect as KeyframeEffect | null)?.target ?? null;
+    return target !== null && root.contains(target) && target.matches(selector);
+  });
 }
 
 // heldOpenKey is the key of the open entry the inbox keeps drawn while a list answer archives it, or ends it while the row
