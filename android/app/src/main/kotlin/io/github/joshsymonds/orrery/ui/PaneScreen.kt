@@ -363,6 +363,8 @@ fun PaneScreen(
     // The work link, the band line and the transcript line of a contract the conversation proposed open live while it runs.
     // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
     val conversationId = current?.orreryId.orEmpty()
+    // The conversation's usage: read as the screen opens and again when its turn ends, and drawn by the head's title row.
+    val usage = rememberSessionUsage(client, conversationId, current?.state.orEmpty())
     val live = conversationLive(current)
     val openContract: (String) -> Unit = { id -> onOpenContract(id, live) }
     val openTranscriptContract: (String) -> Unit = { id ->
@@ -516,6 +518,8 @@ fun PaneScreen(
                             workLit = workLit,
                             onOpenWork = openWork,
                             onAllWork = openAllWork,
+                            usage = usage.readout,
+                            onUsage = { usage.open = true },
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
                         }
@@ -578,5 +582,6 @@ fun PaneScreen(
                 draftPresent = draftPresent,
             )
         }
+        usage.SheetIfOpen()
     }
 }
