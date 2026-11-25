@@ -13,7 +13,7 @@ const noop = () => {};
 
 const now = Date.parse(liveEpoch) / 1000;
 
-const head = (row: ListedNotice): NoticeHead => noticeHead(row, [], [], now);
+const head = (row: ListedNotice): NoticeHead => noticeHead(row, [], []);
 
 export const NoticeCentre: Stories = {
   days: () => (

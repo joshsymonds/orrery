@@ -1,8 +1,9 @@
 import { blockerLine, stateLine } from "./epicpage";
 import type { Epic, EpicStep, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { type Cell, durationText, provenOf, type Task, tasksOf, type Tone } from "./phases";
+import { type Cell, durationText, type Task, tasksOf, type Tone } from "./phases";
 import { pipsOf, type RecordTask, recordTasksOf } from "./record";
 import type { Row } from "./rows";
+import { stepLabelOf } from "./recordwords";
 import { blockerOf } from "./status";
 import { taskStateOf } from "./taskstatus";
 
@@ -86,6 +87,9 @@ const shownSteps = 4;
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
 
+// The state a requirement the server holds proven is in.
+const provenState = "proven";
+
 export const noEpics: EpicsView = {
   blocks: [],
   live: 0,
@@ -160,7 +164,7 @@ export function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicB
     full,
     steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step, tasks)),
     more: Math.max(0, epic.runningSteps.length - shownSteps),
-    tail: full ? tailOf(epic.endedSteps, item.strip, detail) : "",
+    tail: full ? tailOf(item.strip, detail) : "",
   };
 }
 
@@ -197,12 +201,11 @@ export function epicLine(item: EpicItem, now: number): EpicLine {
   };
 }
 
-// The count: the requirements proven, as the orrery's arcs prove them, out of all of them, else the build tasks done.
+// The count: the requirements the server states as proven, out of all of them, else the build tasks done.
 function countOf(item: EpicItem, detail: EpicsGetResponse): string {
   const requirements = detail.requirements;
   if (requirements.length > 0) {
-    const tasks = recordTasksOf(detail);
-    const proven = requirements.filter((requirement) => provenOf(requirement.id, tasks, requirements)).length;
+    const proven = requirements.filter((requirement) => requirement.state === provenState).length;
     return `${proven} of ${requirements.length} proven`;
   }
   return `${item.done} of ${item.total} tasks done`;
@@ -227,16 +230,12 @@ export function stripOf(tasks: Task[]): StripTone[] {
   return tasks.map((task) => stripToneOf[task.tone]);
 }
 
-// A full block's tail: its gap tasks, the build tasks not started, and its ended steps, each left out at zero. A gap
-// is a task the orrery draws bad, so the count matches its glyph, whether or not the epic has build tasks.
-function tailOf(ended: number, strip: StripTone[], detail: EpicsGetResponse | undefined): string {
+// A full block's tail: its gap tasks and the build tasks not started, each left out at zero. A gap is a task the
+// orrery draws bad, so the count matches its glyph, whether or not the epic has build tasks.
+function tailOf(strip: StripTone[], detail: EpicsGetResponse | undefined): string {
   const gaps = detail === undefined ? 0 : recordTasksOf(detail).filter((task) => task.tone === "bad").length;
   const notStarted = strip.filter((tone) => tone === "none").length;
-  return [
-    gaps > 0 ? `${gaps} gap` : "",
-    notStarted > 0 ? `${notStarted} not started` : "",
-    ended > 0 ? `${ended} steps ended` : "",
-  ]
+  return [gaps > 0 ? `${gaps} gap` : "", notStarted > 0 ? `${notStarted} not started` : ""]
     .filter((part) => part !== "")
     .join(" · ");
 }
@@ -248,7 +247,7 @@ function stepOf(epic: Epic, step: EpicStep, tasks: RecordTask[]): StepItem {
     id: step.id,
     epic: epic.id,
     epicSlug: epic.slug,
-    label: step.task || step.agent,
+    label: stepLabelOf(step),
     doing: step.doing,
     held: step.held,
     agent: step.agent,

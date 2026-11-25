@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
 
 import { designMark } from "./convorow";
-import type { GaugeShare } from "./epicrow";
-import { Gauge, Icon } from "./glyphs";
+import { EpicMark } from "./epicmark";
+import type { MarkDetail } from "./epicrow";
+import { EpicRequirementSchema } from "./gen/orrery/v1/epics_pb";
+import { Icon } from "./glyphs";
 import type { HeldThing } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
@@ -18,8 +21,16 @@ const design: HeldThing = { kind: "design", key: "design:invented-design", convo
 const contract: HeldThing = { kind: "contract", key: "contract:invented-contract", convo: "convo:invented-conversation" };
 const epic: HeldThing = { kind: "epic", key: "epic:invented-epic", convo: "convo:invented-conversation" };
 
-// epicGauge is the share of the invented epic: two of four tasks done, live.
-const epicGauge: GaugeShare = { done: 2, total: 4, tone: "live", inner: "dot" };
+// epicMark is the detail the invented epic's mark reads: two of four requirements proven, one in flight, running.
+const epicMark: MarkDetail = {
+  centre: "running",
+  requirements: [
+    create(EpicRequirementSchema, { id: "R1", state: "proven" }),
+    create(EpicRequirementSchema, { id: "R2", state: "proven" }),
+    create(EpicRequirementSchema, { id: "R3", state: "in_flight" }),
+    create(EpicRequirementSchema, { id: "R4", state: "not_reached" }),
+  ],
+};
 
 const noop = () => undefined;
 
@@ -49,14 +60,14 @@ function all(root: ParentNode, selector: string): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(selector));
 }
 
-// card draws a HeldCard of thing into the container, with a record in its body, the epic's gauge and onFoldBack as its press.
+// card draws a HeldCard of thing into the container, with a record in its body, the epic's mark and onFoldBack as its press.
 function card(
   container: HTMLElement,
   thing: HeldThing,
-  { gauge = null, onFoldBack = noop }: { gauge?: GaugeShare | null; onFoldBack?: () => void } = {},
+  { mark = null, onFoldBack = noop }: { mark?: MarkDetail | null; onFoldBack?: () => void } = {},
 ): void {
   render(
-    <HeldCard thing={thing} title={`Invented ${thing.kind}`} move="" gauge={gauge} onFoldBack={onFoldBack}>
+    <HeldCard thing={thing} title={`Invented ${thing.kind}`} move="" mark={mark} onFoldBack={onFoldBack}>
       <p>the record</p>
     </HeldCard>,
     container,
@@ -65,7 +76,7 @@ function card(
 
 test("HeldCard FoldBack: the head's first element is Fold back, with its arrow, its words and its ] key", () =>
   withDom((container) => {
-    card(container, epic, { gauge: epicGauge });
+    card(container, epic, { mark: epicMark });
     const first = one(container, ".held-head").firstElementChild;
     assert.ok(first !== null && first.matches("button.fold-back"), "the head's first element is the Fold back button");
     assert.equal(first.getAttribute("aria-label"), "Fold back");
@@ -114,17 +125,17 @@ test("HeldCard FoldBack: the card draws the kind word and the mark of a design, 
     assert.equal(one(container, ".held-mark").innerHTML, docMark.innerHTML);
     render(null, docMark);
 
-    card(container, epic, { gauge: epicGauge });
+    card(container, epic, { mark: epicMark });
     assert.equal(one(container, ".held-kind").textContent, "epic");
-    const gaugeMark = document.createElement("div");
-    render(<Gauge {...epicGauge} />, gaugeMark);
-    assert.equal(one(container, ".held-mark").innerHTML, gaugeMark.innerHTML);
-    render(null, gaugeMark);
+    const rowMark = document.createElement("div");
+    render(<EpicMark detail={epicMark} size={24} />, rowMark);
+    assert.equal(one(container, ".held-mark").innerHTML, rowMark.innerHTML);
+    render(null, rowMark);
   }));
 
 test("HeldCard OpenColour: the spine and Fold back are on var(--o-ground-open), and Fold back's hover is on var(--o-ground-open-hover)", () =>
   withDom((container) => {
-    card(container, epic, { gauge: epicGauge });
+    card(container, epic, { mark: epicMark });
     one(container, ".held-card > .held-spine");
     one(container, ".held-head > button.fold-back");
     assert.equal(styleDeclaration(".held-spine", "background"), "var(--o-ground-open)");
@@ -140,7 +151,7 @@ test("HeldLayout: the phone's sheet heads with its mark, kind and title, keeps i
         thing={epic}
         title="Invented epic"
         move=""
-        gauge={epicGauge}
+        mark={epicMark}
         onClose={() => {
           closes += 1;
         }}
@@ -154,7 +165,7 @@ test("HeldLayout: the phone's sheet heads with its mark, kind and title, keeps i
       Array.from(head.children).map((part) => part.className),
       ["held-mark", "held-kind", "held-title", "held-close"],
     );
-    assert.equal(one(head, ".held-mark svg.gauge").getAttribute("data-tone"), "live");
+    assert.equal(one(head, ".held-mark svg.epicmark g.centre").getAttribute("data-tone"), "live");
     assert.equal(one(head, ".held-kind").textContent, "epic");
     assert.equal(one(head, ".held-title").textContent, "Invented epic");
     const close = one(head, "button.held-close");

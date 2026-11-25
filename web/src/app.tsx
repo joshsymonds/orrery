@@ -21,15 +21,17 @@ import { ConvoRow } from "./convorow";
 import { DesignPage } from "./designpage";
 import { designCountsOf, type DesignRecord, designRefetch } from "./designrecords";
 import { type EpicCommands, EpicPage, type Landing, type SessionTarget, type SteerSheet } from "./epicpage";
-import { epicGaugeOf, type GaugeShare } from "./epicrow";
+import { type MarkDetail, markDetailOf } from "./epicrow";
 import { type EpicItem, type EpicsView, epicsView, noEpics, type StepItem } from "./epics";
 import { findMatches } from "./find";
 import { type Followed, follow } from "./follow";
+import type { RouteRegistry } from "./gen/orrery/v1/accounts_pb";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
+import type { UsageSessionTotal } from "./gen/orrery/v1/usage_pb";
 import { Icon, stateWord } from "./glyphs";
 import { type HeadStore, memoryHeadStore } from "./headfold";
 import { type HeldMove, type HeldThing, heldMove } from "./held";
@@ -85,6 +87,14 @@ import { TitleRow } from "./titlerow";
 import { Toast } from "./toast";
 import { buildTree, type Convo, type Hung, type Project } from "./tree";
 import { countsOf, type Narrow, narrow as narrowTree, projectWaiting, search as searchTree, waitOrder } from "./treefilter";
+import { UsageBand } from "./usageband";
+import { noUsage, type UsageData } from "./usagedata";
+import { useUsage } from "./usageload";
+import { bandRows, firstInUse, spendTotals } from "./usagemodel";
+import { UsagePanel } from "./usagepanel";
+import { endWords, movedWords, UsagePopover } from "./usagepopover";
+import { UsageReadout } from "./usagereadout";
+import { type Move as ContextMove, undoMoves } from "./usageuse";
 import { activityOf, type ListThing, type WorkConversation, type WorkLinkItem, workLinksOf, workOf } from "./work";
 import { WorkerSessionPage } from "./workersession";
 
@@ -199,9 +209,13 @@ interface PendingTarget {
   id: string;
 }
 
-// The toast's notice: the row an archive under 760px just archived, which Undo unarchives, or the moves a list answer
-// made, which Show and Undo act on.
-type ToastNotice = { kind: "archived"; row: Row } | { kind: "moved"; moves: Move[] };
+// The toast's notice: the row an archive under 760px just archived, which Undo unarchives; the moves a list answer
+// made, which Show and Undo act on; or the contexts a Use moved to account, which Undo moves back. A usage notice with no
+// moves draws its words alone, when a move back did not finish.
+type ToastNotice =
+  | { kind: "archived"; row: Row }
+  | { kind: "moved"; moves: Move[] }
+  | { kind: "usage"; text: string; moves: readonly ContextMove[]; account: string };
 
 // The note a page's More menu left under a row's title row, which names the row it is for.
 interface HeadNote {
@@ -276,6 +290,7 @@ export function App({
   address,
   onAddress,
   headStore,
+  usage = noUsage,
 }: {
   rows: Row[];
   // Whether the rows and the epics have each answered their first load. Until both have, the inbox says loading.
@@ -297,6 +312,8 @@ export function App({
   address?: Address;
   onAddress?: (address: Address, mode: "push" | "replace") => void;
   headStore?: HeadStore;
+  // usage is the usage the page holds: the band under the inbox head draws it once it has answered with an account.
+  usage?: UsageData;
 }) {
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -490,6 +507,8 @@ export function App({
   const [sessionStream, setSessionStream] = useState<Stream | null>(null);
   // The list panel open beside a session, and the thing a panel held last, which ] reopens.
   const [listPanel, setListPanel] = useState<ListOpen | null>(null);
+  // Whether the Usage panel is open beside the middle conversation. It shuts a list panel, and a list panel shuts it.
+  const [usagePanelOpen, setUsagePanelOpen] = useState(false);
   const [held, setHeld] = useState<Held | null>(null);
   // The motion of the held layout (D16), and what the last commit drew of it. The panes hold the custom properties a move reads.
   const [motion, setMotion] = useState<HeldMotion>(noMotion);
@@ -698,6 +717,31 @@ export function App({
   const watchedRow = accountsOpen ? null : designShown ? designLiveRow : contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
+  // The middle conversation's session totals, the one read the title row's readout and the Usage panel both draw. The
+  // panel shows only while the read holds some totals.
+  const usageTotals = useSessionTotals(clients, middleRow);
+  const usageShown = usagePanelOpen && usageTotals.length > 0;
+  // The panel shuts when the middle has no totals: when the latest read answers none, and when the middle moves to another
+  // conversation, whose totals are none until its own read answers, as a move of the cursor shuts a list panel. So a later
+  // read with totals does not reopen it. A turn's end keeps the last totals until its own answer lands, so it does not shut it.
+  useEffect(() => {
+    if (usageTotals.length === 0) {
+      setUsagePanelOpen(false);
+    }
+  }, [usageTotals.length]);
+  // openUsage opens the Usage panel beside the conversation, shutting a list panel that is open. closeUsage shuts it, and the
+  // readout's press opens it or shuts it.
+  const openUsage = () => {
+    setListPanel(null);
+    setUsagePanelOpen(true);
+  };
+  const closeUsage = () => setUsagePanelOpen(false);
+  const toggleUsage = () => (usageShown ? closeUsage() : openUsage());
+  // The readout is drawn in the middle conversation's title row once its read answers some totals.
+  const usageReadout =
+    usageTotals.length > 0 ? (
+      <UsageReadout totals={usageTotals} open={usageShown} onOpen={toggleUsage} />
+    ) : undefined;
   // The cursor's epic entry while its ending reads unseen: the seen watch rests on it, and its write marks it seen.
   const restedEpic =
     epicEntry !== null && unseenEnding(epicEntry, epics.listed.get(epicEntry.id), seenEpics) ? epicEntry : null;
@@ -1115,6 +1159,10 @@ export function App({
   // with no archive kind alone, and takes the toast away.
   const undoToast = () => {
     if (toast === null) {
+      return;
+    }
+    if (toast.kind === "usage") {
+      usageUndo(toast.moves, toast.account);
       return;
     }
     setToast(null);
@@ -1691,14 +1739,91 @@ export function App({
     setRowOpened(true);
   });
 
+  // usageOpen is whether the usage popover is open: the band's press opens it beside the band, and the collapsed rail's tile
+  // opens it beside the rail. It shuts on Escape, on a press outside it, and when the accounts and routes page opens.
+  const [usageOpen, setUsageOpen] = useState(false);
+
   // openAccounts opens the accounts and routes page, from the inbox foot's gear. The page takes the conversation's place, so an
-  // open project page, contract or design card shuts. It is a navigation.
+  // open project page, contract or design card shuts, and so does the usage popover. It is a navigation.
   const openAccounts = navigated(() => {
     setProjectKey(null);
     setOpenedContract(null);
     setOpenedDesign(null);
+    setUsageOpen(false);
     setAccountsOpen(true);
   });
+
+  // usageSpend is the seven days' spend the band's line and the usage popover's foot total, or null until a Spend read
+  // lands.
+  const usageSpend = usage.spend === null ? null : spendTotals(usage.spend, usage.registry);
+  // routesRead is the registry a Routes.Get read after a Use move answered, with the usage that read was made against. The
+  // usage the page draws takes that registry while it is still that usage, so the rows show the routes a move left, until the
+  // next read of the usage lands.
+  const [routesRead, setRoutesRead] = useState<{ base: UsageData; registry: RouteRegistry } | null>(null);
+  const usageView = (data: UsageData): UsageData =>
+    routesRead !== null && routesRead.base === data ? { ...data, registry: routesRead.registry } : data;
+  // rereadRoutes reads the routes again once a Use move has ended, and holds the registry it answers against the usage data
+  // the page shows, data. A read that fails holds nothing new: the page's next read reads the routes again.
+  const rereadRoutes = (data: UsageData) => {
+    void clients.routes.get({}).then(
+      ({ registry }) => {
+        if (registry !== undefined) {
+          setRoutesRead({ base: data, registry });
+        }
+      },
+      () => undefined,
+    );
+  };
+  // usageMoved is a Use move that set its contexts: the toast says what moved, with Undo for those moves, and the popover
+  // shuts.
+  const usageMoved = (moves: readonly ContextMove[], account: string) => {
+    setToast({ kind: "usage", text: movedWords(moves, account, usage.accounts), moves, account });
+    setUsageOpen(false);
+  };
+  // usageUndo moves the contexts a Use move moved back to their own accounts, and reads the routes again. A move back that does
+  // not finish replaces the toast with what stands, which has no Undo of its own.
+  const usageUndo = (moves: readonly ContextMove[], account: string) => {
+    setToast(null);
+    void undoMoves(clients.routes, moves).then((result) => {
+      rereadRoutes(collapsed ? usageData : usage);
+      if (result.kind !== "done") {
+        setToast({ kind: "usage", text: endWords(result, true, account, usage.accounts), moves: [], account });
+      }
+    });
+  };
+  // bandUsage is the usage the band and its popover draw, with the routes a Use move left.
+  const bandUsage = usageView(usage);
+  // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
+  // accounts and routes page, and its press opens the usage popover beside it. The popover offers Use with the routes the page
+  // holds.
+  const usageBand =
+    usage.answered && usage.accounts.length > 0 ? (
+      <UsageBand
+        rows={bandRows(bandUsage, now)}
+        now={now}
+        spend={usageSpend}
+        onOpen={() => setUsageOpen(true)}
+        onAccounts={openAccounts}
+        popover={
+          usageOpen ? (
+            <UsagePopover
+              rows={bandRows(bandUsage, now)}
+              now={now}
+              spend={usageSpend}
+              use={{
+                routes: clients.routes,
+                registry: bandUsage.registry,
+                onDone: usageMoved,
+                onRead: () => rereadRoutes(usage),
+              }}
+              narrow={!wide}
+              onAccounts={openAccounts}
+              onClose={() => setUsageOpen(false)}
+            />
+          ) : undefined
+        }
+      />
+    ) : undefined;
 
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
   // item key, as openEpic does, and shuts the page. A key the tree draws no entry of opens nothing, as the tree's own press
@@ -1881,6 +2006,10 @@ export function App({
         setListPanel(
           entry.kind === "session" && entry.panel !== undefined ? { key: item.key, panel: entry.panel } : null,
         );
+        // An address that opens a list panel shuts the Usage panel, as opening a list does.
+        if (entry.kind === "session" && entry.panel !== undefined) {
+          setUsagePanelOpen(false);
+        }
         setRowOpened(true);
         adopt();
         return;
@@ -2078,6 +2207,7 @@ export function App({
       contracts: middle ? bandContractsOf(workConversation(row, conversation).session) : undefined,
       onOpenContract: navigated(openContractPanel),
       hereContract: middle && contract !== undefined ? contract.id : undefined,
+      usage: middle ? usageReadout : undefined,
       // While a card is held the card is the work, so the head names no work link. Under 760px the sheet under the head
       // holds the work, and its link is the one lit.
       workLinks:
@@ -2273,6 +2403,7 @@ export function App({
       return;
     }
     moveTo(target);
+    setUsagePanelOpen(false);
     setListPanel({ key, panel });
   };
   // closeList shuts the list panel, from its Close or a press on its activity line. The cursor stays on the session's row,
@@ -2833,10 +2964,12 @@ export function App({
         onOpenContract={openContract}
         onOpenSession={openSession}
         onOpenPhase={openPhase}
+        onOpenStep={navigated((step: string) => openEpicStep(entry.id, step))}
         onBack={epicRootBack}
         strip={pageStrip(null, null)}
         rows={rows}
         listed={[...epics.listed.values()]}
+        loadUsage={(epic) => clients.usage.epicTotals({ epic })}
         narrow={!wide}
         onTalk={steererRow === null ? undefined : closePanel}
         foot={steererRow === null ? unsteeredBar(detail) : null}
@@ -2960,11 +3093,9 @@ export function App({
   const activityLines = activityOf(readerRow === null ? null : railConversation);
   // The held card's title is the design's title, the epic's slug or the contract's slug, its body the page the card or panel
   // drew, and its Fold back is closeDesign, closeContract or closePanel, which leave the conversation alone with the cursor on
-  // its row. An epic's gauge is the one its tree row draws, and a design's or a contract's mark needs none.
-  const heldGauge =
-    heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined
-      ? epicGaugeOf(epics.listed.get(epicEntry.id) ?? epicDetail.epic, epicDetail, now)
-      : null;
+  // its row. An epic's mark reads the detail its tree row's mark reads, and a design's or a contract's mark needs none.
+  const heldMark =
+    heldThing?.kind === "epic" && epicEntry !== null && epicDetail !== undefined ? markDetailOf(epicDetail) : null;
   // columnHolds is whether the middle column draws, and so holds the card; with no row or step to draw, the column is hidden
   // and the card sits in the no-conversation middle instead.
   const columnHolds = readerRow !== null || readerStep !== null;
@@ -2995,7 +3126,7 @@ export function App({
     const place = deskPlace(panes);
     const before = shownDesk.current;
     shownDesk.current = {
-      parts: shownHeld === null ? null : { thing: shownHeld, title: heldTitle, gauge: heldGauge, body: heldBodyOf },
+      parts: shownHeld === null ? null : { thing: shownHeld, title: heldTitle, mark: heldMark, body: heldBodyOf },
       sheet: !wide,
       chatLeft: place.chatLeft,
       aim: place.aim,
@@ -3077,13 +3208,13 @@ export function App({
   const leaving = drawn.card;
   const leavingCard =
     leaving !== null && !leaving.sheet ? (
-      <HeldCard thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onFoldBack={leavingPress}>
+      <HeldCard thing={leaving.thing} title={leaving.title} move="leave" mark={leaving.mark} onFoldBack={leavingPress}>
         {leaving.body(false)}
       </HeldCard>
     ) : null;
   const leavingSheet =
     leaving !== null && leaving.sheet ? (
-      <HeldSheet thing={leaving.thing} title={leaving.title} move="leave" gauge={leaving.gauge} onClose={leavingPress}>
+      <HeldSheet thing={leaving.thing} title={leaving.title} move="leave" mark={leaving.mark} onClose={leavingPress}>
         {leaving.body(false)}
       </HeldSheet>
     ) : null;
@@ -3091,14 +3222,14 @@ export function App({
   // held card keeps its place among the children of the column.
   const heldCard =
     heldThing === null ? null : (
-      <HeldCard thing={heldThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onFoldBack={closeHeld}>
+      <HeldCard thing={heldThing} title={heldTitle} move={drawn.move} mark={heldMark} onFoldBack={closeHeld}>
         {heldBodyOf(true)}
       </HeldCard>
     );
   // sheet is the thing the phone's sheet holds under its conversation's head, when sheetHeld says it does. Its X is closeHeld.
   const heldSheet =
     sheetHeld && openThing !== null ? (
-      <HeldSheet thing={openThing} title={heldTitle} move={drawn.move} gauge={heldGauge} onClose={closeHeld}>
+      <HeldSheet thing={openThing} title={heldTitle} move={drawn.move} mark={heldMark} onClose={closeHeld}>
         {heldBodyOf(true)}
       </HeldSheet>
     ) : null;
@@ -3168,6 +3299,17 @@ export function App({
   // railed is whether the inbox draws as its rail: when the owner collapsed it at the desk, or while a card is held between 760px
   // and 1250px, where the card takes the room the inbox's list would. Fold back draws the inbox as it was.
   const railed = collapsed || (heldThing !== null && overlay);
+  // The usage the collapsed rail's tile and popover draw is read while the inbox is collapsed. usageRow is the account in use,
+  // which the tile draws, or null when none is in use or the inbox is not collapsed. usageRows are every account, which the
+  // popover beside the rail draws.
+  const usageData = useUsage(clients, collapsed);
+  const railUsage = usageView(usageData);
+  const usageRows = bandRows(railUsage, now);
+  const usageRow = collapsed ? firstInUse(usageRows) : null;
+  // The usage popover shuts whenever the inbox collapses or expands, so it never opens beside the rail from the band.
+  useEffect(() => {
+    setUsageOpen(false);
+  }, [collapsed]);
 
   return (
     <main class="app">
@@ -3175,7 +3317,7 @@ export function App({
         ref={panesRef}
         class={`panes${pinned !== null ? " split" : ""}${overlay ? " overlay" : ""}`}
         data-inbox={railed ? "collapsed" : "expanded"}
-        data-side={heldThing !== null ? "held" : listShown !== null ? "panel" : "rail"}
+        data-side={heldThing !== null ? "held" : listShown !== null || usageShown ? "panel" : "rail"}
         onAnimationEnd={endMove}
       >
         {railed && (
@@ -3191,6 +3333,29 @@ export function App({
             onFlyoutRow={openFlyoutItem}
             onFlyoutPage={openProject}
             onLineage={openLineage}
+            usage={
+              usageRow === null
+                ? undefined
+                : {
+                    row: usageRow,
+                    onOpen: () => setUsageOpen((open) => !open),
+                    popover: usageOpen ? (
+                      <UsagePopover
+                        rows={usageRows}
+                        now={now}
+                        spend={usageSpend}
+                        use={{
+                          routes: clients.routes,
+                          registry: railUsage.registry,
+                          onDone: usageMoved,
+                          onRead: () => rereadRoutes(usageData),
+                        }}
+                        onAccounts={openAccounts}
+                        onClose={() => setUsageOpen(false)}
+                      />
+                    ) : undefined,
+                  }
+            }
             onNew={() => setPickerOpen(true)}
             onSearch={() => {
               expandInbox();
@@ -3204,7 +3369,7 @@ export function App({
         {notices.length > 0 && (
           <NoticeStack
             notices={notices}
-            head={(notice) => noticeHead(notice, tree, shownRows, now)}
+            head={(notice) => noticeHead(notice, tree, shownRows)}
             age={noticeAgeOf}
             act={(notice) => noticeAct(notice, shownRows)}
             bringBackRow={(notice) => bringBackRowOf(notice, shownRows)}
@@ -3228,7 +3393,7 @@ export function App({
           <NoticeCentre
             rows={noticeLog.rows}
             failed={noticeLog.failed}
-            head={(row) => noticeHead(row, tree, shownRows, now)}
+            head={(row) => noticeHead(row, tree, shownRows)}
             now={now}
             narrow={!wide}
             onOpen={(row) => {
@@ -3268,6 +3433,7 @@ export function App({
             onAccounts={openAccounts}
             moving={markedLines}
             notes={notes}
+            band={usageBand}
           />
         </div>
         {shownProject !== null && !noticesPage && projectSection(shownProject)}
@@ -3357,14 +3523,32 @@ export function App({
             <ListPanel kind={listShown} tasks={listTasks} now={now} headless />
           </Sheet>
         )}
+        {usageShown && wide && (
+          <SidePanel label="Usage" tone="quiet" href={shownForm} onClose={closeUsage}>
+            <UsagePanel totals={usageTotals} />
+          </SidePanel>
+        )}
+        {usageShown && !wide && (
+          <Sheet title="Usage" onClose={closeUsage}>
+            <UsagePanel totals={usageTotals} headless />
+          </Sheet>
+        )}
       </div>
-      {toast !== null && (toast.kind === "moved" || !wide) && (
+      {toast !== null && (toast.kind !== "archived" || !wide) && (
         <Toast
-          text={toast.kind === "moved" ? moveNotice(toast.moves) : `Archived “${toast.row.label}”.`}
+          text={
+            toast.kind === "moved"
+              ? moveNotice(toast.moves)
+              : toast.kind === "usage"
+                ? toast.text
+                : `Archived “${toast.row.label}”.`
+          }
           actions={
             toast.kind === "moved"
               ? [{ label: "Show", onAction: () => showMove(toast.moves[0]) }, undoAction]
-              : [undoAction]
+              : toast.kind === "usage" && toast.moves.length === 0
+                ? []
+                : [undoAction]
           }
         />
       )}
@@ -3433,11 +3617,11 @@ function readAsSeen(row: Row, written: Map<string, number>): Row {
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
-// HeldParts is what a held card or sheet draws, as a render drew it: the thing, its title and gauge, and its body.
+// HeldParts is what a held card or sheet draws, as a render drew it: the thing, its title and mark, and its body.
 interface HeldParts {
   thing: HeldThing;
   title: string;
-  gauge: GaugeShare | null;
+  mark: MarkDetail | null;
   // body draws the card's page. A copy that folds away is drawn with live false, which takes no pageRef.
   body: (live: boolean) => JSX.Element | null;
 }
@@ -3863,6 +4047,52 @@ function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract
     case "step":
       return `step:${entry.id}`;
   }
+}
+
+// usageRead is the latest read of a session's totals: the session it was for, and the totals it answered.
+interface UsageRead {
+  session: string;
+  totals: UsageSessionTotal[];
+}
+
+// useSessionTotals is the totals of the row's session, from SessionTotals. It reads once when the row's conversation opens,
+// which is when the row's session becomes the one the middle draws, and again when the row's state moves from working to
+// any other state, as a turn ends. A row with no archiveId makes no read. The totals are those of the latest read for the
+// row's session: a read that fails answers none, and so does one that answers no totals, and none is held while the
+// session's first read is pending.
+function useSessionTotals(clients: Clients, row: Row | null): UsageSessionTotal[] {
+  const session = row?.archiveId ?? "";
+  const state = row?.state ?? "";
+  const [read, setRead] = useState<UsageRead>({ session: "", totals: [] });
+  const last = useRef<{ session: string; state: string } | null>(null);
+  const latest = useRef(0);
+  useEffect(() => {
+    const previous = last.current;
+    last.current = { session, state };
+    const opened = previous === null || previous.session !== session;
+    const turnEnded = !opened && previous?.state === stateWorking && state !== stateWorking;
+    if (!opened && !turnEnded) {
+      return;
+    }
+    // A read from before this one is ignored once this one starts, so the latest read is the one that answers.
+    const ask = ++latest.current;
+    if (session === "") {
+      return;
+    }
+    clients.usage.sessionTotals({ session }).then(
+      (answer) => {
+        if (ask === latest.current) {
+          setRead({ session, totals: answer.totals });
+        }
+      },
+      () => {
+        if (ask === latest.current) {
+          setRead({ session, totals: [] });
+        }
+      },
+    );
+  }, [clients, session, state]);
+  return read.session === session ? read.totals : [];
 }
 
 // readHistory reads an epic's history from its first entry, page by page, until a page names no next cursor. A failed

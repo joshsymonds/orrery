@@ -1,23 +1,31 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
+import { EpicRequirementSchema, type EpicRequirement } from "./gen/orrery/v1/epics_pb";
 import { CENTRE, GAP, RING_RADII, cellPath, point, sliceStart } from "./orbits";
 import { Orrery } from "./orrery";
 import { type Cell, type Phase, PLACES } from "./phases";
 import type { RecordTask } from "./record";
 import { installTestDom, removeTestDom } from "./testdom";
 
-// Props is the orrery's props, so a test can pass its own tasks, proven set and open handler.
+// Props is the orrery's props, so a test can pass its own tasks, requirements, proven set and open handler.
 interface Props {
   tasks: RecordTask[];
+  requirements: EpicRequirement[];
   proven: ReadonlySet<string>;
   onOpenPhase?: (task: string, phase: Phase) => void;
 }
 
-// integrated is a task in the integrate ring's place: every cell ok, and it proves R4, which is proven.
+// requirementOf is a requirement of the epic in the given server state.
+function requirementOf(id: string, state: string): EpicRequirement {
+  return create(EpicRequirementSchema, { id, text: `${id} is true`, state });
+}
+
+// integrated is a task in the integrate ring's place: every cell ok, and it names R4, which is proven.
 const integrated: RecordTask = {
   task: "t1",
   title: "Login",
@@ -56,7 +64,7 @@ const planned: RecordTask = {
   labels: ["t3"],
 };
 
-// blocked is a task failing in the green ring, which proves R4 and R5 and so is not proven.
+// blocked is a task failing in the green ring, which names R4 and R5.
 const blocked: RecordTask = {
   task: "t4",
   title: "Store",
@@ -70,20 +78,18 @@ const blocked: RecordTask = {
 };
 
 const tasks = [integrated, implementing, planned, blocked];
+// R4 is proven, and R5 is in flight. Tasks t1 and t4 sit in R4's segment, and t2 and t3 in R5's.
+const requirements = [requirementOf("R4", "proven"), requirementOf("R5", "in_flight")];
 const proven: ReadonlySet<string> = new Set(["R4"]);
+
+// The cell slot of each task: R4's segment holds t1 then t4, and R5's holds t2 then t3.
+const slotOf: Record<string, number> = { t1: 0, t4: 1, t2: 2, t3: 3 };
 
 // RECORD_GAP is the gap at 12 o'clock the record's chart opens, in degrees: wide enough that each ring's name reads whole.
 const RECORD_GAP = 62;
 const DEG = Math.PI / 180;
 // CAPTION_LINE is the line of the caption under the count: the .of label's 16px line.
 const CAPTION_LINE = 16;
-
-// turn draws what a DOM event changed: act flushes Preact's queued render without a timer.
-async function fire(target: Element, event: string): Promise<void> {
-  await act(() => {
-    target.dispatchEvent(new Event(event));
-  });
-}
 
 // cellOf finds the cell of a task's ring; a missing cell fails the test.
 function cellOf(container: HTMLElement, task: string, place: string): Element {
@@ -110,12 +116,15 @@ function angleOf(x: number, y: number): number {
 
 async function withOrrery(
   check: (container: HTMLElement) => void | Promise<void>,
-  props: Props = { tasks, proven },
+  props: Props = { tasks, requirements, proven },
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<Orrery tasks={props.tasks} proven={props.proven} onOpenPhase={props.onOpenPhase} />, container);
+    render(
+      <Orrery tasks={props.tasks} requirements={props.requirements} proven={props.proven} onOpenPhase={props.onOpenPhase} />,
+      container,
+    );
     await check(container);
   } finally {
     render(null, container);
@@ -144,14 +153,14 @@ test("EpicOrrery: the five ring names read outside in, each on a textPath of its
     });
   }));
 
-test("EpicOrrery: each task draws five cells, one per ring, each on its ring's radius", () =>
+test("EpicOrrery: each task draws five cells, one per ring, each on its ring's radius, in the slot its requirement gives it", () =>
   withOrrery((container) => {
     assert.equal(container.querySelectorAll("path.cell").length, tasks.length * PLACES.length);
-    tasks.forEach((task, index) => {
+    tasks.forEach((task) => {
       PLACES.forEach((place, ring) => {
         assert.equal(
           cellOf(container, task.task, place).getAttribute("d"),
-          cellPath(tasks.length, index, ring + 1, RECORD_GAP),
+          cellPath(tasks.length, slotOf[task.task], ring + 1, RECORD_GAP),
         );
       });
     });
@@ -184,14 +193,12 @@ test("EpicOrrery: each cell carries its ring as data-place and the phase that ri
     }
   }));
 
-test("EpicOrrery: a requirement rim outside each wedge reads proven when every requirement it proves is proven", () =>
+test("EpicOrrery: each requirement's segment reads its server state, so R4 reads proven and R5 in flight", () =>
   withOrrery((container) => {
-    const rims = container.querySelectorAll("path.req");
-    assert.equal(rims.length, tasks.length);
-    assert.equal(rims[0]?.getAttribute("class"), "req proven");
-    assert.equal(rims[1]?.getAttribute("class"), "req");
-    assert.equal(rims[2]?.getAttribute("class"), "req");
-    assert.equal(rims[3]?.getAttribute("class"), "req");
+    const segments = container.querySelectorAll("path.req");
+    assert.equal(segments.length, requirements.length);
+    assert.equal(segments[0]?.getAttribute("class"), "req proven");
+    assert.equal(segments[1]?.getAttribute("class"), "req in_flight");
   }));
 
 test("EpicOrrery: a task that proves no requirement has an open rim, not a proven one", () =>
@@ -199,16 +206,16 @@ test("EpicOrrery: a task that proves no requirement has an open rim, not a prove
     (container) => {
       assert.equal(container.querySelectorAll("path.req.proven").length, 0);
     },
-    { tasks: [{ ...planned, requirements: [] }], proven: new Set() },
+    { tasks: [{ ...planned, requirements: [] }], requirements: [], proven: new Set() },
   ));
 
-test("EpicOrrery: the svg reads its count of done tasks, and the centre reads done over of N done", () =>
+test("EpicOrrery: the svg reads how many requirements are proven, and the centre reads n of m proven", () =>
   withOrrery((container) => {
     const svg = container.querySelector("svg.orrery");
     assert.equal(svg?.getAttribute("role"), "img");
-    assert.equal(svg?.getAttribute("aria-label"), "1 of 4 tasks done");
+    assert.equal(svg?.getAttribute("aria-label"), "1 of 2 proven");
     assert.deepEqual(textsOf(container, "text.count"), ["1"]);
-    assert.deepEqual(textsOf(container, "text.of"), ["of 4 done"]);
+    assert.deepEqual(textsOf(container, "text.of"), ["of 2 proven"]);
   }));
 
 test("EpicOrrery: an epic with no tasks draws nothing", () =>
@@ -216,10 +223,10 @@ test("EpicOrrery: an epic with no tasks draws nothing", () =>
     (container) => {
       assert.equal(container.childNodes.length, 0);
     },
-    { tasks: [], proven: new Set() },
+    { tasks: [], requirements: [], proven: new Set() },
   ));
 
-test("EpicOrrery: 120 tasks draw 120 wedges, and the only text is the five ring names and the centre", () => {
+test("EpicOrrery: 120 tasks draw 120 wedges, and the only text is the five ring names, the centre and the requirement's id", () => {
   const many: RecordTask[] = Array.from({ length: 120 }, (_, index) => ({
     ...planned,
     task: `unit-${index + 1}`,
@@ -228,35 +235,38 @@ test("EpicOrrery: 120 tasks draw 120 wedges, and the only text is the five ring 
   return withOrrery(
     (container) => {
       assert.equal(container.querySelectorAll("path.cell").length, 120 * PLACES.length);
-      assert.equal(container.querySelectorAll("path.req").length, 120);
+      assert.equal(container.querySelectorAll("path.req").length, 1);
       const texts = [...container.querySelectorAll("svg.orrery text")];
       assert.equal(
-        texts.every((element) => ["ring-name", "count", "of"].includes(element.getAttribute("class") ?? "")),
+        texts.every((element) => ["ring-name", "count", "of", "req-id"].includes(element.getAttribute("class") ?? "")),
         true,
       );
       assert.equal(container.querySelectorAll("text.ring-name").length, PLACES.length);
     },
-    { tasks: many, proven: new Set() },
+    { tasks: many, requirements: [requirementOf("R1", "in_flight")], proven: new Set() },
   );
 });
 
-test("EpicOrrery: hovering a wedge outlines it and captions it with its task's title and words, and leaving clears both", () =>
+test("EpicOrrery: a click on a task's cell outlines its wedge and captions it with its title and words", () =>
   withOrrery(async (container) => {
     assert.equal(container.querySelectorAll("path.hl").length, 0);
     assert.equal(container.querySelectorAll("figcaption.orrery-cap").length, 0);
-    await fire(cellOf(container, "t2", "green"), "pointerenter");
+    await act(() => {
+      cellOf(container, "t2", "green").dispatchEvent(new Event("click"));
+    });
     assert.equal(container.querySelectorAll("path.hl").length, 1);
     assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Parser · implement · writing the parser");
-    await fire(cellOf(container, "t2", "green"), "pointerleave");
-    assert.equal(container.querySelectorAll("path.hl").length, 0);
-    assert.equal(container.querySelectorAll("figcaption.orrery-cap").length, 0);
   }));
 
-test("EpicOrrery: hovering one wedge's cell moves the outline to its wedge", () =>
+test("EpicOrrery: a click on another task's cell moves the outline and caption to it", () =>
   withOrrery(async (container) => {
-    await fire(cellOf(container, "t1", "red"), "pointerenter");
+    await act(() => {
+      cellOf(container, "t1", "red").dispatchEvent(new Event("click"));
+    });
     assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Login · done");
-    await fire(cellOf(container, "t4", "review"), "pointerenter");
+    await act(() => {
+      cellOf(container, "t4", "review").dispatchEvent(new Event("click"));
+    });
     assert.equal(container.querySelectorAll("path.hl").length, 1);
     assert.equal(textsOf(container, "figcaption.orrery-cap")[0], "Store · green · failed");
   }));
@@ -276,7 +286,7 @@ test("EpicOrrery: a click on a task's cell calls onOpenPhase once with that task
         ["t4", "checking"],
       ]);
     },
-    { tasks, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
+    { tasks, requirements, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
   );
 });
 
@@ -289,7 +299,7 @@ test("EpicOrrery: a click on a planned task's cell calls nothing", () => {
       });
       assert.deepEqual(opened, []);
     },
-    { tasks, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
+    { tasks, requirements, proven, onOpenPhase: (task, phase) => opened.push([task, phase]) },
   );
 });
 
@@ -298,8 +308,8 @@ test("EpicOrrery: each drawn chart's ring-name paths have ids no other chart in 
   const first = document.createElement("div");
   const second = document.createElement("div");
   try {
-    render(<Orrery tasks={tasks} proven={proven} />, first);
-    render(<Orrery tasks={tasks} proven={proven} />, second);
+    render(<Orrery tasks={tasks} requirements={requirements} proven={proven} />, first);
+    render(<Orrery tasks={tasks} requirements={requirements} proven={proven} />, second);
     const ids = [...first.querySelectorAll("path.ring-way"), ...second.querySelectorAll("path.ring-way")].map(
       (element) => element.id,
     );
@@ -324,7 +334,7 @@ test("EpicOrrery: the record's gap at 12 o'clock is 62 degrees, so its first cel
         const [x, y] = numbersOf(cellOf(container, "unit-1", "red").getAttribute("d"));
         assert.ok(Math.abs(angleOf(x ?? 0, y ?? 0) - RECORD_GAP / 2) < 1.5, `the first cell of ${count} starts off +31 degrees`);
       },
-      { tasks: many, proven: new Set() },
+      { tasks: many, requirements: [], proven: new Set() },
     );
   }
 });

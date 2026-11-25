@@ -104,7 +104,7 @@ export function NowSection({
           <div key={line.id} class={`tr t-${line.glyph}`}>
             <span class={`g g-${line.glyph}`} aria-label={line.glyph} />
             <span class="strong">{line.label}</span>
-            <Pips cells={pipsOf(line.task, tasks)} />
+            {line.task !== "" && <Pips cells={pipsOf(line.task, tasks)} />}
             <span class="doing wide">{line.doing}</span>
             <span class="end">{elapsed(now - line.since)}</span>
           </div>

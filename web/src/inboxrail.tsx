@@ -11,6 +11,8 @@ import { ageText, quietRow, SecondLine } from "./inboxrow";
 import { Mark } from "./mark";
 import type { FlyoutModel, FlyoutRow, LineageConvo, LineageMark, RailTileModel } from "./railtiles";
 import { ReplyText } from "./text";
+import { UsageRailTile } from "./usagerail";
+import type { BandRow } from "./usagemodel";
 
 // noticesTip is the tip of the Notices control: its unread count when there is one, else the name alone.
 export function noticesTip(unread: number): string {
@@ -260,7 +262,8 @@ function FlyoutLine({ row, now, cur, onOpen }: { row: FlyoutRow; now: number; cu
 // Notices counts the unread notices and opens the centre. The pointer over a project tile or its lineage calls onHover with
 // the project's key, over the flyout keeps it, and over any other part of the rail, or leaving it, calls onHoverOff. A press
 // on a lineage mark calls onLineage with its key. The flyout, when given, lies beside the rail, level with its tile's top
-// and held inside the rail's height.
+// and held inside the rail's height. usage, when given, is the account in use: its usage tile is drawn directly above New,
+// and its popover, when given, lies beside the rail, its foot level with that tile's foot.
 export function InboxRail({
   tiles,
   move = "",
@@ -273,6 +276,7 @@ export function InboxRail({
   onFlyoutRow,
   onFlyoutPage,
   onLineage,
+  usage,
   onNew,
   onSearch,
   unread,
@@ -290,6 +294,7 @@ export function InboxRail({
   onFlyoutRow: (row: FlyoutRow) => void;
   onFlyoutPage: (key: string) => void;
   onLineage?: (key: string) => void;
+  usage?: { row: BandRow; onOpen: () => void; popover?: JSX.Element };
   onNew: () => void;
   onSearch: () => void;
   unread: number;
@@ -299,6 +304,7 @@ export function InboxRail({
   const navRef = useRef<HTMLElement>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
   const flyRef = useRef<HTMLDivElement>(null);
+  const usageSlotRef = useRef<HTMLDivElement>(null);
   // The flyout's top is its tile's, measured from the rail's top after each render, so a scroll of the tiles or a change
   // of the rows moves it with them. A flyout that would run past the rail's foot is held at it.
   useLayoutEffect(() => {
@@ -315,6 +321,19 @@ export function InboxRail({
     const top = tile.getBoundingClientRect().top - rail.top;
     const lowest = rail.height - fly.getBoundingClientRect().height;
     fly.style.top = `${Math.max(0, Math.min(top, lowest))}px`;
+  });
+  // The usage popover's foot is level with its tile's foot, and it is held inside the rail's height.
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const slot = usageSlotRef.current;
+    const tile = nav?.querySelector<HTMLElement>(".utile") ?? null;
+    if (nav === null || slot === null || tile === null) {
+      return;
+    }
+    const rail = nav.getBoundingClientRect();
+    const height = slot.getBoundingClientRect().height;
+    const top = tile.getBoundingClientRect().bottom - rail.top - height;
+    slot.style.top = `${Math.max(0, Math.min(top, rail.height - height))}px`;
   });
   const pointerOver = (event: PointerEvent) => {
     const target = event.target instanceof Element ? event.target : null;
@@ -356,7 +375,9 @@ export function InboxRail({
       {flyout !== null && (
         <ProjectFlyout model={flyout} now={now} flyRef={flyRef} onRow={onFlyoutRow} onPage={onFlyoutPage} />
       )}
+      {usage?.popover !== undefined && <div class="upop-slot" ref={usageSlotRef}>{usage.popover}</div>}
       <span class="spring" />
+      {usage !== undefined && <UsageRailTile row={usage.row} onOpen={usage.onOpen} />}
       <RailTile icon="plus" tone="primary" label="New session" onClick={onNew} />
       <RailTile icon="search" bare label="Search" onClick={onSearch} />
       <RailTile icon="bell" bare label="Notices" tip={noticesTip(unread)} n={unread} newCount onClick={onNotices} />

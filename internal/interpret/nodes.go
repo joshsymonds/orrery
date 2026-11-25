@@ -298,6 +298,7 @@ func (r *Runner) startAgent(ctx context.Context, epic store.EpicRow, act Action)
 	start := enginehost.StepStart{
 		ID: store.NodeWorkID(act.Run.ID, act.Run.Attempt, stepPart), Agent: settings.Agent, Prompt: settings.Prompt,
 		Schema: settings.Schema, Workspace: epic.Repository, Revision: act.Run.Revision, ReadOnly: true, Epic: epic.ID,
+		Purpose: fmt.Sprintf("Run node %s of %s.", act.Path, build.Slug(epic.ID)),
 	}
 	if _, err := r.steps.Start(ctx, start); err != nil {
 		startErr := fmt.Errorf("start step %s: %w", start.ID, err)

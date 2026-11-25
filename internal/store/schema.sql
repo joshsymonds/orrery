@@ -65,7 +65,7 @@ CREATE TABLE steps (
     end_value TEXT NOT NULL,
     reason TEXT NOT NULL,
     ended INTEGER NOT NULL
-, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '');
+, model_limit INTEGER NOT NULL DEFAULT 0, doing TEXT NOT NULL DEFAULT '', verdicts TEXT NOT NULL DEFAULT '[]', epic TEXT NOT NULL DEFAULT '', task TEXT NOT NULL DEFAULT '', gate_name TEXT NOT NULL DEFAULT '', gate_source TEXT NOT NULL DEFAULT '', gate_needs TEXT NOT NULL DEFAULT '[]', loop_round INTEGER NOT NULL DEFAULT 0, loop_continues INTEGER NOT NULL DEFAULT 0, loop_nudge TEXT NOT NULL DEFAULT '', loop_owner_nudge TEXT NOT NULL DEFAULT '', loop_nudged BOOLEAN NOT NULL DEFAULT 0, loop_held BOOLEAN NOT NULL DEFAULT 0, loop_judge_sent BOOLEAN NOT NULL DEFAULT 0, loop_seq INTEGER NOT NULL DEFAULT 0, gate_grant TEXT NOT NULL DEFAULT '', gate_holder TEXT NOT NULL DEFAULT '', gate_round INTEGER NOT NULL DEFAULT 0, loop_limited BOOLEAN NOT NULL DEFAULT 0, loop_limit_kind TEXT NOT NULL DEFAULT '', loop_limit_resets INTEGER NOT NULL DEFAULT 0, loop_gate_from INTEGER NOT NULL DEFAULT 0, checkout_head TEXT NOT NULL DEFAULT '', checkout_hash TEXT NOT NULL DEFAULT '', loop_stage TEXT NOT NULL DEFAULT '', loop_stage_from INTEGER NOT NULL DEFAULT 0, agents TEXT NOT NULL DEFAULT '', unowned INTEGER NOT NULL DEFAULT 0, caller TEXT NOT NULL DEFAULT '', lines_counted INTEGER NOT NULL DEFAULT 0, lines_files INTEGER NOT NULL DEFAULT 0, lines_added INTEGER NOT NULL DEFAULT 0, lines_removed INTEGER NOT NULL DEFAULT 0, host TEXT NOT NULL DEFAULT '', purpose TEXT NOT NULL DEFAULT '');
 CREATE TABLE grants (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
@@ -1080,41 +1080,6 @@ CREATE TABLE pushed_notices (
     PRIMARY KEY (host, pane, session)
 );
 CREATE INDEX notice_history_key ON notice_history (host, pane, session, epic, limit_key, alert, id);
-CREATE VIEW step_listings AS
-SELECT
-    steps.id,
-    steps.agent,
-    steps.workspace,
-    steps.revision,
-    steps.worktree,
-    steps.read_only,
-    steps.started,
-    steps.checks,
-    steps.doing,
-    steps.verdicts,
-    steps.status,
-    steps.end_value,
-    steps.reason,
-    steps.ended,
-    steps.epic,
-    steps.task,
-    steps.gate_name,
-    steps.gate_limit,
-    steps.loop_limited,
-    steps.loop_limit_kind,
-    steps.loop_limit_resets,
-    steps.loop_stage,
-    steps.loop_stage_from,
-    steps.caller,
-    CAST(CASE WHEN json_valid(steps.result) THEN COALESCE((
-        SELECT CASE WHEN field.type = 'text' THEN field.value ELSE '' END
-        FROM json_each(steps.result) AS field
-        WHERE field.key = 'summary'
-        ORDER BY field.id DESC
-        LIMIT 1
-    ), '') ELSE '' END AS TEXT) AS summary,
-    steps.host
-FROM steps;
 CREATE TABLE epic_stalls (
     epic TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -1207,6 +1172,42 @@ CREATE TABLE evidence_runs (
     gatherers INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX evidence_runs_epic_created ON evidence_runs (epic, created);
+CREATE VIEW step_listings AS
+SELECT
+    steps.id,
+    steps.agent,
+    steps.workspace,
+    steps.revision,
+    steps.worktree,
+    steps.read_only,
+    steps.started,
+    steps.checks,
+    steps.doing,
+    steps.verdicts,
+    steps.status,
+    steps.end_value,
+    steps.reason,
+    steps.ended,
+    steps.epic,
+    steps.task,
+    steps.purpose,
+    steps.gate_name,
+    steps.gate_limit,
+    steps.loop_limited,
+    steps.loop_limit_kind,
+    steps.loop_limit_resets,
+    steps.loop_stage,
+    steps.loop_stage_from,
+    steps.caller,
+    CAST(CASE WHEN json_valid(steps.result) THEN COALESCE((
+        SELECT CASE WHEN field.type = 'text' THEN field.value ELSE '' END
+        FROM json_each(steps.result) AS field
+        WHERE field.key = 'summary'
+        ORDER BY field.id DESC
+        LIMIT 1
+    ), '') ELSE '' END AS TEXT) AS summary,
+    steps.host
+FROM steps;
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1225,6 +1226,8 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (111,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (112,111,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (113,112,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (114,113,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,114,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);

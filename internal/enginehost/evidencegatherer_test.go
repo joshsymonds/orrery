@@ -289,7 +289,8 @@ func TestGathererDeliversABriefFiledWhileItRuns(t *testing.T) {
 // TestGathererPromptHoldsBriefsEarlierCapturesRunnersAndRules starts a gatherer for two briefs, with an ended capture
 // at the first brief's commit and a running capture there too, and a project file committed at the epic's base with a
 // runner. It checks the prompt holds each brief, the ended capture with its command, the runner with its note and
-// local, and the rules.
+// local, the orrery commands the gatherer captures and attaches with from its shell, and the rules. It names no MCP
+// tool: a step has none.
 func TestGathererPromptHoldsBriefsEarlierCapturesRunnersAndRules(t *testing.T) {
 	t.Parallel()
 	repo := stepGitTestRepo(t)
@@ -337,13 +338,25 @@ func TestGathererPromptHoldsBriefsEarlierCapturesRunnersAndRules(t *testing.T) {
 		"  ended captures at " + base + ":\n    none\n",
 		"local: always available, with no prefix.",
 		"fake: argv prefix [\"/bin/sh\",\"runner.sh\"]; note: Echoes a line, then runs the argv it is given.",
-		"Run one capture per distinct command at a commit, and attach it to every brief it shows.",
+		"Run one capture per distinct command at a commit, with a --brief for every brief it shows.",
+		"When the capture ends, orrery attaches it to each of those briefs still open, so do not wait for it",
+		"Finish as soon as every brief has a capture started or attached,",
 		"Run the narrowest command that shows each conclusion.",
 		"Run a heavy command on the runner whose note favors it.",
 		"An earlier capture at a brief's commit may be attached to that brief when it shows the conclusion",
+		"Commands, run from your shell:",
+		"  orrery evidence capture --commit SHA --brief RUN [--brief RUN]... [--runner NAME] [--file PATH]... -- " +
+			"ARGV...: runs ARGV at SHA under the runner",
+		"  orrery evidence attach CAPTURE RUN...: attaches an ended capture, such as an earlier one at a brief's " +
+			"commit, to the briefs it answers",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	for _, tool := range []string{"evidence_capture", "evidence_attach", "mcp__"} {
+		if strings.Contains(prompt, tool) {
+			t.Errorf("prompt names the MCP tool %q, which a step does not have:\n%s", tool, prompt)
 		}
 	}
 	if strings.Contains(prompt, "running-capture") {

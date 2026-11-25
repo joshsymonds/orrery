@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/childproc"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -32,15 +33,18 @@ type claudeSession struct {
 }
 
 // startClaudeSession starts a live child process in the environment that pane's processes have, so the registry entry
-// of its pid binds pane. The child is a sleep, and env is added to its environment after TMUX, TMUX_PANE and
-// ANTHROPIC_BASE_URL. Nothing is written to the registry yet: the session's first setStatus binds the pane. The child is
-// killed at cleanup.
+// of its pid binds pane. The child is a cat, and env is added to its environment after TMUX, TMUX_PANE and
+// ANTHROPIC_BASE_URL. It returns once the child has finished its exec, as exectest.AwaitExec waits for it: a Claude
+// session writes its registry entry only once it runs, and the entry of a child whose exec is still under way would
+// name a process with no environment yet, which binds no pane. Nothing is written to the registry yet: the session's
+// first setStatus binds the pane. The child is killed at cleanup.
 func startClaudeSession(t *testing.T, client *tmuxctl.Client, home, pane, cwd string, env ...string) *claudeSession {
 	t.Helper()
 	// tmux sets TMUX to the server's socket, its pid and the session's index, which is the session id without its '$'.
 	tmux := strings.Replace(displayPane(t, client, pane, "#{socket_path},#{pid},#{session_id}"), ",$", ",", 1)
-	cmd := exec.Command("sleep", "300")
+	cmd := exec.Command("cat")
 	cmd.Env = append([]string{"TMUX=" + tmux, "TMUX_PANE=" + pane, "ANTHROPIC_BASE_URL=" + exampleProxyURL}, env...)
+	execed := exectest.AwaitExec(t, cmd)
 	if _, err := childproc.Start(cmd); err != nil {
 		t.Fatalf("start the session's process: %v", err)
 	}
@@ -49,6 +53,7 @@ func startClaudeSession(t *testing.T, client *tmuxctl.Client, home, pane, cwd st
 			t.Errorf("kill the session's process %d: %v", cmd.Process.Pid, err)
 		}
 	})
+	execed()
 	id := randomSessionID(t)
 	session := &claudeSession{
 		entry:      filepath.Join(home, ".claude", "sessions", fmt.Sprintf("%d.json", cmd.Process.Pid)),

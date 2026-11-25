@@ -327,8 +327,8 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
                    done_value, read_only, owned, unowned, gate, gate_name, gate_source, gate_needs, gate_limit,
                    model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task,
-                   loop_stage, loop_stage_from, agents, caller, host)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?);
+                   loop_stage, loop_stage_from, agents, caller, host, purpose)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -449,6 +449,9 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: SetStepPurpose :exec
+UPDATE steps SET purpose = ? WHERE id = ? AND purpose = '';
 
 -- name: UpdateStepLines :exec
 UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
@@ -1508,12 +1511,31 @@ SELECT DISTINCT epic FROM evidence_runs WHERE state = 'waiting' AND source = 'ca
 -- name: TakeEvidenceBrief :execrows
 UPDATE evidence_runs SET gatherer = ?, state = 'gathering' WHERE id = ? AND state = 'waiting';
 
--- name: ListEvidenceBriefsOfGatherer :many
-SELECT * FROM evidence_runs WHERE gatherer = ? AND state = 'gathering' ORDER BY created, id;
+-- name: ListUnansweredBriefsOfGatherer :many
+SELECT * FROM evidence_runs
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running')
+ORDER BY created, id;
 
--- name: ReleaseEvidenceBriefs :exec
+-- name: ReleaseUnansweredBriefs :exec
 UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
-WHERE gatherer = ? AND state = 'gathering';
+WHERE gatherer = ? AND state = 'gathering' AND NOT EXISTS (
+    SELECT 1 FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+    WHERE b.run = evidence_runs.id AND c.state = 'running');
+
+-- name: ListOpenBriefsOfCapture :many
+SELECT * FROM evidence_runs
+WHERE id IN (SELECT b.run FROM evidence_capture_briefs b WHERE b.capture = ?) AND state IN ('waiting', 'gathering')
+ORDER BY created, id;
+
+-- name: CountRunningCapturesOfBrief :one
+SELECT COUNT(*) FROM evidence_capture_briefs b JOIN evidence_captures c ON c.id = b.capture
+WHERE b.run = ? AND c.state = 'running';
+
+-- name: ReleaseEvidenceBrief :execrows
+UPDATE evidence_runs SET gatherer = '', state = 'waiting', gatherers = gatherers + 1
+WHERE id = ? AND state = 'gathering';
 
 -- name: StartEvidenceGatherer :one
 INSERT INTO evidence_gatherers (epic, seq, step, started)
@@ -1654,6 +1676,27 @@ FROM epic_sessions
 JOIN sessions ON sessions.id = epic_sessions.session
 WHERE epic_sessions.epic = ?
 ORDER BY epic_sessions.at DESC, epic_sessions.session;
+
+-- name: GetSessionClaude :one
+SELECT claude_session FROM sessions WHERE id = ?;
+
+-- name: GetEpicSteererSession :one
+SELECT epics.steerer AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM epics LEFT JOIN sessions ON sessions.id = epics.steerer
+WHERE epics.id = ?;
+
+-- name: ListEpicStepSessions :many
+SELECT steps.id AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.id
+WHERE steps.epic = ?
+ORDER BY steps.id;
+
+-- name: ListEpicCallerSessions :many
+SELECT DISTINCT steps.caller AS session, CAST(COALESCE(sessions.claude_session, '') AS TEXT) AS claude_session
+FROM steps LEFT JOIN sessions ON sessions.id = steps.caller
+WHERE steps.epic = sqlc.arg(epic) AND steps.caller <> ''
+  AND NOT EXISTS (SELECT 1 FROM steps AS own WHERE own.id = steps.caller AND own.epic = sqlc.arg(epic))
+ORDER BY steps.caller;
 
 -- name: InsertCallerEvent :exec
 INSERT INTO caller_events (event, session, at)

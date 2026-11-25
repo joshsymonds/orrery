@@ -136,9 +136,9 @@ function drawn(t: TestContext, container: HTMLElement): Promise<void> {
   return settle(t, () => container.querySelector(".block.epicevent") !== null, "the card draws its block");
 }
 
-// gaugeLabel is the label of the card's gauge, which says how many of the epic's tasks are done.
-function gaugeLabel(container: ParentNode): string | null | undefined {
-  return container.querySelector(".gauge")?.getAttribute("aria-label");
+// markLabel is the label of the card's EpicMark, which says how many of the epic's requirements are proven.
+function markLabel(container: ParentNode): string | null | undefined {
+  return container.querySelector(".epicmark")?.getAttribute("aria-label");
 }
 
 // withReader draws the reader over items with the epic calls, runs the check on its container, then removes the DOM.
@@ -192,14 +192,14 @@ async function withRedraws(
   }
 }
 
-test("EpicWidget: an epic that cannot be read draws its Created block with no gauge", async (t) => {
+test("EpicWidget: an epic that cannot be read draws its Created block with no mark", async (t) => {
   const fake = new FakeEpics(new Error("no such epic"));
   await withReader([createCall(), resultItem(createId, "created")], fake.calls(), async (container) => {
     await drawn(t, container);
     await settle(t, () => fake.reads.length === 1, "the card reads its epic");
     await act(turn);
     assert.equal(container.querySelector(".block.epicevent .ring-sentence")?.textContent, "Created the epic from the accepted contract.");
-    assertNone(container.querySelector(".gauge"), "an unreadable epic draws no gauge");
+    assertNone(container.querySelector(".epicmark"), "an unreadable epic draws no mark");
   });
 });
 
@@ -245,9 +245,9 @@ test("EpicWidget: a card whose epic the poll holds draws the poll's detail, read
   const fake = new FakeEpics(orreryd("accepted"));
   await withRedraws(fake.calls(polledView(orreryd("accepted"))), async (container, redraw) => {
     await drawn(t, container);
-    assert.equal(gaugeLabel(container), "no tasks yet");
-    await redraw(fake.calls(polledView(orreryd("accepted", { buildTasks: [{ id: "t1", status: "" }] }))));
-    await settle(t, () => gaugeLabel(container) === "0 of 1 tasks done", "the poll's next detail draws");
+    assert.equal(markLabel(container), "no requirements yet");
+    await redraw(fake.calls(polledView(orreryd("accepted", { requirements: [{ id: "R1", state: "not_reached" }] }))));
+    await settle(t, () => markLabel(container) === "0 of 1 requirements proven", "the poll's next detail draws");
     await act(turn);
     assert.deepEqual(fake.reads, [], "a card over a polled epic read it");
   });

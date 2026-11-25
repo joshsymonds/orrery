@@ -112,24 +112,39 @@ class EpicHappeningsTest {
     @Test
     fun justHappenedShowsTheNewestThreeAndMoreOpensTheRestInPlace() {
         val entries = listOf(
-            EpicHistoryRow(time = at(0), cursor = "c1", kind = "turn", turn = turn(seq = 1L, state = "succeeded")),
+            EpicHistoryRow(
+                time = at(0),
+                cursor = "c1",
+                kind = "turn",
+                sentence = "Planner turn 1 succeeded",
+                turn = turn(seq = 1L, state = "succeeded"),
+            ),
             EpicHistoryRow(
                 time = at(1),
                 cursor = "c2",
                 kind = "trigger",
+                sentence = "Trigger t1: owner asked",
                 trigger = EpicTriggerRow(id = "", cause = "owner asked", state = "", turn = 0L, created = 0L),
             ),
-            EpicHistoryRow(time = at(2), cursor = "c3", kind = "step", step = stepRow("s1", task = "b1", end = "done")),
+            EpicHistoryRow(
+                time = at(2),
+                cursor = "c3",
+                kind = "step",
+                sentence = "B1 ended done",
+                step = stepRow("s1", task = "b1", end = "done"),
+            ),
             EpicHistoryRow(
                 time = at(3),
                 cursor = "c4",
                 kind = "decision",
+                sentence = "Decision by owner: use the table",
                 decision = EpicDecisionRow(seq = 0L, id = "", text = "use the table", time = 0L, question = ""),
             ),
             EpicHistoryRow(
                 time = at(4),
                 cursor = "c5",
                 kind = "tell",
+                sentence = "To tell the owner: build one is in",
                 tell = EpicTellRow(seq = 0L, text = "build one is in", at = 0L, told = false),
             ),
         )
@@ -138,9 +153,9 @@ class EpicHappeningsTest {
         }
 
         composeRule.onNodeWithText("JUST HAPPENED").assertIsDisplayed()
-        composeRule.onNodeWithTag("happened:0").assertTextEquals("22:17", "build one is in")
-        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:16", "decision by unknown · use the table")
-        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:15", "b1 · done")
+        composeRule.onNodeWithTag("happened:0").assertTextEquals("22:17", "To tell the owner: build one is in")
+        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:16", "Decision by owner: use the table")
+        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:15", "B1 ended done")
         assertTrue(composeRule.onAllNodesWithTag("happened:3").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithTag("happened-more").assertTextEquals("+2 earlier")
 
@@ -158,6 +173,7 @@ class EpicHappeningsTest {
                 time = 0L,
                 cursor = "z1",
                 kind = "tell",
+                sentence = "To tell the owner: build one is in",
                 tell = EpicTellRow(seq = 0L, text = "build one is in", at = 0L, told = false),
             ),
         )
@@ -165,7 +181,7 @@ class EpicHappeningsTest {
             MaterialTheme { JustHappened(entries = entries, steps = emptyList(), onOpenStep = {}) }
         }
 
-        composeRule.onNodeWithTag("happened:0").assertTextEquals("", "build one is in")
+        composeRule.onNodeWithTag("happened:0").assertTextEquals("", "To tell the owner: build one is in")
     }
 
     @Test
@@ -175,50 +191,70 @@ class EpicHappeningsTest {
                 time = at(0),
                 cursor = "k1",
                 kind = "turn",
+                sentence = "Planner turn 3 succeeded: shipped",
                 turn = turn(3L, "succeeded", outcome = "shipped"),
             ),
-            EpicHistoryRow(time = at(1), cursor = "k2", kind = "turn", turn = turn(4L, "running")),
+            EpicHistoryRow(
+                time = at(1),
+                cursor = "k2",
+                kind = "turn",
+                sentence = "Planner turn 4 running",
+                turn = turn(4L, "running"),
+            ),
             EpicHistoryRow(
                 time = at(2),
                 cursor = "k3",
                 kind = "trigger",
+                sentence = "Trigger t1: owner asked",
                 trigger = EpicTriggerRow(id = "", cause = "owner asked", state = "", turn = 0L, created = 0L),
             ),
-            EpicHistoryRow(time = at(3), cursor = "k4", kind = "step", step = stepRow("s1", task = "b1")),
+            EpicHistoryRow(
+                time = at(3),
+                cursor = "k4",
+                kind = "step",
+                sentence = "B1 running",
+                step = stepRow("s1", task = "b1"),
+            ),
             EpicHistoryRow(
                 time = at(4),
                 cursor = "k5",
                 kind = "step",
+                sentence = "Builder ended done",
                 step = stepRow("s2", agent = "builder", end = "done"),
             ),
             EpicHistoryRow(
                 time = at(5),
                 cursor = "k6",
                 kind = "evidence",
+                sentence = "Red evidence: R1 running",
                 evidence = evidence("R1", "red", state = "capturing", passed = false),
             ),
             EpicHistoryRow(
                 time = at(6),
                 cursor = "k7",
                 kind = "evidence",
+                sentence = "Green evidence: R1 holds",
                 evidence = evidence("R1", "green", state = "ended", passed = true),
             ),
             EpicHistoryRow(
                 time = at(7),
                 cursor = "k8",
                 kind = "evidence",
+                sentence = "Green evidence: R2 failed",
                 evidence = evidence("R2", "green", state = "ended", passed = false),
             ),
             EpicHistoryRow(
                 time = at(8),
                 cursor = "k9",
                 kind = "decision",
+                sentence = "Decision by owner: use the table",
                 decision = EpicDecisionRow(seq = 0L, id = "", text = "use the table", time = 0L, question = ""),
             ),
             EpicHistoryRow(
                 time = at(9),
                 cursor = "k10",
                 kind = "tell",
+                sentence = "To tell the owner: build one is in",
                 tell = EpicTellRow(seq = 0L, text = "build one is in", at = 0L, told = false),
             ),
         )
@@ -229,40 +265,70 @@ class EpicHappeningsTest {
         composeRule.onNodeWithTag("happened-more").assertTextEquals("+7 earlier")
         composeRule.onNodeWithTag("happened-more").performClick()
 
-        composeRule.onNodeWithTag("happened:0").assertTextEquals("22:22", "build one is in")
-        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:21", "decision by unknown · use the table")
-        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:20", "R2 green run · failed")
-        composeRule.onNodeWithTag("happened:3").assertTextEquals("22:19", "R1 green run · passed")
-        composeRule.onNodeWithTag("happened:4").assertTextEquals("22:18", "R1 red run · running")
-        composeRule.onNodeWithTag("happened:5").assertTextEquals("22:17", "builder · done")
-        composeRule.onNodeWithTag("happened:6").assertTextEquals("22:16", "b1 · started")
-        composeRule.onNodeWithTag("happened:7").assertTextEquals("22:15", "trigger · owner asked")
-        composeRule.onNodeWithTag("happened:8").assertTextEquals("22:14", "turn 4 · running")
-        composeRule.onNodeWithTag("happened:9").assertTextEquals("22:13", "turn 3 · succeeded · shipped")
+        composeRule.onNodeWithTag("happened:0").assertTextEquals("22:22", "To tell the owner: build one is in")
+        composeRule.onNodeWithTag("happened:1").assertTextEquals("22:21", "Decision by owner: use the table")
+        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:20", "Green evidence: R2 failed")
+        composeRule.onNodeWithTag("happened:3").assertTextEquals("22:19", "Green evidence: R1 holds")
+        composeRule.onNodeWithTag("happened:4").assertTextEquals("22:18", "Red evidence: R1 running")
+        composeRule.onNodeWithTag("happened:5").assertTextEquals("22:17", "Builder ended done")
+        composeRule.onNodeWithTag("happened:6").assertTextEquals("22:16", "B1 running")
+        composeRule.onNodeWithTag("happened:7").assertTextEquals("22:15", "Trigger t1: owner asked")
+        composeRule.onNodeWithTag("happened:8").assertTextEquals("22:14", "Planner turn 4 running")
+        composeRule.onNodeWithTag("happened:9").assertTextEquals("22:13", "Planner turn 3 succeeded: shipped")
     }
 
     @Test
     fun aHistoryOfThreeOrFewerHasNoMoreButton() {
         val entries = listOf(
-            EpicHistoryRow(time = at(0), cursor = "f1", kind = "turn", turn = turn(1L, "succeeded")),
-            EpicHistoryRow(time = at(1), cursor = "f2", kind = "turn", turn = turn(2L, "succeeded")),
-            EpicHistoryRow(time = at(2), cursor = "f3", kind = "turn", turn = turn(3L, "succeeded")),
+            EpicHistoryRow(
+                time = at(0),
+                cursor = "f1",
+                kind = "turn",
+                sentence = "Planner turn 1 succeeded",
+                turn = turn(1L, "succeeded"),
+            ),
+            EpicHistoryRow(
+                time = at(1),
+                cursor = "f2",
+                kind = "turn",
+                sentence = "Planner turn 2 succeeded",
+                turn = turn(2L, "succeeded"),
+            ),
+            EpicHistoryRow(
+                time = at(2),
+                cursor = "f3",
+                kind = "turn",
+                sentence = "Planner turn 3 succeeded",
+                turn = turn(3L, "succeeded"),
+            ),
         )
         composeRule.setContent {
             MaterialTheme { JustHappened(entries = entries, steps = emptyList(), onOpenStep = {}) }
         }
 
-        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:13", "turn 1 · succeeded")
+        composeRule.onNodeWithTag("happened:2").assertTextEquals("22:13", "Planner turn 1 succeeded")
         assertTrue(composeRule.onAllNodesWithTag("happened-more").fetchSemanticsNodes().isEmpty())
     }
 
     @Test
-    fun aStepEntryTapOpensItsStepWhenTheEpicHoldsIt() {
+    fun aStepEntryExpandsOnTapAndItsDoorOpensItsStepWhenTheEpicHoldsIt() {
         val opened = mutableListOf<StepRow>()
         val held = stepRow("s1", task = "b1", agent = "builder", end = "done")
         val entries = listOf(
-            EpicHistoryRow(time = at(0), cursor = "s1", kind = "step", step = stepRow("s1", task = "b1", end = "done")),
-            EpicHistoryRow(time = at(1), cursor = "s9", kind = "step", step = stepRow("s9", task = "b9", end = "done")),
+            EpicHistoryRow(
+                time = at(0),
+                cursor = "s1",
+                kind = "step",
+                sentence = "B1 ended done",
+                step = stepRow("s1", task = "b1", end = "done"),
+            ),
+            EpicHistoryRow(
+                time = at(1),
+                cursor = "s9",
+                kind = "step",
+                sentence = "B9 ended done",
+                step = stepRow("s9", task = "b9", end = "done"),
+            ),
         )
         composeRule.setContent {
             MaterialTheme {
@@ -277,6 +343,9 @@ class EpicHappeningsTest {
         assertFalse(hasClickAction("happened:0"))
         assertTrue(hasClickAction("happened:1"))
         composeRule.onNodeWithTag("happened:1").performClick()
+        assertTrue(opened.isEmpty())
+
+        composeRule.onNodeWithTag("happened-open:1", useUnmergedTree = true).performClick()
 
         assertEquals(listOf(held), opened)
     }
@@ -288,6 +357,7 @@ class EpicHappeningsTest {
                 time = at(0),
                 cursor = "t1",
                 kind = "step",
+                sentence = "B1 ended checks_failed",
                 step = stepRow("s1", task = "b1", end = "checks_failed"),
             ),
         )
@@ -314,6 +384,8 @@ class EpicHappeningsTest {
         composeRule.setContent {
             MaterialTheme { JustHappened(entries = entries, steps = steps, onOpenStep = {}) }
         }
+
+        composeRule.onNodeWithTag("happened:0").performClick()
 
         composeRule.onNodeWithTag("happened-tail:0:lint", useUnmergedTree = true)
             .assert(hasAnyDescendant(hasText("lint out")))

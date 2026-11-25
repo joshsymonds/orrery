@@ -214,7 +214,7 @@ Names are story names: `Component/State`. The catalogue draws each component in 
 | Pill | Neutral, Live, Attention, Ok, Engine; WithGlyph |
 | Meter | Ok, Warn, Crit; NoBar; Stacked (touch) |
 | ContextMeter | Ok, Warn, Crit; Bare |
-| Gauge | Building, AsksYou, NoTasks, Paused, Releasing, Shipped, EndedShort |
+| EpicMark | Running, Asks, Paused, Releasing, Shipped, EndedShort. A rim of one segment per requirement, toned by its state, and the centre: the proven count, or a glyph; 32 in the inbox row, 24 elsewhere |
 | Pips | Running, Held, Limited, Failed, Accepted, Done, NotStarted. Five cells: red, implement, green, review, integrate. |
 | CommitMark | Default |
 | SectionHead | Plain, Attention, WithRest |
@@ -289,7 +289,7 @@ Every pane, session, epic and step draws its host, also when there is only one h
 | component | states |
 |---|---|
 | Track | a stage is Done, Now (with a tone) or Ahead |
-| Orrery | Running, Mine, Done, Dense. Five rings, outside in: red, implement, green, review, integrate, each named once along its own ring, ending where the ring begins. Not drawn with no tasks. |
+| Orrery | Running, Mine, Done, Dense. A rim of one segment per requirement, labelled with its id and toned by its server state (proven, failed, held, in flight, not reached); a task's cells sit inside the first requirement it names, tasks naming none sit in an unlabelled last group, and a requirement no task names keeps an empty segment. Five rings, outside in: red, implement, green, review, integrate, each named once along its own ring, ending where the ring begins. The centre reads n of m proven. A click selects a segment or a task and captions it, with its outline; nothing captions on hover. Not drawn with no tasks. |
 | TaskTable | Default |
 | RequirementTable | Default, WithRuns |
 | EvidenceRun | RedHolds, RedMetAtBase, GreenPasses, Judging, NoVerdict, LogOpen, LogUnavailable |
@@ -308,7 +308,7 @@ composables under `android/.../ui`.
 |---|---|---|
 | Inbox, Dir | `.list`, the three views of `App`, `rows.ts` sections | `PaneListScreen`, `treeRows` in `PaneTree.kt`, `EpicsGroup` |
 | InboxRow | `.b-row`, `TitleParts` | the pane row of `PaneListScreen` |
-| EpicRow, StepRow, Gauge | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
+| EpicRow, StepRow, EpicMark | `EpicLine` and its mini orrery, `.b-row.step` | `EpicsGroup` lines, `EpicLine.kt` |
 | TitleRow, MeterStrip | `TitleRow`, `Strip` | `TitleRow.kt`, `PaneHeader`, `HostMeters` |
 | Dock | `Composer` with its queue, `StepBox`, the pill of `workline.tsx` | `ComposeBox`, `StatusLine`, `SessionControls`, `StepControls`, `QuickKeys` |
 | WorkRail, SidePanel | `.epic-card`, waiting cards, background rows, all in the transcript today | `GoalLine`; the rest is not drawn |

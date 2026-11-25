@@ -75,6 +75,7 @@ func TestEpicVerifierStartIsBuildsVerifierStartOfTheEpicAndTheConvertedFinding(t
 			want := build.VerifierStart(
 				build.Subject{Epic: tt.epic, Base: "base111", Revision: "frozen222"}, finding, "step-7", "verifier",
 			)
+			want.Purpose = "Verify finding correctness-2 of epic-x's review."
 			if got.ReturnCheck == nil {
 				t.Fatal("ReturnCheck is nil, want the one-result check")
 			}

@@ -323,7 +323,7 @@ async function runScenario(t: TestContext, hidden: boolean): Promise<Scenario> {
     stop = start(root, serve.clients, pollMs, 600_000, visibility.win);
     await until(
       t.signal,
-      () => root.querySelectorAll(".epic-card .gauge").length === cardIds.length,
+      () => root.querySelectorAll(".epic-card .epicmark").length === cardIds.length,
       "the two epic cards",
       { step: () => act(turn) },
     );
@@ -342,7 +342,7 @@ async function runScenario(t: TestContext, hidden: boolean): Promise<Scenario> {
     await calm(t, serve);
     const shown = minus(serve.counts, hiddenEnd);
     const shownStreams = { ...serve.streams };
-    assert.equal(root.querySelectorAll(".epic-card .gauge").length, cardIds.length, "the epic cards are still drawn");
+    assert.equal(root.querySelectorAll(".epic-card .epicmark").length, cardIds.length, "the epic cards are still drawn");
     return { first, minute, shown, minuteStreams, shownStreams };
   } finally {
     await teardown();

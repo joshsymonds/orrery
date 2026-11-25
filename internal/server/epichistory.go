@@ -103,10 +103,11 @@ func historyEntryOf(key historyKey, entry *orreryv1.EpicHistoryEntry) historyEnt
 }
 
 // History answers one page of an epic's history, oldest first: the turns, triggers, decisions, tells and actions that
-// orreryd's epic holds, the epic's labeled steps and its evidence runs. The page holds the entries strictly after the
-// request's cursor, at most 50 for a limit of 0 and at most 200. Its next cursor is the last entry's, and empty when no
-// entry follows. A cursor that does not parse answers invalid_argument. An id the store does not hold answers not_found,
-// and the id is never joined into a path.
+// orreryd's epic holds, the epic's labeled steps and its evidence runs. The runs of one workflow node in one phase share
+// an entry, and a judge step has none of its own (see epicHistoryEntries). Each entry carries its sentence. The page
+// holds the entries strictly after the request's cursor, at most 50 for a limit of 0 and at most 200. Its next cursor
+// is the last entry's, and empty when no entry follows. A cursor that does not parse answers invalid_argument. An id
+// the store does not hold answers not_found, and the id is never joined into a path.
 func (e epicsServer) History(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsHistoryRequest],
@@ -134,17 +135,14 @@ func (e epicsServer) History(
 	labeled := epicStepMessages(stepsByEpic(listed.GetSteps())[id])
 	runs := e.listEvidence(ctx, id)
 	applyStoredRoles(labeled, storedStepRoles(stored, runs))
-	entries := append(storedHistoryEntries(stored), runHistoryEntries(runs)...)
-	entries = append(entries, stepHistoryEntries(labeled)...)
-	sort.Slice(entries, func(i, j int) bool { return entries[i].key.before(entries[j].key) })
-	page, next := historyPage(entries, after, req.Msg.GetLimit())
+	page, next := historyPage(epicHistoryEntries(stored, labeled, runs), after, req.Msg.GetLimit())
 	return connect.NewResponse(&orreryv1.EpicsHistoryResponse{Entries: page, Next: next}), nil
 }
 
-// getStoredHistory asks the epic store for the epic of id with its history, which is what getStored asks without. It
-// reports false, with no error, when there is no store or the store answers not_found or unimplemented, so that the
-// epic is not found. An unavailable answer is retried as listSteps retries it. Any other failure answers unavailable.
-// Each attempt runs under the timeout.
+// getStoredHistory asks the epic store for the epic of id with its triggers and tells, as History and Get read its
+// history. It reports false, with no error, when there is no store or the store answers not_found or unimplemented, so
+// that the epic is not found. An unavailable answer is retried as listSteps retries it. Any other failure answers
+// unavailable. Each attempt runs under the timeout.
 func (e epicsServer) getStoredHistory(ctx context.Context, id string) (*enginev1.StoredEpic, bool, error) {
 	if e.store == nil {
 		return nil, false, nil
@@ -229,24 +227,121 @@ func epicTurnMessage(turn *enginev1.EpicTurn) *orreryv1.EpicTurn {
 	}
 }
 
-// runHistoryEntries returns the entries of the evidence runs. Each run's item is set, which Get leaves empty.
-func runHistoryEntries(runs []*enginev1.EvidenceRun) []historyEntry {
-	out := make([]historyEntry, 0, len(runs))
+// epicHistoryEntries returns the entries of an epic's history, oldest first: its stored turns, triggers, decisions,
+// tells and actions, its evidence runs (see runHistoryEntries), and its labeled steps, each judge step left out. Each
+// entry's sentence is set from its row. A record epic has no stored history, so its stored is nil, and no runs.
+func epicHistoryEntries(
+	stored *enginev1.StoredEpic,
+	steps []*orreryv1.EpicStep,
+	runs []*enginev1.EvidenceRun,
+) []historyEntry {
+	entries := storedHistoryEntries(stored)
+	entries = append(entries, runHistoryEntries(runs, stored.GetNodes())...)
+	entries = append(entries, stepHistoryEntries(steps, judgeSteps(runs))...)
+	sort.Slice(entries, func(i, j int) bool { return entries[i].key.before(entries[j].key) })
+	for _, entry := range entries {
+		entry.entry.Sentence = historySentence(entry.entry)
+	}
+	return entries
+}
+
+// historyNewest returns the sentence of the newest of entries, which are oldest first, or empty when there are none.
+func historyNewest(entries []historyEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	return entries[len(entries)-1].entry.GetSentence()
+}
+
+// runHistoryEntries returns the entries of the evidence runs. The runs of one workflow node in one phase share an
+// entry, which sits in the sort at the earliest of them, and each run no node holds has an entry of its own (see
+// runGroupEntry).
+func runHistoryEntries(runs []*enginev1.EvidenceRun, nodes []*enginev1.EpicNode) []historyEntry {
+	byID := make(map[string]*enginev1.EvidenceRun, len(runs))
 	for _, run := range runs {
-		msg := epicRunMessage(run)
-		msg.Item = run.GetItem()
-		out = append(out, historyEntryOf(
-			historyKey{time: run.GetCreated(), kind: historyEvidence, id: run.GetId()},
-			&orreryv1.EpicHistoryEntry{Item: &orreryv1.EpicHistoryEntry_Evidence{Evidence: msg}},
-		))
+		byID[run.GetId()] = run
+	}
+	grouped := make(map[string]bool, len(runs))
+	var out []historyEntry
+	for _, node := range nodes {
+		var phases []string
+		byPhase := make(map[string][]*enginev1.EvidenceRun)
+		for _, id := range node.GetRuns() {
+			run, ok := byID[id]
+			if !ok || grouped[id] {
+				continue
+			}
+			grouped[id] = true
+			if _, seen := byPhase[run.GetPhase()]; !seen {
+				phases = append(phases, run.GetPhase())
+			}
+			byPhase[run.GetPhase()] = append(byPhase[run.GetPhase()], run)
+		}
+		for _, phase := range phases {
+			out = append(out, runGroupEntry(byPhase[phase]))
+		}
+	}
+	for _, run := range runs {
+		if !grouped[run.GetId()] {
+			out = append(out, runGroupEntry([]*enginev1.EvidenceRun{run}))
+		}
 	}
 	return out
 }
 
-// stepHistoryEntries returns the entries of the labeled steps, each at its start.
-func stepHistoryEntries(steps []*orreryv1.EpicStep) []historyEntry {
+// runGroupEntry returns the entry of a group of evidence runs: one run, or the runs of one node in one phase. The runs
+// are ordered by creation then id. The entry is keyed by the first of them, so it sits at the earliest run's time, and
+// it carries every run, the first also in evidence.
+func runGroupEntry(group []*enginev1.EvidenceRun) historyEntry {
+	sort.SliceStable(group, func(i, j int) bool {
+		if group[i].GetCreated() != group[j].GetCreated() {
+			return group[i].GetCreated() < group[j].GetCreated()
+		}
+		return group[i].GetId() < group[j].GetId()
+	})
+	runs := make([]*orreryv1.EvidenceRun, 0, len(group))
+	for _, run := range group {
+		runs = append(runs, historyRunMessage(run))
+	}
+	first := group[0]
+	return historyEntryOf(
+		historyKey{time: first.GetCreated(), kind: historyEvidence, id: first.GetId()},
+		&orreryv1.EpicHistoryEntry{
+			Item: &orreryv1.EpicHistoryEntry_Evidence{Evidence: historyRunMessage(first)},
+			Runs: runs,
+		},
+	)
+}
+
+// historyRunMessage returns run's EvidenceRun with its item and judge step set, which History sets and Get leaves
+// empty.
+func historyRunMessage(run *enginev1.EvidenceRun) *orreryv1.EvidenceRun {
+	msg := epicRunMessage(run)
+	msg.Item = run.GetItem()
+	msg.JudgeStep = run.GetJudgeStep()
+	return msg
+}
+
+// judgeSteps returns the ids of the judge steps of runs. A judge step has no entry of its own: its run's entry carries
+// its verdict and names it.
+func judgeSteps(runs []*enginev1.EvidenceRun) map[string]bool {
+	judges := make(map[string]bool, len(runs))
+	for _, run := range runs {
+		if id := run.GetJudgeStep(); id != "" {
+			judges[id] = true
+		}
+	}
+	return judges
+}
+
+// stepHistoryEntries returns the entries of the labeled steps, each at its start. A step whose id is in judges has no
+// entry.
+func stepHistoryEntries(steps []*orreryv1.EpicStep, judges map[string]bool) []historyEntry {
 	out := make([]historyEntry, 0, len(steps))
 	for _, step := range steps {
+		if judges[step.GetId()] {
+			continue
+		}
 		out = append(out, historyEntryOf(
 			historyKey{time: step.GetStarted(), kind: historyStep, id: step.GetId()},
 			&orreryv1.EpicHistoryEntry{Item: &orreryv1.EpicHistoryEntry_Step{Step: step}},

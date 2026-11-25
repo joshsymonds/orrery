@@ -310,14 +310,7 @@ func (s *Store) CapturesAt(ctx context.Context, repository, commit string) ([]Ca
 func (s *Store) AttachCapture(ctx context.Context, capture string, runs []string, at time.Time) ([]EvidenceRun, error) {
 	var attached []EvidenceRun
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := requireCaptureState(ctx, queries, capture, captureEnded); err != nil {
-			return err
-		}
-		stored, err := queries.GetEvidenceCapture(ctx, capture)
-		if err != nil {
-			return fmt.Errorf("get capture %s: %w", capture, err)
-		}
-		ended, err := captureOf(ctx, queries, stored)
+		ended, err := endedCapture(ctx, queries, capture)
 		if err != nil {
 			return err
 		}
@@ -335,6 +328,109 @@ func (s *Store) AttachCapture(ctx context.Context, capture string, runs []string
 		return nil, err
 	}
 	return attached, nil
+}
+
+// SettleCaptureBriefs settles, in one write, the briefs the ended capture was started for that are still waiting or
+// gathering, and returns the runs it moved, as stored, in the order they were filed. A capture that captured is attached to
+// each of them, as AttachCapture attaches it, so its asker need not outlive it. One that captured nothing (see
+// attachNotCaptured) leaves a waiting brief to the next gatherer, and a gathering brief to the running gatherer that holds
+// it or to another running capture that answers it. Any other gathering brief, whose gatherer ended while the capture ran,
+// goes back to waiting and counts one more gatherer, as a gatherer's end counts one; a brief that reaches
+// briefGathererLimit takes the capture instead, which ends it not captured with the capture's reason. A capture that is not
+// ended is ErrEvidenceState, and one that does not exist ErrNoCapture. A capture settled again moves nothing.
+func (s *Store) SettleCaptureBriefs(ctx context.Context, capture string, at time.Time) ([]EvidenceRun, error) {
+	var moved []EvidenceRun
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		ended, err := endedCapture(ctx, queries, capture)
+		if err != nil {
+			return err
+		}
+		open, err := queries.ListOpenBriefsOfCapture(ctx, capture)
+		if err != nil {
+			return fmt.Errorf("list open briefs of capture %s: %w", capture, err)
+		}
+		captured := attachNotCaptured(ended) == ""
+		for _, brief := range open {
+			run, settled, settleErr := settleBrief(ctx, queries, ended, brief, captured, at)
+			if settleErr != nil {
+				return settleErr
+			}
+			if settled {
+				moved = append(moved, run)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return moved, nil
+}
+
+// settleBrief settles brief, an open run the ended capture was started for, as SettleCaptureBriefs describes, and returns
+// the run as stored and whether it moved. captured is whether the capture captured.
+func settleBrief(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	capture Capture,
+	brief sqlcgen.EvidenceRun,
+	captured bool,
+	at time.Time,
+) (EvidenceRun, bool, error) {
+	if captured {
+		run, err := attachRun(ctx, queries, capture, brief.ID, at)
+		return run, err == nil, err
+	}
+	if brief.State != RunGathering {
+		return EvidenceRun{}, false, nil
+	}
+	answered, err := briefAnswered(ctx, queries, brief)
+	if err != nil || answered {
+		return EvidenceRun{}, false, err
+	}
+	if brief.Gatherers+1 >= briefGathererLimit {
+		run, attachErr := attachRun(ctx, queries, capture, brief.ID, at)
+		return run, attachErr == nil, attachErr
+	}
+	if _, err = queries.ReleaseEvidenceBrief(ctx, brief.ID); err != nil {
+		return EvidenceRun{}, false, fmt.Errorf("release brief %s: %w", brief.ID, err)
+	}
+	row, err := queries.GetEvidenceRun(ctx, brief.ID)
+	if err != nil {
+		return EvidenceRun{}, false, fmt.Errorf("get brief %s: %w", brief.ID, err)
+	}
+	run, err := evidenceRunOf(ctx, queries, row)
+	return run, err == nil, err
+}
+
+// briefAnswered reports whether the gathering brief is still answered by someone: the running gatherer of its epic holds
+// it, or a capture started for it still runs.
+func briefAnswered(ctx context.Context, queries *sqlcgen.Queries, brief sqlcgen.EvidenceRun) (bool, error) {
+	gatherer, err := queries.GetRunningEvidenceGatherer(ctx, brief.Epic)
+	switch {
+	case err == nil && gatherer.Step == brief.Gatherer:
+		return true, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return false, fmt.Errorf("get running gatherer of epic %s: %w", brief.Epic, err)
+	}
+	running, err := queries.CountRunningCapturesOfBrief(ctx, brief.ID)
+	if err != nil {
+		return false, fmt.Errorf("count running captures of brief %s: %w", brief.ID, err)
+	}
+	return running > 0, nil
+}
+
+// endedCapture returns the ended capture with id as stored, with its files and briefs. A capture that is not ended is
+// ErrEvidenceState, and one that does not exist ErrNoCapture.
+func endedCapture(ctx context.Context, queries *sqlcgen.Queries, id string) (Capture, error) {
+	if err := requireCaptureState(ctx, queries, id, captureEnded); err != nil {
+		return Capture{}, err
+	}
+	stored, err := queries.GetEvidenceCapture(ctx, id)
+	if err != nil {
+		return Capture{}, fmt.Errorf("get capture %s: %w", id, err)
+	}
+	return captureOf(ctx, queries, stored)
 }
 
 // attachRun attaches the ended capture to the run with id, as AttachCapture describes, and returns the run as stored. A run
@@ -520,8 +616,10 @@ func takeBrief(ctx context.Context, queries *sqlcgen.Queries, id, step string) e
 	return nil
 }
 
-// EndEvidenceGatherer ends the running gatherer step of epic, which is step, at at, in one write. Each brief step holds
-// goes back to waiting with no gatherer, and counts one more gatherer that ended leaving it unattached. A brief whose
+// EndEvidenceGatherer ends the running gatherer step of epic, which is step, at at, in one write. A brief step holds that a
+// running capture was started for stays gathering, for SettleCaptureBriefs to settle once that capture ends. Each other
+// brief step holds goes back to waiting with no gatherer, and counts one more gatherer that ended leaving it unattached. A
+// brief whose
 // count reaches briefGathererLimit ends as not captured, with the reason "left unattached by 3 gatherers", so no
 // judge starts for it. The briefs that went back to waiting are returned as stored. A step that is not the running
 // gatherer of epic is ErrGathererNotRunning and changes nothing. leftReason is the reason the gatherer gives for the
@@ -545,7 +643,8 @@ func (s *Store) EndEvidenceGatherer(
 }
 
 // endGathererBriefs ends the running gatherer step of epic within queries' write, and returns the ids of the briefs
-// step held that went back to waiting. A brief that reaches briefGathererLimit gatherers ends not captured.
+// step held that went back to waiting. A brief a running capture answers stays gathering, and a brief that reaches
+// briefGathererLimit gatherers ends not captured.
 func endGathererBriefs(
 	ctx context.Context, queries *sqlcgen.Queries, epic, step string, at time.Time,
 ) ([]string, error) {
@@ -558,11 +657,11 @@ func endGathererBriefs(
 	if ended != 1 {
 		return nil, fmt.Errorf("end gatherer %s of epic %s: %w", step, epic, ErrGathererNotRunning)
 	}
-	held, err := queries.ListEvidenceBriefsOfGatherer(ctx, step)
+	held, err := queries.ListUnansweredBriefsOfGatherer(ctx, step)
 	if err != nil {
 		return nil, fmt.Errorf("list briefs of gatherer %s: %w", step, err)
 	}
-	if err = queries.ReleaseEvidenceBriefs(ctx, step); err != nil {
+	if err = queries.ReleaseUnansweredBriefs(ctx, step); err != nil {
 		return nil, fmt.Errorf("release briefs of gatherer %s: %w", step, err)
 	}
 	var waiting []string

@@ -52,10 +52,11 @@ func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 }
 
 // TestJudgeCarryNoVerdictStillFails: a capture that did not run, timed out or exited non-zero is a cause as today, even
-// for a Requirement green at the stored base, so the integrate fails with its capture failed.
+// for a Requirement green at the stored base, so the integrate fails with its capture failed. With no verdict it shows
+// nothing about the Requirement, so it is not read as a regression from green.
 func TestJudgeCarryNoVerdictStillFails(t *testing.T) {
 	t.Parallel()
-	const want = "R1 capture failed\nR1 regressed from green at the stored base base-1"
+	const want = "R1 capture failed"
 	didNotRun := noVerdictRun(workID("capture R1"))
 	didNotRun.NotCaptured = "the capture command is missing"
 	timedOut := noVerdictRun(workID("capture R1"))

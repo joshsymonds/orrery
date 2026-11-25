@@ -135,4 +135,24 @@ public interface EpicRequirementOrBuilder extends
    */
   com.google.protobuf.ByteString
       getConclusionBytes();
+
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @return The state.
+   */
+  java.lang.String getState();
+  /**
+   * <pre>
+   * The requirement's state: proven, failed, held, in_flight or not_reached.
+   * </pre>
+   *
+   * <code>string state = 7 [json_name = "state"];</code>
+   * @return The bytes for state.
+   */
+  com.google.protobuf.ByteString
+      getStateBytes();
 }

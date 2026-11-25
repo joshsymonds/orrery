@@ -151,7 +151,10 @@ internal class TreeData(
  * names the moved rows and their places, with Show and Undo. New opens the picker as a bottom sheet; a
  * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
  * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
- * read on start and every minute while started, and opens the notices through [onOpenNotices].
+ * read on start and every minute while started, and opens the notices through [onOpenNotices]. Under the head, the usage
+ * band shows the accounts the usage reads hold, when they hold one; a tap on it opens the accounts sheet, whose Accounts
+ * and routes calls [onOpenAccounts]. A Use on that sheet opens the confirm sheet, whose Move makes the moves; a move that
+ * lands shows the move toast, whose Undo moves the contexts back.
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -173,6 +176,7 @@ fun PaneListScreen(
     modifier: Modifier = Modifier,
     onOpenPools: () -> Unit = {},
     onOpenNotices: () -> Unit = {},
+    onOpenAccounts: () -> Unit = {},
     onOpenEpic: (String) -> Unit = {},
     onOpenProject: (String) -> Unit = {},
     onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
@@ -180,6 +184,12 @@ fun PaneListScreen(
     state: PaneListState = rememberPaneListState(),
 ) {
     val notices = rememberNoticeRows(client)
+    val usage = rememberUsageReads(client)
+    var usageOpen by remember { mutableStateOf(false) }
+    var usePlan by remember { mutableStateOf<UsePlan?>(null) }
+    var moveRefusal by remember { mutableStateOf<String?>(null) }
+    val moveToast = rememberMoveToast()
+    val scope = rememberCoroutineScope()
     var data by remember(client) { mutableStateOf<TreeData?>(null) }
     var failed by remember(client) { mutableStateOf(false) }
     var generation by remember(client) { mutableIntStateOf(0) }
@@ -187,7 +197,6 @@ fun PaneListScreen(
     var sheet by remember { mutableStateOf<SheetRow?>(null) }
     // The moves marked for Move.LAYOUT's length, by row key. A mark clears only while it is still the move that set it.
     var marking by remember { mutableStateOf(emptyMap<String, Moved>()) }
-    val scope = rememberCoroutineScope()
     val animated = animationsOn()
     val toast = rememberArchiveToast()
     // The reads take turns, so an answer that began earlier never lands after one that began later.
@@ -240,6 +249,12 @@ fun PaneListScreen(
 
     BackHandler(enabled = state.search != null) { state.search = null }
 
+    // The usage band's rows, drawn when the reads hold an account. A failed read keeps what it held, so it never hides the inbox.
+    val at = now()
+    val accounts = usage.accounts?.takeIf { it.accounts.isNotEmpty() }
+    val bandRows = accounts?.let { usageRows(it.accounts, it.routes, usage.readings.orEmpty(), at) }
+    val accountNames = accounts?.accounts.orEmpty().associate { it.id to it.name }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             InboxHead(
@@ -250,6 +265,14 @@ fun PaneListScreen(
                 onSettings = onOpenSettings,
                 onNew = { picking = true },
             )
+            if (accounts != null && bandRows != null) {
+                UsageBand(
+                    rows = bandRows,
+                    spend = usage.spend?.let { spendTotals(it, accounts.routes) },
+                    now = at,
+                    onOpen = { usageOpen = true },
+                )
+            }
             state.search?.let { words ->
                 SearchField(
                     words = words,
@@ -309,6 +332,49 @@ fun PaneListScreen(
                 )
             }
         }
+        if (usageOpen && bandRows != null) {
+            UsageSheet(
+                rows = bandRows,
+                now = at,
+                onClose = { usageOpen = false },
+                onOpenAccounts = {
+                    usageOpen = false
+                    onOpenAccounts()
+                },
+                onUse = { row ->
+                    usageOpen = false
+                    moveRefusal = null
+                    usePlan = UsePlan(row.account, row.movingContexts, accountNames)
+                },
+            )
+        }
+        val plan = usePlan
+        val routes = accounts?.routes
+        if (plan != null && routes != null) {
+            UsageConfirmSheet(
+                plan = plan,
+                refusal = moveRefusal,
+                onCancel = {
+                    usePlan = null
+                    moveRefusal = null
+                },
+                onMove = {
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            moveContexts(client, plan.contexts, plan.target.id, routes)
+                        }
+                        if (result is MoveResult.Done && result.landed.isNotEmpty()) {
+                            usePlan = null
+                            moveRefusal = null
+                            moveToast.show(MovedEntry(result.landed, plan.target.name))
+                        } else {
+                            moveRefusal = unfinishedWordsOf(result, undo = false)
+                        }
+                        usage.read()
+                    }
+                },
+            )
+        }
         ArchiveToast(
             state = toast,
             client = client,
@@ -317,6 +383,12 @@ fun PaneListScreen(
             // The rows an Undo brings back are the owner's doing, not moves: the read after the Undo does not notice them.
             onRowsBack = { keys -> state.handMoved = state.handMoved + keys },
             onShow = { spot -> state.showPlace(spot) },
+        )
+        MoveToast(
+            state = moveToast,
+            client = client,
+            onUndid = { scope.launch { usage.read() } },
+            modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
 }

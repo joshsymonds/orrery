@@ -1588,8 +1588,8 @@ func (h *sessionHost) startEvidence(
 
 // startCaptures builds the capture runner over st, the steps and the pools, with its blobs and capture worktrees under stateDir
 // and its gates under stateDir/gates, and takes up the captures a previous run left. A failure to take them up is logged and
-// serving goes on. Its gates run in environ, under the holder scope that opts names, and its ended captures are delivered to
-// the steps that asked for them through the steps' DeliverChildEnd. Its captures run on the hosts of their epics, which hosts
+// serving goes on. Its gates run in environ, under the holder scope that opts names, and each ended capture settles its
+// briefs through the evidence runner, then is delivered to the step that asked for it through the steps' DeliverChildEnd. Its captures run on the hosts of their epics, which hosts
 // resolves.
 func (h *sessionHost) startCaptures(
 	ctx context.Context,
@@ -1603,6 +1603,7 @@ func (h *sessionHost) startCaptures(
 	h.captures = enginehost.NewCaptures(enginehost.CapturesConfig{
 		Store:        st,
 		Steps:        h.steps,
+		Briefs:       h.evidence,
 		Deliver:      h.steps.DeliverChildEnd,
 		Hosts:        hosts,
 		Pools:        h.pools,

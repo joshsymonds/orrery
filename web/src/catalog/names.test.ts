@@ -96,3 +96,11 @@ test("StoryNames: the real registry, round6.json and unnamed.ts report no proble
   const real = JSON.parse(readFileSync(`${srcDir}catalog/round6.json`, "utf8")) as Round6;
   assert.deepEqual(storyNameProblems(registered, real, unnamed), []);
 });
+
+test("StoryNames: round6.json keeps the Gauge states round 6's wireframe catalogue draws", () => {
+  // This file is bundled to web/build/catalog, so web/src is two directories up.
+  const srcDir = fileURLToPath(new URL("../../src/", import.meta.url));
+  const real = JSON.parse(readFileSync(`${srcDir}catalog/round6.json`, "utf8")) as Round6;
+  assert.deepEqual(real.components.Gauge, ["AsksYou", "Building", "EndedShort", "NoTasks", "Paused", "Releasing", "Shipped"]);
+  assert.ok(real.components.EpicMark !== undefined, "round6.json has no EpicMark component");
+});

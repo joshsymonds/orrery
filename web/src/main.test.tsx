@@ -816,7 +816,7 @@ test("a live epic from Epics.List and Get shows in the list with its count", (t)
       await until(t.signal, () => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
       const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
       assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
-      assert.ok(epicRow.querySelector(".l2")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
+      assert.ok(epicRow.querySelector(".age")?.textContent?.includes("1 of 2 tasks done"), "the count did not come from Epics.Get");
       assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
       assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
     } finally {
@@ -860,6 +860,7 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
       assert.deepEqual(
         [...server.paths].sort(),
         [
+          "/orrery.v1.Accounts/List",
           "/orrery.v1.Contracts/List",
           epicsGetPath,
           epicsListPath,
@@ -870,7 +871,11 @@ test("the page calls only the list, get and watch paths it reads", (t) =>
           panesPath,
           sessionsPath,
           headlessPath,
+          "/orrery.v1.Routes/Get",
+          "/orrery.v1.Usage/Readings",
+          "/orrery.v1.Usage/Spend",
           watchPath,
+          "/orrery.v1.Usage/EpicTotals",
         ].sort(),
       );
     } finally {

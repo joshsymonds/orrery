@@ -44,6 +44,8 @@ internal fun Head(
     workLit: String? = null,
     onOpenWork: (WorkLink) -> Unit = {},
     onAllWork: () -> Unit = {},
+    usage: Long? = null,
+    onUsage: () -> Unit = {},
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -66,6 +68,8 @@ internal fun Head(
             workLit = workLit,
             onOpenWork = onOpenWork,
             onAllWork = onAllWork,
+            usage = usage,
+            onUsage = onUsage,
         )
         if (fold == HeadFold.OPEN) {
             MachineBand(host = host, stats = stats, otherHost = otherHost)

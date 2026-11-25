@@ -69,7 +69,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     const epic: HeldThing = { kind: "epic", key: "epic:invented-epic", convo: "convo:invented-conversation" };
     for (const move of moves) {
       render(
-        <HeldCard thing={epic} title="Invented epic" move={move} gauge={null} onFoldBack={noop}>
+        <HeldCard thing={epic} title="Invented epic" move={move} mark={null} onFoldBack={noop}>
           <p>the record</p>
         </HeldCard>,
         container,
@@ -77,7 +77,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
       assert.equal(one(container, ".held-card").getAttribute("data-move"), move, `the card carries ${move}`);
 
       render(
-        <HeldSheet thing={epic} title="Invented epic" move={move} gauge={null} onClose={noop}>
+        <HeldSheet thing={epic} title="Invented epic" move={move} mark={null} onClose={noop}>
           <p>the record</p>
         </HeldSheet>,
         container,
@@ -86,7 +86,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     }
 
     render(
-      <HeldCard thing={epic} title="Invented epic" move="" gauge={null} onFoldBack={noop}>
+      <HeldCard thing={epic} title="Invented epic" move="" mark={null} onFoldBack={noop}>
         <p>the record</p>
       </HeldCard>,
       container,
@@ -94,7 +94,7 @@ test("PaneMotion data-move HeldCard and HeldSheet carry their move, and none whe
     assertNone(container.querySelector("[data-move]"), "a card with no move carries no data-move");
 
     render(
-      <HeldSheet thing={epic} title="Invented epic" move="" gauge={null} onClose={noop}>
+      <HeldSheet thing={epic} title="Invented epic" move="" mark={null} onClose={noop}>
         <p>the record</p>
       </HeldSheet>,
       container,

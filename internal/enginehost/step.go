@@ -99,6 +99,9 @@ const stepDefaultModelLimit = 60 * time.Minute
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
+//
+// Purpose is the step's purpose, stored with it. Empty asks Haiku for one from the step's prompt, when a Haiku caller is
+// configured; the answer is stored once it arrives, and the start does not wait for it (see askStepPurpose).
 type StepStart struct {
 	ID          string
 	Agent       string
@@ -117,6 +120,7 @@ type StepStart struct {
 	DoneValue   string
 	Epic        string
 	Task        string
+	Purpose     string
 	Caller      store.EpicCaller
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
@@ -126,9 +130,11 @@ type StepStart struct {
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
 // the rate limits their sessions were rejected with, the running steps a caller started, the listings of the steps a
 // caller started, the sessions row a caller names, which Start checks a caller against before it stores a step, and the
-// host the stored epic a step starts under lives on. *store.Store satisfies it.
+// host the stored epic a step starts under lives on. It also stores a step's purpose once, when the step has none (see
+// SetStepPurpose). *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
+	SetStepPurpose(ctx context.Context, id, purpose string) error
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	StepListings(ctx context.Context, epic, task string) ([]store.StepListing, error)
@@ -285,7 +291,8 @@ func NewSteps(cfg StepsConfig) *Steps {
 // fingerprinted before its agent starts, and a git error there refuses the start the same way. A folder whose stamp
 // cannot be read refuses the start the same way. The step's monitor and judge calls carry the env of the stamp in
 // effect for its folder. Any other StartStep error, after the row is written, ends the step failed and returns its id
-// with the error.
+// with the error. A start with no Purpose and a Haiku caller asks Haiku for one once the row is written, in a goroutine
+// the start does not wait for; a failed call or write is only logged.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	defer s.calls.enter()()
 	if err := s.checkStart(ctx, start); err != nil {
@@ -326,7 +333,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		Workspace: start.Workspace, Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly,
 		Owned: start.Owned, Unowned: start.Unowned, Gate: gate.argv, GateName: gate.name, GateSource: gate.source,
 		GateNeeds: gate.needs, GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
-		Caller: start.Caller, Host: hostName,
+		Purpose: start.Purpose, Caller: start.Caller, Host: hostName,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
@@ -361,6 +368,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err = s.sessions.StartStep(ctx, step); err != nil {
 		return s.startFailed(ctx, id, run, err)
 	}
+	s.askStepPurpose(ctx, id, start, cfg.haiku)
 	s.runLoop(ctx, id, run)
 	return id, nil
 }

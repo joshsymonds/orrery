@@ -276,6 +276,7 @@ func (r *Runner) startIntegrator(ctx context.Context, epic store.EpicRow, act Ac
 		ID: id, Agent: agent, Prompt: prompt, Schema: IntegratorSchema, Workspace: merge.worktree,
 		Revision: merge.tip, Unowned: true, DoneValue: releaseDone, Epic: epic.ID, Task: act.Path,
 		ReturnCheck: check,
+		Purpose:     fmt.Sprintf("Merge main into %s's release candidate.", build.Slug(epic.ID)),
 	})
 	if err == nil {
 		return nil

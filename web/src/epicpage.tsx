@@ -1,9 +1,11 @@
 import type { ComponentChildren, JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import { releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
+import { EpicUsageSection } from "./epicusage";
 import type { LoadArtifact } from "./evidence";
 import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { UsageEpicTotalsResponse } from "./gen/orrery/v1/usage_pb";
 import { Icon } from "./glyphs";
 import { JustHappened } from "./happenings";
 import { NowSection } from "./nowsection";
@@ -114,8 +116,10 @@ function SteeredFrom({
 // with the Contract door and the Steered from door, its track, Now, Just happened, the tasks with their chart and
 // table, and the requirements. A section the epic has not reached is not drawn. The commands are the ones controlsOf
 // shows for the epic. Each phase click reaches onOpenPhase. After the requirements, the Review, Release and Report
-// sections draw when their views are non-null, in that order. Just happened names a session a move names by its listed
-// row's label. A landing brings its part of the page into view once the page is drawn, and a page that draws its
+// sections draw when their views are non-null, in that order, and then the Usage section, when loadUsage is given and its
+// answer has sessions. loadUsage is read when the page opens and again each time the count of its steps that have ended
+// grows; an error or an empty answer draws no section. Just happened's step lines and evidence runs' judge steps reach
+// onOpenStep. A landing brings its part of the page into view once the page is drawn, and a page that draws its
 // Report brings the Report into view once when no landing names another block. numberKeys is whether a digit key picks
 // an option of the open question. steer draws the steering control: in the title row at the desk, and under narrow the
 // sheet that More's Steer item opens. narrow moves the commands off the title row into a foot bar: its Talk button,
@@ -135,6 +139,7 @@ export function EpicPage(props: {
   onOpenSession: (target: SessionTarget) => void;
   onBack?: () => void;
   onOpenPhase?: (task: string, phase: Phase) => void;
+  onOpenStep?: (step: string) => void;
   landing?: Landing;
   strip?: ComponentChildren;
   rows?: Row[];
@@ -143,6 +148,7 @@ export function EpicPage(props: {
   steer?: (sheet: SteerSheet) => ComponentChildren;
   foot?: ComponentChildren;
   listed?: Epic[];
+  loadUsage?: (epic: string) => Promise<UsageEpicTotalsResponse>;
 }): JSX.Element {
   const {
     detail,
@@ -156,6 +162,7 @@ export function EpicPage(props: {
     onOpenSession,
     onBack,
     onOpenPhase,
+    onOpenStep,
     landing,
     strip,
     rows = [],
@@ -164,6 +171,7 @@ export function EpicPage(props: {
     steer,
     foot,
     listed = [],
+    loadUsage,
   } = props;
   const { epic, contract, requirements, steps } = detail;
   const reached = reachedOf(detail, history);
@@ -192,8 +200,6 @@ export function EpicPage(props: {
   const pausing = controls.pause && !ownerParked(detail);
   const [steerOpen, setSteerOpen] = useState(false);
   const steerSheet: SteerSheet = { open: steerOpen, onClose: () => setSteerOpen(false) };
-  // titleOf names a session by its listed row's label, for the move lines of the epic's log.
-  const titleOf = (session: string) => steererRowOf(rows, session)?.label;
   const pageRef = useRef<HTMLDivElement>(null);
   // The page brings one block into view when it is first drawn and when its landing changes, never on a later read: the
   // block the landing's kind names, else the Report when the page draws one, else the page's top for a landing.
@@ -214,6 +220,36 @@ export function EpicPage(props: {
       page.scrollIntoView();
     }
   }, [landing]);
+  // The Usage section's answer. Each read is numbered, and only the answer of the latest read is drawn. last is the epic and
+  // the count of ended steps the page last read for, so a read is made when the page opens and when that count grows.
+  const [usage, setUsage] = useState<UsageEpicTotalsResponse | null>(null);
+  const usageReads = useRef<{ count: number; last: { epic: string; ended: number } | null }>({ count: 0, last: null });
+  const epicId = epic?.id ?? "";
+  const endedSteps = steps.filter((step) => step.ended !== 0n).length;
+  useEffect(() => {
+    if (loadUsage === undefined) {
+      return;
+    }
+    const last = usageReads.current.last;
+    usageReads.current.last = { epic: epicId, ended: endedSteps };
+    if (last !== null && last.epic === epicId && endedSteps <= last.ended) {
+      return;
+    }
+    usageReads.current.count += 1;
+    const read = usageReads.current.count;
+    loadUsage(epicId).then(
+      (answer) => {
+        if (read === usageReads.current.count) {
+          setUsage(answer);
+        }
+      },
+      () => {
+        if (read === usageReads.current.count) {
+          setUsage(null);
+        }
+      },
+    );
+  }, [epicId, endedSteps]);
   return (
     <div class="epic-page" ref={pageRef}>
       <TitleRow
@@ -287,7 +323,7 @@ export function EpicPage(props: {
         onStop={() => commands.stop()}
         onResume={() => commands.resume()}
       />
-      {reached.history && <JustHappened entries={history} steps={steps} titleOf={titleOf} />}
+      {reached.history && <JustHappened entries={history} steps={steps} onOpenStep={onOpenStep} />}
       {reached.tasks && (
         <section class="tasks" aria-label="Tasks">
           <div class="sec" data-hue="4">
@@ -295,7 +331,7 @@ export function EpicPage(props: {
             <span class="name">Tasks</span>
             <span class="n">{`${doneTasks} of ${tasks.length} done`}</span>
           </div>
-          <Orrery tasks={tasks} proven={provenIds} onOpenPhase={onOpenPhase} />
+          <Orrery tasks={tasks} requirements={requirements} proven={provenIds} onOpenPhase={onOpenPhase} />
           <TaskTable tasks={tasks} now={now} onOpenPhase={onOpenPhase} />
         </section>
       )}
@@ -334,6 +370,15 @@ export function EpicPage(props: {
           onRelease={commands.release}
           onClose={commands.close}
           reread={commands.reread}
+        />
+      )}
+      {usage !== null && (
+        <EpicUsageSection
+          sessions={usage.sessions}
+          steps={steps}
+          epicSessions={detail.sessions}
+          requirements={requirements}
+          narrow={narrow}
         />
       )}
       {narrow && foot}

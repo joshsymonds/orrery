@@ -38,6 +38,8 @@ func TestReaderQueryPlans(t *testing.T) {
 		"Dirs":               {"ListKnownDirs"},
 		"HostPanes":          {"ListHostSessions"},
 		"EpicSessions":       {"ListEpicSessions"},
+		"SessionClaude":      {"GetSessionClaude"},
+		"EpicUsageSessions":  {"ListEpicStepSessions", "GetEpicSteererSession", "ListEpicCallerSessions"},
 		"PromptStates":       {"ListPromptStates"},
 		"ArchivedRows":       {"ListArchivedRows"},
 		"ClosureVerdicts":    {"ListClosureVerdicts"},

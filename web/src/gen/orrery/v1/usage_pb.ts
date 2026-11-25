@@ -10,7 +10,84 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/usage.proto.
  */
 export const file_orrery_v1_usage: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvdXNhZ2UucHJvdG8SCW9ycmVyeS52MSIWChRVc2FnZVJlYWRpbmdzUmVxdWVzdCKpAQoMVXNhZ2VSZWFkaW5nEg8KB2FjY291bnQYASABKAkSDQoFY2xhaW0YAiABKAkSGAoLdXRpbGl6YXRpb24YAyABKAFIAIgBARISCgVyZXNldBgEIAEoA0gBiAEBEg4KBnN0YXR1cxgFIAEoCRIQCghvYnNlcnZlZBgGIAEoAxIPCgdkcm9wcGVkGAcgASgIQg4KDF91dGlsaXphdGlvbkIICgZfcmVzZXQiQgoVVXNhZ2VSZWFkaW5nc1Jlc3BvbnNlEikKCHJlYWRpbmdzGAEgAygLMhcub3JyZXJ5LnYxLlVzYWdlUmVhZGluZyIsChlVc2FnZVNlc3Npb25Ub3RhbHNSZXF1ZXN0Eg8KB3Nlc3Npb24YASABKAki5gEKEVVzYWdlU2Vzc2lvblRvdGFsEg0KBW1vZGVsGAEgASgJEhIKCmFnZW50X3R5cGUYAiABKAkSEAoIcmVxdWVzdHMYAyABKAMSFAoMaW5wdXRfdG9rZW5zGAQgASgDEhUKDW91dHB1dF90b2tlbnMYBSABKAMSGQoRY2FjaGVfcmVhZF90b2tlbnMYBiABKAMSGgoSY2FjaGVfd3JpdGVfdG9rZW5zGAcgASgDEhwKFGJpbGxlZF9jb3N0X25hbm9fdXNkGAggASgDEhoKEmxpc3RfY29zdF9uYW5vX3VzZBgJIAEoAyJKChpVc2FnZVNlc3Npb25Ub3RhbHNSZXNwb25zZRIsCgZ0b3RhbHMYASADKAsyHC5vcnJlcnkudjEuVXNhZ2VTZXNzaW9uVG90YWwiLQoRVXNhZ2VTcGVuZFJlcXVlc3QSDAoEZnJvbRgBIAEoAxIKCgJ0bxgCIAEoAyJ3Cg5Vc2FnZVNlYXRTcGVuZBIMCgRzZWF0GAEgASgJEhwKFGJpbGxlZF9jb3N0X25hbm9fdXNkGAIgASgDEhoKEmxpc3RfY29zdF9uYW5vX3VzZBgDIAEoAxIdChV1bmtub3duX2Nvc3RfcmVxdWVzdHMYBCABKAMiPgoSVXNhZ2VTcGVuZFJlc3BvbnNlEigKBXNlYXRzGAEgAygLMhkub3JyZXJ5LnYxLlVzYWdlU2VhdFNwZW5kMvoBCgVVc2FnZRJNCghSZWFkaW5ncxIfLm9ycmVyeS52MS5Vc2FnZVJlYWRpbmdzUmVxdWVzdBogLm9ycmVyeS52MS5Vc2FnZVJlYWRpbmdzUmVzcG9uc2USXAoNU2Vzc2lvblRvdGFscxIkLm9ycmVyeS52MS5Vc2FnZVNlc3Npb25Ub3RhbHNSZXF1ZXN0GiUub3JyZXJ5LnYxLlVzYWdlU2Vzc2lvblRvdGFsc1Jlc3BvbnNlEkQKBVNwZW5kEhwub3JyZXJ5LnYxLlVzYWdlU3BlbmRSZXF1ZXN0Gh0ub3JyZXJ5LnYxLlVzYWdlU3BlbmRSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChVvcnJlcnkvdjEvdXNhZ2UucHJvdG8SCW9ycmVyeS52MSImChZVc2FnZUVwaWNUb3RhbHNSZXF1ZXN0EgwKBGVwaWMYASABKAkiYQoQVXNhZ2VFcGljU2Vzc2lvbhIPCgdzZXNzaW9uGAEgASgJEg4KBnNoYXJlZBgCIAEoCBIsCgZ0b3RhbHMYAyADKAsyHC5vcnJlcnkudjEuVXNhZ2VTZXNzaW9uVG90YWwiSAoXVXNhZ2VFcGljVG90YWxzUmVzcG9uc2USLQoIc2Vzc2lvbnMYASADKAsyGy5vcnJlcnkudjEuVXNhZ2VFcGljU2Vzc2lvbiIWChRVc2FnZVJlYWRpbmdzUmVxdWVzdCKpAQoMVXNhZ2VSZWFkaW5nEg8KB2FjY291bnQYASABKAkSDQoFY2xhaW0YAiABKAkSGAoLdXRpbGl6YXRpb24YAyABKAFIAIgBARISCgVyZXNldBgEIAEoA0gBiAEBEg4KBnN0YXR1cxgFIAEoCRIQCghvYnNlcnZlZBgGIAEoAxIPCgdkcm9wcGVkGAcgASgIQg4KDF91dGlsaXphdGlvbkIICgZfcmVzZXQiQgoVVXNhZ2VSZWFkaW5nc1Jlc3BvbnNlEikKCHJlYWRpbmdzGAEgAygLMhcub3JyZXJ5LnYxLlVzYWdlUmVhZGluZyIsChlVc2FnZVNlc3Npb25Ub3RhbHNSZXF1ZXN0Eg8KB3Nlc3Npb24YASABKAki5gMKEVVzYWdlU2Vzc2lvblRvdGFsEg0KBW1vZGVsGAEgASgJEhIKCmFnZW50X3R5cGUYAiABKAkSEAoIcmVxdWVzdHMYAyABKAMSFAoMaW5wdXRfdG9rZW5zGAQgASgDEhUKDW91dHB1dF90b2tlbnMYBSABKAMSGQoRY2FjaGVfcmVhZF90b2tlbnMYBiABKAMSGgoSY2FjaGVfd3JpdGVfdG9rZW5zGAcgASgDEhwKFGJpbGxlZF9jb3N0X25hbm9fdXNkGAggASgDEhoKEmxpc3RfY29zdF9uYW5vX3VzZBgJIAEoAxIgChNsaXN0X2lucHV0X25hbm9fdXNkGAogASgDSACIAQESIQoUbGlzdF9vdXRwdXRfbmFub191c2QYCyABKANIAYgBARIlChhsaXN0X2NhY2hlX3JlYWRfbmFub191c2QYDCABKANIAogBARImChlsaXN0X2NhY2hlX3dyaXRlX25hbm9fdXNkGA0gASgDSAOIAQFCFgoUX2xpc3RfaW5wdXRfbmFub191c2RCFwoVX2xpc3Rfb3V0cHV0X25hbm9fdXNkQhsKGV9saXN0X2NhY2hlX3JlYWRfbmFub191c2RCHAoaX2xpc3RfY2FjaGVfd3JpdGVfbmFub191c2QiSgoaVXNhZ2VTZXNzaW9uVG90YWxzUmVzcG9uc2USLAoGdG90YWxzGAEgAygLMhwub3JyZXJ5LnYxLlVzYWdlU2Vzc2lvblRvdGFsIi0KEVVzYWdlU3BlbmRSZXF1ZXN0EgwKBGZyb20YASABKAMSCgoCdG8YAiABKAMidwoOVXNhZ2VTZWF0U3BlbmQSDAoEc2VhdBgBIAEoCRIcChRiaWxsZWRfY29zdF9uYW5vX3VzZBgCIAEoAxIaChJsaXN0X2Nvc3RfbmFub191c2QYAyABKAMSHQoVdW5rbm93bl9jb3N0X3JlcXVlc3RzGAQgASgDIj4KElVzYWdlU3BlbmRSZXNwb25zZRIoCgVzZWF0cxgBIAMoCzIZLm9ycmVyeS52MS5Vc2FnZVNlYXRTcGVuZDLPAgoFVXNhZ2USUwoKRXBpY1RvdGFscxIhLm9ycmVyeS52MS5Vc2FnZUVwaWNUb3RhbHNSZXF1ZXN0GiIub3JyZXJ5LnYxLlVzYWdlRXBpY1RvdGFsc1Jlc3BvbnNlEk0KCFJlYWRpbmdzEh8ub3JyZXJ5LnYxLlVzYWdlUmVhZGluZ3NSZXF1ZXN0GiAub3JyZXJ5LnYxLlVzYWdlUmVhZGluZ3NSZXNwb25zZRJcCg1TZXNzaW9uVG90YWxzEiQub3JyZXJ5LnYxLlVzYWdlU2Vzc2lvblRvdGFsc1JlcXVlc3QaJS5vcnJlcnkudjEuVXNhZ2VTZXNzaW9uVG90YWxzUmVzcG9uc2USRAoFU3BlbmQSHC5vcnJlcnkudjEuVXNhZ2VTcGVuZFJlcXVlc3QaHS5vcnJlcnkudjEuVXNhZ2VTcGVuZFJlc3BvbnNlYgZwcm90bzM");
+
+/**
+ * UsageEpicTotalsRequest names the epic whose sessions are totalled.
+ *
+ * @generated from message orrery.v1.UsageEpicTotalsRequest
+ */
+export type UsageEpicTotalsRequest = Message<"orrery.v1.UsageEpicTotalsRequest"> & {
+  /**
+   * The epic id, <repo-id>/<slug>.
+   *
+   * @generated from field: string epic = 1;
+   */
+  epic: string;
+};
+
+/**
+ * Describes the message orrery.v1.UsageEpicTotalsRequest.
+ * Use `create(UsageEpicTotalsRequestSchema)` to create a new message.
+ */
+export const UsageEpicTotalsRequestSchema: GenMessage<UsageEpicTotalsRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_usage, 0);
+
+/**
+ * UsageEpicSession is the totals of one session of an epic.
+ *
+ * @generated from message orrery.v1.UsageEpicSession
+ */
+export type UsageEpicSession = Message<"orrery.v1.UsageEpicSession"> & {
+  /**
+   * The orrery session id.
+   *
+   * @generated from field: string session = 1;
+   */
+  session: string;
+
+  /**
+   * Whether the session is the epic's steerer, whose spend is not in the epic's total.
+   *
+   * @generated from field: bool shared = 2;
+   */
+  shared: boolean;
+
+  /**
+   * The totals of the session, the same rows SessionTotals answers for it.
+   *
+   * @generated from field: repeated orrery.v1.UsageSessionTotal totals = 3;
+   */
+  totals: UsageSessionTotal[];
+};
+
+/**
+ * Describes the message orrery.v1.UsageEpicSession.
+ * Use `create(UsageEpicSessionSchema)` to create a new message.
+ */
+export const UsageEpicSessionSchema: GenMessage<UsageEpicSession> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_usage, 1);
+
+/**
+ * UsageEpicTotalsResponse carries the totals of each session of an epic.
+ *
+ * @generated from message orrery.v1.UsageEpicTotalsResponse
+ */
+export type UsageEpicTotalsResponse = Message<"orrery.v1.UsageEpicTotalsResponse"> & {
+  /**
+   * The sessions of the epic: its step sessions and its steerer.
+   *
+   * @generated from field: repeated orrery.v1.UsageEpicSession sessions = 1;
+   */
+  sessions: UsageEpicSession[];
+};
+
+/**
+ * Describes the message orrery.v1.UsageEpicTotalsResponse.
+ * Use `create(UsageEpicTotalsResponseSchema)` to create a new message.
+ */
+export const UsageEpicTotalsResponseSchema: GenMessage<UsageEpicTotalsResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_usage, 2);
 
 /**
  * UsageReadingsRequest asks for every usage limit reading.
@@ -25,7 +102,7 @@ export type UsageReadingsRequest = Message<"orrery.v1.UsageReadingsRequest"> & {
  * Use `create(UsageReadingsRequestSchema)` to create a new message.
  */
 export const UsageReadingsRequestSchema: GenMessage<UsageReadingsRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 0);
+  messageDesc(file_orrery_v1_usage, 3);
 
 /**
  * UsageReading is one reading of a usage limit for an account and claim.
@@ -88,7 +165,7 @@ export type UsageReading = Message<"orrery.v1.UsageReading"> & {
  * Use `create(UsageReadingSchema)` to create a new message.
  */
 export const UsageReadingSchema: GenMessage<UsageReading> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 1);
+  messageDesc(file_orrery_v1_usage, 4);
 
 /**
  * UsageReadingsResponse carries every usage limit reading.
@@ -109,7 +186,7 @@ export type UsageReadingsResponse = Message<"orrery.v1.UsageReadingsResponse"> &
  * Use `create(UsageReadingsResponseSchema)` to create a new message.
  */
 export const UsageReadingsResponseSchema: GenMessage<UsageReadingsResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 2);
+  messageDesc(file_orrery_v1_usage, 5);
 
 /**
  * UsageSessionTotalsRequest names the session whose requests are totalled.
@@ -130,7 +207,7 @@ export type UsageSessionTotalsRequest = Message<"orrery.v1.UsageSessionTotalsReq
  * Use `create(UsageSessionTotalsRequestSchema)` to create a new message.
  */
 export const UsageSessionTotalsRequestSchema: GenMessage<UsageSessionTotalsRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 3);
+  messageDesc(file_orrery_v1_usage, 6);
 
 /**
  * UsageSessionTotal is the requests and tokens one session made for one model and agent type.
@@ -200,6 +277,34 @@ export type UsageSessionTotal = Message<"orrery.v1.UsageSessionTotal"> & {
    * @generated from field: int64 list_cost_nano_usd = 9;
    */
   listCostNanoUsd: bigint;
+
+  /**
+   * The list cost of the input tokens, in nano US dollars; unset when that cost is unknown.
+   *
+   * @generated from field: optional int64 list_input_nano_usd = 10;
+   */
+  listInputNanoUsd?: bigint | undefined;
+
+  /**
+   * The list cost of the output tokens, in nano US dollars; unset when that cost is unknown.
+   *
+   * @generated from field: optional int64 list_output_nano_usd = 11;
+   */
+  listOutputNanoUsd?: bigint | undefined;
+
+  /**
+   * The list cost of the tokens read from the prompt cache, in nano US dollars; unset when that cost is unknown.
+   *
+   * @generated from field: optional int64 list_cache_read_nano_usd = 12;
+   */
+  listCacheReadNanoUsd?: bigint | undefined;
+
+  /**
+   * The list cost of the tokens written to the prompt cache, in nano US dollars; unset when that cost is unknown.
+   *
+   * @generated from field: optional int64 list_cache_write_nano_usd = 13;
+   */
+  listCacheWriteNanoUsd?: bigint | undefined;
 };
 
 /**
@@ -207,7 +312,7 @@ export type UsageSessionTotal = Message<"orrery.v1.UsageSessionTotal"> & {
  * Use `create(UsageSessionTotalSchema)` to create a new message.
  */
 export const UsageSessionTotalSchema: GenMessage<UsageSessionTotal> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 4);
+  messageDesc(file_orrery_v1_usage, 7);
 
 /**
  * UsageSessionTotalsResponse carries the totals of one session.
@@ -228,7 +333,7 @@ export type UsageSessionTotalsResponse = Message<"orrery.v1.UsageSessionTotalsRe
  * Use `create(UsageSessionTotalsResponseSchema)` to create a new message.
  */
 export const UsageSessionTotalsResponseSchema: GenMessage<UsageSessionTotalsResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 5);
+  messageDesc(file_orrery_v1_usage, 8);
 
 /**
  * UsageSpendRequest names the span whose spend is totalled.
@@ -256,7 +361,7 @@ export type UsageSpendRequest = Message<"orrery.v1.UsageSpendRequest"> & {
  * Use `create(UsageSpendRequestSchema)` to create a new message.
  */
 export const UsageSpendRequestSchema: GenMessage<UsageSpendRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 6);
+  messageDesc(file_orrery_v1_usage, 9);
 
 /**
  * UsageSeatSpend is what one seat spent over the requested span.
@@ -298,7 +403,7 @@ export type UsageSeatSpend = Message<"orrery.v1.UsageSeatSpend"> & {
  * Use `create(UsageSeatSpendSchema)` to create a new message.
  */
 export const UsageSeatSpendSchema: GenMessage<UsageSeatSpend> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 7);
+  messageDesc(file_orrery_v1_usage, 10);
 
 /**
  * UsageSpendResponse carries the spend of each seat over the requested span.
@@ -319,7 +424,7 @@ export type UsageSpendResponse = Message<"orrery.v1.UsageSpendResponse"> & {
  * Use `create(UsageSpendResponseSchema)` to create a new message.
  */
 export const UsageSpendResponseSchema: GenMessage<UsageSpendResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_usage, 8);
+  messageDesc(file_orrery_v1_usage, 11);
 
 /**
  * Usage answers from the LLM ledger orrery keeps, one record per request: the readings of the usage limits, the
@@ -328,6 +433,17 @@ export const UsageSpendResponseSchema: GenMessage<UsageSpendResponse> = /*@__PUR
  * @generated from service orrery.v1.Usage
  */
 export const Usage: GenService<{
+  /**
+   * EpicTotals returns, in one ledger read, the totals of each session of an epic: its step sessions, and its steerer
+   * marked shared.
+   *
+   * @generated from rpc orrery.v1.Usage.EpicTotals
+   */
+  epicTotals: {
+    methodKind: "unary";
+    input: typeof UsageEpicTotalsRequestSchema;
+    output: typeof UsageEpicTotalsResponseSchema;
+  },
   /**
    * Readings returns the usage limit readings, one for each account and claim.
    *

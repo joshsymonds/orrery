@@ -95,6 +95,9 @@ message StartStepRequest {
 
   // The absolute path of the epic's gates file. Empty reads only the project file.
   string gates_file = 15;
+
+  // What the step is for. Optional: a start without one gets a model-written purpose.
+  string purpose = 16;
 }
 
 // StartStepResponse names the started step.
@@ -216,6 +219,9 @@ message Step {
 
   // The orrery name of the host the step lives on.
   string host = 30;
+
+  // What the step is for, as stored at its start; empty when none is stored.
+  string purpose = 31;
 }
 
 // ReadStepResultRequest asks for part of a step's result.

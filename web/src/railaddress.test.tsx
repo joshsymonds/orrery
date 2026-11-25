@@ -371,13 +371,13 @@ test("SidePanel: the panel's card takes the epic's tone", (t) =>
     1600,
     {
       rows: [steererRow()],
-      epics: view([alpha], { alpha: { questions: [{ id: "Q1", text: "Use Postgres?" }] } }),
+      epics: view([alpha], { alpha: { questions: [{ id: "Q1", text: "Use Postgres?" }], centre: "asks" } }),
       address: epicAddress("alpha"),
     },
     (mount) => {
       const { container } = mount;
       assert.equal(
-        container.querySelector("article.held-card .held-mark svg.gauge")?.getAttribute("data-tone"),
+        container.querySelector("article.held-card .held-mark svg.epicmark g.centre")?.getAttribute("data-tone"),
         "attention",
         "the card's mark asks",
       );

@@ -86,6 +86,7 @@ const history = [
   create(EpicHistoryEntrySchema, {
     cursor: "h1",
     time: 9_500n,
+    sentence: "The contract was accepted.",
     item: { case: "trigger", value: { cause: "accepted" } },
   }),
 ];
@@ -388,6 +389,7 @@ test("EpicRecord: Just happened draws the newest three entries, and +n earlier s
     create(EpicHistoryEntrySchema, {
       cursor: `h${n}`,
       time: BigInt(9_000 + n * 100),
+      sentence: `entry ${n}`,
       item: { case: "tell", value: { text: `entry ${n}` } },
     }),
   );
@@ -485,6 +487,7 @@ test("EpicWords: a page whose runs and history carry 40-character revisions show
         create(EpicHistoryEntrySchema, {
           cursor: "h2",
           time: 9_600n,
+          sentence: "R1 green run · passed.",
           item: { case: "evidence", value: greenRun },
         }),
       ],
@@ -520,6 +523,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
   const move: EpicHistoryEntry = create(EpicHistoryEntrySchema, {
     time: 400n,
     cursor: "m1",
+    sentence: "moved to session sess-lamp from “Planned the rota export”, by you.",
     item: {
       case: "action",
       value: { seq: 1n, kind: "move", time: 400n, by: "owner", session: "", from: "sess-rota", to: "sess-lamp" },
@@ -531,7 +535,7 @@ test("MoveLines: the epic page names a session its move line mentions by its lis
     (container) => {
       assert.equal(
         textOf(container, "section.happen.just .what"),
-        "moved to session sess-lamp from “Planned the rota export”, by you",
+        "moved to session sess-lamp from “Planned the rota export”, by you.",
       );
     },
     { history: [move], rows },
@@ -1152,8 +1156,8 @@ const endedWithOpen = detail({
     { id: "t2", title: "Logout", status: "done", requirements: ["R2"], place: "integrated", tone: "ok" },
   ],
   requirements: [
-    { id: "R1", text: "A user signs in", runs: [redRun, greenRun] },
-    { id: "R2", text: "A user signs out" },
+    { id: "R1", text: "A user signs in", runs: [redRun, greenRun], state: "proven" },
+    { id: "R2", text: "A user signs out", state: "not_reached" },
   ],
 });
 
@@ -1162,7 +1166,7 @@ test("EpicReport: an ended-with-gaps epic's task rims read proven exactly when t
     const rims = [...container.querySelectorAll(".tasks path.req")].map((rim) => rim.getAttribute("class"));
     const words = [...container.querySelectorAll(".requirements .tbl.reqs .tr .end")].map((end) => end.textContent);
     assert.deepEqual(words, ["proven", "open"]);
-    assert.deepEqual(rims, ["req proven", "req"], "each rim follows the row of the requirement its task names");
+    assert.deepEqual(rims, ["req proven", "req not_reached"], "each segment reads its requirement's server state");
   });
 });
 

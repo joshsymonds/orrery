@@ -34,6 +34,7 @@ public  final class EpicStep extends
     summary_ = "";
     verdicts_ = emptyProtobufList();
     host_ = "";
+    purpose_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -1496,6 +1497,73 @@ public  final class EpicStep extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     host_ = value.toStringUtf8();
+
+  }
+
+  public static final int PURPOSE_FIELD_NUMBER = 24;
+  private java.lang.String purpose_;
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @return The purpose.
+   */
+  @java.lang.Override
+  public java.lang.String getPurpose() {
+    return purpose_;
+  }
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @return The bytes for purpose.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPurposeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(purpose_);
+  }
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @param value The purpose to set.
+   */
+  private void setPurpose(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    purpose_ = value;
+  }
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   */
+  private void clearPurpose() {
+
+    purpose_ = getDefaultInstance().getPurpose();
+  }
+  /**
+   * <pre>
+   * What the step is for, as stored at its start; empty when none is stored yet.
+   * </pre>
+   *
+   * <code>string purpose = 24 [json_name = "purpose"];</code>
+   * @param value The bytes for purpose to set.
+   */
+  private void setPurposeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    purpose_ = value.toStringUtf8();
 
   }
 
@@ -3130,6 +3198,75 @@ public  final class EpicStep extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the step is for, as stored at its start; empty when none is stored yet.
+     * </pre>
+     *
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
+     * @return The purpose.
+     */
+    @java.lang.Override
+    public java.lang.String getPurpose() {
+      return instance.getPurpose();
+    }
+    /**
+     * <pre>
+     * What the step is for, as stored at its start; empty when none is stored yet.
+     * </pre>
+     *
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
+     * @return The bytes for purpose.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPurposeBytes() {
+      return instance.getPurposeBytes();
+    }
+    /**
+     * <pre>
+     * What the step is for, as stored at its start; empty when none is stored yet.
+     * </pre>
+     *
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
+     * @param value The purpose to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPurpose(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPurpose(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the step is for, as stored at its start; empty when none is stored yet.
+     * </pre>
+     *
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPurpose() {
+      copyOnWrite();
+      instance.clearPurpose();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the step is for, as stored at its start; empty when none is stored yet.
+     * </pre>
+     *
+     * <code>string purpose = 24 [json_name = "purpose"];</code>
+     * @param value The bytes for purpose to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPurposeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPurposeBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicStep)
   }
   @java.lang.Override
@@ -3171,12 +3308,13 @@ public  final class EpicStep extends
             "verdicts_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepVerdict.class,
             "host_",
+            "purpose_",
           };
           java.lang.String info =
-              "\u0000\u0017\u0000\u0000\u0001\u0017\u0017\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0018\u0000\u0000\u0001\u0018\u0018\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0007\u0007\u0002\b\u0002\t\u0208\n\u001b" +
               "\u000b\u0208\f\u0208\r\u0002\u000e\u0208\u000f\u0002\u0010\u0007\u0011\u0208\u0012" +
-              "\u0002\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u001b\u0017\u0208";
+              "\u0002\u0013\u0007\u0014\u0208\u0015\u0208\u0016\u001b\u0017\u0208\u0018\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -217,7 +217,12 @@ class EpicRecordScreenTest {
             .build()
 
     private fun historyEntry(time: Long, cursor: String, step: EpicStep): EpicHistoryEntry =
-        EpicHistoryEntry.newBuilder().setTime(time).setCursor(cursor).setStep(step).build()
+        EpicHistoryEntry.newBuilder()
+            .setTime(time)
+            .setCursor(cursor)
+            .setStep(step)
+            .setSentence("${step.task} running")
+            .build()
 
     private fun historyOf(vararg entries: EpicHistoryEntry): EpicsHistoryResponse =
         EpicsHistoryResponse.newBuilder().addAllEntries(entries.toList()).setNext("").build()
@@ -520,12 +525,12 @@ class EpicRecordScreenTest {
             awaitLoaded()
 
             sectionIndex(listState, "happened")
-            assertEquals(1, countIn("happened:0", hasText("example-task-5 · started")))
-            assertEquals(1, countIn("happened:2", hasText("example-task-3 · started")))
+            assertEquals(1, countIn("happened:0", hasText("example-task-5 running")))
+            assertEquals(1, countIn("happened:2", hasText("example-task-3 running")))
             assertEquals(0, countNodes(hasTestTag("happened:3")))
             clickTag("happened-more")
 
-            assertEquals(1, countIn("happened:4", hasText("example-task-1 · started")))
+            assertEquals(1, countIn("happened:4", hasText("example-task-1 running")))
         }
     }
 
@@ -540,6 +545,7 @@ class EpicRecordScreenTest {
 
             sectionIndex(listState, "happened")
             clickTag("happened:0")
+            clickTag("happened-open:0")
 
             assertEquals("example-step-1", openedStep.get()?.id)
         }

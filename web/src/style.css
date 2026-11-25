@@ -82,7 +82,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   margin: 0; padding: var(--o-space-12); border: 0; border-radius: 0; background: none; box-shadow: none;
   color: var(--o-ink-2); font: var(--o-type-small); text-align: left; cursor: pointer;
 }
-.notice > .icon, .notice > .gauge, .notice > .glyph { margin-top: var(--o-space-4); }
+.notice > .icon, .notice > .epicmark, .notice > .glyph { margin-top: var(--o-space-4); }
 .notice .t { min-width: 0; overflow-wrap: anywhere; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
 .notice.flat .t { font-weight: var(--o-font-weight-regular); }
 .notice.flat.unread .t { font-weight: var(--o-font-weight-bold); }
@@ -201,6 +201,43 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
    rows alone give way when the column is short. */
 .inbox > .inote.error { flex: none; padding: var(--o-space-4) var(--o-space-16); }
 
+/* The usage band under the inbox head (round 8, A): a table of each Claude account's windows on the well, at the project
+   cards' edges. Each window is a meter-bar-wide column: its value right-aligned over a bar that fills the column, so the
+   numbers and bars line up down the band. A value takes its level's colour from 60 percent, warn, and 80, crit. The
+   account a context names has its dot filled. */
+.uband { position: relative; display: grid; gap: var(--o-space-4); flex: none; margin: 0 var(--o-space-8) var(--o-space-8); padding: var(--o-space-4) var(--o-space-8) var(--o-space-8); border-radius: var(--o-radius-3); background: var(--o-surface-well); }
+.ugrid { --wcol: var(--o-size-meter-bar-width); --gap: var(--o-space-8); display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, var(--wcol)); column-gap: var(--gap); align-items: center; font: var(--o-type-small); }
+.ugrid > .hd { display: flex; align-items: center; justify-content: flex-end; min-height: var(--o-space-24); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); white-space: nowrap; }
+.ugrid > .hd.nm { justify-content: space-between; gap: var(--o-space-8); }
+.ugrid > .hd.c5 { color: var(--o-series-1); }
+.ugrid > .hd.c7 { color: var(--o-series-2); }
+.ugrid > .hd.cf { color: var(--o-series-3); }
+.ugrid .ctlq { display: inline-flex; align-items: center; justify-content: center; height: var(--o-space-24); padding: 0 var(--o-space-4); border: 0; border-radius: var(--o-radius-1); background: none; color: var(--o-ink-3); cursor: pointer; appearance: none; -webkit-appearance: none; }
+.ugrid .ctlq:hover { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.urow { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; min-height: var(--o-size-control-desk); margin: 0 calc(-1 * var(--o-space-8)); padding: 0 var(--o-space-8); border-radius: var(--o-radius-2); }
+.uname { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; color: var(--o-ink-2); }
+.uname .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.urow.inuse .uname { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.udot { flex: none; width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-round); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-glyph); }
+.urow.inuse .udot { background: var(--o-role-primary); box-shadow: none; }
+.uv { --hue: var(--o-series-1); display: grid; align-content: center; justify-items: end; gap: var(--o-space-2); }
+.uv.d7 { --hue: var(--o-series-2); }
+.uv.fb { --hue: var(--o-series-3); }
+.uv.warn { --hue: var(--o-level-warn); }
+.uv.crit { --hue: var(--o-level-crit); }
+.uv .v { color: var(--o-ink-1); }
+.uv.warn .v { color: var(--o-level-warn); }
+.uv.crit .v { color: var(--o-level-crit); }
+.uv .bar { justify-self: stretch; height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.uv .bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
+.urs { display: flex; align-items: center; justify-content: flex-end; color: var(--o-ink-3); white-space: nowrap; }
+.urs.stale { color: var(--o-ink-2); }
+.limg { display: inline-grid; place-items: center; flex: none; width: var(--o-space-12); height: var(--o-space-12); }
+.limg .glyph { width: var(--o-space-12); height: var(--o-space-12); }
+.urow .note { grid-column: 2 / -1; grid-row: 1; display: flex; align-items: center; justify-content: flex-end; color: var(--o-ink-3); white-space: nowrap; }
+.uspend { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.uspend .amt { color: var(--o-ink-1); font: var(--o-type-body); }
+
 .blank { margin: auto; display: grid; gap: var(--o-space-8); justify-items: center; max-width: 48ch; padding: var(--o-space-24); color: var(--o-ink-3); font: var(--o-type-small); text-align: center; }
 .blank .t-body { color: var(--o-ink-2); }
 .sec { --hue: var(--o-ink-3); display: flex; align-items: baseline; gap: var(--o-space-8); color: var(--o-ink-3); }
@@ -248,17 +285,23 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .menu-item kbd { margin-left: auto; }
 .menu-sep { height: var(--o-size-hairline); margin: var(--o-space-4) 0; background: var(--o-line-soft); }
 
-/* Gauge: an epic at a glance. One ring in three zones: done, started, planned. Its colour is the epic's state. */
-.gauge { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; color: var(--o-ink-3); }
-.gauge .planned { stroke: var(--o-line-firm); }
-.gauge .started { stroke: currentColor; stroke-opacity: var(--o-pulse-low); }
-.gauge .done { stroke: currentColor; }
-.gauge .core { fill: currentColor; stroke: none; }
-.gauge[data-tone="live"] { color: var(--o-role-live); }
-.gauge[data-tone="attention"] { color: var(--o-role-attention); }
-.gauge[data-tone="ok"] { color: var(--o-role-ok); }
-.gauge[data-tone="bad"] { color: var(--o-role-bad); }
-.gauge[data-tone="engine"] { color: var(--o-role-engine); }
+/* EpicMark: an epic as a mark. A rim of one segment per requirement, toned by its state, and the centre in its centre's colour.
+   It is the gauge's size, 24, and the mark's, 32, in the inbox row. */
+.epicmark { width: var(--o-size-gauge); height: var(--o-size-gauge); flex: none; fill: none; stroke-width: 3; }
+.epicmark[data-size="32"] { width: var(--o-size-mark); height: var(--o-size-mark); }
+.epicmark .planned { stroke: var(--o-line-firm); }
+.epicmark .rim[data-tone="ok"] { stroke: var(--o-tone-ok); }
+.epicmark .rim[data-tone="run"] { stroke: var(--o-tone-run); }
+.epicmark .rim[data-tone="mine"] { stroke: var(--o-tone-mine); }
+.epicmark .rim[data-tone="bad"] { stroke: var(--o-tone-bad); }
+.epicmark .rim[data-tone="line.firm"] { stroke: var(--o-line-firm); }
+.epicmark .centre { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.epicmark text { fill: currentColor; stroke: none; font: var(--o-type-label); text-anchor: middle; dominant-baseline: central; }
+.epicmark .centre[data-tone="live"] { color: var(--o-role-live); }
+.epicmark .centre[data-tone="attention"] { color: var(--o-role-attention); }
+.epicmark .centre[data-tone="engine"] { color: var(--o-role-engine); }
+.epicmark .centre[data-tone="ok"] { color: var(--o-role-ok); }
+.epicmark .centre[data-tone="ink.3"] { color: var(--o-ink-3); }
 
 /* StateGlyph: a session's or a step's state, drawn as a ring in its state's colour. */
 .glyph { width: var(--o-size-glyph); height: var(--o-size-glyph); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; color: var(--o-state-idle); }
@@ -375,9 +418,9 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .design-well > .row.epic { padding: var(--o-space-4) 0; }
 .inbox .design-well > .row.epic .title { font-weight: var(--o-font-weight-regular); }
 
-/* EpicRow: an epic. Its gauge, its name and count; then its state in words; then what blocks it, in attention. */
-.inbox .row.epic { grid-template-columns: var(--o-size-gauge) minmax(0, 1fr) auto; align-items: start; }
-.inbox .row.epic .gauge { grid-row: 1 / span 2; }
+/* EpicRow: an epic. Its mark, its name and count; then its state in words; then what blocks it, in attention. */
+.inbox .row.epic { grid-template-columns: var(--o-size-mark) minmax(0, 1fr) auto; align-items: start; }
+.inbox .row.epic .epicmark { grid-row: 1 / span 2; }
 .inbox .row.epic .title { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .inbox .row.epic .l2, .inbox .row.epic .l3 { grid-column: 2 / -1; }
 .inbox .row.epic .l3 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-role-attention); font: var(--o-type-small); }
@@ -609,7 +652,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: 0;
   border-bottom: 0; color: var(--o-ink-3); font: var(--o-type-small); white-space: normal; overflow-wrap: normal;
 }
-.reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .gauge { flex: none; color: var(--rail); }
+.reader [data-shape="block"] > .head > .icon, .reader [data-shape="block"] > .head > .epicmark { flex: none; color: var(--rail); }
 .reader [data-shape="block"] > .head .label {
   flex: none; color: var(--rail); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking);
   text-transform: uppercase; white-space: nowrap;
@@ -1237,6 +1280,20 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page section.tasks > .orrery-fig { flex: 0 0 var(--o-size-orrery-full); max-width: 100%; margin: 0 auto; }
 .epic-page section.tasks > .tbl { flex: 1 1 56ch; min-width: 0; }
 .epic-page .sec { min-width: 0; }
+.epic-page .sec-head { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
+.epic-page .sec-head span { font: var(--o-type-small); color: var(--o-ink-3); }
+/* The Usage section: a head, then one grid of the sessions, each row's cells in the same columns: its name, model, requests,
+   cache write, list and bar. Under 760 the bar's column goes, so a row is its name and figures. */
+.epic-usage { display: grid; gap: var(--o-space-12); min-width: 0; }
+.epic-usage-rows { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto minmax(var(--o-size-meter-bar-width), 1fr); gap: var(--o-space-8) var(--o-space-12); align-items: center; font: var(--o-type-small); }
+.epic-usage-rows.narrow { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
+.epic-usage-row { display: contents; }
+.epic-usage-name { display: grid; min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.epic-usage-shared { color: var(--o-ink-3); }
+.epic-usage-model { color: var(--o-ink-2); white-space: nowrap; }
+.epic-usage-requests, .epic-usage-cache, .epic-usage-list { color: var(--o-ink-1); text-align: right; white-space: nowrap; }
+.epic-usage-bar { height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.epic-usage-bar i { display: block; height: 100%; background: var(--o-series-2); }
 /* The chart: the rings of task cells, outside in, each cell in its tone; the requirement rim outside them; the count in the
    centre; the hovered wedge outlined, with no pointer, and named in its caption. The epic line's mini chart shares the cell
    and arc rules. A running cell pulses. */
@@ -1258,6 +1315,12 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .orrery .cell.now { fill: var(--tone); }
 .orrery .req { fill: var(--o-line-firm); }
 .orrery .req.proven { fill: var(--o-role-ok); }
+.orrery .req.failed { fill: var(--o-tone-bad); }
+.orrery .req.held { fill: var(--o-tone-mine); }
+.orrery .req.in_flight { fill: var(--o-tone-run); }
+.orrery .req.unlabelled { fill: var(--o-line-soft); }
+.orrery .req[role="button"] { cursor: pointer; }
+.orrery .req-id { font: var(--o-type-label); fill: var(--o-ink-2); }
 .orrery .req.open { fill: var(--o-line-firm); }
 .orrery .ring-way { fill: none; stroke: none; }
 .orrery .ring-name { font: var(--o-type-label); fill: var(--o-ink-2); }
@@ -1291,6 +1354,16 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
   .epic-page .happen li .at { display: inline-block; min-width: var(--o-layout-gutter-ch); margin-right: var(--o-space-16); color: var(--o-ink-4); text-align: right; }
 }
 .epic-page .happen .more { min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-ink-3); appearance: none; -webkit-appearance: none; }
+/* A line's clock is the mono family at the small size. A line with detail is a button that opens in place; its detail
+   wraps, where the line itself is cut to one row. */
+.epic-page .happen .at { font: var(--o-type-code); }
+.epic-page .happen .happen-line { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.epic-page .happen .detail { display: grid; gap: var(--o-space-4); padding: var(--o-space-4) var(--o-space-12); white-space: normal; overflow-wrap: anywhere; color: var(--o-ink-2); }
+.epic-page .happen .detail p { margin: 0; }
+.epic-page .happen .open-step { justify-self: start; min-height: var(--o-space-24); padding: 0; border: 0; background: none; cursor: pointer; font: var(--o-type-small); color: var(--o-role-ref); appearance: none; -webkit-appearance: none; }
+/* Just happened's head is round 6's .sec head: its mark is its icon in the head's hue, data-hue 1 being series 1. */
+.happen.just > .sec[data-hue="1"] { --hue: var(--o-series-1); }
+.happen.just > .sec > .icon { align-self: center; color: var(--hue); }
 /* An evidence run is one line: its sentence, its verdict chip, its meta, and its log toggle at the end. The log and the
    artifacts fold under it. */
 .run-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-8); min-width: 0; padding: var(--o-space-4) var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); }
@@ -1538,6 +1611,61 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .tile { position: relative; display: grid; place-items: center; flex: none; width: calc(var(--o-space-32) + var(--o-space-8)); height: calc(var(--o-space-32) + var(--o-space-8)); border-radius: var(--o-radius-2); background: var(--o-surface-well); color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); }
 .tile .n { position: absolute; top: 0; right: 0; display: grid; place-items: center; min-width: var(--o-space-16); height: var(--o-space-16); padding: 0 var(--o-space-4); border-radius: var(--o-radius-round); background: var(--o-role-attention); color: var(--o-ink-on-accent); font: var(--o-type-label); }
 .tile .n.new { background: var(--o-role-new); }
+
+/* The collapsed inbox's usage tile: the account in use as two rings, 7d outside and 5h inside, each stroked in its level. */
+.utile { position: relative; display: grid; place-items: center; flex: none; width: calc(var(--o-space-32) + var(--o-space-8)); height: calc(var(--o-space-32) + var(--o-space-8)); padding: 0; border: 0; border-radius: var(--o-radius-2); background: var(--o-surface-well); }
+.utile:hover { background: var(--o-surface-raised); }
+.utile .ring { width: calc(var(--o-space-24) + var(--o-space-4)); height: calc(var(--o-space-24) + var(--o-space-4)); fill: none; stroke-width: 3; }
+.utile .ring .track { stroke: var(--o-line-firm); }
+.utile .ring .arc.level-ok { stroke: var(--o-level-ok); }
+.utile .ring .arc.level-warn { stroke: var(--o-level-warn); }
+.utile .ring .arc.level-crit { stroke: var(--o-level-crit); }
+/* The usage popover: every account's windows at reading size, in the band's columns and order. It lies beside the band, at
+   its top right, or beside the collapsed rail, its foot level with the usage tile. Each window cell adds its countdown. */
+.uband > .upop { position: absolute; top: 0; left: 100%; margin-left: var(--o-space-8); z-index: var(--o-z-menu); }
+.upop-slot { position: absolute; left: calc(var(--o-layout-rail-width) + var(--o-space-8)); z-index: var(--o-z-menu); }
+.upop { display: grid; gap: var(--o-space-8); width: calc(var(--o-space-32) * 18); padding: var(--o-space-8) var(--o-space-16) var(--o-space-16); border-radius: var(--o-radius-3); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
+.up-head { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-4) 0 var(--o-space-8); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.up-title { margin: 0; color: var(--o-ink-1); font: var(--o-type-body); font-weight: var(--o-font-weight-bold); }
+.up-link { margin-left: auto; color: var(--o-ink-3); font: var(--o-type-small); text-decoration: none; white-space: nowrap; }
+.up-link:hover { color: var(--o-ink-1); }
+.up-table { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, calc(var(--o-space-32) * 2 + var(--o-space-12))); column-gap: var(--o-space-12); align-items: start; font: var(--o-type-small); }
+.up-hd { min-height: var(--o-space-24); padding-bottom: var(--o-space-4); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; color: var(--o-ink-3); text-align: right; }
+.up-hd.nm { text-align: left; }
+.up-hd.c5 { color: var(--o-series-1); }
+.up-hd.c7 { color: var(--o-series-2); }
+.up-hd.cf { color: var(--o-series-3); }
+.up-row { display: contents; }
+.up-row > * { padding: var(--o-space-12) 0; border-bottom: var(--o-size-hairline) solid var(--o-line-soft); }
+.up-row:last-of-type > * { border-bottom: 0; }
+.up-acct { display: grid; align-content: start; gap: var(--o-space-2); min-width: 0; }
+.up-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--o-ink-2); font: var(--o-type-body); }
+.up-row.inuse .up-nm { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
+.up-who, .up-read { color: var(--o-ink-3); white-space: nowrap; }
+.up-read.stale { color: var(--o-ink-2); }
+.up-win { display: grid; align-content: start; justify-items: end; gap: var(--o-space-4); color: var(--o-ink-2); }
+.up-win.d5 { --hue: var(--o-series-1); }
+.up-win.d7 { --hue: var(--o-series-2); }
+.up-win.fb { --hue: var(--o-series-3); }
+.up-v { color: var(--o-ink-1); font: var(--o-type-body); }
+.up-win.level-warn .up-v { color: var(--o-level-warn); }
+.up-win.level-crit .up-v { color: var(--o-level-crit); }
+.up-bar { justify-self: stretch; height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.up-bar i { display: block; height: 100%; border-radius: var(--o-radius-round); background: var(--hue); }
+.up-r { color: var(--o-ink-3); white-space: nowrap; }
+.up-foot { display: grid; gap: var(--o-space-4); padding-top: var(--o-space-8); border-top: var(--o-size-hairline) solid var(--o-line-soft); }
+.up-frow { display: flex; align-items: baseline; justify-content: space-between; gap: var(--o-space-12); color: var(--o-ink-2); font: var(--o-type-small); }
+.up-use { justify-self: start; height: var(--o-space-24); padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); cursor: pointer; }
+.up-use:hover { background: var(--o-surface-pressed); }
+.up-inuse { color: var(--o-role-primary); }
+.up-row > .up-ask, .up-row > .up-note { grid-column: 1 / -1; border-bottom: 0; }
+.up-ask { display: flex; align-items: center; gap: var(--o-space-8); padding: var(--o-space-8) var(--o-space-12); border-radius: var(--o-radius-2); background: var(--o-surface-raised); color: var(--o-ink-1); font: var(--o-type-small); }
+.up-q { flex: 1 1 auto; min-width: 0; }
+.up-note { padding: var(--o-space-4) 0 var(--o-space-8); color: var(--o-ink-2); font: var(--o-type-small); }
+/* Under 760px the popover is a sheet: its wrapper has no box of its own, and its table takes the sheet's width, with its three
+   window columns narrower so the account names keep room. */
+.upop-sheets { display: contents; }
+.sheet .up-table { grid-template-columns: minmax(0, 1fr) repeat(3, calc(var(--o-space-32) * 2)); column-gap: var(--o-space-8); }
 .rpick { position: absolute; top: 0; right: calc(100% + var(--o-space-4)); z-index: var(--o-z-menu); display: grid; width: calc(var(--o-space-32) * 10); padding: var(--o-space-4); border-radius: var(--o-radius-2); background: var(--o-surface-overlay); box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm), var(--o-elevation-overlay); }
 .menu-head { padding: var(--o-space-4) var(--o-space-12); color: var(--o-ink-3); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
 .rpick-row { display: grid; grid-template-columns: var(--o-size-gauge) minmax(0, 1fr); align-items: center; gap: 0 var(--o-space-12); width: 100%; min-height: 0; padding: var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; text-align: left; cursor: pointer; }
@@ -2141,6 +2269,39 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .design-log-who { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .design-log-what { min-width: 0; overflow-wrap: anywhere; }
 .design-log-words { margin: 0; padding-left: var(--o-space-12); border-left: var(--o-size-hairline) solid var(--o-line-firm); color: var(--o-ink-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The Usage panel: the list total, the four token kinds as one bar with a legend, and the model-and-agent rows. A segment
+   or a row's share is drawn at its width in the markup; the colours are the series tokens. */
+.usage { display: grid; gap: var(--o-space-16); padding: var(--o-space-8) var(--o-space-16) var(--o-space-16); }
+.usage > h2 { margin: 0; color: var(--o-ink-1); font: var(--o-type-title); }
+.usage-total { display: flex; align-items: baseline; gap: var(--o-space-24); }
+.usage-list { color: var(--o-ink-1); font: var(--o-type-display); }
+.usage-sub { display: grid; gap: var(--o-space-4); color: var(--o-ink-3); font: var(--o-type-small); }
+.usage-kinds { display: grid; gap: var(--o-space-12); }
+.kindbar { display: flex; height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); overflow: hidden; background: var(--o-line-soft); }
+.kindbar i { display: block; height: 100%; }
+.kb1 { background: var(--o-series-1); }
+.kb2 { background: var(--o-series-2); }
+.kb3 { background: var(--o-series-3); }
+.kb4 { background: var(--o-series-5); }
+.usage-legend { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: var(--o-space-4) var(--o-space-12); align-items: center; color: var(--o-ink-3); font: var(--o-type-small); }
+.usage-legend.tokens-only { grid-template-columns: auto minmax(0, 1fr) auto; }
+.usage-kind { display: contents; }
+.usage-kind > i { width: var(--o-size-dot); height: var(--o-size-dot); border-radius: var(--o-radius-1); }
+.usage-kind-tokens, .usage-kind-dollars, .usage-row-list { text-align: right; color: var(--o-ink-1); white-space: nowrap; }
+.usage-label { color: var(--o-ink-2); font: var(--o-type-label); letter-spacing: var(--o-type-label-tracking); text-transform: uppercase; }
+.usage-rows { display: grid; grid-template-columns: minmax(0, 1fr) var(--o-size-meter-bar-width) auto auto; gap: var(--o-space-8) var(--o-space-12); align-items: center; font: var(--o-type-small); }
+.usage-row { display: contents; }
+.usage-who { min-width: 0; overflow: hidden; color: var(--o-ink-1); text-overflow: ellipsis; white-space: nowrap; }
+.usage-agent { color: var(--o-ink-3); }
+.usage-bar { height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.usage-bar i { display: block; height: 100%; background: var(--o-series-2); }
+.usage-row-billed { color: var(--o-ink-3); text-align: right; white-space: nowrap; }
+
+/* The usage readout in the title row: the word usage and the list total, lit while the Usage panel is open. */
+.title-row .usage-readout { flex: none; display: inline-flex; align-items: baseline; gap: var(--o-space-4); height: var(--o-size-control-desk); padding: 0 var(--o-space-8); border: 0; border-radius: var(--o-radius-2); background: none; color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.title-row .usage-readout:hover, .title-row .usage-readout[aria-pressed="true"] { background: var(--o-surface-raised); color: var(--o-ink-1); }
+.usage-readout-figure { color: var(--o-ink-1); }
 
 /* Reduced motion comes last, so it wins over the rules above: each move is one 100 ms linear step, a page drills and
    leaves by a fade, and the loops hold still. */

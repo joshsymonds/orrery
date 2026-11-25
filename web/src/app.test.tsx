@@ -3253,7 +3253,7 @@ test("an epic shows four running steps with the held one marked, then its more a
     );
     assert.deepEqual(
       [...steers.querySelectorAll(".fold-line")].map((line) => line.textContent),
-      ["1 more · 3 steps ended"],
+      ["1 more"],
     );
   });
 });
@@ -3538,8 +3538,8 @@ test("an epic whose detail names no state reads its count alone, and epic unavai
   const unknown = makeEpic(gadgetsRepo, "second");
   const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
   return withApp(t.signal, { epics }, (container) => {
-    assert.equal(rowElement(container, epicKey(known)).querySelector(".l2")?.textContent, "2 of 3 tasks done");
-    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".l2")?.textContent, "epic unavailable");
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".age")?.textContent, "2 of 3 tasks done");
+    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".age")?.textContent, "epic unavailable");
   });
 });
 
@@ -3647,8 +3647,8 @@ test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothin
     await settle();
     assert.deepEqual(
       fake.calls.slice(before).map((call) => call.path),
-      [getEpicPath, historyPath],
-      "the only calls are the Epics.Get and Epics.History the page asks for, and no key reaches the server",
+      [getEpicPath, "/orrery.v1.Usage/EpicTotals", historyPath],
+      "the only calls are the Epics.Get, the usage totals and the Epics.History the page asks for, and no key reaches the server",
     );
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
@@ -4616,10 +4616,10 @@ test("a command that fails shows its did-not-land line under the title row, and 
 test("Just happened shows the epic's history, read from its first entry", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "use postgres" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: use postgres.", decision: { id: "d1", text: "use postgres" } }], next: "" },
     ]);
     await press("j");
-    await until(t.signal, () => historyText(container).includes("decision by unknown · use postgres"), "the history entry");
+    await until(t.signal, () => historyText(container).includes("Decision by unknown: use postgres."), "the history entry");
     const [call] = fake.callsTo(historyPath);
     assert.equal(call.body.id, widgetsFirst);
     assert.equal(call.body.after, undefined, "the first page reads from the start");
@@ -4629,8 +4629,8 @@ test("Just happened shows the epic's history, read from its first entry", (t) =>
 test("the history reads page by page until a page names no next cursor", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 0n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "first decision" } }], next: "c1" },
-      { entries: [{ cursor: "c2", decision: { id: "d2", text: "second decision" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: first decision.", decision: { id: "d1", text: "first decision" } }], next: "c1" },
+      { entries: [{ cursor: "c2", sentence: "Decision by unknown: second decision.", decision: { id: "d2", text: "second decision" } }], next: "" },
     ]);
     await press("j");
     await until(t.signal, () => historyText(container).includes("second decision"), "the second page");
@@ -4645,8 +4645,8 @@ test("the history reads page by page until a page names no next cursor", (t) =>
 test("a change to the epic's last write reads its history again", (t) =>
   withApp(t.signal, { epics: pageEpic({}, 1n, true) }, async (container, fake) => {
     fake.replies.set(historyPath, [
-      { entries: [{ cursor: "c1", decision: { id: "d1", text: "before the change" } }], next: "" },
-      { entries: [{ cursor: "c2", decision: { id: "d2", text: "after the change" } }], next: "" },
+      { entries: [{ cursor: "c1", sentence: "Decision by unknown: before the change.", decision: { id: "d1", text: "before the change" } }], next: "" },
+      { entries: [{ cursor: "c2", sentence: "Decision by unknown: after the change.", decision: { id: "d2", text: "after the change" } }], next: "" },
     ]);
     await press("j");
     await until(t.signal, () => historyText(container).includes("before the change"), "the first history");

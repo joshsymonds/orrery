@@ -19,6 +19,8 @@ import { type Affects, affectsOf, stepSessions } from "./refresh";
 import { type Address, type Entry, formatAddress, parseAddress } from "./router";
 import type { Row } from "./rows";
 import { realClock, type SeenWindow } from "./seen";
+import { noUsage, type UsageData } from "./usagedata";
+import { createUsageReads } from "./usageload";
 
 const defaultIntervalMs = 5000;
 
@@ -128,8 +130,9 @@ function pageStorage(): Storage | null {
 // at start opens neither. When it becomes visible a stale page reopens the notices watch, reads the host, and reloads
 // the rows, whose load reopens Events.Watch, and the epics, asking Epics.Get for each live epic whose listed message
 // changed and for the epic the page shows. An epic's listed message carries its revision, which every write to the
-// epic but its steps' moves, so nothing an Epics.Get answers changes unseen. The host's status is read under its own
-// guard, and a refused read hands App null. The page also reports its input: watchPresence sends each Presence.Report request, its input age and
+// epic but its steps' moves, so nothing an Epics.Get answers changes unseen. The usage the inbox band draws is read by
+// createUsageReads, which the page ticks at start, on each tick and on becoming visible, and which makes no call while
+// the page is hidden. The host's status is read under its own guard, and a refused read hands App null. The page also reports its input: watchPresence sends each Presence.Report request, its input age and
 // the view App shows, and a failed report is dropped. The returned function stops reloading, aborts the stream, stops
 // the presence watch, aborts the notices watch and unmounts App. The page also watches the in-app notices its banner
 // shows until each ends; a notices stream that fails reopens after retryMs. The page's address is bound to the URL
@@ -179,6 +182,22 @@ export function start(
   let epicsAnswered = false;
 
   const hidden = () => win.document.visibilityState === "hidden";
+  // usage is the latest usage the reads have landed, which App draws in the inbox's band.
+  let usage: UsageData = noUsage;
+  // usageReads keeps that usage current on the ticks the page makes. Each read that lands draws the page, unless the page
+  // has stopped.
+  const usageReads = createUsageReads({
+    clients,
+    hidden,
+    now: () => Math.floor(Date.now() / 1000),
+    onChange: (data) => {
+      if (stopped) {
+        return;
+      }
+      usage = data;
+      draw();
+    },
+  });
   // The phone header's hidden setting, kept in the page's local storage.
   const headStore = localHeadStore(pageStorage());
   const build = watchPageBuild(page.build, hidden, () => holdsUnsentText(root), page.reload);
@@ -203,6 +222,7 @@ export function start(
         address={address}
         onAddress={onAddress}
         headStore={headStore}
+        usage={usage}
       />,
       root,
     );
@@ -504,6 +524,7 @@ export function start(
       build.check();
       return;
     }
+    usageReads.tick();
     if (!stale) {
       return;
     }
@@ -533,6 +554,7 @@ export function start(
     reloadEpics(changedOnly);
     void loadHostStatus();
   }
+  usageReads.tick();
   const timer = setInterval(() => {
     build.check();
     if (hidden()) {
@@ -541,6 +563,7 @@ export function start(
     }
     void loadHostStatus();
     reloadEpics(shownEpic());
+    usageReads.tick();
     if (stream === null) {
       pollRows();
     } else {
