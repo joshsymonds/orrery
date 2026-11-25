@@ -1164,6 +1164,16 @@ type PutOffQuestion struct {
 	PutOffAt  int64
 }
 
+type ReproRuling struct {
+	Epic       string
+	ReproCheck string
+	Judge      int64
+	Step       string
+	Verdict    string
+	Reason     string
+	Created    int64
+}
+
 type RouteBinding struct {
 	Context  string
 	Scope    string

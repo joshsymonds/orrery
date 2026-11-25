@@ -1208,6 +1208,16 @@ SELECT
     ), '') ELSE '' END AS TEXT) AS summary,
     steps.host
 FROM steps;
+CREATE TABLE repro_rulings (
+    epic TEXT NOT NULL,
+    repro_check TEXT NOT NULL,
+    judge INTEGER NOT NULL,
+    step TEXT NOT NULL DEFAULT '',
+    verdict TEXT NOT NULL DEFAULT '' CHECK (verdict IN ('', 'holds', 'fails')),
+    reason TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL,
+    PRIMARY KEY (epic, repro_check, judge)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1229,6 +1239,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (114,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,114,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (117,116,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (118,117,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);

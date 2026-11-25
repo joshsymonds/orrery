@@ -366,7 +366,7 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
 		kinds.ActBegin, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
-		kinds.ActEnding, kinds.ActResume, kinds.ActTaskIntegrator:
+		kinds.ActEnding, kinds.ActResume, kinds.ActTaskIntegrator, kinds.ActReproJudge:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActReplan:
 		return []Action{p.replan(def, run, act)}

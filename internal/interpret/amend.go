@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/compose"
@@ -45,8 +46,9 @@ func (r *Runner) passAmendments(ctx context.Context, epics []store.EpicRow) {
 // driveAmendment starts the work of amended and settles it. A checking amendment runs the red run of its new item at
 // the epic's base. A capturing one runs the green run of its new item at the stored base it names, and for a test item
 // its reproduction (see amendmentRepro). Work the evidence runner refuses for good stops the amendment with the refusal
-// (see store.Store.StopAmendment). Otherwise the store settles the amendment by its work, and an amendment the store
-// defers while an evidence, integrate or sync run of its epic is under way is settled again on a later pass.
+// (see store.Store.StopAmendment). Otherwise the store settles the amendment by its work (settleAmendment), and an
+// amendment the store defers while an evidence, integrate or sync run of its epic is under way is settled again on a
+// later pass.
 func (r *Runner) driveAmendment(ctx context.Context, epic store.EpicRow, amended store.EvidenceAmendment) error {
 	if r.evidence == nil {
 		return missingService("evidence")
@@ -70,11 +72,94 @@ func (r *Runner) driveAmendment(ctx context.Context, epic store.EpicRow, amended
 			return reproErr
 		}
 	}
-	err = r.store.SettleAmendment(ctx, epic.ID, amended.Seq, r.now())
-	if err != nil && !errors.Is(err, store.ErrAmendmentDeferred) {
-		return fmt.Errorf("settle amendment %d: %w", amended.Seq, err)
+	return r.settleAmendment(ctx, epic, amended)
+}
+
+// settleAmendment settles amended by its work (store.Store.SettleAmendment). While the store waits for the ruling of
+// the judges of its reproduction (store.ErrAmendmentJudging), the judge is carried on (amendmentJudge), and the
+// amendment is settled again whenever a ruling is recorded, at most once for each judge a reproduction gets, so a
+// ruling that settles the reproduction applies the amendment in the same pass. A settle the store defers waits for a
+// later pass.
+func (r *Runner) settleAmendment(ctx context.Context, epic store.EpicRow, amended store.EvidenceAmendment) error {
+	for range store.ReproJudges + 1 {
+		err := r.store.SettleAmendment(ctx, epic.ID, amended.Seq, r.now())
+		switch {
+		case err == nil, errors.Is(err, store.ErrAmendmentDeferred):
+			return nil
+		case !errors.Is(err, store.ErrAmendmentJudging):
+			return fmt.Errorf("settle amendment %d: %w", amended.Seq, err)
+		}
+		ruled, err := r.amendmentJudge(ctx, epic, amended)
+		if err != nil || !ruled {
+			return err
+		}
 	}
 	return nil
+}
+
+// amendmentJudge carries on the judge of the reproduction of amended, a capturing amendment whose reproduction ran and
+// exited 0 without timing out and whose rulings do not settle it yet. The judge numbered by how many rulings the
+// reproduction has decides, under its derived id (store.AmendmentJudgeID), labeled with the amendment
+// (amendmentLabel): one with no step starts (judgeReproduction), one whose step runs waits, and one whose step has ended
+// has its ruling recorded (recordJudgeRuling). It reports whether it recorded a ruling.
+func (r *Runner) amendmentJudge(
+	ctx context.Context,
+	epic store.EpicRow,
+	amended store.EvidenceAmendment,
+) (bool, error) {
+	rulings, err := r.store.ReproRulings(ctx, epic.ID)
+	if err != nil {
+		return false, fmt.Errorf("read the rulings of amendment %d: %w", amended.Seq, err)
+	}
+	ruling := store.ReproRuling{
+		Check: amended.ReproCheck, Judge: int64(len(store.CheckRulings(rulings, amended.ReproCheck))),
+	}
+	id := store.AmendmentJudgeID(amended, ruling.Judge)
+	labeled, err := r.store.LabelledSteps(ctx, epic.ID, amendmentLabel(amended))
+	if err != nil {
+		return false, fmt.Errorf("read the judge steps of amendment %d: %w", amended.Seq, err)
+	}
+	if i := slices.IndexFunc(labeled, func(row store.StepRow) bool { return row.ID == id }); i >= 0 {
+		if labeled[i].End == "" {
+			return false, nil
+		}
+		return true, r.recordJudgeRuling(ctx, epic, ruling, labeled[i], r.now())
+	}
+	judged, err := r.amendmentJudgment(ctx, epic, amended)
+	if err != nil {
+		return false, err
+	}
+	return r.judgeReproduction(ctx, epic, judged, ruling, id, r.now())
+}
+
+// amendmentJudgment returns what the judge of amended's reproduction rules on: the reproduction the amendment ran at the
+// epic's base with the test files of the stored base it names, for the item it asks for; the epic's tasks that claim or
+// contribute to its Requirement and that an integrate run that ended passed composed, since the stored base holds
+// their change; and the Requirement's red at the epic's base. Its step is labeled with the amendment. A reproduction
+// that is not stored is an error.
+func (r *Runner) amendmentJudgment(
+	ctx context.Context, epic store.EpicRow, amended store.EvidenceAmendment,
+) (reproJudgment, error) {
+	flow, err := r.store.EpicFlow(ctx, epic.ID)
+	if err != nil {
+		return reproJudgment{}, fmt.Errorf("read epic %s: %w", epic.ID, err)
+	}
+	i := slices.IndexFunc(flow.Checks, func(check store.NodeCheck) bool { return check.ID == amended.ReproCheck })
+	if i < 0 {
+		return reproJudgment{}, fmt.Errorf("reproduction %s of amendment %d is not stored", amended.ReproCheck,
+			amended.Seq)
+	}
+	tasks := claimingTasks(flow.Epic.Tasks, amended.Requirement, func(task store.EpicTask) bool {
+		return slices.ContainsFunc(flow.Runs, func(run store.NodeRun) bool {
+			return run.Kind == kindIntegrate && run.Path == task.Batch && run.Outcome == outcomePassed &&
+				composedBy(run, task.Seq)
+		})
+	})
+	return reproJudgment{
+		requirement: store.EpicRequirement{ID: amended.Requirement, Item: amended.Item}, tasks: tasks,
+		red: baseRed(flow.Evidence, amended.Requirement, amended.Base), repro: flow.Checks[i], base: amended.Base,
+		commit: amended.StoredBase, label: amendmentLabel(amended),
+	}, nil
 }
 
 // amendmentRepro starts the reproduction of a capturing amendment's test item, once: the epic's base with the item's test
@@ -104,7 +189,7 @@ func (r *Runner) amendmentRepro(ctx context.Context, epic store.EpicRow, amended
 		return fmt.Errorf("make reproduction of amendment %d: %w", amended.Seq, err)
 	}
 	check := store.NodeCheck{
-		ID: amended.ReproCheck, Epic: epic.ID, Path: fmt.Sprintf("amendment A%d", amended.Seq), Revision: overlay,
+		ID: amended.ReproCheck, Epic: epic.ID, Path: amendmentLabel(amended), Revision: overlay,
 		Argv: amended.Item.Capture, Limit: amended.Item.Limit,
 	}
 	if _, err = r.checks.Run(ctx, check); err != nil {

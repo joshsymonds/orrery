@@ -14,12 +14,6 @@ import (
 // It states the exit only; what the exit means is the judge's ruling, which follows it.
 const reproExitZero = "exited 0 on the base with the commit's test files"
 
-// passedOnBase reports whether a reproduction ran and exited 0 without timing out: the one outcome whose meaning the
-// reproduction judge rules on. Any other exit is what red predicts, so it needs no ruling.
-func passedOnBase(repro store.NodeCheck) bool {
-	return repro.State == store.NodeEnded && repro.NotRun == "" && repro.Exit == 0 && !repro.TimedOut
-}
-
 // reproJudgeID returns the derived id of judge number judge, from 0, of the reproduction of task seq's green unit under
 // the build's attempt and rerun, in scope, as StepID's scope describes. The judge number takes the finding position,
 // which the unit has no other use for, so a second judge after a first that gave no verdict has its own id under the
@@ -146,7 +140,7 @@ func (r *Runner) readRepro(ctx context.Context, epic store.EpicRow, task store.E
 func (r *Runner) reproJudgesOf(
 	ctx context.Context, epic store.EpicRow, task store.EpicTask, repro store.NodeCheck,
 ) ([]store.StepRow, error) {
-	if !passedOnBase(repro) {
+	if !store.PassedOnBase(repro) {
 		return nil, nil
 	}
 	var judges []store.StepRow

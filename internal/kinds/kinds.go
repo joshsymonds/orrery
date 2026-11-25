@@ -21,7 +21,8 @@ type Node struct {
 // Rows is what a kind reads of an epic: the epic with its turns, tasks and Requirements, its node runs, its node
 // checks, its evidence runs and its agent steps, how many of its triggers and amend_evidence actions are pending, how
 // many of the actions its planner returned are pending, its end-of-epic review, the epic-stage reviewers enabled for it
-// in merged order, its release runs, and its integrate rounds, the rounds of each conflicting task's integrator.
+// in merged order, its release runs, its integrate rounds, the rounds of each conflicting task's integrator, and its
+// rulings, the rulings of the judges of its reproductions that ran and exited 0 without timing out.
 type Rows struct {
 	Epic     store.EpicRow
 	Runs     []store.NodeRun
@@ -29,6 +30,7 @@ type Rows struct {
 	Evidence []store.EvidenceRun
 	Steps    []store.StepRow
 	Rounds   []store.IntegrateRound
+	Rulings  []store.ReproRuling
 	Pending  int
 	// AmendActions counts the epic's amend_evidence actions that are still pending, and Actions every planner action
 	// of the epic that is still pending, those among it.
@@ -69,7 +71,8 @@ type ActionKind string
 // ActAdvance moves the epic's branch to the run's candidate, and ActPark parks the run. ActHold pauses the epic once
 // for a review step its owner stopped. ActGap gives a build that waits for a lost dependency, whose Reason names it.
 // ActTaskIntegrator carries out one step of a conflicting task's integrator round of an integrate run, as the first of
-// its Items says: TaskStart, TaskRecord, TaskCompose or TaskFail.
+// its Items says: TaskStart, TaskRecord, TaskCompose or TaskFail. ActReproJudge carries out one step of the judge of an
+// integrate run's reproduction, as the first of its Items says: ReproJudgeStart or ReproJudgeRecord.
 const (
 	ActNone           ActionKind = "none"
 	ActRun            ActionKind = "run"
@@ -84,6 +87,7 @@ const (
 	ActHold           ActionKind = "hold"
 	ActGap            ActionKind = "gap"
 	ActTaskIntegrator ActionKind = "task_integrator"
+	ActReproJudge     ActionKind = "repro_judge"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,

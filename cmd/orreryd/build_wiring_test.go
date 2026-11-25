@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -209,12 +211,50 @@ func TestReadoptCheckComposesPlannerThenBuild(t *testing.T) {
 	}
 }
 
-// TestReadoptGateComposesEvidenceThenBuild checks that a re-adopted step row gets the judge gate of an evidence run when
-// it is a judge step, and the build's review gate when it is a task's review step. Any other row gets none.
-func TestReadoptGateComposesEvidenceThenBuild(t *testing.T) {
+// reproJudgeWiringEpic is the synthetic epic whose integrate run's reproduction judge the readopt gate test re-adopts.
+const reproJudgeWiringEpic = "orrery-5d6e7f8/repro-judge-wiring"
+
+// startReproJudgeWiringRun stores reproJudgeWiringEpic, whose R1 names a test item judged by the repro judge, with an
+// integrate run at plan/S1/integrate, and returns that run as the store holds it.
+func startReproJudgeWiringRun(t *testing.T, st *store.Store) store.NodeRun {
+	t.Helper()
+	ctx := t.Context()
+	created := time.Unix(plannerWiringStamp, 0)
+	if err := st.CreateEpic(ctx, store.EpicRow{
+		ID:         reproJudgeWiringEpic,
+		Repository: plannerWiringRepo,
+		Base:       "synthetic-base",
+		Title:      "Judge the reproduction",
+		Phase:      "accepted",
+		Created:    created,
+		Changed:    created,
+		Requirements: []store.EpicRequirement{{ID: "R1", Text: "the build runs", Item: evidence.Item{
+			Capture: []string{"just check"}, Limit: 60, Conclusion: "the build runs", Judge: "the repro judge",
+			Kind: evidence.KindTest, Tests: []string{"build_test.go"},
+		}}},
+	}); err != nil {
+		t.Fatalf("create epic: %v", err)
+	}
+	integrate := store.NodeRun{Path: "plan/S1/integrate", ID: "int-run", Node: "integrate", Kind: "integrate"}
+	if err := st.StartNodes(ctx, reproJudgeWiringEpic, []store.NodeRun{integrate}, nil, created); err != nil {
+		t.Fatalf("start integrate run: %v", err)
+	}
+	runs, err := st.NodeRuns(ctx, reproJudgeWiringEpic)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("NodeRuns = %+v, %v; want the integrate run", runs, err)
+	}
+	return runs[0]
+}
+
+// TestReadoptGateComposesEvidenceThenBuildThenInterpret checks that a re-adopted step row gets the judge gate of an
+// evidence run when it is a judge step, the build's review gate when it is a task's review step, and the reproduction
+// judge's gate the interpreter rebuilds when it is the judge of an integrate run's reproduction. Any other row gets
+// none.
+func TestReadoptGateComposesEvidenceThenBuildThenInterpret(t *testing.T) {
 	ctx := t.Context()
 	st := openPaneStore(t, filepath.Join(t.TempDir(), "orrery.db"))
 	createBuildWiringEpic(t, st, plannerWiringRepo, "synthetic-base")
+	integrate := startReproJudgeWiringRun(t, st)
 	if err := st.AddEvidenceRun(ctx, store.EvidenceRun{
 		ID:     "run-1",
 		Epic:   buildWiringEpic,
@@ -245,6 +285,14 @@ func TestReadoptGateComposesEvidenceThenBuild(t *testing.T) {
 				ID: "review-step", Epic: buildWiringEpic, Task: "T1", ReadOnly: true, GateName: "review",
 			},
 			agent: "reviewer",
+		},
+		{
+			name: "integrate reproduction judge",
+			row: store.StepRow{
+				ID: kinds.ReproJudgeID(integrate, "R1", 0), Epic: reproJudgeWiringEpic, Task: integrate.Path,
+				ReadOnly: true, GateName: enginehost.ReproJudgeGateName,
+			},
+			agent: "the repro judge",
 		},
 		{
 			name: "task zero review",

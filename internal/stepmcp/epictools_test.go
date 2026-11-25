@@ -364,7 +364,8 @@ func fullContract() *v1.EpicContract {
 			Owner:        "T1",
 			Contributors: []string{"T2"},
 			State:        "pending",
-			Disagreement: "Red was judged fails, but its reproduction exited 0.",
+			Disagreement: "R1: the judge ruled that its reproduction at the epic's base base-1 contradicts red: " +
+				"the round-trip test asserts nothing the base lacks",
 		}},
 		Premises: []*v1.EpicPremise{{
 			Id:      "P1",

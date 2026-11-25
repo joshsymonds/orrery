@@ -72,15 +72,16 @@ func r1Item(t *testing.T, s *store.Store) evidence.Item {
 	return epicOf(t, s).Requirements[0].Item
 }
 
-// triggerOf returns the cause of trigger id of the test epic, and whether the epic has it.
-func triggerOf(t *testing.T, s *store.Store, id string) (string, bool) {
+// amendTrigger returns the cause of the trigger amend-1 an applied amendment A1 of the test epic adds, and whether the
+// epic has it.
+func amendTrigger(t *testing.T, s *store.Store) (string, bool) {
 	t.Helper()
 	history, err := s.EpicHistory(context.Background(), runEpic)
 	if err != nil {
 		t.Fatalf("EpicHistory: %v", err)
 	}
 	for _, trigger := range history.Triggers {
-		if trigger.ID == id {
+		if trigger.ID == "amend-1" {
 			return trigger.Cause, true
 		}
 	}
@@ -150,7 +151,7 @@ func TestAmendmentAppliedOnceItsRedFailsAtTheBase(t *testing.T) {
 	if got := r1Item(t, w.s); !reflect.DeepEqual(got, item) {
 		t.Errorf("R1 item = %+v, want the new item %+v", got, item)
 	}
-	cause, ok := triggerOf(t, w.s, "amend-1")
+	cause, ok := amendTrigger(t, w.s)
 	wantCause := "evidence of R1 amended by the owner (A1): the next integrate captures the new item at its candidate"
 	if !ok || cause != wantCause {
 		t.Errorf("trigger amend-1 = %q (%v), want %q", cause, ok, wantCause)
@@ -336,7 +337,7 @@ func amendmentRecomputesGreenAtTheStoredBase(images *worldImages) func(t *testin
 		if parent := w.git("rev-parse", repro.Revision+"^"); parent != w.base {
 			t.Errorf("reproduction overlay's parent = %s, want the base %s", parent, w.base)
 		}
-		if got, ok := triggerOf(t, w.s, "amend-1"); ok {
+		if got, ok := amendTrigger(t, w.s); ok {
 			t.Errorf("trigger amend-1 = %q while green runs, want none yet", got)
 		}
 
@@ -347,7 +348,7 @@ func amendmentRecomputesGreenAtTheStoredBase(images *worldImages) func(t *testin
 		if got := firstAmendment(t, w.s).State; got != store.AmendmentApplied {
 			t.Errorf("amendment once green and its reproduction ran = %s, want applied", got)
 		}
-		cause, _ := triggerOf(t, w.s, "amend-1")
+		cause, _ := amendTrigger(t, w.s)
 		wantCause := "evidence of R1 amended by the owner (A1): the green run " + stored.GreenRun + " at the stored base " +
 			candidate + " passed; its reproduction " + stored.ReproCheck + " at the epic's base exited 1"
 		if cause != wantCause {

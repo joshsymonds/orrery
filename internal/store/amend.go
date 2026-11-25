@@ -33,12 +33,14 @@ const (
 	AmendmentRefused   = "refused"
 )
 
-// The parts of an amendment's work, which AmendmentWorkID names: the red run of the new item at the epic's base, and the
-// green run and reproduction at the stored base.
+// The parts of an amendment's work, which AmendmentWorkID names: the red run of the new item at the epic's base, the
+// green run and reproduction at the stored base, and the judges of a reproduction that ran and exited 0 without timing
+// out (AmendmentJudgeID).
 const (
-	AmendmentRed   = "red"
-	AmendmentGreen = "green"
-	AmendmentRepro = "repro"
+	AmendmentRed        = "red"
+	AmendmentGreen      = "green"
+	AmendmentRepro      = "repro"
+	AmendmentReproJudge = "repro judge"
 )
 
 // amendmentNamespace starts the parts every amendment work id hashes.
@@ -53,6 +55,12 @@ const amendmentReruns = EnvironmentReruns
 // the item does not name, so the item stays as it is until the work ends, and the amendment is settled again on a
 // later pass.
 var ErrAmendmentDeferred = errors.New("amendment waits for an evidence, integrate or sync capture under way")
+
+// ErrAmendmentJudging reports that a capturing amendment is not applied yet, because its reproduction ran and exited 0
+// without timing out and no ruling of its judges settles it (SettledRuling). Whether such a reproduction contradicts red
+// is its judge's ruling, never its exit, so nothing is written until that ruling is recorded (RecordReproRuling), and
+// the amendment is settled again then.
+var ErrAmendmentJudging = errors.New("amendment waits for the ruling of its reproduction's judge")
 
 // Amendment is what an amendment asks for: the Requirement it amends, by its id, the evidence item it asks the
 // Requirement to hold, and why.
@@ -105,6 +113,13 @@ type amendStart struct {
 // inputs give the same id, so the work started again under its id is that work.
 func AmendmentWorkID(epic string, seq int64, part string, attempt int64) string {
 	return nodeHash(amendmentNamespace, epic, strconv.FormatInt(seq, 10), part, strconv.FormatInt(attempt, 10))
+}
+
+// AmendmentJudgeID returns the step id of judge number judge, from 0, of the reproduction of amendment at its green
+// attempt: AmendmentWorkID of the part AmendmentReproJudge followed by a space and the judge's number.
+func AmendmentJudgeID(amendment EvidenceAmendment, judge int64) string {
+	part := AmendmentReproJudge + " " + strconv.FormatInt(judge, 10)
+	return AmendmentWorkID(amendment.Epic, amendment.Seq, part, amendment.GreenAttempt)
 }
 
 // AmendEvidence stores, in one write, the amendment of the evidence item of a Requirement of epic that maker makes, and
@@ -390,8 +405,10 @@ func (s *Store) OpenAmendments(ctx context.Context) ([]EvidenceAmendment, error)
 //
 // A capturing amendment is settled once its green run, and its reproduction check when it has one, have ended. A run or
 // check that a restart lost, or that exited for its environment, runs both again under the next attempt, at most
-// amendmentReruns times. Otherwise the amendment is applied, with the outcome of its green run and reproduction as the
-// cause of its trigger (see finishAmendment).
+// amendmentReruns times. A reproduction that ran and exited 0 without timing out waits for the ruling of its judges:
+// until one settles it, nothing is written and the error matches ErrAmendmentJudging. Otherwise the amendment is
+// applied, with the outcome of its green run and reproduction, and that ruling, as the cause of its trigger (see
+// finishAmendment).
 func (s *Store) SettleAmendment(ctx context.Context, epic string, seq int64, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		amendment, err := readAmendment(ctx, queries, epic, seq)
@@ -711,7 +728,32 @@ func settleGreen(ctx context.Context, queries *sqlcgen.Queries, amendment Eviden
 		}
 		return nil
 	}
-	return applyCaptured(ctx, queries, amendment, greenOutcome(amendment, green, repro), at)
+	ruling, err := reproRuling(ctx, queries, amendment, repro)
+	if err != nil {
+		return err
+	}
+	return applyCaptured(ctx, queries, amendment, greenOutcome(amendment, green, repro, ruling), at)
+}
+
+// reproRuling returns what the ruling that settles repro, the ended reproduction of a capturing amendment, says of it
+// (RulingOutcome), read in the caller's write. It returns "" when the amendment has no reproduction, or when its
+// reproduction did not exit 0 without timing out, since only such a reproduction is judged. A judged reproduction that
+// no ruling settles yet returns an error matching ErrAmendmentJudging.
+func reproRuling(
+	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, repro NodeCheck,
+) (string, error) {
+	if amendment.ReproCheck == "" || !PassedOnBase(repro) {
+		return "", nil
+	}
+	rulings, err := readReproRulings(ctx, queries, amendment.Epic)
+	if err != nil {
+		return "", err
+	}
+	ruling, settled := SettledRuling(CheckRulings(rulings, repro.ID))
+	if !settled {
+		return "", ErrAmendmentJudging
+	}
+	return RulingOutcome(ruling), nil
 }
 
 // applyCaptured applies a capturing amendment, whose item is applied already, with outcome as the outcome of its green,
@@ -728,8 +770,9 @@ func applyCaptured(
 }
 
 // greenOutcome returns the outcome of the green run and reproduction of a capturing amendment, as its trigger's cause
-// carries it: whether green passed at the stored base, and for a test item how its reproduction at the epic's base ended.
-func greenOutcome(amendment EvidenceAmendment, green EvidenceRun, repro NodeCheck) string {
+// carries it: whether green passed at the stored base, and for a test item how its reproduction at the epic's base ended,
+// then ruling, what its judges' ruling says of it (reproRuling), after "; " when there is one.
+func greenOutcome(amendment EvidenceAmendment, green EvidenceRun, repro NodeCheck, ruling string) string {
 	outcome := fmt.Sprintf("the green run %s at the stored base %s ", green.ID, amendment.StoredBase)
 	switch {
 	case green.NotCaptured != "":
@@ -751,7 +794,11 @@ func greenOutcome(amendment EvidenceAmendment, green EvidenceRun, repro NodeChec
 	case repro.TimedOut:
 		return outcome + "timed out"
 	}
-	return outcome + fmt.Sprintf("exited %d", repro.Exit)
+	outcome += fmt.Sprintf("exited %d", repro.Exit)
+	if ruling == "" {
+		return outcome
+	}
+	return outcome + "; " + ruling
 }
 
 // finishAmendment ends an amendment that is now applied, in the caller's write. It adds a pending trigger with the id

@@ -5544,6 +5544,35 @@ func (q *Queries) InsertPromptState(ctx context.Context, arg InsertPromptStatePa
 	return result.RowsAffected()
 }
 
+const insertReproRuling = `-- name: InsertReproRuling :exec
+INSERT INTO repro_rulings (epic, repro_check, judge, step, verdict, reason, created)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, repro_check, judge) DO NOTHING
+`
+
+type InsertReproRulingParams struct {
+	Epic       string
+	ReproCheck string
+	Judge      int64
+	Step       string
+	Verdict    string
+	Reason     string
+	Created    int64
+}
+
+func (q *Queries) InsertReproRuling(ctx context.Context, arg InsertReproRulingParams) error {
+	_, err := q.db.ExecContext(ctx, insertReproRuling,
+		arg.Epic,
+		arg.ReproCheck,
+		arg.Judge,
+		arg.Step,
+		arg.Verdict,
+		arg.Reason,
+		arg.Created,
+	)
+	return err
+}
+
 const insertRouteBinding = `-- name: InsertRouteBinding :exec
 INSERT INTO route_bindings (context, scope, selector, seat) VALUES (?, ?, ?, ?)
 `
@@ -8337,6 +8366,41 @@ func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]Epic
 			&i.Undo,
 			&i.Kind,
 			&i.Params,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReproRulings = `-- name: ListEpicReproRulings :many
+SELECT epic, repro_check, judge, step, verdict, reason, created FROM repro_rulings WHERE epic = ? ORDER BY repro_check, judge
+`
+
+func (q *Queries) ListEpicReproRulings(ctx context.Context, epic string) ([]ReproRuling, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReproRulings, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReproRuling
+	for rows.Next() {
+		var i ReproRuling
+		if err := rows.Scan(
+			&i.Epic,
+			&i.ReproCheck,
+			&i.Judge,
+			&i.Step,
+			&i.Verdict,
+			&i.Reason,
+			&i.Created,
 		); err != nil {
 			return nil, err
 		}

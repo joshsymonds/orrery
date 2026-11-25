@@ -45,8 +45,9 @@ const (
 
 // Integrate is the integrate kind. Its run composes a batch of accepted tasks on the stored base into a candidate, runs
 // the epic's Done gates, captures at the candidate each Requirement a task of the batch claims or contributes to
-// (batchRequirements) and reproduces each test item's red at the epic's base, and then ends red or advances the epic to
-// the candidate. A Requirement the batch did not touch keeps the green it had at the stored base (GreenAt).
+// (batchRequirements), reproduces each test item's red at the epic's base and has the item's judge rule on each
+// reproduction that passed there (reproJudges), and then ends red or advances the epic to the candidate. A Requirement
+// the batch did not touch keeps the green it had at the stored base (GreenAt).
 type Integrate struct{}
 
 // integrateResult is the Result an integrate run records when it claims its batch: the tasks compose made into commits
@@ -63,8 +64,9 @@ type integrateResult struct {
 // Decide decides an integrate run. Without a revision it prepares the batch, or ends passed when the batch is empty.
 // With one it first runs the task integrator rounds of the tasks the batch left out for a merge conflict (conflictRounds),
 // then reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it walks the Done
-// gates, then the captures of the Requirements the batch touched and then the reproductions of the test items, and settles
-// the run on what they found.
+// gates, then the captures of the Requirements the batch touched, then the reproductions of the test items and then the
+// judges of the reproductions that exited 0 without timing out, and settles the run on what the gates and captures
+// found.
 func (Integrate) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Revision == "" {
@@ -99,6 +101,9 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 		return act
 	}
 	if act, settled = reproductions(run, rows); !settled {
+		return act
+	}
+	if act, settled = reproJudges(run, rows); !settled {
 		return act
 	}
 	return settle(run, captureCauses(rows, captured), requirementLines(rows, captured), leftOut)
@@ -726,10 +731,10 @@ func amendedGreen(rows Rows, id, revision string) bool {
 // Unbuilt returns, for each Requirement in contract order, why it lacks the proof that the epic is built: it names no
 // evidence item, or it is not green at the stored base, with what the judge found of the capture that decided so when
 // there is one (see failedAt and judged). Only a Requirement not green at the stored base holds the plan. A missing red
-// at the epic's base, and a reproduction that is missing or that disagrees with its red, hold nothing, so neither is
-// named. A Requirement that a task whose status is taskGap claims is not named at all: that task ended its ladder as a
-// gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored base or is held by a
-// gap.
+// at the epic's base, and a reproduction that is missing or that its judge ruled contradicts red (Disagreement), hold
+// nothing, so neither is named. A Requirement that a task whose status is taskGap claims is not named at all: that task
+// ended its ladder as a gap, and TaskGaps names it instead. It returns nil when every Requirement is green at the stored
+// base or is held by a gap.
 func Unbuilt(rows Rows) []string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
@@ -772,37 +777,6 @@ func failedAt(rows Rows, id, revision string) store.EvidenceRun {
 		}
 	}
 	return last
-}
-
-// Disagreement returns the line that names test-item Requirement id when its judged red disagrees with its reproduction
-// at the epic's base: the judge found red fails, yet the reproduction with the candidate's tests exited 0 and did not
-// time out. It reads the reproductions of the integrate and legacy sync runs that ended passed at the stored base. It
-// returns "" for any other Requirement, and when one of those reproductions shows red's exit holds: timed out or exited
-// non-zero.
-func Disagreement(rows Rows, id string) string {
-	if !slices.ContainsFunc(rows.Epic.Requirements, func(requirement store.EpicRequirement) bool {
-		return requirement.ID == id && isTestItem(requirement)
-	}) {
-		return ""
-	}
-	disagreed := false
-	for _, check := range baseReproductions(rows, id) {
-		if check.NotRun != "" {
-			continue
-		}
-		if check.TimedOut || check.Exit != 0 {
-			return ""
-		}
-		disagreed = true
-	}
-	if !disagreed {
-		return ""
-	}
-	return fmt.Sprintf(
-		"%s judge and exit disagree at the epic's base %s: red was judged fails, but its reproduction with the candidate's tests exited 0",
-		id,
-		rows.Epic.Base,
-	)
 }
 
 // baseReproductions returns, in run order, the reproduction of Requirement id that each integrate or legacy sync run

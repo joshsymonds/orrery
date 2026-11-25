@@ -1416,16 +1416,23 @@ func readoptCheck(
 
 // readoptGate is the ReadoptGate of the steps. A re-adopted row gets the judge gate of an evidence run when it is a judge
 // step, and when that gate is nil, the gate build.ReadoptGate rebuilds for a task's step: the review gate of a review
-// step, or the reproduction judge's gate of a reproduction judge step. An error from either is returned.
+// step, or the reproduction judge's gate of a task's reproduction judge step. When that is nil too, it gets the gate
+// interpret.ReadoptGate rebuilds for the judge of an integrate run's or an amendment's reproduction. An error from any
+// of them is returned.
 func readoptGate(st *store.Store) func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 	judge := enginehost.EvidenceReadoptGate(st)
 	review := build.ReadoptGate(st)
+	reproduction := interpret.ReadoptGate(st)
 	return func(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
 		gate, err := judge(ctx, row)
 		if err != nil || gate != nil {
 			return gate, err
 		}
-		return review(ctx, row)
+		gate, err = review(ctx, row)
+		if err != nil || gate != nil {
+			return gate, err
+		}
+		return reproduction(ctx, row)
 	}
 }
 

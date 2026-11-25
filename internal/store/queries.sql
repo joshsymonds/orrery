@@ -2309,6 +2309,14 @@ WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(att
 -- name: ListEpicIntegrateRounds :many
 SELECT * FROM integrate_rounds WHERE epic = ? ORDER BY path, attempt, task, round;
 
+-- name: InsertReproRuling :exec
+INSERT INTO repro_rulings (epic, repro_check, judge, step, verdict, reason, created)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, repro_check, judge) DO NOTHING;
+
+-- name: ListEpicReproRulings :many
+SELECT * FROM repro_rulings WHERE epic = ? ORDER BY repro_check, judge;
+
 -- name: InsertLLMAccount :exec
 INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
 

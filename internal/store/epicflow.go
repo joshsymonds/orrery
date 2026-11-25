@@ -33,7 +33,8 @@ const (
 // their Item, its steps, its release runs as ReleaseRuns returns them, how many of its triggers and of its
 // amend_evidence actions are pending, and how many of its planner actions are pending.
 // GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
-// UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them.
+// UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them,
+// and Rulings the rulings on its reproductions as ReproRulings returns them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs. Underway holds its work that has not ended, as Underway gives it.
@@ -54,6 +55,7 @@ type EpicFlow struct {
 	Unresolvable []GapDeclaration
 	Reruns       []ReviewRerun
 	Rounds       []IntegrateRound
+	Rulings      []ReproRuling
 	Underway     Underway
 }
 
@@ -138,7 +140,7 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
-	rounds, err := readIntegrateRounds(ctx, queries, id)
+	rounds, rulings, err := readIntegrateRecords(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
 	}
@@ -149,8 +151,26 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	return EpicFlow{
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
-		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds, Underway: underway,
+		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds, Rulings: rulings,
+		Underway: underway,
 	}, nil
+}
+
+// readIntegrateRecords returns the integrate rounds of epic and the rulings on its reproductions as queries read them,
+// in one read: the two records its integrate runs decide on beside their checks, as readIntegrateRounds and
+// readReproRulings read them.
+func readIntegrateRecords(
+	ctx context.Context, queries *sqlcgen.Queries, id string,
+) ([]IntegrateRound, []ReproRuling, error) {
+	rounds, err := readIntegrateRounds(ctx, queries, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	rulings, err := readReproRulings(ctx, queries, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rounds, rulings, nil
 }
 
 // readUnderway returns the work of epic that has not ended (Underway): its steps whose end is not stored, read by their

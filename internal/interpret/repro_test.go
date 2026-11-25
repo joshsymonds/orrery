@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -103,13 +104,13 @@ func toBuiltReproduction(t *testing.T) *integrateWorld {
 	return w
 }
 
-// reproCheckOf returns the id of the reproduction check of R1 that the batch at path runs, and fails the test when the
-// check is not stored.
-func reproCheckOf(t *testing.T, w *integrateWorld, path string) string {
+// reproCheckOf returns the id of the reproduction check of R1 that the built-in world's batch at reproBuiltBatch runs,
+// and fails the test when the check is not stored.
+func reproCheckOf(t *testing.T, w *integrateWorld) string {
 	t.Helper()
-	id := workID(t, w.s, path, "repro R1")
+	id := workID(t, w.s, reproBuiltBatch, "repro R1")
 	if _, err := w.s.NodeCheck(context.Background(), id); err != nil {
-		t.Fatalf("reproduction check %s of %s: %v", id, path, err)
+		t.Fatalf("reproduction check %s of %s: %v", id, reproBuiltBatch, err)
 	}
 	return id
 }
@@ -156,17 +157,23 @@ func TestReproductionChecksCaptureAtOverlayOfBase(t *testing.T) {
 	}
 }
 
-// TestBuiltInReproductionDecidesBuilt: on the built-in epic whose red is judged fails, a reproduction whatever it exits
-// holds nothing against the plan's completion. Each lets the plan end built with the epic not parked: a reproduction
-// that exits 0 disagrees with red, which the owner is not asked about, and one that exits 1 agrees with it.
+// TestBuiltInReproductionDecidesBuilt: on the built-in epic whose red is judged fails, a reproduction whatever it exits,
+// and whatever its judge rules, holds nothing against the plan's completion. Each lets the plan end built with the epic
+// not parked: a reproduction that exits 0 goes to its judge, whose ruling that it contradicts red the owner is not
+// asked about, and one that exits 1 agrees with red and needs no judge.
 func TestBuiltInReproductionDecidesBuilt(t *testing.T) {
 	t.Parallel()
 	for _, exit := range []int{0, 1} {
 		t.Run(fmt.Sprintf("exit %d lets the plan end built", exit), func(t *testing.T) {
 			t.Parallel()
 			w := toBuiltReproduction(t)
-			nodeEndCheck(t, w.s, reproCheckOf(t, w, reproBuiltBatch), exit, "")
+			nodeEndCheck(t, w.s, reproCheckOf(t, w), exit, "")
 			w.pass()
+			if exit == 0 {
+				judge := kinds.ReproJudgeID(runAt(t, w.s, reproBuiltBatch), "R1", 0)
+				endTaskStep(t, w.s, judge, judgeGateFailed, "failed", judgeFails("it asserts nothing the base lacks"))
+				w.pass()
+			}
 			completeTurn(
 				t,
 				w.s,

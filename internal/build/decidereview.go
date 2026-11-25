@@ -162,7 +162,7 @@ func decideRepro(view View) (Action, bool) {
 	if store.EnvironmentExited(repro.Exit, repro.TimedOut) {
 		return environmentRerun(view, "reproduction"), true
 	}
-	if passedOnBase(*repro) {
+	if store.PassedOnBase(*repro) {
 		return decideReproJudge(view)
 	}
 	return Action{}, false

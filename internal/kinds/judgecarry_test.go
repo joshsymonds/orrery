@@ -137,7 +137,9 @@ func TestLegacySyncRunStaysGreen(t *testing.T) {
 	}
 	exitedZero := rows
 	exitedZero.Checks = []store.NodeCheck{{ID: workID("repro R1"), State: store.NodeEnded, Exit: 0}}
+	exitedZero.Rulings = []store.ReproRuling{ruled("repro R1", evidence.VerdictFails)}
 	if got := Disagreement(exitedZero, "R1"); got == "" {
-		t.Error("Disagreement(R1) = none, want the disagreement a legacy sync's exit-0 reproduction shows")
+		t.Error("Disagreement(R1) = none, want the disagreement a judge's ruling on a legacy sync's exit-0 " +
+			"reproduction shows")
 	}
 }

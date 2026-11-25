@@ -60,6 +60,8 @@ type Store interface {
 	FailIntegrateRound(
 		ctx context.Context, epic, path string, attempt, task, round int64, failure string, at time.Time,
 	) error
+	RecordReproRuling(ctx context.Context, epic string, ruling store.ReproRuling, at time.Time) error
+	ReproRulings(ctx context.Context, epic string) ([]store.ReproRuling, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
@@ -545,6 +547,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 		Epic: read.Epic, Runs: read.Runs, Checks: read.Checks, Evidence: read.Evidence, Steps: read.Steps,
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
+		Rulings: read.Rulings,
 	}
 }
 

@@ -560,8 +560,9 @@ type EpicRequirement struct {
 	Contributors []string `protobuf:"bytes,7,rep,name=contributors,proto3" json:"contributors,omitempty"`
 	// How far the requirement is shown: pending, red or green, from the runs of its current item.
 	State string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
-	// The judge and exit disagreement at built: red was judged fails at the epic's base, but its reproduction with the
-	// candidate's tests exited 0; empty when they agree.
+	// The judge's ruling that a reproduction of the requirement's test item at the epic's base contradicts red: the
+	// reproduction ran and exited 0 without timing out, and its judge ruled that its tests fail to prove the change the
+	// tasks claim. It names the requirement, the epic's base and the judge's reason; empty when no judge so ruled.
 	Disagreement  string `protobuf:"bytes,9,opt,name=disagreement,proto3" json:"disagreement,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
