@@ -103,9 +103,10 @@ function cssText(head) {
 
   group('motion');
   for (const [name, m] of Object.entries(tokens.motion.move)) put(`move-${name}`, `${m.ms}ms ${bezier(m.ease)}`);
+  for (const [name, ms] of Object.entries(tokens.motion.delay)) put(`delay-${name}`, `${ms}ms`);
   for (const [name, l] of Object.entries(tokens.motion.loop)) put(`loop-${name}`, `${l.ms}ms`);
   put('pulse-low', tokens.motion.loop.pulse.to);
-  put('distance-drill', `${tokens.motion.distance.drill}px`);
+  for (const [name, px] of Object.entries(tokens.motion.distance)) put(`distance-${name}`, `${px}px`);
 
   const reduced = tokens.motion.reduced.ms;
   return [
@@ -117,6 +118,7 @@ function cssText(head) {
     '@media (prefers-reduced-motion: reduce) {',
     '  :root {',
     ...Object.keys(tokens.motion.move).map((name) => `    --o-move-${name}: ${reduced}ms linear;`),
+    ...Object.keys(tokens.motion.delay).map((name) => `    --o-delay-${name}: 0ms;`),
     '  }',
     '}',
     '',
@@ -194,6 +196,7 @@ function kotlinText() {
   ]);
   const ease = Object.entries(m.ease).map(([k, pts]) => `val ${name(k)}: Easing = CubicBezierEasing(${pts.map(float).join(', ')})`);
   const move = Object.entries(m.move).map(([k, mv]) => `val ${name(k)}: Timing = Timing(${mv.ms}, ${easeRef(mv.ease)})`);
+  const delay = Object.entries(m.delay).map(([k, ms]) => `val ${name(k)}: Int = ${ms}`);
   const loop = Object.entries(m.loop).flatMap(([k, l]) => [
     `val ${name(k)}: Int = ${l.ms}`,
     ...Object.entries(l).filter(([f]) => f !== 'ms').map(([f, v]) => `val ${name(k)}${cap(f)}: Float = ${float(v)}`),
@@ -238,6 +241,7 @@ function kotlinText() {
       ['class Timing(val millis: Int, val easing: Easing)'],
       block('object Ease', ease),
       block('object Move', move),
+      block('object Delay', delay),
       block('object Loop', loop),
       block('object Reduced', [note(`motion.reduced: ${m.reduced.note}`), `val millis: Int = ${m.reduced.ms}`]),
       block('object Distance', lengths(m.distance)),
