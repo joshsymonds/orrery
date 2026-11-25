@@ -249,8 +249,8 @@ func (r *Runner) view(ctx context.Context, epic store.EpicRow, task store.EpicTa
 }
 
 // readUnit sets the parts of view that describe task's current unit: its evidence run or step by the derived id of the
-// unit, the reproduction check of a test item's green unit, the step of the test run a verify unit waits on, and how
-// many environment reruns ran just before it.
+// unit, the reproduction check of a test item's green unit with the judge steps of a reproduction that exited 0 without
+// timing out, the step of the test run a verify unit waits on, and how many environment reruns ran just before it.
 func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.EpicTask, view *View) error {
 	runID, stepID := unitIDs(unitScope(epic.ID, task), task.Seq, task.Build)
 	if runID != "" {
@@ -271,12 +271,9 @@ func (r *Runner) readUnit(ctx context.Context, epic store.EpicRow, task store.Ep
 			view.Step = &row
 		}
 	}
-	repro, found, err := r.reproOf(ctx, epic, task)
+	err := r.readRepro(ctx, epic, task, view)
 	if err != nil {
 		return err
-	}
-	if found {
-		view.Repro = &repro
 	}
 	if run, pending := pendingTestRun(task); pending && task.Build.Stage == StageVerify {
 		id := testRunID(unitScope(epic.ID, task), task.Seq, task.Build, run.Position)

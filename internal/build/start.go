@@ -38,7 +38,8 @@ func (e RoleError) Unwrap() error { return e.Err }
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
 // task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
-// finding; a test run step runs its command read-only in a scratch worktree at its revision (testRunStart); a design
+// finding; a test run step runs its command read-only in a scratch worktree at its revision (testRunStart); a
+// reproduction judge step runs the evidence item's judge read-only at the task's revision (reproJudgeStart); a design
 // step runs the design judge read-only at the task's revision; an orchestrate step runs the orchestrator's agent
 // read-only on the implementer's request. An error the engine returns on start is wrapped, so errors.Is still matches
 // it.
@@ -56,6 +57,8 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 		start, err = r.verifierStart(epic, view, action.ID)
 	case unitTestRun:
 		start, err = r.testRunStart(epic, view.Task, action.TestRun, action.ID)
+	case unitReproJudge:
+		start, err = r.reproJudgeStart(ctx, epic, view, action.ID)
 	case StageDesign:
 		start, err = r.designJudgeStart(epic, view, action.ID)
 	case StageOrchestrate:

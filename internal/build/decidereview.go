@@ -79,10 +79,7 @@ func decideGreen(view View) Action {
 				return action
 			}
 		}
-		return Action{
-			Kind: ActStartRun, Phase: StageGreen, Revision: build.Revision,
-			ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, StageGreen, build.Attempt, build.Rerun),
-		}
+		return greenStart(view)
 	}
 	if run.Ended.IsZero() {
 		return Action{Kind: ActNone}
@@ -128,11 +125,22 @@ func greenToReview(build store.TaskBuild, run *store.EvidenceRun) store.TaskBuil
 	return build
 }
 
+// greenStart returns the action that starts the green run of view's task at its commit, under the derived id of the
+// unit's attempt and rerun.
+func greenStart(view View) Action {
+	build := view.Task.Build
+	return Action{
+		Kind: ActStartRun, Phase: StageGreen, Revision: build.Revision,
+		ID: RunID(unitScope(view.Epic, view.Task), view.Task.Seq, StageGreen, build.Attempt, build.Rerun),
+	}
+}
+
 // decideRepro returns the action for the reproduction of a test item's green unit, once the unit has no run. A
 // reproduction not yet started is started at the commit, and one that has not ended waits. One lost at a restart
-// reruns the unit. One that did not run, or that exited 0 without timing out, is a note on the build (reproNoted): the
-// reproduction is not a gate, so the green run starts once its note is kept. One that exited store.EnvironmentExit
-// without timing out reruns or parks the unit as environmentRerun decides. It reports false when the green run starts.
+// reruns the unit. One that did not run is a note on the build (reproNoted): the reproduction is not a gate, so the
+// green run starts once its note is kept. One that exited store.EnvironmentExit without timing out reruns or parks the
+// unit as environmentRerun decides. One that exited 0 without timing out goes to its judge (decideReproJudge), whose
+// ruling is the note. It reports false when the green run starts.
 func decideRepro(view View) (Action, bool) {
 	build := view.Task.Build
 	repro := view.Repro
@@ -154,16 +162,15 @@ func decideRepro(view View) (Action, bool) {
 	if store.EnvironmentExited(repro.Exit, repro.TimedOut) {
 		return environmentRerun(view, "reproduction"), true
 	}
-	if repro.Exit == 0 && !repro.TimedOut {
-		return reproNoted(view, "exited 0 on the base with the commit's test files, so they pass without the rest of "+
-			"the commit")
+	if passedOnBase(*repro) {
+		return decideReproJudge(view)
 	}
 	return Action{}, false
 }
 
 // reproNoted returns the action that records outcome, a reproduction's outcome, as a note on the task's build, and
 // reports true; the note goes first, on a move that keeps the build at green. Once the note is kept, it reports false,
-// so the green run starts. A reproduction is noted once per attempt.
+// so the green run starts. A note already kept is not written again, so an outcome is noted once per attempt.
 func reproNoted(view View, outcome string) (Action, bool) {
 	note := fmt.Sprintf("%s attempt %d reproduction: %s", taskLabel(view.Task.Seq), view.Task.Build.Attempt, outcome)
 	if slices.Contains(view.Task.Notes, note) {

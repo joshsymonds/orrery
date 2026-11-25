@@ -242,7 +242,8 @@ func ReviewPrompt(
 // The headings of the floor reviewer's prompt's notes and guard facts.
 const (
 	floorNotesHeading = "Notes the task's build recorded. Each is an outcome that did not gate the build, such as a red " +
-		"run whose conclusion held at the base or a reproduction that passed; weigh it as evidence about the tests:"
+		"run whose conclusion held at the base or a judge's ruling on whether a reproduction that passed on the base " +
+		"contradicts red; weigh it as evidence about the tests:"
 	floorFactsHeading = "Guard facts of the commit. Each is a change to a guarded test file that the guard does not " +
 		"refuse; judge each as the mechanical floor asks:"
 )

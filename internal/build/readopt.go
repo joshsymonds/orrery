@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -76,9 +77,11 @@ func readoptOrchestratorCheck(
 	return OrchestratorCheck(epic.Tasks[i], peers), nil
 }
 
-// ReadoptGate returns the agent gate a re-adopted read-only task step row runs. A row of a task's review step names a
-// reviewer of its epic at the task stage, and the gate is that reviewer's gate. Any other row gets a nil gate. An epic
-// that does not read, and a row naming no enabled task-stage reviewer of its epic, are errors.
+// ReadoptGate returns the agent gate a re-adopted read-only task step row runs. A row of a task's reproduction judge
+// step gets the reproduction judge's gate for the judge its task's evidence item names (enginehost.ReproJudgeGate). A
+// row of a task's review step names a reviewer of its epic at the task stage, and the gate is that reviewer's gate. Any
+// other row gets a nil gate. An epic that does not read, a reproduction judge row naming no task of its epic, and a
+// review row naming no enabled task-stage reviewer of its epic, are errors.
 func ReadoptGate(
 	epics interface {
 		Epic(ctx context.Context, id string) (store.EpicRow, error)
@@ -91,6 +94,14 @@ func ReadoptGate(
 		epic, err := epics.Epic(ctx, row.Epic)
 		if err != nil {
 			return nil, fmt.Errorf("read epic %s: %w", row.Epic, err)
+		}
+		if row.GateName == enginehost.ReproJudgeGateName {
+			i := slices.IndexFunc(epic.Tasks, func(task store.EpicTask) bool { return taskLabel(task.Seq) == row.Task })
+			if i < 0 {
+				return nil, fmt.Errorf("epic %s has no task %s", row.Epic, row.Task)
+			}
+			gate := enginehost.ReproJudgeGate(epic.Tasks[i].Evidence.Judge)
+			return &gate, nil
 		}
 		for _, rev := range reviewers.ForStage(epic.Reviewers, reviewers.StageTask) {
 			if rev.Name == row.GateName {

@@ -2,11 +2,14 @@ package build
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -189,32 +192,164 @@ func TestGreenReproductionStartsCheckAtOverlayOfBase(t *testing.T) {
 	}
 }
 
-// TestGreenReproductionExitZeroIsANoteAndTheGreenRunStarts: a reproduction that exits 0 is a note on the task's build,
-// not a spent attempt. The note is kept once, and the green run starts once: a later pass records no second note and
-// starts no second run.
-func TestGreenReproductionExitZeroIsANoteAndTheGreenRunStarts(t *testing.T) {
+// reproJudgeStdout is the go test -v output a reproduction that exited 0 printed: its one test passed.
+const reproJudgeStdout = "=== RUN   TestName\n--- PASS: TestName (0.00s)\nPASS\nok  \tthing\t0.01s\n"
+
+// endReproPassing ends the reproduction the runner started with exit 0 and reproJudgeStdout, as the engine does when the
+// capture's tests pass on the base. It fails the test when the runner started no reproduction.
+func endReproPassing(t *testing.T, f *passFixture, checks *reproChecks) {
+	t.Helper()
+	if len(checks.runs) != 1 {
+		t.Fatalf("reproduction checks started = %d, want the one reproduction to end", len(checks.runs))
+	}
+	end := store.NodeCheckEnd{Exit: 0, Stdout: reproJudgeStdout}
+	if err := f.store.EndNodeCheck(f.ctx, checks.runs[0].ID, end, passClock()); err != nil {
+		t.Fatalf("EndNodeCheck: %v", err)
+	}
+}
+
+// TestGreenReproductionExitZeroStartsItsJudge covers the judge of a reproduction that exits 0: the pass starts one
+// read-only step under the judge's derived id, at the commit, under the reproduction judge's gate for the item's judge,
+// and writes no note and starts no green run while it runs. Its prompt carries the task, the conclusion, red's verdict,
+// the reproduction's command and logs, the test facts read from them, and the diff stat from the base to the commit.
+func TestGreenReproductionExitZeroStartsItsJudge(t *testing.T) {
+	t.Parallel()
+	f, checks := newReproFixture(t)
+	commit := toReproGreen(f)
+	endReproPassing(t, f, checks)
+	f.pass()
+	build := f.task().Build
+	id := reproJudgeID(passEpic, 1, build, 0)
+	start := f.steps.starts[len(f.steps.starts)-1]
+	gate := enginehost.ReproJudgeGate("the judge")
+	if start.ID != id || !start.ReadOnly || start.Workspace != f.repo || start.Revision != commit ||
+		start.Task != "T1" || start.Epic != passEpic || !reflect.DeepEqual(start.AgentGate, &gate) {
+		t.Errorf("judge start = %+v, want read-only %s at %s in %s under gate %+v", start, id, commit, f.repo, gate)
+	}
+	for _, want := range []string{
+		"Task T1: Build the thing\nDeliverable: The thing holds\n",
+		"\nConclusion: the thing holds\n",
+		"\nRed at the base " + f.base + ": judged fails against the conclusion",
+		"\nReproduction command: [\"scripts/check\"]\n",
+		"\n    --- PASS: TestName (0.00s)\n",
+		"\n- Passed (1): TestName\n",
+		"Diff stat (git diff --stat " + f.base + " " + commit + "):\n",
+		reproThing + " ",
+		reproTestFile + " ",
+	} {
+		if !strings.Contains(start.Prompt, want) {
+			t.Errorf("judge prompt lacks %q:\n%s", want, start.Prompt)
+		}
+	}
+	if task := f.task(); len(task.Notes) != 0 || task.Build.Stage != StageGreen {
+		t.Errorf("build stage %q notes %q while the judge runs, want green with no note", task.Build.Stage, task.Notes)
+	}
+	if got := guardGreenRuns(f); got != 0 {
+		t.Errorf("green runs started while the judge runs = %d, want none", got)
+	}
+}
+
+// TestGreenReproductionJudgeRulingIsANoteAndTheGreenRunStarts: the judge's ruling on a reproduction that exits 0 is a
+// note on the task's build, whichever way it rules, not a spent attempt. The note is kept once, and the green run
+// starts once: a later pass records no second note and starts no second run.
+func TestGreenReproductionJudgeRulingIsANoteAndTheGreenRunStarts(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		end    string
+		result string
+		ruling string
+	}{
+		{
+			name: "contradicts red", end: endGateFailed,
+			result: reproJudgeReturn(verdictFails, "it asserts nothing the base lacks", "TestName passes on the base"),
+			ruling: "the judge ruled that it contradicts red: TestName passes on the base: it asserts nothing the " +
+				"base lacks",
+		},
+		{
+			name: "does not contradict red", end: endDone,
+			result: reproJudgeReturn(verdictHolds, "the task only renames", ""),
+			ruling: "the judge ruled that it does not contradict red: the task only renames",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f, checks := newReproFixture(t)
+			toReproGreen(f)
+			endReproPassing(t, f, checks)
+			f.pass()
+			f.setStep(reproJudgeID(passEpic, 1, f.task().Build, 0), tc.end, tc.result)
+			f.pass()
+			task := f.task()
+			note := "T1 attempt 1 reproduction: exited 0 on the base with the commit's test files; " + tc.ruling
+			if task.Build.Stage != StageGreen || task.Build.Attempt != 1 ||
+				!reflect.DeepEqual(task.Notes, []string{note}) {
+				t.Fatalf("build stage %q attempt %d notes %q, want green on attempt 1 with the note %q",
+					task.Build.Stage, task.Build.Attempt, task.Notes, note)
+			}
+			if got := guardGreenRuns(f); got != 1 {
+				t.Fatalf("green runs started = %d, want 1 once the note is kept", got)
+			}
+			f.pass()
+			if got := f.task().Notes; !reflect.DeepEqual(got, []string{note}) {
+				t.Errorf("notes after a second pass = %q, want the one note", got)
+			}
+			if got := guardGreenRuns(f); got != 1 {
+				t.Errorf("green runs started after a second pass = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// TestGreenReproductionJudgeThatDoesNotStartIsANote: a judge whose start is refused is a note with the refusal, and the
+// green run starts once the note is kept, so a judge that cannot start holds the build up for no pass.
+func TestGreenReproductionJudgeThatDoesNotStartIsANote(t *testing.T) {
 	t.Parallel()
 	f, checks := newReproFixture(t)
 	toReproGreen(f)
-	endRepro(t, f, checks, 0)
+	endReproPassing(t, f, checks)
+	f.steps.err = errors.New("agent the judge is not defined")
 	f.pass()
-	task := f.task()
-	label := taskLabel(task.Seq)
-	note := label + " attempt 1 reproduction: exited 0 on the base with the commit's test files, so they " +
-		"pass without the rest of the commit"
-	if task.Build.Stage != StageGreen || task.Build.Attempt != 1 || !reflect.DeepEqual(task.Notes, []string{note}) {
-		t.Fatalf("build stage %q attempt %d notes %q, want green on attempt 1 with the note %q",
-			task.Build.Stage, task.Build.Attempt, task.Notes, note)
-	}
-	if got := guardGreenRuns(f); got != 1 {
-		t.Fatalf("green runs started = %d, want 1 once the note is kept", got)
-	}
-	f.pass()
+	id := reproJudgeID(passEpic, 1, f.task().Build, 0)
+	note := "T1 attempt 1 reproduction: exited 0 on the base with the commit's test files; the judge did not start: " +
+		"start step " + id + ": agent the judge is not defined"
 	if got := f.task().Notes; !reflect.DeepEqual(got, []string{note}) {
-		t.Errorf("notes after a second pass = %q, want the one note", got)
+		t.Fatalf("notes = %q, want the one note %q", got, note)
 	}
 	if got := guardGreenRuns(f); got != 1 {
-		t.Errorf("green runs started after a second pass = %d, want 1", got)
+		t.Errorf("green runs started = %d, want 1 once the note is kept", got)
+	}
+}
+
+// TestGreenReproductionJudgeGivesNoVerdictTwice: a first judge with no verdict starts a second under its own id, and
+// the reproduction does not run again. A second with no verdict is a note with its reason, and the green run starts.
+func TestGreenReproductionJudgeGivesNoVerdictTwice(t *testing.T) {
+	t.Parallel()
+	f, checks := newReproFixture(t)
+	toReproGreen(f)
+	endReproPassing(t, f, checks)
+	f.pass()
+	build := f.task().Build
+	f.setStep(reproJudgeID(passEpic, 1, build, 0), "overtime", "")
+	f.pass()
+	second := reproJudgeID(passEpic, 1, build, 1)
+	if got := f.steps.starts[len(f.steps.starts)-1].ID; got != second {
+		t.Fatalf("last step started = %s, want the second judge %s", got, second)
+	}
+	if len(checks.runs) != 1 || len(f.task().Notes) != 0 || guardGreenRuns(f) != 0 {
+		t.Fatalf("reproductions %d, notes %q, green runs %d after the first silent judge; want 1, none, none",
+			len(checks.runs), f.task().Notes, guardGreenRuns(f))
+	}
+	f.setStep(second, "overtime", "")
+	f.pass()
+	note := "T1 attempt 1 reproduction: exited 0 on the base with the commit's test files; the judge gave no " +
+		"verdict twice: overtime"
+	if got := f.task().Notes; !reflect.DeepEqual(got, []string{note}) {
+		t.Errorf("notes = %q, want the one note %q", got, note)
+	}
+	if got := guardGreenRuns(f); got != 1 {
+		t.Errorf("green runs started = %d, want 1 once the note is kept", got)
 	}
 }
 

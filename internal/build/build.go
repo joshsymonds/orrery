@@ -33,6 +33,11 @@ const (
 // the unit.
 const unitRepro = "repro"
 
+// unitReproJudge is the unit a test item's green stage runs after a reproduction that exited 0 without timing out, and
+// before its green run: one judge step that rules whether the reproduction contradicts red, under the derived id of the
+// judge (reproJudgeID).
+const unitReproJudge = "reprojudge"
+
 // unitTestRun is the unit a verify unit runs for each test run its review stored: one test runner step at the run's
 // revision, under the derived id of the run, before the first finding's verifier.
 const unitTestRun = "testrun"
@@ -66,7 +71,8 @@ const noVerdictLimit = 2
 // them, read for an orchestrate unit whose step ended and for a waiting build. NewBase is the commit the next integrate
 // batch composes on, which a waiting build moves onto, and Answered is whether the question a build asked is no longer
 // open. TestRunStep is the step of the test run a verify unit's review waits on, the first run of the review with no
-// step, when that step has started.
+// step, when that step has started. ReproJudges are the judge steps of a test item's reproduction that exited 0 without
+// timing out, in judge order, each one started under the unit's current rerun.
 type View struct {
 	Epic              string
 	Paused            bool
@@ -87,6 +93,7 @@ type View struct {
 	NewBase           string
 	Answered          bool
 	TestRunStep       *store.StepRow
+	ReproJudges       []store.StepRow
 }
 
 // ActionKind is what a pass does for a task.

@@ -124,15 +124,17 @@ func (r *Runner) startRun(ctx context.Context, epic store.EpicRow, view View, ac
 
 // startUnit starts the step action names and records its id as the build's step. An orchestrate unit records nothing,
 // since its build's step is the implementer step it decides, and its own step is found by its derived id. A test run
-// step records nothing either, for the same reason: its step is found by its derived id. A role error parks the task
-// held parked. A test run the engine refuses stores the refusal as its output, under its derived id, and the build goes
-// on to the next run or the verifier. Any other start error is handled as DecideStartError decides.
+// step and a reproduction judge step record nothing either, for the same reason: each step is found by its derived id.
+// A role error parks the task held parked. A test run the engine refuses stores the refusal as its output, under its
+// derived id, and the build goes on to the next run or the verifier. A reproduction judge that does not start is a note,
+// and the green run starts once it is kept (reproJudgeRefused). Any other start error is handled as DecideStartError
+// decides.
 func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, action Action) bool {
 	seq, from := view.Task.Seq, view.Task.Build
 	id, err := r.startStep(ctx, epic, view, action)
 	var roleErr RoleError
 	switch {
-	case err == nil && (action.Unit == StageOrchestrate || action.Unit == unitTestRun):
+	case err == nil && (action.Unit == StageOrchestrate || action.Unit == unitTestRun || action.Unit == unitReproJudge):
 		return true
 	case err == nil:
 		next := from
@@ -150,6 +152,8 @@ func (r *Runner) startUnit(ctx context.Context, epic store.EpicRow, view View, a
 			Output: fmt.Sprintf("not run: %v", err),
 		}
 		return r.record(ctx, epic, view, storedTestRun(from, result))
+	case action.Unit == unitReproJudge:
+		return r.execute(ctx, epic, view, reproJudgeRefused(view, err))
 	default:
 		return r.execute(ctx, epic, view, DecideStartError(view, err))
 	}

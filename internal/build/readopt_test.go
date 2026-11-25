@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -215,6 +217,27 @@ func TestReadoptGateRebuildsReviewGateOfTaskStep(t *testing.T) {
 				t.Errorf("ReadoptGate(T3 %s) = %+v, want %+v", tt.name, *gate, tt.want)
 			}
 		})
+	}
+}
+
+// TestReadoptGateRebuildsReproductionJudgeGate: a task's reproduction judge row gets the reproduction judge's gate for
+// the judge its task's evidence item names, and a row naming no task of its epic is an error.
+func TestReadoptGateRebuildsReproductionJudgeGate(t *testing.T) {
+	t.Parallel()
+	epic := store.EpicRow{ID: "acme/epic", Tasks: []store.EpicTask{
+		{Seq: 3, Evidence: evidence.Item{Kind: evidence.KindTest, Judge: "sonnet-high-ro"}},
+	}}
+	row := store.StepRow{ID: "s1", Epic: epic.ID, Task: "T3", ReadOnly: true, GateName: enginehost.ReproJudgeGateName}
+	gate, err := ReadoptGate(fakeEpics{epic.ID: epic})(context.Background(), row)
+	if err != nil {
+		t.Fatalf("ReadoptGate(reproduction judge) error = %v, want nil", err)
+	}
+	if want := enginehost.ReproJudgeGate("sonnet-high-ro"); gate == nil || !reflect.DeepEqual(*gate, want) {
+		t.Errorf("ReadoptGate(reproduction judge) = %+v, want %+v", gate, want)
+	}
+	row.Task = "T4"
+	if _, err = ReadoptGate(fakeEpics{epic.ID: epic})(context.Background(), row); err == nil {
+		t.Error("ReadoptGate(reproduction judge of no task) = nil error, want one")
 	}
 }
 

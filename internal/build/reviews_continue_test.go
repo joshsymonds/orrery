@@ -218,13 +218,15 @@ func TestReviewsContinueCheckingVersionAppliesWhateverRedSays(t *testing.T) {
 	}
 }
 
-// TestReviewsContinueReproductionExitZeroIsANote: a test item's reproduction that exits 0 is recorded as a note, not
-// spent, and the green run starts once the note is kept. The same holds for a reproduction that did not run.
+// TestReviewsContinueReproductionExitZeroIsANote: the judge's ruling on a test item's reproduction that exits 0 is
+// recorded as a note, whichever way it rules, not spent, and the green run starts once the note is kept. The same
+// holds for a reproduction that did not run.
 func TestReviewsContinueReproductionExitZeroIsANote(t *testing.T) {
 	t.Parallel()
 	build := store.TaskBuild{Stage: StageGreen, Base: "base", Attempt: 1, Revision: "rev", RedRun: "red-run"}
 	item := evidence.Item{Kind: evidence.KindTest}
 	repro := RunID(decideEpic, 3, unitRepro, 1, 0)
+	judge := reproJudgeID(decideEpic, 3, build, 0)
 	greenRun := Action{
 		Kind:     ActStartRun,
 		Phase:    StageGreen,
@@ -232,15 +234,28 @@ func TestReviewsContinueReproductionExitZeroIsANote(t *testing.T) {
 		ID:       RunID(decideEpic, 3, StageGreen, 1, 0),
 	}
 	tests := []struct {
-		name  string
-		check store.NodeCheck
-		note  string
+		name   string
+		check  store.NodeCheck
+		judges []store.StepRow
+		note   string
 	}{
 		{
-			name:  "exited 0",
+			name:  "exited 0, and the judge ruled it contradicts red",
 			check: store.NodeCheck{ID: repro, State: store.NodeEnded, Exit: 0},
-			note: "T3 attempt 1 reproduction: exited 0 on the base with the commit's test files, so they pass " +
-				"without the rest of the commit",
+			judges: []store.StepRow{{
+				ID: judge, End: endGateFailed, Result: reproJudgeReturn(verdictFails, "nothing new", "the test passes"),
+			}},
+			note: "T3 attempt 1 reproduction: exited 0 on the base with the commit's test files; the judge ruled " +
+				"that it contradicts red: the test passes: nothing new",
+		},
+		{
+			name:  "exited 0, and the judge ruled it does not contradict red",
+			check: store.NodeCheck{ID: repro, State: store.NodeEnded, Exit: 0},
+			judges: []store.StepRow{{
+				ID: judge, End: endDone, Result: reproJudgeReturn(verdictHolds, "a removal's tests pass on base", ""),
+			}},
+			note: "T3 attempt 1 reproduction: exited 0 on the base with the commit's test files; the judge ruled " +
+				"that it does not contradict red: a removal's tests pass on base",
 		},
 		{
 			name:  "did not run",
@@ -252,7 +267,10 @@ func TestReviewsContinueReproductionExitZeroIsANote(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			check := tc.check
-			view := View{Epic: decideEpic, Repro: &check, Task: store.EpicTask{Seq: 3, Build: build, Evidence: item}}
+			view := View{
+				Epic: decideEpic, Repro: &check, ReproJudges: tc.judges,
+				Task: store.EpicTask{Seq: 3, Build: build, Evidence: item},
+			}
 			got := Decide(view)
 			want := Action{Kind: ActMove, Next: build, Notes: []string{tc.note}, Tells: []string{tc.note}}
 			if !reflect.DeepEqual(got, want) {
