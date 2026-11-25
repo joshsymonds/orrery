@@ -393,7 +393,7 @@ func (r *Runner) openWoken(ctx context.Context, woken []string) []store.EpicRow 
 // planner for those given a plan turn or planner-parked. Pass passes every listed epic, and a wake passes the open epics
 // it names. A closed epic and a held epic are passed over: neither has a flow decision or a planner pass, and an epic the
 // held pass starts is passed as the store holds it then. Once the planner has been passed, each epic that started
-// nothing and may stall is checked for a stall (see passStalls).
+// nothing and may stall is checked for a stall (see passStalls), with the rows its walk last decided on.
 func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 	epics = r.passHeld(ctx, epics)
 	r.passAmendments(ctx, epics)
@@ -402,7 +402,7 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 		r.logger.ErrorContext(ctx, "list node run states", "err", statesErr)
 	}
 	planned := make(map[string]bool)
-	var stallable []string
+	var candidates []stallable
 	for _, epic := range epics {
 		if store.IsClosedPhase(epic.Phase) || epic.Phase == store.PhaseHeld {
 			continue
@@ -415,21 +415,21 @@ func (r *Runner) passEpics(ctx context.Context, epics []store.EpicRow) {
 		// A planner park wakes the planner even when no plan run was given its turn, since no node runs on a parked epic.
 		plannerParked := epic.Parked != "" && !epic.ParkClass.OpensQuestion()
 		resting := statesErr == nil && Rests(flow, kinds.Rows{Epic: epic, Runs: states[epic.ID]}, r.kinds)
-		var planTurn, started bool
+		var walked flowWalk
 		if !resting {
-			planTurn, started = r.walkFlow(ctx, epic, flow)
+			walked = r.walkFlow(ctx, epic, flow)
 		}
-		if planTurn || plannerParked {
+		if walked.planTurn || plannerParked {
 			planned[epic.ID] = true
 		}
 		// An epic that started nothing and may stall is checked for one: an idle one is parked or woken (see stallCheck),
 		// whether or not a plan run is running. Any other epic is not read for a stall.
-		if !started && mayStall(epic) {
-			stallable = append(stallable, epic.ID)
+		if !walked.started && mayStall(epic) {
+			candidates = append(candidates, stallable{epic: epic.ID, decided: walked.decided})
 		}
 	}
 	r.planner.PassOnly(ctx, func(epic string) bool { return planned[epic] })
-	r.passStalls(ctx, stallable)
+	r.passStalls(ctx, candidates)
 }
 
 // parkUnloaded parks epic as an orchestrator park with the reason its flow did not load, unless it is parked already, so
@@ -448,8 +448,14 @@ func (r *Runner) parkUnloaded(ctx context.Context, epic store.EpicRow, cause err
 
 // passFlow reports whether the flow walk of epic gave its plan run its turn (see walkFlow).
 func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) bool {
-	planTurn, _ := r.walkFlow(ctx, epic, flow)
-	return planTurn
+	return r.walkFlow(ctx, epic, flow).planTurn
+}
+
+// flowWalk is what a flow walk did for an epic (see walkFlow): whether it gave the epic's plan run its turn, whether it
+// started anything for the epic, and the rows its last decision was made on, which is nil when it made none.
+type flowWalk struct {
+	planTurn, started bool
+	decided           *store.EpicFlow
 }
 
 // walkFlow carries out the actions flow asks for on epic. It reports whether epic's plan run was given its turn, and
@@ -459,60 +465,65 @@ func (r *Runner) passFlow(ctx context.Context, epic store.EpicRow, flow workflow
 // carried out: a close that lands while the pass carries out an action, such as a batch's prepare, ends the epic's
 // running runs, and the walk would read the plan run it ended as a node that ended and start the node after it. A walk
 // that fails has not decided the epic, so it counts as started, and the stall check leaves the epic to a later pass.
-func (r *Runner) walkFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) (planTurn, started bool) {
+// The walk also returns the rows its last decision read, so the stall check judges the epic on the rows the walk left
+// it as it was on, as well as on the rows it reads itself.
+func (r *Runner) walkFlow(ctx context.Context, epic store.EpicRow, flow workflow.Workflow) flowWalk {
+	var done flowWalk
 	for range maxSteps {
-		row, acts, err := r.decide(ctx, epic.ID, flow)
+		read, acts, err := r.decide(ctx, epic.ID, flow)
 		if err != nil {
 			r.logger.ErrorContext(ctx, "decide epic", "epic", epic.ID, "err", err)
-			return false, true
+			return flowWalk{started: true}
 		}
-		if store.IsClosedPhase(row.Phase) {
-			return false, started
+		done.decided = &read
+		if store.IsClosedPhase(read.Epic.Phase) {
+			return done
 		}
 		act, structural := firstStructural(acts)
 		if !structural {
 			var handed bool
-			planTurn, handed = r.deliver(ctx, epic.ID, acts)
-			return planTurn, started || handed
+			done.planTurn, handed = r.deliver(ctx, epic.ID, acts)
+			done.started = done.started || handed
+			return done
 		}
-		if err = r.carry(ctx, row, act); err != nil {
+		if err = r.carry(ctx, read.Epic, act); err != nil {
 			r.logger.ErrorContext(ctx, "carry out node action", "epic", epic.ID, "action", act.Kind, "err", err)
-			return false, true
+			return flowWalk{started: true}
 		}
-		started = true
+		done.started = true
 	}
 	r.logger.WarnContext(ctx, "interpret pass reached its step limit", "epic", epic.ID, "steps", maxSteps)
-	return false, true
+	return flowWalk{started: true}
 }
 
-// decide reads the rows of epic in one read. It returns the epic as read, which the actions are carried out for, and
-// the actions flow asks for on the rows. The stranded tasks of the epic are read only when one of its tasks waits on
+// decide reads the rows of epic in one read. It returns the rows as read, whose epic the actions are carried out for,
+// and the actions flow asks for on the rows. The stranded tasks of the epic are read only when one of its tasks waits on
 // dependencies, since only a build that waits on a dependency reads them (awaitsDependencies).
-func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicRow, []Action, error) {
+func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow) (store.EpicFlow, []Action, error) {
 	read, err := r.store.EpicFlow(ctx, epic)
 	if err != nil {
-		return store.EpicRow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
+		return store.EpicFlow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
 	rows := flowRows(read)
 	roundSteps, err := r.roundSteps(ctx, epic, read.Runs)
 	if err != nil {
-		return store.EpicRow{}, nil, err
+		return store.EpicFlow{}, nil, err
 	}
 	rows.Steps = append(rows.Steps, roundSteps...)
 	if awaitsDependencies(read.Epic.Tasks) {
 		host, hostErr := r.hostOf(read.Epic)
 		if hostErr != nil {
-			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, hostErr)
+			return store.EpicFlow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, hostErr)
 		}
 		rows.Stranded, err = startStranded(ctx, host, read.Epic, read.Runs)
 		if err != nil {
-			return store.EpicRow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
+			return store.EpicFlow{}, nil, fmt.Errorf("read stranded tasks of epic %s: %w", epic, err)
 		}
 	}
 	if r.reviewers != nil {
 		rows.Reviewers = r.reviewers.Epic(read.Epic)
 	}
-	return read.Epic, Decide(flow, rows, r.kinds), nil
+	return read, Decide(flow, rows, r.kinds), nil
 }
 
 // awaitsDependencies reports whether one of tasks is open, has not started and depends on other tasks. A build of such

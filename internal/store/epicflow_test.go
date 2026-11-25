@@ -326,3 +326,82 @@ func TestEpicFlowWithoutReviewHasNoLabeledSteps(t *testing.T) {
 		t.Errorf("EpicFlow steps = %v, want none", stepIDsOf(flow.Steps))
 	}
 }
+
+// TestEpicFlowUnderwayReadsEveryRunningStepAndUnendedEvidenceRun checks that EpicFlow's Underway holds the id of each
+// step labeled with its epic whose end is not stored, whatever its task label, in start order then id, and no step that
+// ended, no unlabeled step and no step of another epic. It holds the id of each evidence run of the epic that has not
+// ended, current or not, and no run that ended. Steps and Evidence keep only what the decisions read: no labeled step of
+// a run that is not a review, closure or release, and no run whose item changed since it started.
+func TestEpicFlowUnderwayReadsEveryRunningStepAndUnendedEvidenceRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = "orrery-1a2b3c4/epic-flow-underway"
+	const other = "orrery-1a2b3c4/epic-flow-underway-other"
+	row := evidenceEpic(id)
+	createEpic(t, s, row)
+	createEpic(t, s, fullEpic(other))
+	runs := []NodeRun{
+		{Path: "plan", ID: "id-plan", Node: "plan", Kind: "plan"},
+		{Path: "plan/S4/integrate", ID: "id-integrate", Node: "integrate", Kind: "integrate"},
+	}
+	if err := s.StartNodes(ctx, id, runs, nil, epicCreated()); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	ops := []EngineOp{
+		labelledStepOf("step-a-integrator", id, "plan/S4/integrate"),
+		labelledStepOf("step-b-build", id, "T6"),
+		labelledStepOf("step-c-conversation", id, ""),
+		labelledStepOf("step-d-ended", id, "T4"),
+		labelledStepOf("step-e-other-epic", other, "T6"),
+		stepAddOf("step-f-unlabeled"),
+		StepEnd{ID: "step-d-ended", End: "done", Status: "done"},
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	items := make(map[string]evidence.Item)
+	for _, requirement := range row.Requirements {
+		items[requirement.ID] = requirement.Item
+	}
+	stale := items["R1"]
+	stale.Conclusion = "An item R1 no longer holds"
+	for _, run := range []struct {
+		id, item string
+		spec     evidence.Item
+	}{{"run-a-current", "R1", items["R1"]}, {"run-b-stale", "R1", stale}, {"run-c-ended", "R2", items["R2"]}} {
+		if err := s.AddEvidenceRun(ctx, EvidenceRun{
+			ID: run.id, Epic: id, Item: run.item, Revision: "abc1234", Phase: "green", Source: "captured",
+			Spec: run.spec, Created: runCreatedAt(),
+		}); err != nil {
+			t.Fatalf("AddEvidenceRun %s: %v", run.id, err)
+		}
+	}
+	if err := s.RecordEvidenceCapture(ctx, "run-c-ended", EvidenceCapture{At: runCapturedAt()}); err != nil {
+		t.Fatalf("RecordEvidenceCapture: %v", err)
+	}
+	verdict := EvidenceVerdict{Verdict: evidence.VerdictHolds, Passed: true, At: runEndedAt()}
+	if err := s.RecordEvidenceVerdict(ctx, "run-c-ended", verdict); err != nil {
+		t.Fatalf("RecordEvidenceVerdict: %v", err)
+	}
+
+	flow, err := s.EpicFlow(ctx, id)
+	if err != nil {
+		t.Fatalf("EpicFlow: %v", err)
+	}
+	want := Underway{
+		Steps:    []string{"step-a-integrator", "step-b-build", "step-c-conversation"},
+		Evidence: []string{"run-a-current", "run-b-stale"},
+	}
+	if !reflect.DeepEqual(flow.Underway, want) {
+		t.Errorf("Underway = %+v, want %+v", flow.Underway, want)
+	}
+	if len(flow.Steps) != 0 {
+		t.Errorf("EpicFlow steps = %v, want none: no step is labeled with a review, closure or release run",
+			stepIDsOf(flow.Steps))
+	}
+	if got := evidenceRunIDs(flow.Evidence); !reflect.DeepEqual(got, []string{"run-a-current", "run-c-ended"}) {
+		t.Errorf("EpicFlow evidence runs = %v, want the current run-a-current and run-c-ended", got)
+	}
+}
