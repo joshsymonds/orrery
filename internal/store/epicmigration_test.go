@@ -597,56 +597,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00115_step_purpose.sql is the newest.
-	// The newest was 00114_epic_summaries_rewritten.sql before the step purpose migration added 00115_step_purpose.sql,
-	// 00113_evidence_briefs.sql before the epic summaries rewrite added 00114_epic_summaries_rewritten.sql,
-	// 00112_evidence_gatherer.sql before the evidence briefs migration added 00113_evidence_briefs.sql,
-	// 00111_steps_epic_open.sql before the evidence gatherer migration added 00112_evidence_gatherer.sql,
-	// 00110_steerer_tells_stalls.sql before the open steps index of an epic added
-	// 00111_steps_epic_open.sql,
-	// 00109_step_listings_host.sql before the steerer tells and stalls migration added 00110_steerer_tells_stalls.sql,
-	// 00108_notice_host.sql before the step listings host migration added 00109_step_listings_host.sql,
-	// 00107_stage_records.sql before the notice host migration added 00108_notice_host.sql,
-	// 00106_contract_stage.sql before the stage records migration added 00107_stage_records.sql,
-	// 00105_designs.sql before the contract stage migration added 00106_contract_stage.sql,
-	// 00104_task_split_test_runs.sql before the designs migration added 00105_designs.sql,
-	// 00103_session_host.sql before the task split migration added 00104_task_split_test_runs.sql,
-	// 00102_session_held.sql before the session host column added 00103_session_host.sql,
-	// 00101_drop_sync_columns.sql before the held sessions migration added 00102_session_held.sql,
-	// 00100_epic_base_legacy_sync.sql before the sync columns' drop added 00101_drop_sync_columns.sql,
-	// 00099_sync_integrate_rounds.sql before the epic base migration added 00100_epic_base_legacy_sync.sql,
-	// 00098_drop_release_slots.sql before the sync integrate rounds migration added 00099,
-	// 00097_engine_hosts.sql before the release slots' drop added 00098,
-	// 00096_llm_accounts.sql before the engine hosts migration added 00097,
-	// 00095_headless_columns.sql before the LLM accounts migration added 00096_llm_accounts.sql,
-	// 00094_step_listings_no_evidence.sql before the headless columns migration added 00095,
-	// 00093_design_stage.sql before the step listings lost their evidence in 00094,
-	// 00092_integrate_rounds.sql before the design stage migration added 00093,
-	// 00091_task_kind.sql before the integrate rounds migration added 00092,
-	// 00090_closure_verdicts.sql before the task kind migration added 00091,
-	// 00089_pane_sends.sql before the closure verdicts migration added 00090,
-	// 00088_task_depends_on.sql before the pane sends migration added 00089,
-	// 00087_task_generation.sql before the task dependencies migration added 00088,
-	// 00086_amender_makers.sql before the task generation migration added 00087,
-	// 00085_question_escalation.sql before the amender makers migration added 00086, 00084_contract_base.sql before
-	// the question escalation migration added 00085, 00083 before the contract base migration added 00084,
-	// 00082_contract_record.sql before the 00083 migration added 00083, 00081_epic_actions.sql
-	// before the contract record migration added 00082, 00080_epic_steerer.sql before the
-	// epic actions migration added 00081, 00079_gap_reconcile.sql before the steerer migration added 00080,
-	// 00078_task_review_undetermined.sql before the gap reconciliation added 00079, 00077_gambit_ladder.sql before the
-	// undetermined reviews added 00078, 00076_notice_history.sql before the ladder migration added 00077,
-	// 00075_step_facts.sql before the notice history added 00076, 00074_task_repairs.sql before the step facts added
-	// 00075, 00073_session_awaited.sql before the task repairs added 00074, 00072_epic_revisions_table.sql before the
-	// awaited flag added 00073, 00071_park_question_runs.sql before the revisions table added 00072,
-	// 00070_task_ladder.sql before the park question runs added 00071, 00069_epic_revisions.sql before the task ladder
-	// added 00070, 00068_step_listings.sql before the epic revisions added 00069, 00067_drop_caller_read.sql before the
-	// step listings added 00068, 00066_put_off_questions.sql before the drop of caller_read added 00067,
-	// 00065_task_gate_changes.sql before the put-off marks added 00066, 00064_step_indexes.sql before the gate changes
-	// added 00065, 00063_task_versions.sql before the step indexes added 00064, 00062_drop_engine_held.sql before the
-	// task versions added 00063, 00061_prompt_states.sql before the drop of engine_held added 00062, and
-	// 00060_cron_jobs.sql before the prompt states added 00061.
-	if version != 115 {
-		t.Fatalf("store version after Open = %d, want 115", version)
+	// Open applies 00014_epics.sql and every migration after it, so the store is at the newest embedded migration.
+	if want := newestMigration(t); version != want {
+		t.Fatalf("store version after Open = %d, want the newest migration %d", version, want)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

@@ -141,6 +141,17 @@ func migrationNames(t *testing.T) map[int64]string {
 	return names
 }
 
+// newestMigration returns the version of the newest embedded migration, the version Open leaves a store at, so a test
+// that opens a store need not name it and does not move with each new migration.
+func newestMigration(t *testing.T) int64 {
+	t.Helper()
+	newest := int64(0)
+	for version := range migrationNames(t) {
+		newest = max(newest, version)
+	}
+	return newest
+}
+
 // TestEachMigrationDownAndUp walks the migrations once. Each migration starts from a copy of the store at its version,
 // as the walk of the migrations from the first leaves it, and steps down and up once: its Down must leave the schema of
 // the version before, and its Up the schema of its version again, so every Down undoes its Up whatever the version a

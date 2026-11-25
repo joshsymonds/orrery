@@ -224,8 +224,9 @@ func (r *Runner) endEpic(ctx context.Context, epic store.EpicRow, act Action, at
 
 // recordCandidate stores the candidate of the run's attempt as passed, after the one it replaces when it was prepared
 // again. Its Start is the tip the candidate was made from and its Head the candidate, which is the merge the release
-// integrator committed when the action names that revision. Its Commits name the candidate when the tip is behind the
-// target, since then the candidate is the merge the release integrator made. The run's release integrator worktree,
+// integrator committed when the action names that revision. Its Commits name the candidate when the prepare recorded
+// origin's commit, since then the candidate is the commit the release integrator made: the merge of a tip behind the
+// target, or the renumber of a tip with a migration collision. The run's release integrator worktree,
 // when it has one, is removed first: the merge it holds is pinned.
 func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
@@ -239,7 +240,7 @@ func (r *Runner) recordCandidate(ctx context.Context, epic store.EpicRow, act Ac
 		Part: store.ReleasePartCandidate, Attempt: act.Run.Attempt, Start: result.Tip, Head: act.Run.Revision,
 		Passed: true, At: at,
 	}
-	if result.Behind {
+	if result.Origin != "" {
 		run.Commits = []string{act.Run.Revision}
 	}
 	if err = r.store.RecordCandidate(ctx, epic.ID, run); err != nil {

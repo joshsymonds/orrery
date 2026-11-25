@@ -17,13 +17,28 @@ import (
 )
 
 // batchResult is the Result an integrate run claims its batch with, in the JSON the integrate kind reads: the base the
-// batch composed on, the candidate it made, the tasks that became commits and the tasks left out, each with its reason.
+// batch composed on, the candidate it made, the tasks that became commits and the tasks left out, each with its reason,
+// and how it checked its tasks' migrations, nil when its project declares none.
 type batchResult struct {
-	Base      string         `json:"base"`
-	Candidate string         `json:"candidate"`
-	Composed  []batchCommit  `json:"composed"`
-	LeftOut   []batchLeftOut `json:"leftOut"`
+	Base       string           `json:"base"`
+	Candidate  string           `json:"candidate"`
+	Composed   []batchCommit    `json:"composed"`
+	LeftOut    []batchLeftOut   `json:"leftOut"`
+	Migrations *batchMigrations `json:"migrations,omitempty"`
 }
+
+// batchMigrations is how a batch checked its tasks' migrations: the directory of goose migrations the project file at
+// the batch base declares, origin's commit they were checked against, and why origin was not read when it was not, in
+// which case nothing was checked.
+type batchMigrations struct {
+	Dir    string `json:"dir"`
+	Origin string `json:"origin,omitempty"`
+	Unread string `json:"unread,omitempty"`
+}
+
+// batchOriginLimit bounds the read of origin's main a batch's prepare makes for its migration check, so an origin that
+// does not answer holds the interpreter's pass no longer than this.
+const batchOriginLimit = time.Minute
 
 // batchCommit is a task that became a commit of the candidate.
 type batchCommit struct {
@@ -31,8 +46,9 @@ type batchCommit struct {
 	Commit string `json:"commit"`
 }
 
-// batchLeftOut is a task that did not compose, and why. Conflicts are the paths its merge conflicted at, which a task
-// left out for a conflict is sent back for; a result claimed before they were stored has none.
+// batchLeftOut is a task that did not compose, and why. Conflicts are the paths its merge conflicted at, or the
+// migrations it adds whose versions origin's main uses for other files, which a task left out for a conflict or a
+// collision is sent back for; a result claimed before they were stored has none.
 type batchLeftOut struct {
 	Task      int64    `json:"task"`
 	Reason    string   `json:"reason"`
@@ -43,9 +59,11 @@ type batchLeftOut struct {
 // epic's batch base (batchBase), and holds, with the tasks act names, each task whose work a failed batch composed and
 // the batch base does not hold (strandedTasks), so that work is composed again or left out with its reason, never
 // lost. The tasks compose in the order composeOrder gives: a producer before its consumer, and otherwise in seq order.
-// It claims the batch with the candidate, the refs as they are now and the result compose made, and claims every task
-// of the batch: the tasks act names, and each stranded task, whose claim on its failed batch the claim moves to this
-// one, so a failed batch never holds a task that a later batch composed.
+// A task that adds a migration whose version origin's main uses for another file is left out for its task integrator
+// to renumber (batchMigrationsOf, collidingTasks). It claims the batch with the candidate, the refs as they are now and
+// the result compose made, and claims every task of the batch: the tasks act names, and each stranded task, whose
+// claim on its failed batch the claim moves to this one, so a failed batch never holds a task that a later batch
+// composed.
 func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Action) error {
 	host, err := r.hostOf(epic)
 	if err != nil {
@@ -74,11 +92,20 @@ func (r *Runner) prepareBatch(ctx context.Context, epic store.EpicRow, act Actio
 	if err != nil {
 		return err
 	}
+	checked, err := r.batchMigrationsOf(ctx, host, epic, act.Run, base)
+	if err != nil {
+		return err
+	}
+	tasks, collided, err := collidingTasks(ctx, host, epic.Repository, checked, base, tasks)
+	if err != nil {
+		return fmt.Errorf("check the migrations of the batch of node %s: %w", act.Path, err)
+	}
 	result, err := compose.Compose(ctx, host, epic.Repository, base, tasks, candidateRef(epic, act.Run))
 	if err != nil {
 		return fmt.Errorf("compose batch of node %s: %w", act.Path, err)
 	}
-	encoded, err := encodeBatch(result)
+	result.LeftOut = append(result.LeftOut, collided...)
+	encoded, err := encodeBatch(result, checked)
 	if err != nil {
 		return fmt.Errorf("encode batch of node %s: %w", act.Path, err)
 	}
@@ -340,12 +367,16 @@ func candidateRef(epic store.EpicRow, run store.NodeRun) string {
 	return fmt.Sprintf("refs/orrery/%s/candidate/%s-%d", build.Slug(epic.ID), run.ID, run.Attempt)
 }
 
-// encodeBatch returns result as the JSON an integrate run claims its batch with. Its lists are never null.
-func encodeBatch(result compose.Result) (string, error) {
+// encodeBatch returns result, with checked, how the batch checked its tasks' migrations, as the JSON an integrate run
+// claims its batch with. Its lists are never null, and a check with no directory is left out.
+func encodeBatch(result compose.Result, checked batchMigrations) (string, error) {
 	out := batchResult{
 		Base: result.Base, Candidate: result.Candidate,
 		Composed: make([]batchCommit, 0, len(result.Composed)),
 		LeftOut:  make([]batchLeftOut, 0, len(result.LeftOut)),
+	}
+	if checked.Dir != "" {
+		out.Migrations = &checked
 	}
 	for _, composed := range result.Composed {
 		out.Composed = append(out.Composed, batchCommit{Task: composed.Seq, Commit: composed.Commit})
@@ -370,8 +401,9 @@ func composedRound(result string, seq int64, commit string) (string, error) {
 	}
 	out := batchResult{
 		Base: batch.Base, Candidate: batch.Candidate,
-		Composed: slices.Concat(batch.Composed, []batchCommit{{Task: seq, Commit: commit}}),
-		LeftOut:  make([]batchLeftOut, 0, len(batch.LeftOut)),
+		Composed:   slices.Concat(batch.Composed, []batchCommit{{Task: seq, Commit: commit}}),
+		LeftOut:    make([]batchLeftOut, 0, len(batch.LeftOut)),
+		Migrations: batch.Migrations,
 	}
 	for _, left := range batch.LeftOut {
 		if left.Task != seq {

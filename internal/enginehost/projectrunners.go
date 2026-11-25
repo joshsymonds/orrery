@@ -52,7 +52,7 @@ func ParseProjectRunners(data []byte) ([]ProjectRunner, error) {
 	}
 	release, isTable := raw.(map[string]any)
 	if !isTable {
-		return nil, &epicFieldError{field: projectReleaseKey, reason: "not a table"}
+		return nil, &epicFieldError{field: projectReleaseKey, reason: reasonNotTable}
 	}
 	value, found := release[projectRunnersKey]
 	if !found {

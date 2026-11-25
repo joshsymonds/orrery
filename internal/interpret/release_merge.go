@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/build"
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -34,7 +35,7 @@ const (
 // Result, and then prepares the candidate as its revision. A run whose Result is set prepares the candidate that Result
 // names and reads nothing from git again. A Result that has an error prepares nothing: the release kind stops the run
 // at that error. A Result that names origin's commit prepares nothing either, whether git's merge of it conflicts or
-// not: the release integrator makes the candidate.
+// not, or the tip already holds it and has a migration collision: the release integrator makes the candidate.
 func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Action) error {
 	result, err := kinds.ParseReleaseResult(act.Run.Result)
 	if err != nil {
@@ -66,8 +67,12 @@ func (r *Runner) prepareRelease(ctx context.Context, epic store.EpicRow, act Act
 // decideRelease works out the Result of a release run's prepare. The candidate is the epic's branch tip when origin's
 // commit is an ancestor of it. Otherwise the Result has no candidate: it names origin's commit, the branch of origin it
 // was fetched from and the paths git's merge of origin's commit into the tip conflicts in, none for a clean merge, and
-// the release integrator makes the merge. A merge that conflicts in no path git names is an error. Nothing is checked
-// out and nothing is committed, and the only ref written is the release's own ref for origin.
+// the release integrator makes the merge. A merge that conflicts in no path git names is an error. Either way the
+// Result names the goose migrations origin's project file declares and each new migration of the tip whose version
+// origin's main uses for another file, with the renumber that settles it (releaseMigrations). A tip that holds
+// origin's commit and has such a collision has no candidate either: the Result names origin's commit and its branch,
+// and the release integrator makes the renumber. Nothing is checked out and nothing is committed, and the only ref
+// written is the release's own ref for origin.
 func (r *Runner) decideRelease(ctx context.Context, epic store.EpicRow) (kinds.ReleaseResult, error) {
 	host, err := r.hostOf(epic)
 	if err != nil {
@@ -84,12 +89,21 @@ func (r *Runner) decideRelease(ctx context.Context, epic store.EpicRow) (kinds.R
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
+	dir, collisions, err := releaseMigrations(ctx, host, epic.Repository, tip, origin)
+	if err != nil {
+		return kinds.ReleaseResult{}, err
+	}
 	ancestor, err := isAncestor(ctx, host, epic.Repository, origin, tip)
 	if err != nil {
 		return kinds.ReleaseResult{}, err
 	}
+	if ancestor && len(collisions) == 0 {
+		return kinds.ReleaseResult{Candidate: tip, Tip: tip, Migrations: dir}, nil
+	}
 	if ancestor {
-		return kinds.ReleaseResult{Candidate: tip, Tip: tip}, nil
+		return kinds.ReleaseResult{
+			Tip: tip, Origin: origin, Branch: branch, Migrations: dir, Collisions: collisions,
+		}, nil
 	}
 	out, conflicted, err := mergeTree(ctx, host, epic.Repository, tip, origin)
 	if err != nil {
@@ -99,7 +113,30 @@ func (r *Runner) decideRelease(ctx context.Context, epic store.EpicRow) (kinds.R
 	if conflicted && len(paths) == 0 {
 		return kinds.ReleaseResult{}, errors.New(conflictMessage(tip, origin, nil))
 	}
-	return kinds.ReleaseResult{Behind: true, Tip: tip, Origin: origin, Branch: branch, Conflicts: paths}, nil
+	return kinds.ReleaseResult{
+		Behind: true, Tip: tip, Origin: origin, Branch: branch, Conflicts: paths, Migrations: dir,
+		Collisions: collisions,
+	}, nil
+}
+
+// releaseMigrations returns the directory of goose migrations the project file at origin's commit declares, read from
+// the commit (enginehost.ReadProjectMigrations), and the lines that name each new migration of tip whose version
+// origin's main uses for another file, with the renumber of the tip's new migrations that settles them
+// (migrations.Plan.Lines). origin's declaration is read, so an epic whose base predates it is still checked against the
+// main it releases to. A project that declares none gives "" and no line, and so does a tip with no collision.
+func releaseMigrations(ctx context.Context, host hostexec.Host, repo, tip, origin string) (string, []string, error) {
+	dir, err := enginehost.ReadProjectMigrations(ctx, host, repo, origin)
+	if err != nil {
+		return "", nil, fmt.Errorf("read the migrations origin's commit %s declares: %w", origin, err)
+	}
+	if dir == "" {
+		return "", nil, nil
+	}
+	plan, err := checkMigrations(ctx, host, repo, dir, tip, origin, "")
+	if err != nil {
+		return "", nil, err
+	}
+	return dir, plan.Lines(sideCandidate), nil
 }
 
 // fetchOrigin fetches origin's default branch into ref of epic's repository on host, and returns the branch and the
@@ -226,6 +263,12 @@ func isAncestor(ctx context.Context, host hostexec.Host, repo, ancestor, descend
 // mergeMessage is the message of the merge of origin's commit into the release tip tip.
 func mergeMessage(tip, origin string) string {
 	return fmt.Sprintf("Merge origin's commit %s into release tip %s", origin, tip)
+}
+
+// renumberMessage is the message of the commit that renumbers the migrations of the release tip tip, which already holds
+// origin's commit origin, after origin's.
+func renumberMessage(tip, origin string) string {
+	return fmt.Sprintf("Renumber the migrations of release tip %s after origin's commit %s", tip, origin)
 }
 
 // runPin returns the ref the merge a release run's release integrator makes is pinned under: the run's id and attempt

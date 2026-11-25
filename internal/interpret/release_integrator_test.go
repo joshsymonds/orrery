@@ -222,7 +222,8 @@ func requireSections(t *testing.T, prompt string, headings ...string) {
 // integratorSections returns the sections of the release integrator's prompt, in order.
 func integratorSections() []string {
 	return []string{
-		"Contract", "Decisions", "Merge", "Conflicted paths", "Tasks", "Candidate commits", "Origin commits",
+		"Contract", "Decisions", "Merge", "Conflicted paths", "Migration collisions", "Tasks", "Candidate commits",
+		"Origin commits",
 		"Same change", "Candidate changes", "Origin changes", "Changed on both sides", "Verification references",
 	}
 }
@@ -357,6 +358,7 @@ func TestReleaseCleanMergeStartsIntegrator(t *testing.T) {
 	requireSections(t, start.Prompt, integratorSections()...)
 	for _, want := range []string{
 		"## Conflicted paths\nNone.\n",
+		"## Migration collisions\nNone.\n",
 		"## Candidate changes\n- A epic.txt\n",
 		"## Origin changes\n- A origin.txt\n",
 		"## Changed on both sides\nNone.\n",

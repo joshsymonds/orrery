@@ -52,16 +52,23 @@ const (
 // the target, the candidate it records and the tip the candidate was made from. A tip that holds origin's commit is the
 // candidate. A tip that lacks it records no candidate: it records origin's commit as Origin, the branch of origin it was
 // fetched from and the paths git's merge of the two conflicts in, none for a merge that is clean, and the release
-// integrator makes the candidate. The release kind reads it and the executor writes and reads it, so it is defined
+// integrator makes the candidate. Migrations is the directory of goose migrations origin's project file declares, ""
+// when it declares none, and Collisions the lines that name each new migration of the tip whose version origin's main
+// uses for another file and the numbers the tip's new migrations are renumbered to, none when no version collides. A
+// tip that holds origin's commit and has a collision records no candidate either: it records origin's commit and its
+// branch with the tip not behind, and the release integrator makes the renumber as the candidate, since a candidate
+// with a collision cannot ship. The release kind reads it and the executor writes and reads it, so it is defined
 // once, here.
 type ReleaseResult struct {
-	Error     string   `json:"error"`
-	Behind    bool     `json:"behind"`
-	Candidate string   `json:"candidate"`
-	Tip       string   `json:"tip"`
-	Origin    string   `json:"origin,omitempty"`
-	Branch    string   `json:"branch,omitempty"`
-	Conflicts []string `json:"conflicts,omitempty"`
+	Error      string   `json:"error"`
+	Behind     bool     `json:"behind"`
+	Candidate  string   `json:"candidate"`
+	Tip        string   `json:"tip"`
+	Origin     string   `json:"origin,omitempty"`
+	Branch     string   `json:"branch,omitempty"`
+	Conflicts  []string `json:"conflicts,omitempty"`
+	Migrations string   `json:"migrations,omitempty"`
+	Collisions []string `json:"collisions,omitempty"`
 }
 
 // Decide decides a release run from its epic and the epic's release runs. A released or done epic ends passed, a clean
@@ -212,9 +219,10 @@ func staleAt(attempt int64, head string, runs []store.ReleaseRun) bool {
 }
 
 // candidateAction decides a releasing epic whose candidate has not passed. It stops on a candidate that failed at this
-// attempt. A prepare that found origin's commit not in the tip hands its merge to the release integrator
-// (integratorAction), whether that merge conflicts or not. Otherwise it prepares the candidate, stops on the error the
-// prepare recorded, and records the candidate it prepared, at any generation.
+// attempt. A prepare that recorded origin's commit hands the candidate to the release integrator (integratorAction):
+// the merge of a commit not in the tip, whether that merge conflicts or not, or the renumber of a tip that holds it and
+// has a migration collision. Otherwise it prepares the candidate, stops on the error the prepare recorded, and records
+// the candidate it prepared, at any generation.
 func candidateAction(run store.NodeRun, rows Rows) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartCandidate && !r.Passed && r.Attempt == run.Attempt

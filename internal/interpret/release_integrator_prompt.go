@@ -56,12 +56,14 @@ type sideCommit struct {
 }
 
 // integratorPrompt renders the prompt of the round of the release integrator that makes merge, whose origin commit was
-// fetched from origin's branch: the role text, then the sections Contract, Decisions, Merge, Conflicted paths, Tasks,
-// Candidate commits, Origin commits, Same change, Candidate changes, Origin changes, Changed on both sides and
-// Verification references, each under a `## ` heading and None. when it has no lines (planner.WriteSection). Git runs
-// on host, the host the epic lives on.
+// fetched from origin's branch: the role text, then the sections Contract, Decisions, Merge, Conflicted paths,
+// Migration collisions, Tasks, Candidate commits, Origin commits, Same change, Candidate changes, Origin changes,
+// Changed on both sides and Verification references, each under a `## ` heading and None. when it has no lines
+// (planner.WriteSection). collisions are the lines of Migration collisions, as the prepare recorded them. Git runs on
+// host, the host the epic lives on.
 func (r *Runner) integratorPrompt(
 	ctx context.Context, host hostexec.Host, epic store.EpicRow, merge integratorMerge, branch string,
+	collisions []string,
 ) (string, error) {
 	flow, err := r.store.EpicFlow(ctx, epic.ID)
 	if err != nil {
@@ -86,6 +88,7 @@ func (r *Runner) integratorPrompt(
 	planner.WriteSection(&out, "Decisions", planner.DecisionLines(epic, math.MaxInt64))
 	planner.WriteSection(&out, "Merge", mergeLines(merge, branch, base))
 	planner.WriteSection(&out, "Conflicted paths", sides.conflicted)
+	planner.WriteSection(&out, migrationsSection, collisions)
 	planner.WriteSection(&out, "Tasks", integratorTaskLines(epic.Tasks, flow.Runs))
 	planner.WriteSection(&out, "Candidate commits", sides.candidateLog)
 	planner.WriteSection(&out, "Origin commits", sides.originLog)
@@ -154,8 +157,19 @@ func integratorContract(epic store.EpicRow) ([]string, error) {
 }
 
 // mergeLines returns the Merge section: the worktree, the release tip and origin's commit with the names git gives each
-// side, the branch of origin the commit was fetched from, the merge base, and the message the merge commit carries.
+// side, the branch of origin the commit was fetched from, the merge base, and the message the merge commit carries. A
+// held merge says origin's commit is already in the tip, so there is no merge, and gives the message of the renumber.
 func mergeLines(merge integratorMerge, branch, base string) []string {
+	if merge.held {
+		return []string{
+			"Worktree: " + merge.worktree,
+			fmt.Sprintf("Release tip: %s, the candidate's side: HEAD", merge.tip),
+			fmt.Sprintf("Origin's commit: %s from origin's %s, already in the release tip, so there is no merge and "+
+				"no MERGE_HEAD", merge.origin, branch),
+			"Merge base: " + base,
+			"Commit message: " + renumberMessage(merge.tip, merge.origin),
+		}
+	}
 	return []string{
 		"Worktree: " + merge.worktree,
 		fmt.Sprintf("Release tip: %s, the candidate's side: HEAD when the merge began, ours, stage 2", merge.tip),

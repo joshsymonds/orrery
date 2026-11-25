@@ -20,11 +20,13 @@ const projectReleaseKey = "release"
 // projectFileRel is the path of the project file in a repository, relative to its root.
 const projectFileRel = ".orrery/project.toml"
 
-// reasonNotString, reasonNotStrings and reasonUnknownKey are the reasons a project file refuses a value that should be a
-// string, one that should be an array of strings, and a key the format does not define.
+// reasonNotString, reasonNotStrings, reasonNotTable and reasonUnknownKey are the reasons a project file refuses a value
+// that is not a string where one is due, one that is not an array of strings where one is due, a key that is not a
+// table where one is due, and a key the format does not define.
 const (
 	reasonNotString  = "not a string"
 	reasonNotStrings = "not an array of strings"
+	reasonNotTable   = "not a table"
 	reasonUnknownKey = "unknown key"
 )
 
@@ -44,7 +46,7 @@ func parseProjectRelease(data []byte) (steps []*v1.EpicReleaseStep, then string,
 	}
 	table, isTable := raw.(map[string]any)
 	if !isTable {
-		return nil, "", true, &epicFieldError{field: projectReleaseKey, reason: "not a table"}
+		return nil, "", true, &epicFieldError{field: projectReleaseKey, reason: reasonNotTable}
 	}
 	// The keys are checked in name order, so the refusal for a file with several wrong keys is the same every time.
 	var tables []map[string]any

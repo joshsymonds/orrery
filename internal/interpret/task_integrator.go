@@ -228,8 +228,10 @@ func (r *Runner) taskRoundDir(id string) string {
 
 // taskRoundStart returns the start of the step of the round act names. It merges the task's revision into the candidate
 // in a worktree under dir, leaving the conflicts in place, and its prompt carries the task, the merge, the conflicted
-// paths and the failure of the round before (Output). Its return check is taskIntegratorCheck's. It fails when dir is
-// "", since the runner has no state directory to make the worktree under.
+// paths, the migration collisions of the task's new migrations against the origin commit its batch checked, with the
+// renumber that settles them (taskCollisions), and the failure of the round before (Output). Its return check is
+// taskIntegratorCheck's, which checks the commit's migrations too. It fails when dir is "", since the runner has no
+// state directory to make the worktree under.
 func (r *Runner) taskRoundStart(
 	ctx context.Context, epic store.EpicRow, act Action, dir string,
 ) (enginehost.StepStart, error) {
@@ -254,7 +256,12 @@ func (r *Runner) taskRoundStart(
 		return enginehost.StepStart{}, err
 	}
 	merge.conflicts = conflicts
-	prompt, err := taskIntegratorPrompt(ctx, host, merge, epic.Tasks, task, act.Output)
+	merge.migrations = taskMigrationCheck(act.Run.Result, merge.tip)
+	collisions, err := taskCollisions(ctx, host, merge)
+	if err != nil {
+		return enginehost.StepStart{}, err
+	}
+	prompt, err := taskIntegratorPrompt(ctx, host, merge, epic.Tasks, task, collisions, act.Output)
 	if err != nil {
 		return enginehost.StepStart{}, err
 	}
@@ -283,7 +290,7 @@ func (r *Runner) recordTaskRound(ctx context.Context, epic store.EpicRow, act Ac
 	}
 	dir := r.taskRoundDir(act.IDs[0])
 	seq := act.Tasks[0]
-	verdict, err := r.judgeTaskRound(ctx, epic, row, seq)
+	verdict, err := r.judgeTaskRound(ctx, epic, row, seq, taskMigrationCheck(act.Run.Result, row.Revision))
 	if err != nil {
 		return err
 	}
@@ -318,10 +325,10 @@ func decodeTaskReturn(raw string) (taskIntegratorReturn, string) {
 
 // judgeTaskRound returns the verdict the step row of the round of task seq records. A step that did not end done, or
 // whose return does not decode, is ended with how it ended. The return is checked again here, because a return stored
-// after a restart is not checked by its return check: a merged return whose commit fails the engine's checks, or a clash
-// that names a commit or gives no explanation, is ended too.
+// after a restart is not checked by its return check: a merged return whose commit fails the engine's checks, its
+// migration check among them (check), or a clash that names a commit or gives no explanation, is ended too.
 func (r *Runner) judgeTaskRound(
-	ctx context.Context, epic store.EpicRow, row store.StepRow, seq int64,
+	ctx context.Context, epic store.EpicRow, row store.StepRow, seq int64, check migrationCheck,
 ) (roundVerdict, error) {
 	if row.End != releaseDone {
 		return roundVerdict{verdict: kinds.RoundEnded, explanation: releaseEndReason("task integrator", row)}, nil
@@ -336,6 +343,7 @@ func (r *Runner) judgeTaskRound(
 	}
 	merge := integratorMerge{
 		repo: epic.Repository, worktree: row.Workspace, tip: row.Revision, origin: task.Build.Revision,
+		migrations: check,
 	}
 	host, err := r.hostOf(epic)
 	if err != nil {

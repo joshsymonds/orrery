@@ -320,7 +320,7 @@ Paths follow the XDG base directories, with the fallbacks that [`store.Path`](..
 | `…/orrery/evidence/blobs/` | `orreryd` | Evidence bytes, named by their SHA-256. |
 | `$XDG_CONFIG_HOME/orrery/roles.toml` | the Nix module | Which agent each role runs under. |
 | `$XDG_CONFIG_HOME/orrery/pools.toml` | written by hand (the Nix module does not write it) | The machine's pools, read by each `run` and `gate`. |
-| `.orrery/project.toml`, `.orrery/workflows/<name>.yaml` | the repository | Project pools and gates, and workflow files. |
+| `.orrery/project.toml`, `.orrery/workflows/<name>.yaml` | the repository | Project pools, gates, reviewers, release and declared migrations, and workflow files. |
 
 `…` stands for the state directory, the directory that holds `orrery.db`.
 

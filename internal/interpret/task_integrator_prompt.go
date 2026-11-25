@@ -31,13 +31,14 @@ func taskMergeMessage(seq int64, revision string) string {
 }
 
 // taskIntegratorPrompt renders the prompt of a round of the task integrator that merges task's revision into the
-// candidate in merge: the role text, then the sections Task, Merge, Conflicted paths and Previous attempt, each under
-// a `## ` heading and None. when it has no lines (planner.WriteSection). tasks are the epic's tasks, which name the
-// composed merges on the candidate's side, and previous is the failure the round before met, "" for the first round. Git
-// runs on host, the host the epic lives on.
+// candidate in merge: the role text, then the sections Task, Merge, Conflicted paths, Migration collisions and Previous
+// attempt, each under a `## ` heading and None. when it has no lines (planner.WriteSection). tasks are the epic's
+// tasks, which name the composed merges on the candidate's side, collisions are the lines of Migration collisions
+// (taskCollisions), and previous is the failure the round before met, "" for the first round. Git runs on host, the
+// host the epic lives on.
 func taskIntegratorPrompt(
 	ctx context.Context, host hostexec.Host, merge integratorMerge, tasks []store.EpicTask, task store.EpicTask,
-	previous string,
+	collisions []string, previous string,
 ) (string, error) {
 	base, err := gitOutput(ctx, host, merge.repo, "merge-base", merge.tip, merge.origin)
 	if err != nil {
@@ -53,6 +54,7 @@ func taskIntegratorPrompt(
 	planner.WriteSection(&out, "Task", taskLines(task))
 	planner.WriteSection(&out, "Merge", taskMergeLines(merge, task.Seq, base))
 	planner.WriteSection(&out, "Conflicted paths", conflicted)
+	planner.WriteSection(&out, migrationsSection, collisions)
 	planner.WriteSection(&out, "Previous attempt", previousLines(previous))
 	return out.String(), nil
 }

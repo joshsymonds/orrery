@@ -4,6 +4,11 @@
 # no judge (internal/releasestep). A postcondition that already holds is met: a main, a tag, a pin or a running build
 # that has moved past the release's commit and still contains it is never moved back.
 
+# The store's goose migrations. Each integrate compose and release prepare checks that no new migration here takes a
+# version origin's main already uses for another file, and has the integrator renumber one that does.
+[migrations]
+goose = "internal/store/migrations"
+
 [release]
 then = "origin main and a tag that contains the released commit name it, nix-config pins that tag or a newer one, and orreryd and orrery-serve run it."
 

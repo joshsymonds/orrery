@@ -139,8 +139,9 @@ func TestConflictIntegratorWorktreeHoldsConflicts(t *testing.T) {
 }
 
 // TestConflictIntegratorBriefCarriesBothSides: the prompt opens with the role text, then the task being merged, the
-// merge with its message, each conflicted path with the tasks the candidate's side composed that changed it, and the
-// failure of the round before. README names only T1, which changed it, and notes only T3.
+// merge with its message, each conflicted path with the tasks the candidate's side composed that changed it, the
+// migration collisions, None. for a task with none, and the failure of the round before. README names only T1, which
+// changed it, and notes only T3.
 func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 	t.Parallel()
 	c := newTaskClash(t)
@@ -150,7 +151,7 @@ func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 		{Seq: 2, Title: "Title two", Deliverable: "Deliverable two"},
 		{Seq: 3, Title: "Title three", Deliverable: "Deliverable three"},
 	}
-	prompt, err := taskIntegratorPrompt(t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], "")
+	prompt, err := taskIntegratorPrompt(t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], nil, "")
 	if err != nil {
 		t.Fatalf("task integrator prompt: %v", err)
 	}
@@ -167,6 +168,7 @@ func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 		"\n## Conflicted paths\n" +
 			"- README\n  candidate T1 Title one, merged as " + composed1 + "\n    deliverable: Deliverable one\n" +
 			"- notes\n  candidate T3 Title three, merged as " + c.candidate + "\n    deliverable: Deliverable three\n",
+		"\n## Migration collisions\nNone.\n",
 		"\n## Previous attempt\nNone.\n",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -174,7 +176,9 @@ func TestConflictIntegratorBriefCarriesBothSides(t *testing.T) {
 		}
 	}
 
-	again, err := taskIntegratorPrompt(t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], "markers: README\n")
+	again, err := taskIntegratorPrompt(
+		t.Context(), hostexec.NewLocal(), merge, tasks, tasks[1], nil, "markers: README\n",
+	)
 	if err != nil {
 		t.Fatalf("task integrator prompt after a failure: %v", err)
 	}
