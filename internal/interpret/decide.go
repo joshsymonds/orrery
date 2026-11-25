@@ -52,7 +52,8 @@ const (
 // base and ends passed, so the epic goes on. Batch ends the integrate run Run at Path, whose Attempt ended with Outcome
 // and Output, with Trigger. ParkEpic parks the epic for Reason, with Trigger. Work carries a check or release node
 // run's work: Work is the kind's action, prepare, start, capture, repro, refs, advance, take, integrator, step, judge,
-// record, stop, ending, free, replan or resume, and Def, Run, IDs, Items, Tasks and Units are what it is for. An
+// record, stop, ending, free, replan, resume, task_integrator, repro_judge or verify, and Def, Run, IDs, Items, Tasks and
+// Units are what it is for. An
 // advance and a stop carry their Output, an ending its Outcome, an integrator the failure its round mends as its
 // Output, an integrate run's advance the Trigger its passed batch writes, a replan the plan run it starts as its Runs,
 // and the Trigger that wakes the planner and the tell as its Reason. Hold pauses the epic for the review step IDs[0],
@@ -366,7 +367,8 @@ func (p pass) running(def workflow.Node, run store.NodeRun, at scope) []Action {
 		return p.end(def, run, act, at)
 	case kinds.ActPrepare, kinds.ActStart, kinds.ActCapture, kinds.ActRepro, kinds.ActRefs, kinds.ActAdvance,
 		kinds.ActBegin, kinds.ActIntegrator, kinds.ActStep, kinds.ActJudge, kinds.ActRecord, kinds.ActStop,
-		kinds.ActEnding, kinds.ActResume, kinds.ActTaskIntegrator, kinds.ActReproJudge, kinds.ActTriage:
+		kinds.ActEnding, kinds.ActResume, kinds.ActTaskIntegrator, kinds.ActReproJudge, kinds.ActTriage,
+		kinds.ActVerify:
 		return []Action{p.work(def, run, act)}
 	case kinds.ActReplan:
 		return []Action{p.replan(def, run, act)}

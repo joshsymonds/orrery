@@ -45,6 +45,13 @@ type integrateOptions struct {
 	pin       store.EpicWorkflow
 	viaRunner bool
 	repo      func(t *testing.T) (string, string)
+	gates     []store.EpicGate
+	done      []string
+}
+
+// gatedBy gives the test epic gates as its gates and done as its Done gates, in place of nodeGates and lint.
+func gatedBy(gates []store.EpicGate, done ...string) integrateOption {
+	return func(o *integrateOptions) { o.gates, o.done = gates, done }
 }
 
 // integrateOption sets one of integrateOptions before the test epic is stored.
@@ -85,7 +92,7 @@ type integrateWorld struct {
 // apply to the epic and its passes.
 func newIntegrateWorld(t *testing.T, opts ...integrateOption) *integrateWorld {
 	t.Helper()
-	var o integrateOptions
+	o := integrateOptions{gates: nodeGates(), done: []string{integrateDoneGate}}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -98,7 +105,7 @@ func newIntegrateWorld(t *testing.T, opts ...integrateOption) *integrateWorld {
 	nodeGit(t, repo, "update-ref", integrateBranch, base)
 	if err := s.CreateEpic(context.Background(), store.EpicRow{
 		ID: runEpic, Repository: repo, Base: base, Title: "Integrate the batches", Phase: runPhase,
-		Created: runClock(), Changed: runClock(), Gates: nodeGates(), DoneGates: []string{integrateDoneGate},
+		Created: runClock(), Changed: runClock(), Gates: o.gates, DoneGates: o.done,
 		Requirements: nodeRequirements(), Workflow: o.pin,
 	}); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
@@ -321,9 +328,9 @@ func integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(images *world
 		w.pass()
 
 		run := runAt(t, w.s, integrateBatch)
-		if run.State != store.NodeEnded || run.Outcome != "failed" ||
-			run.Output != "Done gate lint failed; "+refusedTriage {
-			t.Errorf("batch = %+v, want ended failed on the failed gate", run)
+		output := "Done gate lint failed; " + refusedTriage + "\n" + noRoleFallbackLine(run)
+		if run.State != store.NodeEnded || run.Outcome != "failed" || run.Output != output {
+			t.Errorf("batch = %+v, want ended failed on the failed gate with output %q", run, output)
 		}
 		if epic := epicOf(t, w.s); epic.StoredBase != w.base || epic.Candidate != candidate {
 			t.Errorf(
@@ -480,14 +487,15 @@ func TestIntegrateConflictLeavesTaskOutAndNoTrigger(t *testing.T) {
 	}
 	const conflict = "T2 conflicts with the candidate at b.go"
 	run := runAt(t, w.s, integrateBatch)
-	if run.State != store.NodeEnded || run.Outcome != "passed" || run.Output != "R1 green\n"+conflict {
-		t.Errorf("batch = %+v, want ended passed with output %q", run, "R1 green\n"+conflict)
+	output := "R1 green\n" + conflict + "\n" + asBeforeLines
+	if run.State != store.NodeEnded || run.Outcome != "passed" || run.Output != output {
+		t.Errorf("batch = %+v, want ended passed with output %q", run, output)
 	}
 	triggers, err := w.s.TurnTriggers(context.Background(), runEpic, 0)
 	if err != nil {
 		t.Fatalf("TurnTriggers: %v", err)
 	}
-	wantCause := fmt.Sprintf("workflow node %s passed: R1 green\n%s", integrateBatch, conflict)
+	wantCause := fmt.Sprintf("workflow node %s passed: %s", integrateBatch, output)
 	if slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool { return trigger.Cause == wantCause }) {
 		t.Errorf("pending triggers = %+v, want none with cause %q: the sent-back task is open after the batch",
 			triggers, wantCause)

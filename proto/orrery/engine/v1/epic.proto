@@ -297,6 +297,13 @@ message EpicGate {
 
   // The statements the agent's return must show do not hold.
   repeated string must_not = 7;
+
+  // Whether the gate runs on every verification of a candidate, whatever the verification choice picks; a command gate
+  // only, since an agent gate is never a Done gate.
+  bool always = 8;
+
+  // What the gate covers, for the judge that picks a candidate's verification to read; empty for none.
+  string note = 9;
 }
 
 // EvidenceItem is how a requirement or task shows its evidence: a capture a gate runs, or files the agent supplied.

@@ -18,13 +18,17 @@ import (
 
 // batchResult is the Result an integrate run claims its batch with, in the JSON the integrate kind reads: the base the
 // batch composed on, the candidate it made, the tasks that became commits and the tasks left out, each with its reason,
-// and how it checked its tasks' migrations, nil when its project declares none.
+// and how it checked its tasks' migrations, nil when its project declares none. Verification is the batch's
+// verification choice once it is recorded, and RoundVerifications the choice of each task integrator round's merged
+// commit that has one, which the integrate kind reads before it runs any Done gate (see verify).
 type batchResult struct {
-	Base       string           `json:"base"`
-	Candidate  string           `json:"candidate"`
-	Composed   []batchCommit    `json:"composed"`
-	LeftOut    []batchLeftOut   `json:"leftOut"`
-	Migrations *batchMigrations `json:"migrations,omitempty"`
+	Base               string                    `json:"base"`
+	Candidate          string                    `json:"candidate"`
+	Composed           []batchCommit             `json:"composed"`
+	LeftOut            []batchLeftOut            `json:"leftOut"`
+	Migrations         *batchMigrations          `json:"migrations,omitempty"`
+	Verification       *kinds.Verification       `json:"verification,omitempty"`
+	RoundVerifications []kinds.RoundVerification `json:"roundVerifications,omitempty"`
 }
 
 // batchMigrations is how a batch checked its tasks' migrations: the directory of goose migrations the project file at
@@ -393,7 +397,7 @@ func encodeBatch(result compose.Result, checked batchMigrations) (string, error)
 
 // composedRound returns result, the result an integrate run claimed its batch with, with task moved from the tasks it left
 // out to the tasks it composed, into commit. It is the result a round writes when its merged commit composes the task, so
-// the task is no longer left out, and sendBacks never sends it back.
+// the task is no longer left out, and sendBacks never sends it back. The verification choices result records stay.
 func composedRound(result string, seq int64, commit string) (string, error) {
 	var batch batchResult
 	if err := json.Unmarshal([]byte(result), &batch); err != nil {
@@ -403,7 +407,7 @@ func composedRound(result string, seq int64, commit string) (string, error) {
 		Base: batch.Base, Candidate: batch.Candidate,
 		Composed:   slices.Concat(batch.Composed, []batchCommit{{Task: seq, Commit: commit}}),
 		LeftOut:    make([]batchLeftOut, 0, len(batch.LeftOut)),
-		Migrations: batch.Migrations,
+		Migrations: batch.Migrations, Verification: batch.Verification, RoundVerifications: batch.RoundVerifications,
 	}
 	for _, left := range batch.LeftOut {
 		if left.Task != seq {

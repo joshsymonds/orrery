@@ -47,7 +47,7 @@ func epicTableColumns() map[string][]string {
 		"epic_alternatives":  {"epic", "position", "alternative", "why_not", "reconsider"},
 		"epic_release_steps": {"epic", "position", "step", "target", "undo", "kind", "params"},
 		"epic_gates": {
-			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not",
+			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not", "always", "note",
 		},
 		"epic_gate_lists": {"epic", "list", "position", "gate"},
 		// The recipient an owner's decision is owed to, from 00081_epic_actions.sql.

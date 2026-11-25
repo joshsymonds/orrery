@@ -447,6 +447,8 @@ type EpicGate struct {
 	Agent        string
 	Must         string
 	MustNot      string
+	Always       int64
+	Note         string
 }
 
 type EpicGateList struct {

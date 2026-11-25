@@ -11,15 +11,27 @@ import (
 var _ Kind = Integrate{}
 
 // batchPath is the path of the integrate run the tests decide, and the Results an integrate run records: one commit
-// composed and nothing left out, one composed with a task left out, and nothing composed.
+// composed and nothing left out, unverified with no verification choice recorded yet, one composed with a task left out,
+// and nothing composed.
 const (
 	batchPath       = "plan/S1/integrate"
-	composedOne     = `{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],"leftOut":[]}`
-	composedLeftOut = `{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],` +
-		`"leftOut":[{"task":2,"reason":"T2 overlaps T1 at a.go"}]}`
+	unverifiedOne   = `{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],"leftOut":[]}`
 	nothingComposed = `{"base":"base-1","candidate":"base-1","composed":[],` +
 		`"leftOut":[{"task":1,"reason":"T1 was built on base-0, not on the batch base base-1"}]}`
 )
+
+// composedOne returns unverifiedOne with a verification recorded that decides the batch as it was decided before a
+// choice was made (asBefore).
+func composedOne() string {
+	return asBefore(unverifiedOne)
+}
+
+// composedLeftOut returns the result of a batch that composed task 1 and left task 2 out, with a verification recorded
+// as composedOne's.
+func composedLeftOut() string {
+	return asBefore(`{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],` +
+		`"leftOut":[{"task":2,"reason":"T2 overlaps T1 at a.go"}]}`)
+}
 
 // batchNode returns the integrate run at batchPath of the test run at attempt 1, at revision with result, and
 // refsChecked when its refs were compared.
@@ -189,49 +201,49 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"first Done gate not started starts its check",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic},
 			Action{Kind: ActStart, IDs: []string{workID("done 1")}, Items: []string{"just check"}},
 		},
 		{
 			"running Done gate waits",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{runningCheck("done 1")}},
 			Action{Kind: ActNone},
 		},
 		{
 			"second Done gate starts once the first passed",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{passedCheck("done 1")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 2")}, Items: []string{"just lint"}},
 		},
 		{
 			"Done gate lost at a restart reruns once",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{lostCheck("done 1")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 1 rerun")}, Items: []string{"just check"}},
 		},
 		{
 			"rerun of a lost Done gate waits while it runs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{lostCheck("done 1"), runningCheck("done 1 rerun")}},
 			Action{Kind: ActNone},
 		},
 		{
 			"rerun of a lost Done gate lost again parks",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{lostCheck("done 1"), lostCheck("done 1 rerun")}},
 			Action{Kind: ActPark, Output: "integrate plan/S1/integrate: Done gate just check lost at a restart twice"},
 		},
 		{
 			"rerun that passed stands for its lost Done gate",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{lostCheck("done 1"), passedCheck("done 1 rerun")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 2")}, Items: []string{"just lint"}},
 		},
 		{
 			"failed Done gate ends red with the captures skipped",
-			batchNode(testRev, composedLeftOut, true),
+			batchNode(testRev, composedLeftOut(), true),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
 				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
@@ -241,7 +253,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"failed Done gate checks refs before it ends red",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
 				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
@@ -250,7 +262,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"timed out Done gate fails",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{passedCheck("done 1"), timedOutCheck("done 2")},
 				Triages: []store.GateTriage{changeTriaged(workID("done 2"))},
@@ -259,7 +271,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"Done gate that did not run fails",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: []store.NodeCheck{{
 				ID: workID("done 1"), State: store.NodeEnded, NotRun: "no gate named just check",
 			}}},
@@ -267,7 +279,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"captures that have no run start together",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed()},
 			Action{Kind: ActCapture,
 				IDs:   []string{workID("capture R1"), workID("capture R2")},
@@ -275,13 +287,13 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"missing capture starts while another waits",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{runningCapture("capture R2")}},
 			Action{Kind: ActCapture, IDs: []string{workID("capture R1")}, Items: []string{"R1"}},
 		},
 		{
 			"running capture waits before refs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				greenCapture("capture R1", true), runningCapture("capture R2"),
 			}},
@@ -289,7 +301,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"capture lost at a restart reruns once",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				lostCapture("capture R1"), greenCapture("capture R2", true),
 			}},
@@ -297,7 +309,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"rerun of a lost capture waits while it runs",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				lostCapture("capture R1"), runningCapture("capture R1 rerun"), greenCapture("capture R2", true),
 			}},
@@ -305,7 +317,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"rerun of a lost capture lost again parks",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				lostCapture("capture R1"), lostCapture("capture R1 rerun"), greenCapture("capture R2", true),
 			}},
@@ -313,7 +325,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"rerun that passed stands for its lost capture and the epic advances",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				lostCapture("capture R1"), greenCapture("capture R1 rerun", true), greenCapture("capture R2", true),
 			}},
@@ -321,7 +333,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"capture not captured for another reason fails red",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				{
 					ID: workID("capture R1"), Phase: evidence.PhaseGreen, State: runEnded,
@@ -333,7 +345,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"capture with no verdict fails red",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				{ID: workID("capture R1"), Phase: evidence.PhaseGreen, State: runEnded},
 				greenCapture("capture R2", true),
@@ -342,7 +354,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"capture that does not hold advances when nothing regressed",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				greenCapture("capture R1", false), greenCapture("capture R2", true),
 			}},
@@ -350,7 +362,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"Requirement green at the stored base that no longer holds fails red",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic:   epic,
 				Checks: gatesPassed(),
@@ -370,7 +382,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"advance lists every Requirement and the left-out lines",
-			batchNode(testRev, composedLeftOut, true),
+			batchNode(testRev, composedLeftOut(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				greenCapture("capture R1", true), greenCapture("capture R2", true),
 			}},
@@ -379,7 +391,7 @@ func TestIntegrateBatch(t *testing.T) {
 		},
 		{
 			"gates and captures passed with refs not checked gives refs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				greenCapture("capture R1", true), greenCapture("capture R2", true),
 			}},
@@ -769,13 +781,13 @@ func TestIntegrateCapturesOnlyTheRequirementsItsBatchTouched(t *testing.T) {
 	cases := []decideCase{
 		{
 			"only the Requirement the batch's task claims is captured",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed()},
 			Action{Kind: ActCapture, IDs: []string{workID("capture R2")}, Items: []string{"R2"}},
 		},
 		{
 			"a Requirement the batch left alone keeps its green at the stored base",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: gatesPassed(), Runs: []store.NodeRun{earlier},
 				Evidence: []store.EvidenceRun{earlierR1, greenCapture("capture R2", true)},
@@ -785,13 +797,13 @@ func TestIntegrateCapturesOnlyTheRequirementsItsBatchTouched(t *testing.T) {
 		},
 		{
 			"a Requirement the batch left alone that is not green at the stored base is no cause",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{greenCapture("capture R2", true)}},
 			Action{Kind: ActAdvance, Output: "R1 not yet green\nR2 green\nR3 not yet green"},
 		},
 		{
 			"a result whose composed tasks do not decode captures every Requirement",
-			batchNode(testRev, undecodable, false),
+			batchNode(testRev, asBefore(undecodable), false),
 			Rows{Epic: epic, Checks: gatesPassed()},
 			Action{
 				Kind:  ActCapture,

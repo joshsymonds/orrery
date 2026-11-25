@@ -16,7 +16,7 @@ func TestTriagedCheckFindsTheCheckItsStepTriages(t *testing.T) {
 		Runs:   []store.NodeRun{gateRun},
 		Checks: []store.NodeCheck{failedCheck("check"), failedCheck("check rerun")},
 	}
-	batch := batchNode("cand-1", conflictLeftOut, false).Run
+	batch := batchNode("cand-1", conflictLeftOut(), false).Run
 	batch.State = store.NodeRunning
 	batchRows := Rows{
 		Epic:   conflictEpic(),

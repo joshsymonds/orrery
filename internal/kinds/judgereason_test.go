@@ -51,7 +51,7 @@ func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 		t.Parallel()
 		rows := restingRows(gatesPassed(), judgedFailing(workID("capture R1")), greenCapture("capture R2", true))
 		checkDecisions(t, Integrate{}, []decideCase{{
-			"regression names the reason", batchNode(testRev, composedOne, true), rows,
+			"regression names the reason", batchNode(testRev, composedOne(), true), rows,
 			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: regressedLine},
 		}})
 	})
@@ -66,11 +66,11 @@ func TestJudgeCarryRegressionNamesReason(t *testing.T) {
 			},
 		}
 		checkDecisions(t, Integrate{}, []decideCase{{
-			"the round's failure names the reason", batchNode("cand-1", conflictLeftOut, true), rows,
+			"the round's failure names the reason", batchNode("cand-1", conflictLeftOut(), true), rows,
 			Action{
 				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
 				Output: "R1 was green at the stored base base-1, and its capture on commit m1 exited 0 and was " +
-					"judged fails: the output shows TestX failing",
+					"judged fails: the output shows TestX failing\n" + roundFallbackLine,
 			},
 		}})
 	})
@@ -84,7 +84,7 @@ func TestJudgeCarryHoldsWithReasonProceeds(t *testing.T) {
 	held.JudgeReason = "the output shows TestX passing"
 	rows := restingRows(gatesPassed(), held, greenCapture("capture R2", true))
 	checkDecisions(t, Integrate{}, []decideCase{{
-		"held capture advances", batchNode(testRev, composedOne, true), rows,
+		"held capture advances", batchNode(testRev, composedOne(), true), rows,
 		Action{Kind: ActAdvance, Output: "R1 green\nR2 green\nR3 not yet green"},
 	}})
 }

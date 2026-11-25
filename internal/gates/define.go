@@ -5,67 +5,85 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 )
 
-// Define builds one gate from data the way a [gates.NAME] table of a gates file is checked: the same name pattern,
-// the same refusals and the same defaults. An agent gate is one whose agent is non-empty; any other is an argv gate.
-// Empty slices count as absent.
-func Define(name string, argv []string, limit int64, needs []Need, agent string, must, mustNot []string) (Gate, error) {
-	if !namePattern.MatchString(name) {
-		return Gate{}, fmt.Errorf("gate %q: name must match [a-z][a-z0-9_]*", name)
+// Definition is one gate as data, the fields a [gates.NAME] table holds: its name, its argv, its limit in seconds and
+// the pool members it needs, or the agent that checks its must and must_not assertions, and whether it is always run
+// and what it covers. Empty slices count as absent, and so does a blank note.
+type Definition struct {
+	Name    string
+	Argv    []string
+	Limit   int64
+	Needs   []Need
+	Agent   string
+	Must    []string
+	MustNot []string
+	Always  bool
+	Note    string
+}
+
+// Define builds one gate from def the way a [gates.NAME] table of a gates file is checked: the same name pattern, the
+// same refusals and the same defaults. An agent gate is one whose agent is non-empty; any other is an argv gate. Its note
+// is trimmed of surrounding white space.
+func Define(def Definition) (Gate, error) {
+	if !namePattern.MatchString(def.Name) {
+		return Gate{}, fmt.Errorf("gate %q: name must match [a-z][a-z0-9_]*", def.Name)
 	}
-	if agent != "" {
-		return defineAgent(name, argv, limit, needs, agent, must, mustNot)
+	if def.Agent != "" {
+		return defineAgent(def)
 	}
-	return defineArgv(name, argv, limit, needs, must, mustNot)
+	return defineArgv(def)
 }
 
 // defineArgv checks an argv gate and returns it as a Gate.
-func defineArgv(name string, argv []string, limit int64, needs []Need, must, mustNot []string) (Gate, error) {
-	if len(must) > 0 {
-		return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside argv", name, keyMust)
+func defineArgv(def Definition) (Gate, error) {
+	if len(def.Must) > 0 {
+		return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside argv", def.Name, keyMust)
 	}
-	if len(mustNot) > 0 {
-		return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside argv", name, keyMustNot)
+	if len(def.MustNot) > 0 {
+		return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside argv", def.Name, keyMustNot)
 	}
-	if err := checkArgv(name, argv); err != nil {
+	if err := checkArgv(def.Name, def.Argv); err != nil {
 		return Gate{}, err
 	}
-	duration, err := toLimit(name, limit)
+	duration, err := toLimit(def.Name, def.Limit)
 	if err != nil {
 		return Gate{}, err
 	}
-	checked, err := checkNeeds(name, needs)
+	checked, err := checkNeeds(def.Name, def.Needs)
 	if err != nil {
 		return Gate{}, err
 	}
-	return Gate{Name: name, Argv: argv, Limit: duration, Needs: checked}, nil
+	return Gate{
+		Name: def.Name, Argv: def.Argv, Limit: duration, Needs: checked, Always: def.Always,
+		Note: strings.TrimSpace(def.Note),
+	}, nil
 }
 
-// defineAgent checks an agent gate and returns it as a Gate. It takes no argv and no needs.
-func defineAgent(
-	name string,
-	argv []string,
-	limit int64,
-	needs []Need,
-	agent string,
-	must, mustNot []string,
-) (Gate, error) {
-	if len(argv) > 0 {
-		return Gate{}, fmt.Errorf("gate %q: argv cannot sit beside agent", name)
+// defineAgent checks an agent gate and returns it as a Gate. It takes no argv, no needs and no always, since an agent
+// gate is never a Done gate.
+func defineAgent(def Definition) (Gate, error) {
+	if len(def.Argv) > 0 {
+		return Gate{}, fmt.Errorf("gate %q: argv cannot sit beside agent", def.Name)
 	}
-	if len(needs) > 0 {
-		return Gate{}, fmt.Errorf("gate %q: needs cannot sit beside agent", name)
+	if len(def.Needs) > 0 {
+		return Gate{}, fmt.Errorf("gate %q: needs cannot sit beside agent", def.Name)
 	}
-	duration, err := toLimit(name, limit)
+	if def.Always {
+		return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside agent", def.Name, keyAlways)
+	}
+	duration, err := toLimit(def.Name, def.Limit)
 	if err != nil {
 		return Gate{}, err
 	}
-	assertions, err := toAssertions(name, gateFile{Must: must, MustNot: mustNot})
+	assertions, err := toAssertions(def.Name, gateFile{Must: def.Must, MustNot: def.MustNot})
 	if err != nil {
 		return Gate{}, err
 	}
-	return Gate{Name: name, Agent: agent, Limit: duration, Assertions: assertions}, nil
+	return Gate{
+		Name: def.Name, Agent: def.Agent, Limit: duration, Assertions: assertions, Note: strings.TrimSpace(def.Note),
+	}, nil
 }
 
 // checkNeeds checks an argv gate's needs and returns them sorted by pool. Empty needs take one member of DefaultPool.

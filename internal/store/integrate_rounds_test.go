@@ -123,6 +123,53 @@ func TestIntegrateRoundComposeMovesRun(t *testing.T) {
 	requireIntegrateRun(t, s, path, ended)
 }
 
+// TestSwapIntegrateRunResult checks that a swap writes the new result only while the running run holds the result it
+// names, and reports whether it wrote: a swap from a result the run no longer holds, at another attempt, or of a run
+// that has ended writes nothing.
+func TestSwapIntegrateRunResult(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openIntegrateStore(t)
+	const (
+		path    = "plan/S1/integrate"
+		claimed = `{"composed":[]}`
+		chosen  = `{"composed":[],"verification":{}}`
+	)
+	startIntegrateRuns(t, s, NodeRun{Path: path, ID: "id-s1", Node: "integrate", Kind: "integrate", Attempt: 1})
+	if err := s.ClaimBatch(ctx, integrateEpic, path, 1, "rev-1", "", claimed, nil); err != nil {
+		t.Fatalf("ClaimBatch: %v", err)
+	}
+	swap := func(attempt int64, was, result string) bool {
+		t.Helper()
+		swapped, err := s.SwapIntegrateRunResult(ctx, integrateEpic, path, attempt, was, result, integrateEndedAt())
+		if err != nil {
+			t.Fatalf("SwapIntegrateRunResult: %v", err)
+		}
+		return swapped
+	}
+	if !swap(1, claimed, chosen) {
+		t.Fatal("a swap from the held result wrote nothing")
+	}
+	if swap(1, claimed, "stale") || swap(2, chosen, "another attempt") {
+		t.Error("a swap from a result the run does not hold, or at another attempt, wrote")
+	}
+	requireIntegrateRun(t, s, path, NodeRun{
+		Path: path, ID: "id-s1", Node: "integrate", Kind: "integrate", Attempt: 1, Revision: "rev-1", Result: chosen,
+		State: NodeRunning, Started: integrateStartedAt(),
+	})
+	if err := s.EndNodes(
+		ctx,
+		integrateEpic,
+		[]NodeEnd{{Path: path, Outcome: "passed"}},
+		integrateEndedAt(),
+	); err != nil {
+		t.Fatalf("EndNodes: %v", err)
+	}
+	if swap(1, chosen, "after the end") {
+		t.Error("a swap of an ended run wrote")
+	}
+}
+
 // TestIntegrateRoundFailKeepsEarlierRounds checks that failing a round keeps the rounds before it as they were, and
 // that a round already composed keeps its outcome when it is failed.
 func TestIntegrateRoundFailKeepsEarlierRounds(t *testing.T) {

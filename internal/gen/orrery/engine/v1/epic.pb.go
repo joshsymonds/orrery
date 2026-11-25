@@ -732,7 +732,12 @@ type EpicGate struct {
 	// The statements the agent's return must show hold.
 	Must []string `protobuf:"bytes,6,rep,name=must,proto3" json:"must,omitempty"`
 	// The statements the agent's return must show do not hold.
-	MustNot       []string `protobuf:"bytes,7,rep,name=must_not,json=mustNot,proto3" json:"must_not,omitempty"`
+	MustNot []string `protobuf:"bytes,7,rep,name=must_not,json=mustNot,proto3" json:"must_not,omitempty"`
+	// Whether the gate runs on every verification of a candidate, whatever the verification choice picks; a command gate
+	// only, since an agent gate is never a Done gate.
+	Always bool `protobuf:"varint,8,opt,name=always,proto3" json:"always,omitempty"`
+	// What the gate covers, for the judge that picks a candidate's verification to read; empty for none.
+	Note          string `protobuf:"bytes,9,opt,name=note,proto3" json:"note,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -814,6 +819,20 @@ func (x *EpicGate) GetMustNot() []string {
 		return x.MustNot
 	}
 	return nil
+}
+
+func (x *EpicGate) GetAlways() bool {
+	if x != nil {
+		return x.Always
+	}
+	return false
+}
+
+func (x *EpicGate) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
 }
 
 // EvidenceItem is how a requirement or task shows its evidence: a capture a gate runs, or files the agent supplied.
@@ -7668,7 +7687,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\fdisagreement\x18\t \x01(\tR\fdisagreement\"8\n" +
 	"\fEpicGateNeed\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x03R\x05count\"\xc3\x01\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xef\x01\n" +
 	"\bEpicGate\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04argv\x18\x02 \x03(\tR\x04argv\x12\x14\n" +
@@ -7676,7 +7695,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05needs\x18\x04 \x03(\v2\x1e.orrery.engine.v1.EpicGateNeedR\x05needs\x12\x14\n" +
 	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x12\n" +
 	"\x04must\x18\x06 \x03(\tR\x04must\x12\x19\n" +
-	"\bmust_not\x18\a \x03(\tR\amustNot\"\xd8\x01\n" +
+	"\bmust_not\x18\a \x03(\tR\amustNot\x12\x16\n" +
+	"\x06always\x18\b \x01(\bR\x06always\x12\x12\n" +
+	"\x04note\x18\t \x01(\tR\x04note\"\xd8\x01\n" +
 	"\fEvidenceItem\x12\x18\n" +
 	"\acapture\x18\x01 \x03(\tR\acapture\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x03R\x05limit\x12\x1c\n" +

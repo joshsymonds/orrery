@@ -72,6 +72,31 @@ func (s *Store) ComposeIntegrateRound(
 	})
 }
 
+// SwapIntegrateRunResult replaces the result of the run at path of epic, running at attempt, with result, in one
+// write, only while the run still holds was. It reports whether it wrote, so a result the run no longer holds, a run at
+// another attempt and a run that is not running change nothing, and a repeat of a swap already written writes nothing.
+// A change moves the epic's changed to at. An integrate run records its verification choices this way, on the result
+// its kind decides from.
+func (s *Store) SwapIntegrateRunResult(
+	ctx context.Context, epic, path string, attempt int64, was, result string, at time.Time,
+) (bool, error) {
+	swapped := false
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		rows, err := queries.SwapIntegrateRunResult(ctx, sqlcgen.SwapIntegrateRunResultParams{
+			Result: result, Epic: epic, Path: path, Attempt: attempt, Was: was,
+		})
+		if err != nil {
+			return fmt.Errorf("swap result of node run %s of epic %s: %w", path, epic, err)
+		}
+		if rows == 0 {
+			return nil
+		}
+		swapped = true
+		return moveIntegrateChanged(ctx, queries, epic, at)
+	})
+	return swapped, err
+}
+
 // FailIntegrateRound fails the round at round of the task at task, which the run at path ran at attempt, with failure,
 // in one write. It changes nothing unless the round has no outcome yet, so a round that is already composed or failed
 // keeps its outcome, and the rounds before it are kept as they are. A change moves the epic's changed to at.

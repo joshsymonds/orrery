@@ -130,7 +130,9 @@ func (r *Runner) reviewUnitStart(
 // doneGateChecks returns the checks of the Done gates that ran at revision of epic: the checks that the newest started
 // run at that revision with any ran there and that ended with a result, in the order they were created. That run is the
 // integrate run that made revision the epic's stored base. A check lost at a restart, and one that exited
-// store.EnvironmentExit, which its rerun replaces, are left out. It returns none when no run ran a check at revision.
+// store.EnvironmentExit, which its rerun replaces, are left out. A Done gate that run's verification choice skipped has
+// no check, so it is not among them: the Test cost reads what ran, never a skipped gate as one that passed. It returns
+// none when no run ran a check at revision.
 // It also returns the base measurement of test cost: the cost checks of the same read (store.CostChecks), so both
 // describe the same state of the epic's checks.
 func (r *Runner) doneGateChecks(

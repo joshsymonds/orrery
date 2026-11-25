@@ -14,7 +14,7 @@ const rerunAttempt = 2
 func rerunBatchNode() Node {
 	return Node{Run: store.NodeRun{
 		ID: testRunID, Path: batchPath, Kind: "integrate", Attempt: rerunAttempt,
-		Revision: testRev, Result: composedOne, State: store.NodeRunning,
+		Revision: testRev, Result: composedOne(), State: store.NodeRunning,
 	}}
 }
 

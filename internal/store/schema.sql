@@ -265,7 +265,7 @@ CREATE TABLE epic_gates (
     needs TEXT NOT NULL,
     agent TEXT NOT NULL,
     must TEXT NOT NULL,
-    must_not TEXT NOT NULL,
+    must_not TEXT NOT NULL, always INTEGER NOT NULL DEFAULT 0 CHECK (always IN (0, 1)), note TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (epic, position)
 );
 CREATE TABLE epic_gate_lists (
@@ -1256,6 +1256,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (119,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,119,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (122,121,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);

@@ -18,6 +18,8 @@ type defineCase struct {
 	agent   string
 	must    []string
 	mustNot []string
+	always  bool
+	note    string
 }
 
 // argvCase is a valid argv gate whose needs are unsorted, so a match with ParseFile also shows the sort.
@@ -42,7 +44,46 @@ func agentCase() defineCase {
 }
 
 func (c defineCase) define() (Gate, error) {
-	return Define(c.name, c.argv, c.limit, c.needs, c.agent, c.must, c.mustNot)
+	return Define(Definition{
+		Name: c.name, Argv: c.argv, Limit: c.limit, Needs: c.needs, Agent: c.agent, Must: c.must, MustNot: c.mustNot,
+		Always: c.always, Note: c.note,
+	})
+}
+
+// TestDefineMatchesParseFileForAlwaysAndNote: an argv gate declared always with a note, and an agent gate with a note,
+// define as the same tables of a gates file parse, the note trimmed.
+func TestDefineMatchesParseFileForAlwaysAndNote(t *testing.T) {
+	t.Parallel()
+	argvKeys := append(gateKeys(), `always = true`, `note = "  every Go package's race tests  "`)
+	agentNoted := append(agentKeys(), `note = "reads the diff for vendored code"`)
+	parsed, err := ParseFile(
+		testPath,
+		[]byte(file(table("gates.alpha", argvKeys...), table("gates.beta", agentNoted...))),
+	)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	argv := argvCase()
+	argv.always, argv.note = true, "  every Go package's race tests  "
+	gotArgv, err := argv.define()
+	if err != nil {
+		t.Fatalf("Define argv: %v", err)
+	}
+	if !reflect.DeepEqual(gotArgv, parsed[0]) {
+		t.Fatalf("Define = %+v, ParseFile = %+v", gotArgv, parsed[0])
+	}
+	if !gotArgv.Always || gotArgv.Note != "every Go package's race tests" {
+		t.Fatalf("Define = %+v, want always with the trimmed note", gotArgv)
+	}
+	agent := agentCase()
+	agent.name, agent.note = "beta", "reads the diff for vendored code"
+	gotAgent, err := agent.define()
+	if err != nil {
+		t.Fatalf("Define agent: %v", err)
+	}
+	if !reflect.DeepEqual(gotAgent, parsed[1]) {
+		t.Fatalf("Define = %+v, ParseFile = %+v", gotAgent, parsed[1])
+	}
 }
 
 func TestDefineMatchesParseFileForArgvGate(t *testing.T) {
@@ -204,6 +245,7 @@ func defineRefusals() []defineRefusal {
 		{"agent empty must_not element", agent(func(c *defineCase) { c.mustNot = []string{""} }),
 			"must_not has an empty element"},
 		{"agent limit zero", agent(func(c *defineCase) { c.limit = 0 }), "limit 0 is outside 1 to"},
+		{"always beside agent", agent(func(c *defineCase) { c.always = true }), "always cannot sit beside agent"},
 	}
 }
 

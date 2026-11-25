@@ -36,12 +36,14 @@ func evidenceEpic(id string) EpicRow {
 	row.Gates = []EpicGate{
 		{
 			Name: "verify", Argv: []string{"just", "check"}, Limit: 1800,
-			Needs: []EpicGateNeed{{Pool: "gate", Count: 2}, {Pool: "heavy", Count: 1}},
+			Needs:  []EpicGateNeed{{Pool: "gate", Count: 2}, {Pool: "heavy", Count: 1}},
+			Always: true, Note: "the full suite",
 		},
 		{
 			Name: "review", Agent: "reviewer",
 			Must:    []string{"Cite file and line", "Name every finding"},
 			MustNot: []string{"Edit files"},
+			Note:    "reads every finding",
 		},
 	}
 	row.DoneGates = []string{"verify", "review"}
@@ -108,5 +110,38 @@ func TestEpicWithoutItemReadsZeroItemAndStoresEmptyColumn(t *testing.T) {
 	}
 	if want := []string{"", ""}; !reflect.DeepEqual(stored, want) {
 		t.Errorf("stored items = %q, want %q: a zero Item is stored as the empty string", stored, want)
+	}
+}
+
+// gateAlwaysNoteDownAndUp is the walk's check of 00121_gate_always_note.sql: a gate stored always with a note keeps its
+// row when the Down drops both columns, and its Up adds them back at their defaults, so the gate reads back as not
+// always and with no note.
+func gateAlwaysNoteDownAndUp() migrationCheck {
+	const id = "orrery-1a2b3c4/epic-gate-always"
+	return migrationCheck{
+		seed: func(t *testing.T, s *Store) {
+			t.Helper()
+			createEpic(t, s, evidenceEpic(id))
+		},
+		down: func(t *testing.T, s *Store) {
+			t.Helper()
+			var gates int
+			if err := s.db.DB.QueryRow(`SELECT COUNT(*) FROM epic_gates WHERE epic = ?`, id).Scan(&gates); err != nil ||
+				gates != 2 {
+				t.Errorf("epic_gates after Down counts %d (err %v), want the two gates", gates, err)
+			}
+		},
+		up: func(t *testing.T, s *Store) {
+			t.Helper()
+			got, err := s.Epic(context.Background(), id)
+			if err != nil {
+				t.Fatalf("Epic: %v", err)
+			}
+			for _, gate := range got.Gates {
+				if gate.Always || gate.Note != "" {
+					t.Errorf("gate %s after Down and Up = %+v, want not always and no note", gate.Name, gate)
+				}
+			}
+		},
 	}
 }

@@ -61,6 +61,9 @@ type Store interface {
 	FailIntegrateRound(
 		ctx context.Context, epic, path string, attempt, task, round int64, failure string, at time.Time,
 	) error
+	SwapIntegrateRunResult(
+		ctx context.Context, epic, path string, attempt int64, was, result string, at time.Time,
+	) (bool, error)
 	RecordReproRuling(ctx context.Context, epic string, ruling store.ReproRuling, at time.Time) error
 	ReproRulings(ctx context.Context, epic string) ([]store.ReproRuling, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)

@@ -283,13 +283,13 @@ func TestIntegrateDoneGateTriage(t *testing.T) {
 	cases := []decideCase{
 		{
 			"failed Done gate starts its triage",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")}},
 			triageStart("done 1", nil, "just check", TriageEnvironment, TriageFlake),
 		},
 		{
 			"environment triage reruns the Done gate",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
 				Triages: []store.GateTriage{triaged(workID("done 1"), TriageEnvironment, "load 300")},
@@ -298,7 +298,7 @@ func TestIntegrateDoneGateTriage(t *testing.T) {
 		},
 		{
 			"change triage ends the batch red with its line",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
 				Triages: []store.GateTriage{{

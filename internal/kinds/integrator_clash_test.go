@@ -30,7 +30,7 @@ func ranStep(round int64) store.StepRow {
 // round names the clash, the round it ended the rounds at.
 func TestIntegratorClashEndingNamesHowTheRoundsEnded(t *testing.T) {
 	t.Parallel()
-	run := batchNode("cand-1", conflictLeftOut, true).Run
+	run := batchNode("cand-1", conflictLeftOut(), true).Run
 	cases := []struct {
 		name   string
 		rounds []store.IntegrateRound
@@ -85,7 +85,7 @@ func TestIntegratorClashEndingNamesHowTheRoundsEnded(t *testing.T) {
 // before, so its reason is not extended.
 func TestIntegratorClashEndingLeavesOutRoundsThatDidNotEnd(t *testing.T) {
 	t.Parallel()
-	run := batchNode("cand-1", conflictLeftOut, true).Run
+	run := batchNode("cand-1", conflictLeftOut(), true).Run
 	cases := []struct {
 		name   string
 		rounds []store.IntegrateRound

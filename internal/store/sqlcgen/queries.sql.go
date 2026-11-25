@@ -3991,8 +3991,8 @@ func (q *Queries) InsertEpicGapTurn(ctx context.Context, arg InsertEpicGapTurnPa
 }
 
 const insertEpicGate = `-- name: InsertEpicGate :exec
-INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not, always, note)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicGateParams struct {
@@ -4005,6 +4005,8 @@ type InsertEpicGateParams struct {
 	Agent        string
 	Must         string
 	MustNot      string
+	Always       int64
+	Note         string
 }
 
 func (q *Queries) InsertEpicGate(ctx context.Context, arg InsertEpicGateParams) error {
@@ -4018,6 +4020,8 @@ func (q *Queries) InsertEpicGate(ctx context.Context, arg InsertEpicGateParams) 
 		arg.Agent,
 		arg.Must,
 		arg.MustNot,
+		arg.Always,
+		arg.Note,
 	)
 	return err
 }
@@ -7932,7 +7936,7 @@ func (q *Queries) ListEpicGateTriages(ctx context.Context, epic string) ([]GateT
 }
 
 const listEpicGates = `-- name: ListEpicGates :many
-SELECT epic, position, name, argv, limit_seconds, needs, agent, must, must_not FROM epic_gates WHERE epic = ? ORDER BY position
+SELECT epic, position, name, argv, limit_seconds, needs, agent, must, must_not, "always", note FROM epic_gates WHERE epic = ? ORDER BY position
 `
 
 func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, error) {
@@ -7954,6 +7958,8 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 			&i.Agent,
 			&i.Must,
 			&i.MustNot,
+			&i.Always,
+			&i.Note,
 		); err != nil {
 			return nil, err
 		}
@@ -15882,6 +15888,34 @@ type StopEpicReleaseParams struct {
 func (q *Queries) StopEpicRelease(ctx context.Context, arg StopEpicReleaseParams) error {
 	_, err := q.db.ExecContext(ctx, stopEpicRelease, arg.PhaseAt, arg.ID)
 	return err
+}
+
+const swapIntegrateRunResult = `-- name: SwapIntegrateRunResult :execrows
+UPDATE epic_node_runs SET result = ?1
+WHERE epic = ?2 AND path = ?3 AND attempt = ?4 AND state = 'running'
+  AND result = ?5
+`
+
+type SwapIntegrateRunResultParams struct {
+	Result  string
+	Epic    string
+	Path    string
+	Attempt int64
+	Was     string
+}
+
+func (q *Queries) SwapIntegrateRunResult(ctx context.Context, arg SwapIntegrateRunResultParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, swapIntegrateRunResult,
+		arg.Result,
+		arg.Epic,
+		arg.Path,
+		arg.Attempt,
+		arg.Was,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const takeEvidenceBrief = `-- name: TakeEvidenceBrief :execrows

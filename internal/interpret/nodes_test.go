@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/workflow"
@@ -239,24 +240,51 @@ func (f *fakeEvidence) add(
 }
 
 // fakeSteps stands in for the step service. It stores each step it starts as a step row, under its id, and records every
-// start. A fake given refuse refuses every start with it and stores nothing, as the real service does.
+// start. A fake given refuse refuses every start with it and stores nothing, as the real service does. A verification
+// step (one whose schema is VerifySchema) ends done at once with verified as its return when verified is set, as
+// newNodeFakes sets it, so a test that is not about the verification choice runs as an integrate run ran before one was
+// made; a test of the choice leaves verified empty, and the step runs until the test ends it.
 type fakeSteps struct {
-	store  *store.Store
-	refuse error
-	calls  []enginehost.StepStart
+	store    *store.Store
+	refuse   error
+	calls    []enginehost.StepStart
+	verified string
 }
 
-// Start records start, and stores its step row unless the fake refuses.
+// asBeforeReturn is the verification return that decides a commit as it was decided before a choice was made: it names
+// no gate, so every Done gate runs, and no Requirement, so the captures are the floor's. asBeforeLines are the lines
+// its choice adds to the output of an integrate run over the test epic, whose one Done gate is lint and whose tasks
+// claim R1.
+const (
+	asBeforeReturn = `{"status":"done","gates":[],"requirements":[]}`
+	asBeforeLines  = "verification ran Done gate lint: the verification step did not name it\n" +
+		"verification captured R1: a task it verifies claims or contributes to it"
+)
+
+// noRoleFallbackLine returns the line a verification of run's batch adds to its output when the runner reads no role
+// file, so its step does not start and the choice falls back.
+func noRoleFallbackLine(run store.NodeRun) string {
+	return "verification " + kinds.VerifyID(run, 0, 0) + " fell back to every Done gate and the default captures: " +
+		"the verification step did not start: read the role of the verification step: neither XDG_CONFIG_HOME nor " +
+		"HOME is set"
+}
+
+// Start records start, and stores its step row unless the fake refuses. A verification step is ended done with the
+// fake's verified return when it has one.
 func (f *fakeSteps) Start(ctx context.Context, start enginehost.StepStart) (string, error) {
 	f.calls = append(f.calls, start)
 	if f.refuse != nil {
 		return "", f.refuse
 	}
-	err := f.store.ApplyEngine(ctx, []store.EngineOp{store.StepAdd{
+	ops := []store.EngineOp{store.StepAdd{
 		ID: start.ID, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
 		Revision: start.Revision, DoneValue: "done", ReadOnly: start.ReadOnly, Epic: start.Epic, Task: start.Task,
-	}}, runClock())
-	if err != nil {
+	}}
+	if start.Schema == VerifySchema && f.verified != "" {
+		ops = append(ops, store.StepReturn{ID: start.ID, Result: f.verified},
+			store.StepEnd{ID: start.ID, End: "done", Status: "done"})
+	}
+	if err := f.store.ApplyEngine(ctx, ops, runClock()); err != nil {
 		return "", fmt.Errorf("store step %s: %w", start.ID, err)
 	}
 	return start.ID, nil
@@ -269,9 +297,12 @@ type nodeFakes struct {
 	steps    *fakeSteps
 }
 
-// newNodeFakes returns the fakes over s.
+// newNodeFakes returns the fakes over s. Its step fake ends each verification step with asBeforeReturn.
 func newNodeFakes(s *store.Store) nodeFakes {
-	return nodeFakes{checks: &fakeChecks{store: s}, evidence: &fakeEvidence{store: s}, steps: &fakeSteps{store: s}}
+	return nodeFakes{
+		checks: &fakeChecks{store: s}, evidence: &fakeEvidence{store: s},
+		steps: &fakeSteps{store: s, verified: asBeforeReturn},
+	}
 }
 
 // nodeConfig returns the config of a runner over st with fakes, the clock at runClock and no environment for gates to read.

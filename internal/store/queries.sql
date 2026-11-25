@@ -790,8 +790,8 @@ UPDATE epics SET phase = 'correcting', phase_at = ? WHERE id = ? AND phase IN ('
 UPDATE epics SET phase = 'clean', phase_at = ? WHERE id = ? AND phase = 'correcting';
 
 -- name: InsertEpicGate :exec
-INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not, always, note)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListEpicGates :many
 SELECT * FROM epic_gates WHERE epic = ? ORDER BY position;
@@ -2334,6 +2334,11 @@ WHERE integrate_rounds.epic = sqlc.arg(epic) AND integrate_rounds.path = sqlc.ar
 -- name: SetIntegrateRunWork :exec
 UPDATE epic_node_runs SET revision = sqlc.arg(revision), result = sqlc.arg(result)
 WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(attempt) AND state = 'running';
+
+-- name: SwapIntegrateRunResult :execrows
+UPDATE epic_node_runs SET result = sqlc.arg(result)
+WHERE epic = sqlc.arg(epic) AND path = sqlc.arg(path) AND attempt = sqlc.arg(attempt) AND state = 'running'
+  AND result = sqlc.arg(was);
 
 -- name: FailIntegrateRound :execrows
 UPDATE integrate_rounds SET outcome = 'failed', failure = sqlc.arg(failure)

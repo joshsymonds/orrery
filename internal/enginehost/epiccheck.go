@@ -131,15 +131,17 @@ func checkEpicGates(epicGates []*v1.EpicGate) ([]gates.Gate, error) {
 	seen := make(map[string]bool, len(epicGates))
 	defined := make([]gates.Gate, 0, len(epicGates))
 	for i, epicGate := range epicGates {
-		gate, err := gates.Define(
-			epicGate.GetName(),
-			epicGate.GetArgv(),
-			epicGate.GetLimit(),
-			epicGateNeeds(epicGate.GetNeeds()),
-			epicGate.GetAgent(),
-			epicGate.GetMust(),
-			epicGate.GetMustNot(),
-		)
+		gate, err := gates.Define(gates.Definition{
+			Name:    epicGate.GetName(),
+			Argv:    epicGate.GetArgv(),
+			Limit:   epicGate.GetLimit(),
+			Needs:   epicGateNeeds(epicGate.GetNeeds()),
+			Agent:   epicGate.GetAgent(),
+			Must:    epicGate.GetMust(),
+			MustNot: epicGate.GetMustNot(),
+			Always:  epicGate.GetAlways(),
+			Note:    epicGate.GetNote(),
+		})
 		if err != nil {
 			return nil, &epicFieldError{field: fmt.Sprintf("gates[%d]", i), reason: err.Error()}
 		}

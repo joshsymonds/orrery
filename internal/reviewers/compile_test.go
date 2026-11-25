@@ -201,7 +201,9 @@ func TestGate(t *testing.T) {
 					mustNots = append(mustNots, a.Text)
 				}
 			}
-			defined, err := gates.Define(r.Name, nil, r.Limit, nil, r.AgentName(), musts, mustNots)
+			defined, err := gates.Define(gates.Definition{
+				Name: r.Name, Limit: r.Limit, Agent: r.AgentName(), Must: musts, MustNot: mustNots,
+			})
 			if err != nil {
 				t.Fatalf("gates.Define refuses the reviewer's gate: %v", err)
 			}

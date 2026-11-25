@@ -1172,8 +1172,9 @@ func epicRowOf(
 	}
 }
 
-// epicGateOf returns the store form of gate: its argv, its limit in seconds, its needs in order, and its agent with the
-// must and must not it asks.
+// epicGateOf returns the store form of gate: its argv, its limit in seconds, its needs in order, its agent with the
+// must and must not it asks, whether it is always run, and its note trimmed of surrounding white space, as gates.Define
+// reads it.
 func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 	return store.EpicGate{
 		Name:  gate.GetName(),
@@ -1185,6 +1186,8 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 		Agent:   gate.GetAgent(),
 		Must:    gate.GetMust(),
 		MustNot: gate.GetMustNot(),
+		Always:  gate.GetAlways(),
+		Note:    strings.TrimSpace(gate.GetNote()),
 	}
 }
 
@@ -1694,8 +1697,8 @@ func requirementItemMessage(item evidence.Item) *v1.EvidenceItem {
 	return evidenceItemMessage(item)
 }
 
-// epicGateMessage returns the EpicGate message of gate: its argv, its limit in seconds, its needs in order, and its
-// agent with the must and must not it asks.
+// epicGateMessage returns the EpicGate message of gate: its argv, its limit in seconds, its needs in order, its agent
+// with the must and must not it asks, whether it is always run, and its note.
 func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 	return &v1.EpicGate{
 		Name:  gate.Name,
@@ -1707,6 +1710,8 @@ func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 		Agent:   gate.Agent,
 		Must:    gate.Must,
 		MustNot: gate.MustNot,
+		Always:  gate.Always,
+		Note:    gate.Note,
 	}
 }
 

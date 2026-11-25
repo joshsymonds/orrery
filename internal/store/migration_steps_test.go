@@ -121,6 +121,7 @@ func migrationChecks() map[int64]migrationCheck {
 		117: reproRulingsDownAndUp(),
 		118: parkChainCallsDownAndUp(),
 		120: nodeCheckKeyLinesDownAndUp(),
+		121: gateAlwaysNoteDownAndUp(),
 	}
 }
 

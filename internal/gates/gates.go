@@ -1,6 +1,8 @@
 // Package gates reads gate definitions: the [gates] tables of an epic's gates file and of a project file. Each
 // [gates.NAME] table names one gate: either an argv that runs it with the pool members it needs, or an agent that
-// checks its must and must_not assertions. Either way the table names the longest the gate may run.
+// checks its must and must_not assertions. Either way the table names the longest the gate may run, and it may say what
+// the gate covers in a note. An argv gate may be declared always, so it runs on every verification of a candidate
+// whatever the verification choice picks.
 package gates
 
 import (
@@ -38,7 +40,10 @@ type Assertion struct {
 
 // Gate is one named gate as a file defines it. Argv names the program and its arguments; Limit bounds how long
 // the program may run; Needs names the pool members the gate holds while it runs. An agent gate instead names
-// Agent, which checks Assertions, and holds no argv or needs.
+// Agent, which checks Assertions, and holds no argv or needs. Note says what the gate covers, for the judge that picks a
+// candidate's verification to read, and is empty when the definition gives none. Always marks an argv gate that runs on
+// every verification whatever that choice says, such as a lint or a repo-wide scan a narrow check misses. An agent gate
+// is never always, since it is never a Done gate.
 type Gate struct {
 	Name       string
 	Argv       []string
@@ -46,6 +51,8 @@ type Gate struct {
 	Needs      []Need
 	Agent      string
 	Assertions []Assertion
+	Always     bool
+	Note       string
 }
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -72,6 +79,10 @@ const (
 	// keyMust and keyMustNot are the gate keys that name the assertions of an agent gate.
 	keyMust    = "must"
 	keyMustNot = "must_not"
+	// keyAlways is the gate key that marks an argv gate as run on every verification, and keyNote the key that says
+	// what a gate covers.
+	keyAlways = "always"
+	keyNote   = "note"
 )
 
 // gateFile is one [gates.NAME] table as the file spells it. Whether a key is present is read from the metadata,
@@ -83,6 +94,8 @@ type gateFile struct {
 	Agent   string           `toml:"agent"`
 	Must    []string         `toml:"must"`
 	MustNot []string         `toml:"must_not"`
+	Always  bool             `toml:"always"`
+	Note    string           `toml:"note"`
 }
 
 type gateDocument struct {
@@ -91,7 +104,7 @@ type gateDocument struct {
 
 // definedKeys lists the keys a [gates.NAME] table may hold.
 func definedKeys() []string {
-	return []string{"argv", keyAgent, "limit", keyNeeds, keyMust, keyMustNot}
+	return []string{"argv", keyAgent, "limit", keyNeeds, keyMust, keyMustNot, keyAlways, keyNote}
 }
 
 // ParseFile reads an epic gates file. path names the file in errors; data is its contents. The [gates] table must
@@ -199,12 +212,17 @@ func toArgvGate(md toml.MetaData, name string, raw gateFile) (Gate, error) {
 	if err != nil {
 		return Gate{}, err
 	}
-	return Gate{Name: name, Argv: raw.Argv, Limit: limit, Needs: needs}, nil
+	note, err := toNote(md, name, raw.Note)
+	if err != nil {
+		return Gate{}, err
+	}
+	return Gate{Name: name, Argv: raw.Argv, Limit: limit, Needs: needs, Always: raw.Always, Note: note}, nil
 }
 
-// toAgentGate checks an agent gate's table and returns it as a Gate. It takes no argv and no needs.
+// toAgentGate checks an agent gate's table and returns it as a Gate. It takes no argv, no needs and no always, since
+// an agent gate is never a Done gate and so never runs on a verification.
 func toAgentGate(md toml.MetaData, name string, raw gateFile) (Gate, error) {
-	for _, key := range []string{"argv", keyNeeds} {
+	for _, key := range []string{"argv", keyNeeds, keyAlways} {
 		if md.IsDefined(sectionGates, name, key) {
 			return Gate{}, fmt.Errorf("gate %q: %s cannot sit beside agent", name, key)
 		}
@@ -223,7 +241,24 @@ func toAgentGate(md toml.MetaData, name string, raw gateFile) (Gate, error) {
 	if err != nil {
 		return Gate{}, err
 	}
-	return Gate{Name: name, Agent: raw.Agent, Limit: limit, Assertions: assertions}, nil
+	note, err := toNote(md, name, raw.Note)
+	if err != nil {
+		return Gate{}, err
+	}
+	return Gate{Name: name, Agent: raw.Agent, Limit: limit, Assertions: assertions, Note: note}, nil
+}
+
+// toNote returns a gate's note, trimmed of surrounding white space. A table with no note key has none, and a note
+// whose value is blank is refused, since it says nothing of what the gate covers.
+func toNote(md toml.MetaData, name, note string) (string, error) {
+	if !md.IsDefined(sectionGates, name, keyNote) {
+		return "", nil
+	}
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return "", fmt.Errorf("gate %q: note is empty", name)
+	}
+	return note, nil
 }
 
 // requireKeys refuses the first of keys that the [gates.NAME] table does not define.

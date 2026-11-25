@@ -217,7 +217,7 @@ func TestTriageChangeFailsTheDoneGateWithItsCitation(t *testing.T) {
 
 	w.answerTriage(candidate, kinds.TriageChange, "", "--- FAIL: TestX (0.10s)")
 	run := runAt(t, w.s, integrateBatch)
-	want := `Done gate lint failed; triage: change, citing "--- FAIL: TestX (0.10s)": judged so`
+	want := `Done gate lint failed; triage: change, citing "--- FAIL: TestX (0.10s)": judged so` + "\n" + asBeforeLines
 	if run.State != store.NodeEnded || run.Outcome != outcomeFailed || run.Output != want {
 		t.Errorf("batch = %+v, want ended failed with output %q", run, want)
 	}

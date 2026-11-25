@@ -43,11 +43,12 @@ const (
 	RoundEnded  = "ended"
 )
 
-// Integrate is the integrate kind. Its run composes a batch of accepted tasks on the stored base into a candidate, runs
-// the epic's Done gates, captures at the candidate each Requirement a task of the batch claims or contributes to
-// (batchRequirements), reproduces each test item's red at the epic's base and has the item's judge rule on each
-// reproduction that passed there (reproJudges), and then ends red or advances the epic to the candidate. A Requirement
-// the batch did not touch keeps the green it had at the stored base (GreenAt).
+// Integrate is the integrate kind. Its run composes a batch of accepted tasks on the stored base into a candidate, has
+// a verification step choose which of the epic's Done gates run and which Requirements are captured there
+// (batchVerification), runs the gates it chose, captures at the candidate each Requirement a task of the batch claims
+// or contributes to (batchRequirements) and each the choice adds, reproduces each test item's red at the epic's base
+// and has the item's judge rule on each reproduction that passed there (reproJudges), and then ends red or advances the
+// epic to the candidate. A Requirement the batch did not capture keeps the green it had at the stored base (GreenAt).
 type Integrate struct{}
 
 // integrateResult is the Result an integrate run records when it claims its batch: the tasks compose made into commits
@@ -63,10 +64,11 @@ type integrateResult struct {
 
 // Decide decides an integrate run. Without a revision it prepares the batch, or ends passed when the batch is empty.
 // With one it first runs the task integrator rounds of the tasks the batch left out for a merge conflict (conflictRounds),
-// then reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it walks the Done
-// gates, then the captures of the Requirements the batch touched, then the reproductions of the test items and then the
-// judges of the reproductions that exited 0 without timing out, and settles the run on what the gates and captures
-// found.
+// then reads what compose made of the batch, and ends failed when nothing was composed. Otherwise it settles the
+// batch's verification choice, then walks the Done gates the choice runs, then the captures of the Requirements the
+// batch touched and those the choice adds, then the reproductions of the test items and then the judges of the
+// reproductions that exited 0 without timing out, and settles the run on what the gates and captures found. Its output
+// ends with the choice's lines (VerificationLines).
 func (Integrate) Decide(node Node, rows Rows) Action {
 	run := node.Run
 	if run.Revision == "" {
@@ -89,14 +91,20 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 	if len(result.Composed) == 0 {
 		return Action{Kind: ActEnd, Outcome: outcomeFailed, Output: outputOf(nil, leftOut)}
 	}
-	gate, act, settled := doneGates(run, rows)
+	verified, act, settled := batchVerification(run, rows)
+	if !settled {
+		return act
+	}
+	leftOut = append(leftOut, VerificationLines(verified)...)
+	gate, act, settled := doneGates(run, rows, verified)
 	if !settled {
 		return act
 	}
 	if gate.name != "" {
 		return settle(run, []string{gate.cause(rows.Triages)}, nil, leftOut)
 	}
-	captured, act, settled := captures(run, rows, batchRequirements(run, rows))
+	floor := batchRequirements(run, rows)
+	captured, act, settled := captures(run, rows, chosenRequirements(rows, floor, floor, verified))
 	if !settled {
 		return act
 	}
@@ -212,20 +220,31 @@ func roundStep(run store.NodeRun, rows Rows, seq, round int64, previous string) 
 	}, false
 }
 
-// roundChecks decides the Done gates and then the captures of a merged round's commit, its record's head, each under an
-// id of the round's own. A failure ends the round as TaskFail, its detail as the Output the next round reads. Once they
-// all pass, the round composes its task (TaskCompose).
+// roundChecks decides the verification choice of a merged round's commit, its record's head (roundVerification), and
+// then the Done gates it runs and the captures of the round's floor (roundRequirements), of every Requirement that
+// names an evidence item when the choice fell back, and of the Requirements it adds, each under an id of the round's
+// own (roundRun). A failure ends the round as TaskFail, its detail and the choice's lines as the Output the next round
+// reads. Once they all pass, the round composes its task (TaskCompose).
 func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.IntegrateRound) (Action, bool) {
+	verified, act, settled := roundVerification(run, rows, seq, round)
+	if !settled {
+		act.Revision = record.Head
+		return act, false
+	}
+	requirements := chosenRequirements(
+		rows, roundRequirements(run, rows, seq), itemRequirements(rows.Epic.Requirements), verified,
+	)
 	checked := roundRun(run, seq, round)
 	checked.Revision = record.Head
-	failure, previous, act, settled := mergedChecks(checked, rows)
+	failure, previous, act, settled := mergedChecks(checked, rows, verified, requirements)
 	switch {
 	case !settled:
 		act.Revision = record.Head
 		return act, false
 	case failure != "":
 		return Action{
-			Kind: ActTaskIntegrator, Items: []string{TaskFail, roundItem(round)}, Tasks: []int64{seq}, Output: previous,
+			Kind: ActTaskIntegrator, Items: []string{TaskFail, roundItem(round)}, Tasks: []int64{seq},
+			Output: outputOf([]string{previous}, VerificationLines(verified)),
 		}, false
 	}
 	return Action{
@@ -241,17 +260,18 @@ func roundRun(run store.NodeRun, seq, round int64) store.NodeRun {
 	return checked
 }
 
-// mergedChecks walks the epic's Done gates and then the captures of every Requirement that names an evidence item at the
-// revision of checked, the commit a round of the task integrator made, under checked's id: a merge of a task into the
-// candidate can change any of them. Until they settle it returns the action the first one that is not decided asks
-// for. Once they settle, failure is "" when every gate passed and no capture failed. Otherwise it is the reason of the
-// first gate that failed, or of the captures that failed, and previous is what that failure was, with the gate's exit,
-// its triage's line and output tails, or each capture's verdict, as the next round of the task integrator reads it. A
-// gate is triaged before it fails, under checked's id (gateCheck). A capture fails as an integrate run's does
-// (captureCauses): it was not captured or not judged, or its Requirement was green at the stored base and its capture
-// does not pass at the commit.
-func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, bool) {
-	gate, act, settled := doneGates(checked, rows)
+// mergedChecks walks the epic's Done gates that chosen runs and then the captures of requirements at the revision of
+// checked, the commit a round of the task integrator made, under checked's id. Until they settle it returns the action
+// the first one that is not decided asks for. Once they settle, failure is "" when every gate that ran passed and no
+// capture failed. Otherwise it is the reason of the first gate that failed, or of the captures that failed, and
+// previous is what that failure was, with the gate's exit, its triage's line and output tails, or each capture's
+// verdict, as the next round of the task integrator reads it. A gate is triaged before it fails, under checked's id
+// (gateCheck). A capture fails as an integrate run's does (captureCauses): it was not captured or not judged, or its
+// Requirement was green at the stored base and its capture does not pass at the commit.
+func mergedChecks(
+	checked store.NodeRun, rows Rows, chosen Verification, requirements []store.EpicRequirement,
+) (string, string, Action, bool) {
+	gate, act, settled := doneGates(checked, rows, chosen)
 	if !settled {
 		return "", "", act, false
 	}
@@ -259,7 +279,7 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 		failure := fmt.Sprintf("done gate %s did not pass at %s", gate.name, checked.Revision)
 		return failure, gateFailure(checked.Revision, gate, rows.Triages), Action{}, true
 	}
-	captured, act, settled := captures(checked, rows, itemRequirements(rows.Epic.Requirements))
+	captured, act, settled := captures(checked, rows, requirements)
 	if !settled {
 		return "", "", act, false
 	}
@@ -273,7 +293,8 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 
 // gateFailure returns what gate, the first Done gate that did not pass at revision, the commit of a round of the task
 // integrator, was: its name and how it ended, what its triage found when that is known (triageNote), then the tails of
-// its stdout and stderr that are not empty.
+// its stdout and stderr that are not empty. A gate the verification choice skipped has no check, so doneGates never
+// gives it as the gate that failed.
 func gateFailure(revision string, gate failedGate, triages []store.GateTriage) string {
 	check := gate.check
 	var how string
@@ -301,13 +322,13 @@ func gateFailure(revision string, gate failedGate, triages []store.GateTriage) s
 // captureFailures returns one line for each capture at revision, the commit of a round of the task integrator, that
 // captureCauses finds failing: one that was not captured, with why, one that was not judged, and one whose Requirement
 // was green at the stored base and whose capture does not pass, with its exit, its verdict and its judge's reason. A
-// carried capture writes no line.
+// carried capture writes no line, and neither does a Requirement the round's verification did not capture.
 func captureFailures(revision string, rows Rows, captured map[string]store.EvidenceRun) string {
 	green := GreenAt(rows, rows.Epic.StoredBase)
 	var lines []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
-		capture := captured[requirement.ID]
-		if carried(capture, green[requirement.ID]) {
+		capture, ok := captured[requirement.ID]
+		if !ok || carried(capture, green[requirement.ID]) {
 			continue
 		}
 		switch {
@@ -396,10 +417,15 @@ func (g failedGate) cause(triages []store.GateTriage) string {
 	return cause
 }
 
-// doneGates walks the epic's Done gates in order. It returns the first gate whose check failed, and settled true once
-// every gate passed or one failed. Until then it returns the action the gate that is not decided asks for.
-func doneGates(run store.NodeRun, rows Rows) (failedGate, Action, bool) {
+// doneGates walks the epic's Done gates in order, passing over each gate chosen skips (Verification.Skips), which
+// starts no check. It returns the first gate whose check failed, and settled true once every gate that runs passed or
+// one failed. Until then it returns the action the gate that is not decided asks for. Gate i keeps the check part
+// donePart(i) whichever gates before it were skipped.
+func doneGates(run store.NodeRun, rows Rows, chosen Verification) (failedGate, Action, bool) {
 	for i, gate := range rows.Epic.DoneGates {
+		if chosen.Skips(gate) {
+			continue
+		}
 		check, end, act, decided := gateCheck(run, i, gate, rows)
 		if !decided {
 			return failedGate{}, act, false
@@ -455,8 +481,9 @@ func checkPassed(check store.NodeCheck) bool {
 }
 
 // batchRequirements returns the Requirements that name an evidence item, in contract order, that a task the integrate
-// run composed claims or contributes to: the Requirements its batch changed. Only those are captured at its candidate;
-// every other keeps the green it had at the stored base. A result whose composed tasks do not decode returns every
+// run composed claims or contributes to: the Requirements its batch changed. Those are captured at its candidate
+// whatever its verification chooses, which may add others (chosenRequirements); every other keeps the green it had at
+// the stored base. A result whose composed tasks do not decode returns every
 // Requirement that names an item, since a batch nothing is known of could have changed any of them.
 func batchRequirements(run store.NodeRun, rows Rows) []store.EpicRequirement {
 	items := itemRequirements(rows.Epic.Requirements)

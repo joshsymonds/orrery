@@ -48,7 +48,7 @@ func TestIntegrateRepro(t *testing.T) {
 	cases := []decideCase{
 		{
 			"captures still running hold back the reproductions",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				runningCapture("capture R1"), greenCapture("capture R2", true), greenCapture("capture R3", true),
 			}},
@@ -56,25 +56,25 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"settled captures start the reproduction of every test item at once",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: captured},
 			Action{Kind: ActRepro, IDs: []string{workID("repro R1"), workID("repro R3")}, Items: []string{"R1", "R3"}},
 		},
 		{
 			"missing reproduction starts while another runs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: checks(runningCheck("repro R1")), Evidence: captured},
 			Action{Kind: ActRepro, IDs: []string{workID("repro R3")}, Items: []string{"R3"}},
 		},
 		{
 			"running reproduction waits",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: checks(runningCheck("repro R1"), passedCheck("repro R3")), Evidence: captured},
 			Action{Kind: ActNone},
 		},
 		{
 			"reproductions that passed and were ruled on with refs not checked give refs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{
 				Epic:     epic,
 				Checks:   checks(passedCheck("repro R1"), passedCheck("repro R3")),
@@ -88,7 +88,7 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"reproductions that passed and were ruled on advance once the refs are checked",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic:     epic,
 				Checks:   checks(passedCheck("repro R1"), passedCheck("repro R3")),
@@ -102,7 +102,7 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"failed reproduction still advances and adds no cause",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: checks(failedCheck("repro R1"), passedCheck("repro R3")), Evidence: captured,
 				Rulings: []store.ReproRuling{ruled("repro R3", evidence.VerdictHolds)},
@@ -111,7 +111,7 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"timed out reproduction still advances and adds no cause",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: checks(timedOutCheck("repro R1"), passedCheck("repro R3")), Evidence: captured,
 				Rulings: []store.ReproRuling{ruled("repro R3", evidence.VerdictHolds)},
@@ -120,13 +120,13 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"reproduction lost at a restart reruns once",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: checks(lostCheck("repro R1"), passedCheck("repro R3")), Evidence: captured},
 			Action{Kind: ActRepro, IDs: []string{workID("repro R1 rerun")}, Items: []string{"R1"}},
 		},
 		{
 			"rerun of a lost reproduction waits while it runs",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: checks(
 				lostCheck("repro R1"), runningCheck("repro R1 rerun"), passedCheck("repro R3"),
 			), Evidence: captured},
@@ -134,7 +134,7 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"rerun of a lost reproduction lost again parks",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: checks(
 				lostCheck("repro R1"), lostCheck("repro R1 rerun"), passedCheck("repro R3"),
 			), Evidence: captured},
@@ -142,7 +142,7 @@ func TestIntegrateRepro(t *testing.T) {
 		},
 		{
 			"rerun that passed stands for its lost reproduction",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: checks(
 					lostCheck("repro R1"), passedCheck("repro R1 rerun"), passedCheck("repro R3"),
@@ -166,14 +166,14 @@ func ruled(part, verdict string) store.ReproRuling {
 // judgeStep returns the step of judge number judge of the reproduction of Requirement id of the test run, ended with
 // end, or running when end is "".
 func judgeStep(id string, judge int64, end string) store.StepRow {
-	return store.StepRow{ID: ReproJudgeID(batchNode(testRev, composedOne, true).Run, id, judge), End: end}
+	return store.StepRow{ID: ReproJudgeID(batchNode(testRev, composedOne(), true).Run, id, judge), End: end}
 }
 
 // reproJudgeAction returns the ActReproJudge action of mode for judge number judge of the reproduction of Requirement id of
 // the test run, whose check is the work part.
 func reproJudgeAction(mode, id, part string, judge int64) Action {
 	return Action{
-		Kind: ActReproJudge, IDs: []string{ReproJudgeID(batchNode(testRev, composedOne, true).Run, id, judge)},
+		Kind: ActReproJudge, IDs: []string{ReproJudgeID(batchNode(testRev, composedOne(), true).Run, id, judge)},
 		Items: []string{mode, id, workID(part), strconv.FormatInt(judge, 10)},
 	}
 }
@@ -204,79 +204,79 @@ func TestIntegrateReproJudges(t *testing.T) {
 	cases := []decideCase{
 		{
 			"a reproduction that exited 0 starts its judge",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, nil),
 			reproJudgeAction(ReproJudgeStart, "R1", "repro R1", 0),
 		},
 		{
 			"judges start in contract order",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(passed, nil),
 			reproJudgeAction(ReproJudgeStart, "R1", "repro R1", 0),
 		},
 		{
 			"a running judge does not hold back another's start",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(passed, nil, judgeStep("R1", 0, "")),
 			reproJudgeAction(ReproJudgeStart, "R3", "repro R3", 0),
 		},
 		{
 			"a running judge does not hold back another's record",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(passed, nil, judgeStep("R1", 0, ""), judgeStep("R3", 0, "done")),
 			reproJudgeAction(ReproJudgeRecord, "R3", "repro R3", 0),
 		},
 		{
 			"a running judge waits once no other judge needs an action",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, nil, judgeStep("R1", 0, "")),
 			Action{Kind: ActNone},
 		},
 		{
 			"an ended judge is recorded",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, nil, judgeStep("R1", 0, "done")),
 			reproJudgeAction(ReproJudgeRecord, "R1", "repro R1", 0),
 		},
 		{
 			"a first judge with no verdict starts the second",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, []store.ReproRuling{silent}, judgeStep("R1", 0, "overtime")),
 			reproJudgeAction(ReproJudgeStart, "R1", "repro R1", 1),
 		},
 		{
 			"an ended second judge is recorded",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, []store.ReproRuling{silent}, judgeStep("R1", 0, "overtime"), judgeStep("R1", 1, "done")),
 			reproJudgeAction(ReproJudgeRecord, "R1", "repro R1", 1),
 		},
 		{
 			"a second judge with no verdict settles as no verdict and adds no cause",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, []store.ReproRuling{silent, secondSilent}),
 			Action{Kind: ActAdvance, Output: allGreen},
 		},
 		{
 			"a judge that did not start settles and adds no cause",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, []store.ReproRuling{unstarted}),
 			Action{Kind: ActAdvance, Output: allGreen},
 		},
 		{
 			"a ruling that the reproduction contradicts red adds no cause",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			rows(r1Passed, []store.ReproRuling{ruled("repro R1", evidence.VerdictFails)}),
 			Action{Kind: ActRefs},
 		},
 		{
 			"a ruling on another reproduction settles nothing",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows(r1Passed, []store.ReproRuling{ruled("repro R3", evidence.VerdictHolds)}),
 			reproJudgeAction(ReproJudgeStart, "R1", "repro R1", 0),
 		},
 		{
 			"the rerun of a lost reproduction is the one judged",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			rows([]store.NodeCheck{
 				lostCheck("repro R1"), passedCheck("repro R1 rerun"), failedCheck("repro R3"),
 			}, nil),
@@ -284,7 +284,7 @@ func TestIntegrateReproJudges(t *testing.T) {
 		},
 		{
 			"reproductions that exited non-zero, timed out or did not run need no judge",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			rows([]store.NodeCheck{
 				failedCheck("repro R1"),
 				{ID: workID("repro R3"), State: store.NodeEnded, NotRun: "no grant"},
@@ -293,7 +293,7 @@ func TestIntegrateReproJudges(t *testing.T) {
 		},
 		{
 			"a reproduction that timed out needs no judge",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			rows([]store.NodeCheck{timedOutCheck("repro R1"), failedCheck("repro R3")}, nil),
 			Action{Kind: ActRefs},
 		},
@@ -303,7 +303,7 @@ func TestIntegrateReproJudges(t *testing.T) {
 
 func TestReproJudgeIDIsDerivedPerJudgeAndAttempt(t *testing.T) {
 	t.Parallel()
-	run := batchNode(testRev, composedOne, true).Run
+	run := batchNode(testRev, composedOne(), true).Run
 	first := ReproJudgeID(run, "R1", 0)
 	if first != workID("repro judge R1 0") || first == ReproJudgeID(run, "R1", 1) ||
 		first == ReproJudgeID(run, "R3", 0) {

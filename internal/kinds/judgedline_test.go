@@ -92,7 +92,7 @@ func TestNotYetGreenNamesTheJudgesReason(t *testing.T) {
 		Evidence: []store.EvidenceRun{judgedFailing(workID("capture R1")), greenCapture("capture R2", true)},
 	}
 	checkDecisions(t, Integrate{}, []decideCase{{
-		"not yet green names the reason", batchNode(testRev, composedOne, true), rows,
+		"not yet green names the reason", batchNode(testRev, composedOne(), true), rows,
 		Action{
 			Kind: ActAdvance,
 			Output: "R1 not yet green: its capture exited 0 and was judged fails: the output shows TestX failing\n" +

@@ -38,9 +38,12 @@ func syntheticEpic() store.EpicRow {
 		Gates: []store.EpicGate{
 			{
 				Name: "check", Argv: []string{"just", "check"}, Limit: 600,
-				Needs: []store.EpicGateNeed{{Pool: "gate", Count: 1}},
+				Needs: []store.EpicGateNeed{{Pool: "gate", Count: 1}}, Always: true, Note: "the full suite",
 			},
-			{Name: "review", Agent: "reviewer", Must: []string{"tests pass"}, MustNot: []string{"a skipped test"}},
+			{
+				Name: "review", Agent: "reviewer", Must: []string{"tests pass"}, MustNot: []string{"a skipped test"},
+				Note: "reads the tests",
+			},
 		},
 		DoneGates:   []string{"check"},
 		ReviewGates: []string{"review"},
@@ -148,9 +151,12 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		`- check: command ["just","check"]`,
 		"  limit: 600s",
 		"  needs: gate x 1",
+		"  always: runs on every verification",
+		"  note: the full suite",
 		"- review: agent reviewer",
 		"  must: tests pass",
 		"  must not: a skipped test",
+		"  note: reads the tests",
 		"Done gates: check",
 		"Review gates: review",
 		"Premises:",

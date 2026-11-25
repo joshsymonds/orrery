@@ -93,6 +93,35 @@ func gateRefusals() []refusal {
 			[]string{"alpha", "ARGV"}},
 		{"unknown nested table", file(table("gates.alpha", gateKeys()...), table("gates.alpha.extra", "x = 1")),
 			[]string{"alpha", "extra"}},
+		{"blank note", file(table("gates.alpha", append(gateKeys(), `note = "  "`)...)),
+			[]string{"alpha", "note is empty"}},
+		{"always not a boolean", file(table("gates.alpha", append(gateKeys(), `always = "yes"`)...)),
+			[]string{"always"}},
+	}
+}
+
+// TestParseReadsAlwaysAndNote: an argv gate's always and note keys read into the gate, the note trimmed, and a gate
+// that sets neither is not always and has no note.
+func TestParseReadsAlwaysAndNote(t *testing.T) {
+	for _, p := range parsers() {
+		t.Run(p.name, func(t *testing.T) {
+			text := file(
+				table("gates.alpha", append(gateKeys(), `always = true`, `note = " lint over every package "`)...),
+				table("gates.beta", gateKeys()...),
+			)
+			got, err := p.parse(testPath, []byte(text))
+			if err != nil {
+				t.Fatalf("%s: %v", p.name, err)
+			}
+			want := alphaGate()
+			want.Always, want.Note = true, "lint over every package"
+			if !reflect.DeepEqual(got[0], want) {
+				t.Errorf("alpha = %+v, want %+v", got[0], want)
+			}
+			if got[1].Always || got[1].Note != "" {
+				t.Errorf("beta = %+v, want neither always nor a note", got[1])
+			}
+		})
 	}
 }
 
@@ -429,6 +458,8 @@ func agentRefusals() []refusal {
 			[]string{"alpha", "argv", "agent"}},
 		{"needs beside agent", file(table("gates.alpha", append(agentKeys(), `needs = { gate = 1 }`)...)),
 			[]string{"alpha", "needs", "agent"}},
+		{"always beside agent", file(table("gates.alpha", append(agentKeys(), `always = true`)...)),
+			[]string{"alpha", "always", "agent"}},
 		{"must beside argv", file(table("gates.alpha", append(gateKeys(), `must = ["the tests pass"]`)...)),
 			[]string{"alpha", "must", "argv"}},
 		{"must_not beside argv", file(table("gates.alpha", append(gateKeys(), `must_not = ["the diff is small"]`)...)),

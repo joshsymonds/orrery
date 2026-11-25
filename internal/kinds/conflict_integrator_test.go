@@ -8,14 +8,21 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// conflictLeftOut is the result of a batch that composed task 1 onto the candidate cand-1 and left task 2 out for a merge
-// conflict at b.go. conflictNothingComposed is the result of a batch that composed nothing and left task 1 out for one.
+// unverifiedConflict is the result of a batch that composed task 1 onto the candidate cand-1 and left task 2 out for a
+// merge conflict at b.go, with no verification choice recorded. conflictNothingComposed is the result of a batch that
+// composed nothing and left task 1 out for one.
 const (
-	conflictLeftOut = `{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],` +
+	unverifiedConflict = `{"base":"base-1","candidate":"cand-1","composed":[{"task":1,"commit":"c1"}],` +
 		`"leftOut":[{"task":2,"reason":"T2 conflicts with the candidate at b.go","conflicts":["b.go"]}]}`
 	conflictNothingComposed = `{"base":"base-1","candidate":"base-1","composed":[],` +
 		`"leftOut":[{"task":1,"reason":"T1 conflicts with the base at b.go","conflicts":["b.go"]}]}`
 )
+
+// conflictLeftOut returns unverifiedConflict with the verifications of the batch and of each of task 2's three rounds
+// recorded as they were decided before a choice was made (asBefore).
+func conflictLeftOut() string {
+	return asBefore(unverifiedConflict, [2]int64{2, 1}, [2]int64{2, 2}, [2]int64{2, 3})
+}
 
 // conflictEpic returns integrateEpic with tasks 1 to 3, each built on its own revision, and tasks 1 and 2 claimed by the
 // batch.
@@ -87,13 +94,13 @@ func TestConflictIntegratorStartsRoundOneAtTheCandidate(t *testing.T) {
 		Tasks: []int64{2},
 	}
 	cases := []decideCase{
-		{"no round and no step starts round 1", batchNode("cand-1", conflictLeftOut, true),
+		{"no round and no step starts round 1", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic()}, started},
-		{"a round whose step runs waits", batchNode("cand-1", conflictLeftOut, true),
+		{"a round whose step runs waits", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Steps: []store.StepRow{{ID: stepWork(2, 1)}}}, Action{Kind: ActNone}},
 		{
 			"a round whose step ended is recorded",
-			batchNode("cand-1", conflictLeftOut, true),
+			batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Steps: []store.StepRow{{ID: stepWork(2, 1), End: "done"}}},
 			Action{
 				Kind:  ActTaskIntegrator,
@@ -102,11 +109,11 @@ func TestConflictIntegratorStartsRoundOneAtTheCandidate(t *testing.T) {
 				Tasks: []int64{2},
 			},
 		},
-		{"a paused epic starts no round", batchNode("cand-1", conflictLeftOut, true),
+		{"a paused epic starts no round", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: pausedConflictEpic()}, Action{Kind: ActNone}},
 		{
 			"a round after a failed round starts with its failure",
-			batchNode("cand-1", conflictLeftOut, true),
+			batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: []store.IntegrateRound{
 				recordedRound(1, RoundMerged, "m1", outcomeFailed, "Done gate just check failed on commit m1"),
 			}},
@@ -159,18 +166,18 @@ func TestConflictIntegratorRoundChecksAtItsCommit(t *testing.T) {
 		},
 	}
 	cases := []decideCase{
-		{"the first gate starts at the commit", batchNode("cand-1", conflictLeftOut, true),
+		{"the first gate starts at the commit", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: merged}, gateStarted},
 		{"a gate that fails starts its triage under the round's id at the commit",
-			batchNode("cand-1", conflictLeftOut, true),
+			batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: gateFailed},
 			Action{
 				Kind: ActTriage, IDs: []string{roundWork("triage done 1"), roundWork("done 1")},
 				Items:    []string{TriageStart, "just check", TriageEnvironment, TriageFlake},
 				Revision: "m1",
 			}},
-		{"a gate whose triage finds a change fails the round with its output and the triage's line",
-			batchNode("cand-1", conflictLeftOut, true),
+		{"a gate whose triage finds a change fails the round with its output, the triage's line and the choice",
+			batchNode("cand-1", conflictLeftOut(), true),
 			Rows{
 				Epic: conflictEpic(), Rounds: merged, Checks: gateFailed,
 				Triages: []store.GateTriage{changeTriaged(roundWork("done 1"))},
@@ -178,17 +185,17 @@ func TestConflictIntegratorRoundChecksAtItsCommit(t *testing.T) {
 			Action{
 				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
 				Output: "Done gate just check failed on commit m1: it exited 1.\n" + changeNote +
-					"\nstdout tail:\nboom",
+					"\nstdout tail:\nboom\n" + roundFallbackLine,
 			}},
-		{"passed gates start the captures at the commit", batchNode("cand-1", conflictLeftOut, true),
+		{"passed gates start the captures at the commit", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed()}, captures},
-		{"a capture that did not run fails the round with its reason", batchNode("cand-1", conflictLeftOut, true),
+		{"a capture that did not run fails the round with its reason", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(), Evidence: notCaptured},
 			Action{
 				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
-				Output: "The capture of R1 did not run on commit m1: the capture did not start.",
+				Output: "The capture of R1 did not run on commit m1: the capture did not start.\n" + roundFallbackLine,
 			}},
-		{"a round whose checks pass composes its task at its commit", batchNode("cand-1", conflictLeftOut, true),
+		{"a round whose checks pass composes its task at its commit", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed(), Evidence: roundCapturesPassed()},
 			Action{Kind: ActTaskIntegrator, Items: []string{TaskCompose, "1", "m1"}, Tasks: []int64{2}}},
 	}
@@ -206,14 +213,14 @@ func TestConflictIntegratorRoundsEndAtTheirLimit(t *testing.T) {
 		recordedRound(3, RoundMerged, "m3", outcomeFailed, "three"),
 	}
 	cases := []decideCase{
-		{"a clash ends the rounds, and the batch goes on", batchNode("cand-1", conflictLeftOut, true),
+		{"a clash ends the rounds, and the batch goes on", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: []store.IntegrateRound{recordedRound(1, RoundClash, "", "", "")}},
 			gateAtCandidate},
-		{"an ended step ends the rounds, and the batch goes on", batchNode("cand-1", conflictLeftOut, true),
+		{"an ended step ends the rounds, and the batch goes on", batchNode("cand-1", conflictLeftOut(), true),
 			Rows{Epic: conflictEpic(), Rounds: []store.IntegrateRound{recordedRound(1, RoundEnded, "", "", "")}},
 			gateAtCandidate},
 		{"a failed third round leaves the task out, and no fourth round starts",
-			batchNode("cand-1", conflictLeftOut, true), Rows{Epic: conflictEpic(), Rounds: failedRounds},
+			batchNode("cand-1", conflictLeftOut(), true), Rows{Epic: conflictEpic(), Rounds: failedRounds},
 			gateAtCandidate},
 	}
 	checkDecisions(t, Integrate{}, cases)

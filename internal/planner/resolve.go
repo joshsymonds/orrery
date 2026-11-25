@@ -86,15 +86,17 @@ func DefineEpicGates(epicGates []store.EpicGate) ([]gates.Gate, error) {
 		for _, need := range epicGate.Needs {
 			needs = append(needs, gates.Need{Pool: need.Pool, Count: int(need.Count)})
 		}
-		gate, err := gates.Define(
-			epicGate.Name,
-			epicGate.Argv,
-			epicGate.Limit,
-			needs,
-			epicGate.Agent,
-			epicGate.Must,
-			epicGate.MustNot,
-		)
+		gate, err := gates.Define(gates.Definition{
+			Name:    epicGate.Name,
+			Argv:    epicGate.Argv,
+			Limit:   epicGate.Limit,
+			Needs:   needs,
+			Agent:   epicGate.Agent,
+			Must:    epicGate.Must,
+			MustNot: epicGate.MustNot,
+			Always:  epicGate.Always,
+			Note:    epicGate.Note,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("define epic gate: %w", err)
 		}

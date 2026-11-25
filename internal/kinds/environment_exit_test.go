@@ -57,31 +57,31 @@ func TestIntegrateEnvironmentExitDoneGates(t *testing.T) {
 	cases := []decideCase{
 		{
 			"Done gate that exits 75 reruns",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{environmentCheck("done 1")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 1 rerun")}, Items: []string{"just check"}},
 		},
 		{
 			"rerun that exits 75 reruns once more",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{environmentCheck("done 1"), environmentCheck("done 1 rerun")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 1 rerun rerun")}, Items: []string{"just check"}},
 		},
 		{
 			"rerun that exits 75 waits while it runs",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{environmentCheck("done 1"), runningCheck("done 1 rerun")}},
 			Action{Kind: ActNone},
 		},
 		{
 			"Done gate that exits 75 and whose rerun passes moves to the next gate",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{environmentCheck("done 1"), passedCheck("done 1 rerun")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 2")}, Items: []string{"just lint"}},
 		},
 		{
 			"Done gate that exits 75 on its last run parks",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{
 				environmentCheck("done 1"), environmentCheck("done 1 rerun"), environmentCheck("done 1 rerun rerun"),
 			}},
@@ -93,13 +93,13 @@ func TestIntegrateEnvironmentExitDoneGates(t *testing.T) {
 		},
 		{
 			"Done gate lost at a restart and then exiting 75 reruns on the same budget",
-			batchNode(testRev, composedOne, false),
+			batchNode(testRev, composedOne(), false),
 			Rows{Epic: epic, Checks: []store.NodeCheck{lostCheck("done 1"), environmentCheck("done 1 rerun")}},
 			Action{Kind: ActStart, IDs: []string{workID("done 1 rerun rerun")}, Items: []string{"just check"}},
 		},
 		{
 			"Done gate that exits 75 and times out fails at once",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: []store.NodeCheck{{
 				ID: workID("done 1"), State: store.NodeEnded, Exit: store.EnvironmentExit, TimedOut: true,
 			}}},
@@ -107,7 +107,7 @@ func TestIntegrateEnvironmentExitDoneGates(t *testing.T) {
 		},
 		{
 			"Done gate that exits 1 is not rerun once its triage finds a change",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{
 				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
 				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
@@ -124,7 +124,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 	cases := []decideCase{
 		{
 			"capture that exits 75 reruns",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				environmentCapture("capture R1"), greenCapture("capture R2", true),
 			}},
@@ -132,7 +132,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 		},
 		{
 			"rerun that exits 75 reruns once more",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				environmentCapture("capture R1"), environmentCapture("capture R1 rerun"),
 				greenCapture("capture R2", true),
@@ -141,7 +141,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 		},
 		{
 			"rerun that exits 75 waits while it runs",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				environmentCapture("capture R1"), runningCapture("capture R1 rerun"), greenCapture("capture R2", true),
 			}},
@@ -149,7 +149,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 		},
 		{
 			"capture that exits 75 on its last run parks",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				environmentCapture("capture R1"), environmentCapture("capture R1 rerun"),
 				environmentCapture("capture R1 rerun rerun"), greenCapture("capture R2", true),
@@ -159,7 +159,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 		},
 		{
 			"rerun that passes stands for its capture that exited 75",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				environmentCapture("capture R1"),
 				greenCapture("capture R1 rerun", true),
@@ -169,7 +169,7 @@ func TestIntegrateEnvironmentExitCaptures(t *testing.T) {
 		},
 		{
 			"capture that exits 1 is not rerun and is not green",
-			batchNode(testRev, composedOne, true),
+			batchNode(testRev, composedOne(), true),
 			Rows{Epic: epic, Checks: gatesPassed(), Evidence: []store.EvidenceRun{
 				failedCapture("capture R1"),
 				greenCapture("capture R2", true),

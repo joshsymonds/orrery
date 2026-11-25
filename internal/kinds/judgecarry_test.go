@@ -30,7 +30,7 @@ func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 		t.Parallel()
 		rows := restingRows(gatesPassed(), noVerdictRun(workID("capture R1")), greenCapture("capture R2", true))
 		checkDecisions(t, Integrate{}, []decideCase{{
-			"carried capture advances with the note", batchNode(testRev, composedOne, true), rows,
+			"carried capture advances with the note", batchNode(testRev, composedOne(), true), rows,
 			Action{Kind: ActAdvance, Output: carryNote + "\nR2 green\nR3 not yet green"},
 		}})
 	})
@@ -45,7 +45,7 @@ func TestJudgeCarryNoVerdictCarries(t *testing.T) {
 			},
 		}
 		checkDecisions(t, Integrate{}, []decideCase{{
-			"carried capture composes the task", batchNode("cand-1", conflictLeftOut, true), rows,
+			"carried capture composes the task", batchNode("cand-1", conflictLeftOut(), true), rows,
 			Action{Kind: ActTaskIntegrator, Items: []string{TaskCompose, "1", "m1"}, Tasks: []int64{2}},
 		}})
 	})
@@ -63,7 +63,7 @@ func TestJudgeCarryNoVerdictStillFails(t *testing.T) {
 	timedOut.TimedOut = true
 	exitedNonZero := noVerdictRun(workID("capture R1"))
 	exitedNonZero.Exit = 1
-	node := batchNode(testRev, composedOne, true)
+	node := batchNode(testRev, composedOne(), true)
 	checkDecisions(t, Integrate{}, []decideCase{
 		{
 			"did not run", node,

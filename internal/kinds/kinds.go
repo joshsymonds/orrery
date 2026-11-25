@@ -76,7 +76,8 @@ type ActionKind string
 // its Items says: TaskStart, TaskRecord, TaskCompose or TaskFail. ActReproJudge carries out one step of the judge of an
 // integrate run's reproduction, as the first of its Items says: ReproJudgeStart or ReproJudgeRecord. ActTriage carries
 // out one step of the triage of a gate check that ran and failed, as the first of its Items says: TriageStart or
-// TriageRecord (see triageAction).
+// TriageRecord (see triageAction). ActVerify carries out one step of the verification choice of an integrate run's
+// candidate or of a task integrator round's merged commit, as the first of its Items says: VerifyStart or VerifyRecord.
 const (
 	ActNone           ActionKind = "none"
 	ActRun            ActionKind = "run"
@@ -93,6 +94,7 @@ const (
 	ActTaskIntegrator ActionKind = "task_integrator"
 	ActReproJudge     ActionKind = "repro_judge"
 	ActTriage         ActionKind = "triage"
+	ActVerify         ActionKind = "verify"
 )
 
 // Action is a kind's decision for its node run. Outcome is the outcome an end reports and empty when it reports none,
@@ -101,9 +103,9 @@ const (
 // are the steps a start of a review or closure run starts, in the order of IDs. Verdicts, Ledger, Round, Closures and
 // Phase are what a review, closure or conclusion ends with. Gaps are the live gaps a conclusion's gap round gives
 // each a planner turn, and Question is the gaps question an ending with gaps opens. Revision, when set, is the revision
-// the work runs at in place of the run's own: an integrate run walks the Done gates and captures of a merge its task
-// integrator committed at that commit, and a release run records the merge its release integrator committed as the
-// candidate there.
+// the work runs at in place of the run's own: an integrate run walks the verification choice, the Done gates and the
+// captures of a merge its task integrator committed at that commit, and a release run records the merge its release
+// integrator committed as the candidate there.
 type Action struct {
 	Kind     ActionKind
 	Outcome  string

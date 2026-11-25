@@ -200,8 +200,9 @@ func RequirementItems(requirements []store.EpicRequirement) ([]string, error) {
 }
 
 // gateItems returns each gate as its name and what it is. A command gate is `- name: command` with its argv as a JSON
-// array, then its limit in seconds and the pools it needs as `pool x count`. An agent gate is `- name: agent` and its
-// agent, then what it must and must not find, one line each.
+// array, then its limit in seconds and the pools it needs as `pool x count`, then `always: runs on every verification`
+// when it is declared always. An agent gate is `- name: agent` and its agent, then what it must and must not find, one
+// line each. Either kind ends with `note: <note>` when it has a note, which says what the gate covers.
 func gateItems(gates []store.EpicGate) ([]string, error) {
 	items := make([]string, 0, 3*len(gates))
 	for _, gate := range gates {
@@ -213,6 +214,7 @@ func gateItems(gates []store.EpicGate) ([]string, error) {
 			for _, mustNot := range gate.MustNot {
 				items = append(items, "  must not: "+mustNot)
 			}
+			items = append(items, noteItems(gate)...)
 			continue
 		}
 		argv, err := json.Marshal(gate.Argv)
@@ -225,8 +227,20 @@ func gateItems(gates []store.EpicGate) ([]string, error) {
 		}
 		items = append(items, fmt.Sprintf("- %s: command %s", gate.Name, argv), fmt.Sprintf("  limit: %ds", gate.Limit),
 			"  needs: "+nameList(needs))
+		if gate.Always {
+			items = append(items, "  always: runs on every verification")
+		}
+		items = append(items, noteItems(gate)...)
 	}
 	return items, nil
+}
+
+// noteItems returns the note line of gate, `  note: <note>`, or none when the gate has no note.
+func noteItems(gate store.EpicGate) []string {
+	if gate.Note == "" {
+		return nil
+	}
+	return []string{"  note: " + gate.Note}
 }
 
 // nameList returns names joined by commas, or None. when there are none.

@@ -160,7 +160,8 @@ type EpicRequirement struct {
 }
 
 // EpicGate is one named gate of an epic: a command it runs, or an agent it asks, and what each must and must not do.
-// Needs are the pools the gate draws on while it runs, and Limit is its time limit in seconds.
+// Needs are the pools the gate draws on while it runs, and Limit is its time limit in seconds. Always marks a command
+// gate that runs on every verification whatever the verification choice picks, and Note says what the gate covers.
 type EpicGate struct {
 	Name    string
 	Argv    []string
@@ -169,6 +170,8 @@ type EpicGate struct {
 	Agent   string
 	Must    []string
 	MustNot []string
+	Always  bool
+	Note    string
 }
 
 // EpicGateNeed is one pool a gate draws Count slots from.
@@ -407,7 +410,8 @@ func insertInOrder[T any](items []T, insert func(position int64, item T) error) 
 	return nil
 }
 
-// insertGate stores g as gate position of epic, its argv, needs, must and must not as JSON arrays.
+// insertGate stores g as gate position of epic, its argv, needs, must and must not as JSON arrays and its always flag as
+// 0 or 1.
 func insertGate(ctx context.Context, queries *sqlcgen.Queries, epic string, position int64, gate EpicGate) error {
 	argv, err := encodeList(gate.Argv)
 	if err != nil {
@@ -427,7 +431,7 @@ func insertGate(ctx context.Context, queries *sqlcgen.Queries, epic string, posi
 	}
 	if err = queries.InsertEpicGate(ctx, sqlcgen.InsertEpicGateParams{
 		Epic: epic, Position: position, Name: gate.Name, Argv: argv, LimitSeconds: gate.Limit, Needs: needs,
-		Agent: gate.Agent, Must: must, MustNot: mustNot,
+		Agent: gate.Agent, Must: must, MustNot: mustNot, Always: boolInt(gate.Always), Note: gate.Note,
 	}); err != nil {
 		return fmt.Errorf("insert gate %s: %w", gate.Name, err)
 	}
@@ -1329,7 +1333,7 @@ func requirementOf(stored sqlcgen.EpicRequirement) (EpicRequirement, error) {
 	}, nil
 }
 
-// gateOf returns the gate a stored row holds, its JSON arrays decoded.
+// gateOf returns the gate a stored row holds, its JSON arrays decoded and its always flag read back as a boolean.
 func gateOf(stored sqlcgen.EpicGate) (EpicGate, error) {
 	argv, err := decodeList[string](stored.Argv)
 	if err != nil {
@@ -1349,7 +1353,7 @@ func gateOf(stored sqlcgen.EpicGate) (EpicGate, error) {
 	}
 	return EpicGate{
 		Name: stored.Name, Argv: argv, Limit: stored.LimitSeconds, Needs: needs, Agent: stored.Agent,
-		Must: must, MustNot: mustNot,
+		Must: must, MustNot: mustNot, Always: stored.Always != 0, Note: stored.Note,
 	}, nil
 }
 
