@@ -66,7 +66,6 @@ export const storyRenames: Renames = {
     MarkedText: { module: "app.stories.tsx", story: "Page" },
     ReplyText: { module: "app.stories.tsx", story: "Page" },
   },
-  "usagepopover.tsx": { UsagePopover: { module: "usagerail.stories.tsx", story: "UsagePopover" } },
   "workersession.tsx": { WorkerSessionPage: { module: "app.stories.tsx", story: "Page" } },
 };
 

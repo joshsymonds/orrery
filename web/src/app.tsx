@@ -1699,20 +1699,35 @@ export function App({
     setRowOpened(true);
   });
 
+  // usageOpen is whether the usage popover is open: the band's press opens it beside the band, and the collapsed rail's tile
+  // opens it beside the rail. It shuts on Escape, on a press outside it, and when the accounts and routes page opens.
+  const [usageOpen, setUsageOpen] = useState(false);
+
   // openAccounts opens the accounts and routes page, from the inbox foot's gear. The page takes the conversation's place, so an
-  // open project page, contract or design card shuts. It is a navigation.
+  // open project page, contract or design card shuts, and so does the usage popover. It is a navigation.
   const openAccounts = navigated(() => {
     setProjectKey(null);
     setOpenedContract(null);
     setOpenedDesign(null);
+    setUsageOpen(false);
     setAccountsOpen(true);
   });
 
   // usageBand is the band under the inbox head, drawn once usage has answered and holds an account. Its gear opens the
-  // accounts and routes page. A press on the band opens nothing yet, since the usage popover is not drawn.
+  // accounts and routes page, and its press opens the usage popover beside it.
   const usageBand =
     usage.answered && usage.accounts.length > 0 ? (
-      <UsageBand rows={bandRows(usage, now)} now={now} onOpen={() => undefined} onAccounts={openAccounts} />
+      <UsageBand
+        rows={bandRows(usage, now)}
+        now={now}
+        onOpen={() => setUsageOpen(true)}
+        onAccounts={openAccounts}
+        popover={
+          usageOpen ? (
+            <UsagePopover rows={bandRows(usage, now)} now={now} onAccounts={openAccounts} onClose={() => setUsageOpen(false)} />
+          ) : undefined
+        }
+      />
     ) : undefined;
 
   // openProjectItem is the press a project page's conversation or WorkCard makes. It opens what the tree opens for the
@@ -3182,16 +3197,14 @@ export function App({
   // and 1250px, where the card takes the room the inbox's list would. Fold back draws the inbox as it was.
   const railed = collapsed || (heldThing !== null && overlay);
   // The usage the collapsed rail's tile and popover draw is read while the inbox is collapsed. usageRow is the account in use,
-  // which the tile draws, or null when none is in use or the inbox is not collapsed.
+  // which the tile draws, or null when none is in use or the inbox is not collapsed. usageRows are every account, which the
+  // popover beside the rail draws.
   const usageData = useUsage(clients, collapsed);
-  const usageRow = collapsed ? firstInUse(bandRows(usageData, now)) : null;
-  // usageOpen is whether the usage popover is open beside the tile. The tile's press toggles it, and it shuts when the inbox
-  // is no longer collapsed.
-  const [usageOpen, setUsageOpen] = useState(false);
+  const usageRows = bandRows(usageData, now);
+  const usageRow = collapsed ? firstInUse(usageRows) : null;
+  // The usage popover shuts whenever the inbox collapses or expands, so it never opens beside the rail from the band.
   useEffect(() => {
-    if (!collapsed) {
-      setUsageOpen(false);
-    }
+    setUsageOpen(false);
   }, [collapsed]);
 
   return (
@@ -3222,7 +3235,9 @@ export function App({
                 : {
                     row: usageRow,
                     onOpen: () => setUsageOpen((open) => !open),
-                    popover: usageOpen ? <UsagePopover row={usageRow} now={now} /> : undefined,
+                    popover: usageOpen ? (
+                      <UsagePopover rows={usageRows} now={now} onAccounts={openAccounts} onClose={() => setUsageOpen(false)} />
+                    ) : undefined,
                   }
             }
             onNew={() => setPickerOpen(true)}

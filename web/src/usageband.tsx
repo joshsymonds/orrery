@@ -49,17 +49,20 @@ function windowCell(draw: WindowDraw | null, hue: (typeof windowHues)[number]): 
 
 // UsageBand draws the usage band under the inbox head: a table with a row for each account, in the order of rows, and
 // the columns 5h, 7d and Fable, then the time to the 7d reset. An account a context names has its dot filled. A press
-// on the band is onOpen; the gear opens the accounts and routes page through onAccounts.
+// on the band is onOpen; the gear opens the accounts and routes page through onAccounts. popover, when given, is the
+// usage popover, which lies beside the band at its top right.
 export function UsageBand({
   rows,
   now,
   onOpen,
   onAccounts,
+  popover,
 }: {
   rows: readonly BandRow[];
   now: number;
   onOpen: () => void;
   onAccounts: () => void;
+  popover?: JSX.Element;
 }): JSX.Element {
   return (
     <section class="uband" aria-label="usage" onClick={() => onOpen()}>
@@ -102,6 +105,7 @@ export function UsageBand({
           );
         })}
       </div>
+      {popover}
     </section>
   );
 }

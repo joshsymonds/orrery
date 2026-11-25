@@ -175,7 +175,13 @@ function Rail({ usage }: { usage?: { row: BandRow; onOpen: () => void; popover?:
 function Harness({ row }: { row: BandRow }): JSX.Element {
   const [open, setOpen] = useState(false);
   return (
-    <Rail usage={{ row, onOpen: () => setOpen(true), popover: open ? <UsagePopover row={row} now={now} /> : undefined }} />
+    <Rail
+      usage={{
+        row,
+        onOpen: () => setOpen(true),
+        popover: open ? <UsagePopover rows={[row]} now={now} onAccounts={noop} onClose={noop} /> : undefined,
+      }}
+    />
   );
 }
 
@@ -274,7 +280,7 @@ test("UsageRail: a click opens the popover beside the rail", async () => {
 test("UsageRail: the popover counts each window's reset down from the clock, and a window with no reading says so", async () => {
   await withDom((container) => {
     const row = rowInUse(two);
-    draw(container, <UsagePopover row={row} now={now} />);
+    draw(container, <UsagePopover rows={[row]} now={now} onAccounts={noop} onClose={noop} />);
     const wins = Array.from(container.querySelectorAll(".up-win"));
     assert.equal(wins.length, 3, "the popover does not draw each window");
     assert.equal(wins[0].querySelector(".up-r")?.textContent, "in 1h", "the 5h reset is not counted from now");
