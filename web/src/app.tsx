@@ -2837,6 +2837,7 @@ export function App({
         strip={pageStrip(null, null)}
         rows={rows}
         listed={[...epics.listed.values()]}
+        loadUsage={(epic) => clients.usage.epicTotals({ epic })}
         narrow={!wide}
         onTalk={steererRow === null ? undefined : closePanel}
         foot={steererRow === null ? unsteeredBar(detail) : null}

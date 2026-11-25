@@ -73,6 +73,9 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // UsagePanel draws a conversation's Usage panel in the right rail: its list total, its four token kinds, and its model-and-agent
   // rows. Round 6 draws no usage panel, and ListPanel stands nearest, for a rail panel in the same frame.
   "usage-panel": { replacement: "ListPanel", epic: "F4" },
+  // EpicUsageSection draws an epic's Usage section on its page: each session's row, its model, requests, cache write tokens
+  // and list cost, with a bar. Round 6 draws no epic's usage, and TaskTable stands nearest, for the epic's table of tasks.
+  "epic-usage-section": { replacement: "TaskTable", epic: "F4" },
 
   // ---- single stories of round-6 components, each the component in a state round 6 does not draw ----
 

@@ -1214,6 +1214,18 @@ button.act:active, .back:active, .crumb:active { transform: scale(.97); backgrou
 .epic-page section.tasks > .tbl { flex: 1 1 56ch; min-width: 0; }
 .epic-page .sec-head { display: flex; align-items: baseline; gap: var(--o-space-8); min-width: 0; }
 .epic-page .sec-head span { font: var(--o-type-small); color: var(--o-ink-3); }
+/* The Usage section: a head, then one grid of the sessions, each row's cells in the same columns: its name, model, requests,
+   cache write, list and bar. Under 760 the bar's column goes, so a row is its name and figures. */
+.epic-usage { display: grid; gap: var(--o-space-12); min-width: 0; }
+.epic-usage-rows { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto minmax(var(--o-size-meter-bar-width), 1fr); gap: var(--o-space-8) var(--o-space-12); align-items: center; font: var(--o-type-small); }
+.epic-usage-rows.narrow { grid-template-columns: minmax(0, 1fr) auto auto auto auto; }
+.epic-usage-row { display: contents; }
+.epic-usage-name { display: grid; min-width: 0; color: var(--o-ink-1); overflow-wrap: anywhere; }
+.epic-usage-shared { color: var(--o-ink-3); }
+.epic-usage-model { color: var(--o-ink-2); white-space: nowrap; }
+.epic-usage-requests, .epic-usage-cache, .epic-usage-list { color: var(--o-ink-1); text-align: right; white-space: nowrap; }
+.epic-usage-bar { height: var(--o-size-meter-bar-height); border-radius: var(--o-radius-round); background: var(--o-line-soft); overflow: hidden; }
+.epic-usage-bar i { display: block; height: 100%; background: var(--o-series-2); }
 /* The chart: the rings of task cells, outside in, each cell in its tone; the requirement rim outside them; the count in the
    centre; the hovered wedge outlined, with no pointer, and named in its caption. The epic line's mini chart shares the cell
    and arc rules. A running cell pulses. */
