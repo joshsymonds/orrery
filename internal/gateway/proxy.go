@@ -104,10 +104,20 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An account pin is judged before the seat is served, so that a pin no loopback peer makes, or one that names no
-	// stored account or a seat other than forward, is refused before anything is sent upstream.
+	// stored account or a seat other than forward, is refused before anything is sent upstream. A refused pin is empty,
+	// so the request is recorded under its context's account.
 	pin, pinRefused := pinnedToken(r, res.Seat, snap.AccountTokens)
+
+	// A request that resolved to its seat is recorded in the ledger, including one the gateway refuses below: its row is
+	// started before anything is sent upstream, and finished once the answer is served. The answer goes through capture,
+	// which keeps it so that its usage can be read.
+	ledgerCtx := context.WithoutCancel(r.Context())
+	rec := g.startRecord(ledgerCtx, r.Header, body, res, pin)
+	capture := &answerCapture{ResponseWriter: w}
+	defer g.finishRecord(ledgerCtx, rec, capture)
+
 	if pinRefused != nil {
-		g.abort(r.Context(), w, pinRefused.status, pinRefused.errType, pinRefused.message, pinRefused.err)
+		g.abort(r.Context(), capture, pinRefused.status, pinRefused.errType, pinRefused.message, pinRefused.err)
 		return
 	}
 
@@ -115,29 +125,27 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// is read or sent upstream. A forward seat spends the caller's own credential and needs no key.
 	if res.Seat.AuthMode != llmroutes.AuthForward {
 		if keyErr := g.checkCallerKey(r); keyErr != nil {
-			g.abort(r.Context(), w, http.StatusUnauthorized, errorTypeAuthentication, msgCallerKeyRefused, keyErr)
+			g.abort(r.Context(), capture, http.StatusUnauthorized, errorTypeAuthentication, msgCallerKeyRefused, keyErr)
 			return
 		}
 	}
 
-	// Hook points for the later steps. A pinned account's token is the credential send applies, beside the caller's.
-	// The ledger record is started before the seat is served and finished after its relay, through g.ledger.
 	switch res.Seat.AuthMode {
 	case llmroutes.AuthForward:
 		// The seat's rewrites apply to the body before it is forwarded, so that the upstream receives the rewritten
 		// request.
 		rewritten, failure := rewriteBody(body, res.Seat)
 		if failure != nil {
-			g.abort(r.Context(), w, failure.status, failure.errType, failure.message, failure.err)
+			g.abort(r.Context(), capture, failure.status, failure.errType, failure.message, failure.err)
 			return
 		}
-		g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, pin, rewritten)
+		g.forward(capture, r, res.Seat, res.Context.Account, snap.Tokens, pin, rewritten)
 	case llmroutes.AuthInject:
-		g.inject(w, r, res.Seat, body)
+		g.inject(capture, r, res.Seat, body)
 	case llmroutes.AuthSigV4:
-		g.bedrock(w, r, res.Seat, body)
+		g.bedrock(capture, r, res.Seat, body)
 	default:
-		g.abort(r.Context(), w, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
+		g.abort(r.Context(), capture, http.StatusNotImplemented, errorTypeAPI, msgSeatNotForwarded,
 			fmt.Errorf("%w: seat %q authenticates with %s", errNotImplemented, res.SeatID, res.Seat.AuthMode))
 	}
 }
