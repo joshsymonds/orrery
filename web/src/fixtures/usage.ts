@@ -220,23 +220,13 @@ export const epicSessions: EpicSession[] = [
 
 // epicUsage is the epic's sessions as Usage.EpicTotals answers them, in session id order, as the server sends them. The
 // steerer is shared; its totals are at list $11.40 over 1,204 requests and bill nothing. The implement step has two totals,
-// and its row names the model of the larger, haiku-5-5.
+// and its row names the model of the larger, haiku-5-5, which the totals list second, after the smaller sonnet-5-5, so the
+// row's model is not the first total's.
 export const epicUsage: UsageEpicSession[] = [
   create(UsageEpicSessionSchema, {
     session: "3b9a4e10-build",
     shared: false,
     totals: [
-      create(UsageSessionTotalSchema, {
-        model: "haiku-5-5",
-        agentType: "builder",
-        requests: 388n,
-        inputTokens: 1_100_000n,
-        outputTokens: 60_000n,
-        cacheReadTokens: 9_000_000n,
-        cacheWriteTokens: 850_000n,
-        billedCostNanoUsd: 900_000_000n,
-        listCostNanoUsd: 1_120_000_000n,
-      }),
       create(UsageSessionTotalSchema, {
         model: "sonnet-5-5",
         agentType: "",
@@ -247,6 +237,17 @@ export const epicUsage: UsageEpicSession[] = [
         cacheWriteTokens: 40_000n,
         billedCostNanoUsd: 60_000_000n,
         listCostNanoUsd: 90_000_000n,
+      }),
+      create(UsageSessionTotalSchema, {
+        model: "haiku-5-5",
+        agentType: "builder",
+        requests: 388n,
+        inputTokens: 1_100_000n,
+        outputTokens: 60_000n,
+        cacheReadTokens: 9_000_000n,
+        cacheWriteTokens: 850_000n,
+        billedCostNanoUsd: 900_000_000n,
+        listCostNanoUsd: 1_120_000_000n,
       }),
     ],
   }),
