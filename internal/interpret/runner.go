@@ -175,8 +175,8 @@ type Config struct {
 	Reviewers Reviewers
 	Ending    Ending
 	StateDir  string
-	// Orrery is the orrery binary a release step that names a kind runs as `orrery release-step` (releasestep.Argv).
-	// Empty takes the one holder.Binary finds: orrery beside the running executable, else orrery on PATH.
+	// Orrery is the absolute path of the orrery binary a release step that names a kind runs as `orrery release-step`
+	// (releasestep.Argv). A Runner with none cannot start such a step, and records it failed.
 	Orrery string
 	// Hosts resolves each epic's Host to the host its repository work runs on, which the build functions the Runner calls
 	// are given. A nil Hosts is hostexec.LocalHosts.

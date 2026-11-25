@@ -288,3 +288,20 @@ func TestReleaseStepPromptNeverMovesATargetBack(t *testing.T) {
 		}
 	}
 }
+
+// TestReleaseKindStepWithNoOrreryFails: a runner given no orrery binary starts no check for a step that names a kind,
+// and records the step failed with the reason it did not start.
+func TestReleaseKindStepWithNoOrreryFails(t *testing.T) {
+	t.Parallel()
+	w := newKindWorld(t, &recordingEnding{}, pushMainStep(), tagKindStep())
+	w.runner.orrery = ""
+	w.pass()
+
+	if len(w.fakes.checks.calls) != 0 {
+		t.Errorf("check starts = %+v, want none with no orrery binary", w.fakes.checks.calls)
+	}
+	runs := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartStep)
+	if len(runs) != 1 || runs[0].Passed || runs[0].Reason != "the step did not start: "+errNoOrrery.Error() {
+		t.Errorf("step runs = %+v, want the first step failed for want of the orrery binary", runs)
+	}
+}

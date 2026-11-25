@@ -1690,6 +1690,12 @@ func (h *sessionHost) startFlow(
 	var flowCtx context.Context
 	flowCtx, h.stopFlow = context.WithCancel(ctx)
 	ticks, passed := flowSeam(flowCtx, flowTicks, logger)
+	// A release step that names a kind runs orrery beside this binary. One that cannot be found leaves it empty, and
+	// each such step then fails at its start with the reason.
+	orrery, err := holder.Binary("")
+	if err != nil {
+		logger.ErrorContext(ctx, "find the orrery binary release steps run, serving anyway", "error", err)
+	}
 	flow := interpret.New(interpret.Config{
 		Store:     st,
 		Planner:   plannerRun,
@@ -1700,6 +1706,7 @@ func (h *sessionHost) startFlow(
 		Reviewers: interpret.NewEpicReviewers(),
 		Ending:    st,
 		StateDir:  stateDir,
+		Orrery:    orrery,
 		Hosts:     hosts,
 		Getenv:    getenv,
 		Logger:    logger,

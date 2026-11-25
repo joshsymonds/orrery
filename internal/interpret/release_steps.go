@@ -13,7 +13,6 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
-	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/roles"
@@ -156,25 +155,27 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 // with the step's kind and parameters (releasestep.Argv) under a holder, in a worktree of the epic's repository detached
 // at act's start, within the kind's limit (releasestep.Limit). That command carries out the step's mechanics and checks
 // its postcondition in code, and the step passes when it exits 0 (recordKindStep). The command names the epic's title
-// as the change. An orrery binary that cannot be found records the step failed at once.
+// as the change. A runner given no orrery binary records the step failed at once.
 func (r *Runner) startKindStep(
 	ctx context.Context, epic store.EpicRow, act Action, position int64, step store.EpicReleaseStep, at time.Time,
 ) error {
-	orrery, err := holder.Binary(r.orrery)
-	if err != nil {
-		return r.failReleaseStep(ctx, epic, act, position, step, at, err)
+	if r.orrery == "" {
+		return r.failReleaseStep(ctx, epic, act, position, step, at, errNoOrrery)
 	}
 	start := act.Items[1]
 	check := store.NodeCheck{
 		ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: start,
-		Argv:  releasestep.Argv(orrery, step.Kind, step.Params, start, epic.Title),
+		Argv:  releasestep.Argv(r.orrery, step.Kind, step.Params, start, epic.Title),
 		Limit: int64(releasestep.Limit(step.Kind) / time.Second),
 	}
-	if _, err = r.checks.Run(ctx, check); err != nil {
+	if _, err := r.checks.Run(ctx, check); err != nil {
 		return fmt.Errorf("start release step %d of epic %s: %w", position, epic.ID, err)
 	}
 	return nil
 }
+
+// errNoOrrery is why a release step that names a kind does not start on a runner given no orrery binary.
+var errNoOrrery = errors.New("the runner was not given the orrery binary a release step that names a kind runs")
 
 // releaseStepTask returns the task the start of the release step at position, under id, carries. The rows of a release
 // read a step under its run's id, so a step under any other id, such as the first step of a candidate prepared again,
