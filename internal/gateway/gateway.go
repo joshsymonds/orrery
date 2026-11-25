@@ -218,6 +218,27 @@ func (g *Gateway) Load(ctx context.Context) error {
 	return nil
 }
 
+// Handler returns the handler the gateway is served as. It answers the model endpoints, GET /v1/models and GET
+// /v1/models/{id} with or without a /ctx/<name> prefix, ahead of the proxy path, and passes every other request to
+// ServeHTTP. A model endpoint is admitted like any request the gateway serves, so the admission bound covers it too.
+func (g *Gateway) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		route, ok := modelsRouteOf(r)
+		if !ok {
+			g.ServeHTTP(w, r)
+			return
+		}
+
+		if !g.tryAdmission() {
+			g.refuseOverload(w, r)
+			return
+		}
+		defer g.releaseAdmission()
+
+		g.serveModels(w, r, route)
+	})
+}
+
 // anthropicUpstream parses the base URL forward seats send to: configured, or Anthropic's own URL when configured is
 // empty. It refuses a URL that is not an absolute http or https URL with a host, and one that carries a query or
 // fragment, since a request path is appended to it.
