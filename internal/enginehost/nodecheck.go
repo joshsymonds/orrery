@@ -281,7 +281,8 @@ func (n *NodeChecks) request(ctx context.Context, worktree string, check store.N
 }
 
 // gate returns the gate that runs check in worktree. Its limit is the check's limit in seconds, and it keeps the newest
-// store.NodeOutputMax bytes of each of its stdout and stderr, which is all the store keeps.
+// store.NodeOutputMax bytes of each of its stdout and stderr, which is all the store keeps of them, and the key lines of
+// its whole output, which its holder reads as the output streams.
 func (n *NodeChecks) gate(
 	worktree string, check store.NodeCheck, started func(ctx context.Context, grant, holder string) error,
 ) gateRun {
@@ -299,8 +300,8 @@ func (n *NodeChecks) gate(
 }
 
 // end removes worktree on host and clears holder on every path, and returns how the check ended: the outcome of result when
-// its gate ran to one, else reason as the reason it did not run. A failure to clean up is added to NotRun, so the check is
-// never passed on a clean-up that failed.
+// its gate ran to one, with its tails and key lines, else reason as the reason it did not run. A failure to clean up is
+// added to NotRun, so the check is never passed on a clean-up that failed.
 func (n *NodeChecks) end(
 	ctx context.Context, host hostexec.Host, repo, worktree string, result *gateResult, reason string,
 ) store.NodeCheckEnd {
@@ -312,6 +313,7 @@ func (n *NodeChecks) end(
 		ended.TimedOut = result.TimedOut
 		ended.Stdout = result.Stdout
 		ended.Stderr = result.Stderr
+		ended.KeyLines = result.KeyLines
 	}
 	cleanErr := errors.Join(
 		removeStepWorktree(context.WithoutCancel(ctx), host, repo, worktree),

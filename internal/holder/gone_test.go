@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -167,7 +168,7 @@ func TestGoneExitRecordAndWaitReportTheChildsEnd(t *testing.T) {
 
 			gone := openGone(t, goneHolder(t, content, tc.script), 0)
 			exit, ok := gone.Exit()
-			if !ok || exit != tc.want {
+			if !ok || !reflect.DeepEqual(exit, tc.want) {
 				t.Errorf("Exit() = %+v, %t; want %+v, true", exit, ok, tc.want)
 			}
 			err := gone.Wait()
@@ -193,7 +194,7 @@ func TestGoneWithoutExitRecordNamesTheMissingRecord(t *testing.T) {
 		t.Fatalf("remove exit record: %v", err)
 	}
 	gone := openGone(t, dir, 0)
-	if exit, ok := gone.Exit(); ok || exit != (Exit{}) {
+	if exit, ok := gone.Exit(); ok || !reflect.DeepEqual(exit, Exit{}) {
 		t.Errorf("Exit() = %+v, %t; want no record", exit, ok)
 	}
 	if err := gone.Wait(); err == nil || !strings.Contains(err.Error(), ExitName) {

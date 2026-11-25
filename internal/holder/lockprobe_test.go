@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -72,7 +73,7 @@ func TestLockProbeEndedTreatsRemovedLockAsGone(t *testing.T) {
 	if !errors.Is(got.err, ErrGone) {
 		t.Fatalf("Ended of a removed lock = %v, want ErrGone", got.err)
 	}
-	if got.found || got.exit != (Exit{}) {
+	if got.found || !reflect.DeepEqual(got.exit, Exit{}) {
 		t.Fatalf("Ended of a removed lock = %+v, found %v; want no exit record", got.exit, got.found)
 	}
 	if _, err = os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {

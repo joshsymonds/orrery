@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -115,6 +116,13 @@ func TestWriteExitRoundTrip(t *testing.T) {
 			name: "stopped by signal",
 			exit: Exit{Reason: ReasonStopped, Code: -1, Signal: "SIGTERM", StdoutEnd: 0, Stderr: ""},
 		},
+		{
+			name: "gate with key lines",
+			exit: Exit{
+				Reason: ReasonExited, Code: 1, Stdout: "FAIL\n", Stderr: "",
+				KeyLines: []string{"gate-remote: running x here (load 1.00 1.00 1.00, nproc 2)", "FAIL"},
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,7 +131,7 @@ func TestWriteExitRoundTrip(t *testing.T) {
 				t.Fatalf("WriteExit: %v", err)
 			}
 			got := readExitRecord(t, path)
-			if got != tc.exit {
+			if !reflect.DeepEqual(got, tc.exit) {
 				t.Errorf("exit record = %+v, want %+v", got, tc.exit)
 			}
 		})
@@ -153,7 +161,7 @@ func TestWriteExitRefusesExistingFile(t *testing.T) {
 	}
 
 	got := readExitRecord(t, path)
-	if got != first {
+	if !reflect.DeepEqual(got, first) {
 		t.Errorf("exit record after refused write = %+v, want first record %+v", got, first)
 	}
 }

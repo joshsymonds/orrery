@@ -2,6 +2,7 @@ package holder
 
 import (
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +100,53 @@ func TestGateChildGateTailHoldsThatManyBytesOfEachStream(t *testing.T) {
 	stderr := strings.Repeat("b", 300) + gateTestStderrEnd
 	if want := stderr[len(stderr)-tail:]; exit.Stderr != want {
 		t.Errorf("Stderr = %q, want the newest %d bytes %q", exit.Stderr, tail, want)
+	}
+}
+
+// TestGateChildKeepsTheKeyLinesOfTheWholeOutput: a gate child's exit record carries the key lines of its stdout and its
+// stderr, read from the whole of each stream, the line stdout ends on without a newline included, although each tail
+// keeps only its newest 8 KiB and has cut the early lines off.
+func TestGateChildKeepsTheKeyLinesOfTheWholeOutput(t *testing.T) {
+	t.Parallel()
+
+	const remote = "gate-remote: running just check here (no box; load 9.00 8.00 7.00, nproc 4)"
+	script := `echo '` + remote + `' >&2; head -c 20480 /dev/zero | tr '\000' b >&2; echo >&2; ` +
+		`echo stderr-end >&2; echo '--- FAIL: TestX (0.10s)'; head -c 20480 /dev/zero | tr '\000' a; echo; ` +
+		`printf 'FAIL\tgithub.com/x/y'`
+	child, _ := startGateChild(t, script, newFakeClock())
+	awaitChildDone(t, child)
+	exit := child.Exit(ReasonExited)
+	for _, want := range []string{remote, "--- FAIL: TestX (0.10s)", "FAIL\tgithub.com/x/y"} {
+		if !slices.Contains(exit.KeyLines, want) {
+			t.Errorf("KeyLines = %q, want it to hold %q", exit.KeyLines, want)
+		}
+	}
+	if len(exit.KeyLines) != 3 {
+		t.Errorf("KeyLines = %q, want only the three key lines", exit.KeyLines)
+	}
+	if strings.Contains(exit.Stderr, "gate-remote") || strings.Contains(exit.Stdout, "--- FAIL") {
+		t.Errorf("tails hold the early key lines, want them cut off: stderr starts %q, stdout starts %q",
+			exit.Stderr[:16], exit.Stdout[:16])
+	}
+}
+
+// TestChildThatIsNoGateKeepsNoKeyLines: a child that is no gate keeps no key lines in its exit record, whatever it
+// writes.
+func TestChildThatIsNoGateKeepsNoKeyLines(t *testing.T) {
+	t.Parallel()
+
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("find sh: %v", err)
+	}
+	spool, _ := newTestSpool(t, SpoolConfig{})
+	child := startChildUnderCleanup(t, spool, ChildConfig{
+		Path: sh, Args: []string{"-c", "echo '--- FAIL: TestX (0.10s)'; echo FAIL >&2"}, Dir: t.TempDir(),
+		Clock: newFakeClock(),
+	})
+	awaitChildDone(t, child)
+	if exit := child.Exit(ReasonExited); exit.KeyLines != nil {
+		t.Errorf("KeyLines = %q, want none for a child that is no gate", exit.KeyLines)
 	}
 }
 

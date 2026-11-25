@@ -353,7 +353,7 @@ CREATE TABLE epic_node_checks (
     stderr TEXT NOT NULL DEFAULT '',
     created INTEGER NOT NULL,
     ended INTEGER NOT NULL DEFAULT 0
-);
+, key_lines TEXT NOT NULL DEFAULT '[]');
 CREATE INDEX epic_node_checks_epic_created ON epic_node_checks (epic, created);
 CREATE TABLE pushed_alert_notices (
     alert TEXT PRIMARY KEY,
@@ -1255,6 +1255,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (118,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (119,118,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,119,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);

@@ -54,15 +54,17 @@ type gateRun struct {
 }
 
 // gateResult is how a gate ended: its exit status, whether Limit killed it, how many of its processes its scope's memory
-// cap killed, the last bytes it printed on stdout and on stderr, the members of the grant the attempt that produced it
-// held, and the gate's holder directory. The holder directory keeps the gate's exit record until its caller clears it.
-// A cap's kills are also the last line of Stderr, as the holder records them.
+// cap killed, the last bytes it printed on stdout and on stderr, the key lines of its whole output, the members of the
+// grant the attempt that produced it held, and the gate's holder directory. The holder directory keeps the gate's exit
+// record until its caller clears it. A cap's kills are also the last line of Stderr, as the holder records them. A
+// gate whose holder an older orrery ran has no key lines.
 type gateResult struct {
 	Exit        int
 	TimedOut    bool
 	MemoryKills int
 	Stdout      string
 	Stderr      string
+	KeyLines    []string
 	Members     []grants.Member
 	Holder      string
 }
@@ -518,8 +520,9 @@ func gateEndedOnItsOwn(exit hostexec.Exit) bool {
 }
 
 // gateExitResult returns the result of a gate that ended on its own with exit, under the grant held in plan's holder
-// directory. Its Stdout and Stderr are the tails of the two streams, kept apart and each redacted, so nothing stored,
-// shown, judged or sent back from the gate holds a listed credential.
+// directory. Its Stdout and Stderr are the tails of the two streams, kept apart and each redacted, and its KeyLines are
+// the key lines of the record, each redacted, so nothing stored, shown, judged or sent back from the gate holds a
+// listed credential.
 func gateExitResult(held grants.Grant, plan gatePlan, exit hostexec.Exit) gateResult {
 	return gateResult{
 		Exit:        exit.Code,
@@ -527,6 +530,7 @@ func gateExitResult(held grants.Grant, plan gatePlan, exit hostexec.Exit) gateRe
 		MemoryKills: exit.MemoryKills,
 		Stdout:      gateRedactTail(exit.Stdout, plan.tail),
 		Stderr:      gateRedactTail(exit.Stderr, plan.tail),
+		KeyLines:    gateRedactLines(exit.KeyLines),
 		Members:     held.Members,
 		Holder:      plan.dir,
 	}
@@ -541,6 +545,20 @@ func gateRedactTail(tail string, size int) string {
 		return redact.CutTail(tail)
 	}
 	return redact.Text(tail)
+}
+
+// gateRedactLines returns lines, the key lines of a gate's output, each redacted with redact.Text. Each key line is a
+// whole line, or a long line cut at whole words around its middle (see keylines.LineMax), so none holds a credential
+// cut in half. It returns nil for no lines.
+func gateRedactLines(lines []string) []string {
+	if len(lines) == 0 {
+		return nil
+	}
+	redacted := make([]string, len(lines))
+	for i, line := range lines {
+		redacted[i] = redact.Text(line)
+	}
+	return redacted
 }
 
 // gateWatch waits until the gate's holder ends, or until a stop, the end of the grant or ctx ends the gate. A gate that a

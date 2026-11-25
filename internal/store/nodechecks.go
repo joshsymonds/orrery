@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/joshsymonds/orrery/internal/keylines"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -31,8 +32,9 @@ func EnvironmentExited(exit int, timedOut bool) bool {
 // needs. ID is the id NodeWorkID derives for the check, Epic and Path the epic and node run it belongs to, and Revision
 // the revision it runs at. Argv and Limit are its command and its limit in seconds, and Needs the pools it draws slots
 // from. State is running until the check ends, and Grant and Holder are the grant and holder it runs under. Created is
-// the second it was added and Ended the second it ended, zero while it runs. Exit, TimedOut, NotRun, Stdout and Stderr
-// are how it ended, and NotRun is the reason it did not run.
+// the second it was added and Ended the second it ended, zero while it runs. Exit, TimedOut, NotRun, Stdout, Stderr and
+// KeyLines are how it ended, and NotRun is the reason it did not run. Stdout and Stderr are the newest NodeOutputMax
+// bytes of each stream, and KeyLines the key lines of the whole output, as keylines.Cap holds them.
 type NodeCheck struct {
 	ID, Epic, Path, Revision string
 	Argv                     []string
@@ -42,17 +44,20 @@ type NodeCheck struct {
 	Exit                     int
 	TimedOut                 bool
 	NotRun, Stdout, Stderr   string
+	KeyLines                 []string
 	Created, Ended           time.Time
 }
 
-// NodeCheckEnd is how a running check ended: its exit, whether it timed out, the reason it did not run, and its stdout
-// and stderr.
+// NodeCheckEnd is how a running check ended: its exit, whether it timed out, the reason it did not run, its stdout and
+// stderr, and the key lines of its whole output, which keep the lines about where it ran and how it failed that its
+// tails may have cut off.
 type NodeCheckEnd struct {
 	Exit     int
 	TimedOut bool
 	NotRun   string
 	Stdout   string
 	Stderr   string
+	KeyLines []string
 }
 
 // AddNodeCheck stores check as a running check created at at, or, when check.NotRun is set, as a check ended at at for
@@ -98,15 +103,20 @@ func (s *Store) SetNodeCheckGrant(ctx context.Context, id, grant, holder string)
 }
 
 // EndNodeCheck ends the running check with id at the second at, with end, in one write. Stdout and stderr are cut to
-// their newest NodeOutputMax bytes. A check that is not running is left as it is, so a repeat changes nothing.
+// their newest NodeOutputMax bytes, and the key lines are held to the caps keylines.Cap gives and stored as JSON. A
+// check that is not running is left as it is, so a repeat changes nothing.
 func (s *Store) EndNodeCheck(ctx context.Context, id string, end NodeCheckEnd, at time.Time) error {
+	lines, err := encodeList(keylines.Cap(end.KeyLines))
+	if err != nil {
+		return fmt.Errorf("key lines of node check %s: %w", id, err)
+	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if err := queries.EndEpicNodeCheck(ctx, sqlcgen.EndEpicNodeCheckParams{
+		if endErr := queries.EndEpicNodeCheck(ctx, sqlcgen.EndEpicNodeCheckParams{
 			Exit: int64(end.Exit), TimedOut: boolInt(end.TimedOut), NotRun: end.NotRun,
 			Stdout: tailBytes(end.Stdout, NodeOutputMax), Stderr: tailBytes(end.Stderr, NodeOutputMax),
-			Ended: at.Unix(), ID: id,
-		}); err != nil {
-			return fmt.Errorf("end node check %s: %w", id, err)
+			KeyLines: lines, Ended: at.Unix(), ID: id,
+		}); endErr != nil {
+			return fmt.Errorf("end node check %s: %w", id, endErr)
 		}
 		return nil
 	})
@@ -147,7 +157,8 @@ func readNodeChecks(ctx context.Context, queries *sqlcgen.Queries, epic string) 
 	return convertInOrder(stored, nodeCheckOf)
 }
 
-// nodeCheckOf returns the check a stored row holds, its argv and needs decoded. Ended is zero while the check runs.
+// nodeCheckOf returns the check a stored row holds, its argv, needs and key lines decoded. Ended is zero while the check
+// runs.
 func nodeCheckOf(stored sqlcgen.EpicNodeCheck) (NodeCheck, error) {
 	argv, err := decodeList[string](stored.Argv)
 	if err != nil {
@@ -157,11 +168,15 @@ func nodeCheckOf(stored sqlcgen.EpicNodeCheck) (NodeCheck, error) {
 	if err != nil {
 		return NodeCheck{}, fmt.Errorf("needs of node check %s: %w", stored.ID, err)
 	}
+	lines, err := decodeList[string](stored.KeyLines)
+	if err != nil {
+		return NodeCheck{}, fmt.Errorf("key lines of node check %s: %w", stored.ID, err)
+	}
 	check := NodeCheck{
 		ID: stored.ID, Epic: stored.Epic, Path: stored.Path, Revision: stored.Revision, Argv: argv,
 		Limit: stored.LimitSeconds, Needs: needs, State: stored.State, Grant: stored.GrantID, Holder: stored.Holder,
 		Exit: int(stored.Exit), TimedOut: stored.TimedOut != 0, NotRun: stored.NotRun, Stdout: stored.Stdout,
-		Stderr: stored.Stderr, Created: time.Unix(stored.Created, 0),
+		Stderr: stored.Stderr, KeyLines: lines, Created: time.Unix(stored.Created, 0),
 	}
 	if stored.Ended != 0 {
 		check.Ended = time.Unix(stored.Ended, 0)

@@ -124,7 +124,7 @@ func epicTableColumns() map[string][]string {
 		},
 		"epic_node_checks": {
 			"id", "epic", "path", "revision", "argv", "limit_seconds", "needs", "state", "grant_id", "holder", "exit",
-			"timed_out", "not_run", "stdout", "stderr", "created", "ended",
+			"timed_out", "not_run", "stdout", "stderr", "created", "ended", "key_lines",
 		},
 		"epic_release_runs": {
 			"epic", "part", "position", "attempt", "step", "start", "head", "finish", "commits", "evidence",

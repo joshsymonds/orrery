@@ -71,6 +71,7 @@ func TestFrameRoundTripKeepsEveryField(t *testing.T) {
 			Signal:    "SIGKILL",
 			StdoutEnd: 11,
 			Stderr:    "tail \"quoted\"\n",
+			KeyLines:  []string{"--- FAIL: TestX (0.10s)", "FAIL\tgithub.com/x/y"},
 		},
 		Message: "message",
 	}
@@ -84,6 +85,28 @@ func TestFrameRoundTripKeepsEveryField(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Read() = %+v, want %+v", got, want)
+	}
+}
+
+// TestExitKeyLinesAreOmittedWhenNone: an exit record with no key lines carries no keyLines key, and a record with no
+// such key, as an older holder writes it, reads as one with no key lines.
+func TestExitKeyLinesAreOmittedWhenNone(t *testing.T) {
+	t.Parallel()
+
+	line, err := json.Marshal(Exit{Reason: ReasonExited, Code: 1, Stdout: "out", Stderr: "err"})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if strings.Contains(string(line), "keyLines") {
+		t.Errorf("record with no key lines = %s, want no keyLines key", line)
+	}
+	var older Exit
+	if err = json.Unmarshal([]byte(`{"reason":"exited","code":1,"stdoutEnd":0,"stdout":"out","stderr":"err"}`),
+		&older); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if older.KeyLines != nil || older.Code != 1 || older.Stderr != "err" {
+		t.Errorf("older holder's record = %+v, want it read with no key lines", older)
 	}
 }
 

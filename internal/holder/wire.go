@@ -110,6 +110,10 @@ type Exit struct {
 	// Stderr is the tail of the child's stderr. When the scope's memory cap killed a process while the child ran, its
 	// last line names the cap and MemoryKills.
 	Stderr string `json:"stderr"`
+	// KeyLines are the key lines of the child's stdout and stderr, read from the whole of each stream before its tail
+	// is cut, in the order the child wrote them, as a keylines.Collector keeps them. Only a gate keeps them, and a
+	// record that holds none, as an older holder's does, omits them.
+	KeyLines []string `json:"keyLines,omitempty"`
 	// MemoryKills is the number of processes of the holder's scope the kernel killed at the scope's memory cap while the
 	// child ran, from the scope's memory.events. It is zero for a holder that runs in no scope.
 	MemoryKills int `json:"memoryKills,omitempty"`

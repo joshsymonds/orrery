@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -350,7 +351,7 @@ func TestHolderDyingChildEndsWithExitAfterEveryOutByte(t *testing.T) {
 	if err := run.wait(t); err != nil {
 		t.Fatalf("Run = %v, want nil", err)
 	}
-	if onDisk := readExitFile(t, cfg.Dir); onDisk != exit {
+	if onDisk := readExitFile(t, cfg.Dir); !reflect.DeepEqual(onDisk, exit) {
 		t.Errorf("exit frame %+v differs from exit.json %+v", exit, onDisk)
 	}
 }

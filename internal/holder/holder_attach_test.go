@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -407,7 +408,7 @@ func TestHolderChildEndingWhileAttachedDeliversEveryByteThenExit(t *testing.T) {
 	if err := run.wait(t); err != nil {
 		t.Fatalf("Run = %v, want nil", err)
 	}
-	if onDisk := readExitFile(t, cfg.Dir); onDisk != exit {
+	if onDisk := readExitFile(t, cfg.Dir); !reflect.DeepEqual(onDisk, exit) {
 		t.Errorf("exit frame %+v differs from exit.json %+v", exit, onDisk)
 	}
 }
@@ -433,7 +434,7 @@ func TestHolderStopWhileAttachedSendsExitThenStopped(t *testing.T) {
 	if err := run.wait(t); err != nil {
 		t.Fatalf("Run = %v, want nil", err)
 	}
-	if onDisk := readExitFile(t, cfg.Dir); onDisk != exit {
+	if onDisk := readExitFile(t, cfg.Dir); !reflect.DeepEqual(onDisk, exit) {
 		t.Errorf("exit frame %+v differs from exit.json %+v", exit, onDisk)
 	}
 }

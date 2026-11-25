@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -449,11 +450,11 @@ func TestHolderChildThatExitsAloneWritesItsStatusAndTailAndReturnsThem(t *testin
 		t.Fatalf("Run = %v, want nil", err)
 	}
 	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err\n"}
-	if got := readExitFile(t, cfg.Dir); got != want {
+	if got := readExitFile(t, cfg.Dir); !reflect.DeepEqual(got, want) {
 		t.Errorf("exit file = %+v, want %+v", got, want)
 	}
 	// The caller takes the status from the returned record, since the directory can be gone once the lock is free.
-	if run.exit != want {
+	if !reflect.DeepEqual(run.exit, want) {
 		t.Errorf("Run's exit = %+v, want the record it wrote, %+v", run.exit, want)
 	}
 	requireNoSocket(t, socketOf(t, cfg.Dir))

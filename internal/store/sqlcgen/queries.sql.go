@@ -1192,7 +1192,8 @@ func (q *Queries) DropEpicRequirement(ctx context.Context, arg DropEpicRequireme
 }
 
 const endEpicNodeCheck = `-- name: EndEpicNodeCheck :exec
-UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, key_lines = ?,
+    ended = ?
 WHERE id = ? AND state = 'running'
 `
 
@@ -1202,6 +1203,7 @@ type EndEpicNodeCheckParams struct {
 	NotRun   string
 	Stdout   string
 	Stderr   string
+	KeyLines string
 	Ended    int64
 	ID       string
 }
@@ -1213,6 +1215,7 @@ func (q *Queries) EndEpicNodeCheck(ctx context.Context, arg EndEpicNodeCheckPara
 		arg.NotRun,
 		arg.Stdout,
 		arg.Stderr,
+		arg.KeyLines,
 		arg.Ended,
 		arg.ID,
 	)
@@ -2001,7 +2004,7 @@ func (q *Queries) GetEpicMetAtBase(ctx context.Context, arg GetEpicMetAtBasePara
 }
 
 const getEpicNodeCheck = `-- name: GetEpicNodeCheck :one
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE id = ?
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE id = ?
 `
 
 func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeCheck, error) {
@@ -2025,6 +2028,7 @@ func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeChec
 		&i.Stderr,
 		&i.Created,
 		&i.Ended,
+		&i.KeyLines,
 	)
 	return i, err
 }
@@ -8152,7 +8156,7 @@ func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, 
 }
 
 const listEpicNodeChecks = `-- name: ListEpicNodeChecks :many
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE epic = ? ORDER BY created, id
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE epic = ? ORDER BY created, id
 `
 
 func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNodeCheck, error) {
@@ -8182,6 +8186,7 @@ func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNo
 			&i.Stderr,
 			&i.Created,
 			&i.Ended,
+			&i.KeyLines,
 		); err != nil {
 			return nil, err
 		}
@@ -11363,7 +11368,7 @@ func (q *Queries) ListOpenEpicAmendments(ctx context.Context) ([]EpicAmendment, 
 }
 
 const listOpenEpicNodeChecks = `-- name: ListOpenEpicNodeChecks :many
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
 `
 
 func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, error) {
@@ -11393,6 +11398,7 @@ func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, 
 			&i.Stderr,
 			&i.Created,
 			&i.Ended,
+			&i.KeyLines,
 		); err != nil {
 			return nil, err
 		}

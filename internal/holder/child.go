@@ -35,8 +35,9 @@ type ChildConfig struct {
 	// Grace is how long Stop waits after SIGTERM before SIGKILL. Zero takes DefaultGrace.
 	Grace time.Duration
 	// GateLimit makes the child a gate when positive: its stdin is closed at start, its stdout and stderr each keep a
-	// newest-tail carried in the exit record's Stdout and Stderr, and nothing is spooled. Once GateLimit has passed on
-	// Clock from the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no limit.
+	// newest-tail carried in the exit record's Stdout and Stderr, the key lines of both, read from the whole of each
+	// stream, are carried in its KeyLines, and nothing is spooled. Once GateLimit has passed on Clock from the child's
+	// start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no limit.
 	GateLimit time.Duration
 	// GateTail is the number of newest bytes a gate keeps of each of its stdout and stderr in its exit record, from 1 to
 	// MaxGateTail. Zero takes 8 KiB. It is read only when GateLimit is positive.
@@ -66,7 +67,7 @@ type Child struct {
 }
 
 // StartChild starts the child in its own process group with its stdout spooled into spool. A positive GateLimit makes
-// the child a gate, which spools nothing and keeps its output in the exit record's tails.
+// the child a gate, which spools nothing and keeps its output in the exit record's tails and key lines.
 func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	if cfg.Grace == 0 {
 		cfg.Grace = DefaultGrace
@@ -83,6 +84,7 @@ func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 		}
 		procCfg.StdoutCapacity = tail
 		procCfg.StderrCapacity = tail
+		procCfg.KeyLines = true
 	}
 	started, err := proc.Start(procCfg)
 	if err != nil {
@@ -147,7 +149,8 @@ func (c *Child) Done() <-chan struct{} {
 
 // Exit returns the child's exit record. It waits for Done. Code is the exit status, or -1 when a signal ended the
 // child, with Signal the signal's name. A child that passed its gate limit while it ran has ReasonLimit whatever
-// reason is given. A wait error with no exit status, or a fault of the holder, is the last line of Stderr.
+// reason is given. A wait error with no exit status, or a fault of the holder, is the last line of Stderr. A gate's
+// KeyLines are the key lines of its stdout and stderr, and a child that is no gate has none.
 func (c *Child) Exit(reason string) Exit {
 	<-c.done
 	exit := Exit{Reason: reason, StdoutEnd: c.spool.End()}
@@ -168,6 +171,7 @@ func (c *Child) Exit(reason string) Exit {
 	c.mu.Unlock()
 	exit.Stdout = c.proc.StdoutTail()
 	exit.Stderr = stderrWith(c.proc.Stderr(), faults)
+	exit.KeyLines = c.proc.KeyLines()
 	return exit
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -56,7 +57,7 @@ func TestReattachGateTakesOverALaunchedGateAndKeepsItsExitRecord(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("read the exit record in %s: found %v, err %v", dir, found, err)
 	}
-	if recorded != exit {
+	if !reflect.DeepEqual(recorded, exit) {
 		t.Fatalf("exit record in %s = %+v, want the Process's %+v", dir, recorded, exit)
 	}
 }

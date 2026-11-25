@@ -11,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/keylines"
 )
 
 const (
@@ -37,6 +39,9 @@ type Config struct {
 	StdoutCapacity int
 	// StderrCapacity is the number of stderr bytes kept. Zero takes 64 KiB.
 	StderrCapacity int
+	// KeyLines collects the key lines of each stream kept in a tail, the stderr and, with StdoutCapacity, the stdout,
+	// from the whole stream and not only its tail, as a keylines.Collector keeps them. KeyLines returns them.
+	KeyLines bool
 	// StopTimeout is how long Stop waits after the interrupt before the kill. Zero takes 2 s.
 	StopTimeout time.Duration
 }
@@ -48,6 +53,7 @@ type Process struct {
 	stdout      io.ReadCloser
 	stdoutTail  *tail // nil unless the stdout is kept in a tail
 	stderr      *tail
+	keyLines    *keylines.Collector // nil unless Config.KeyLines is set
 	captures    []*capture
 	stopTimeout time.Duration
 	// stopTimer returns the channel that delivers once Stop has waited d after the interrupt. It is time.After; a test
@@ -59,17 +65,19 @@ type Process struct {
 	stopErr   error
 }
 
-// capture is one of the child's output pipes, copied into a tail until every writer closes the pipe.
+// capture is one of the child's output pipes, copied into a tail until every writer closes the pipe. With lines set,
+// the pipe's bytes are written to lines too, so its key lines are collected.
 type capture struct {
-	read *os.File
-	tail *tail
-	done chan struct{}
-	err  error // read by run only after done closes
+	read  *os.File
+	tail  *tail
+	lines *keylines.Writer
+	done  chan struct{}
+	err   error // read by run only after done closes
 }
 
 // Start runs the configured binary in a new process group with piped stdin, and captures its stderr into a bounded
-// tail. With StdoutCapacity its stdout is captured into a tail of its own too, and otherwise the caller reads it. The
-// process is stopped with Stop.
+// tail. With StdoutCapacity its stdout is captured into a tail of its own too, and otherwise the caller reads it. With
+// KeyLines the key lines of each captured stream are collected as well. The process is stopped with Stop.
 func Start(cfg Config) (*Process, error) {
 	if !filepath.IsAbs(cfg.Path) {
 		return nil, ErrPathNotAbsolute
@@ -143,6 +151,12 @@ func Start(cfg Config) (*Process, error) {
 		process.captures = append(process.captures,
 			&capture{read: parentStdout, tail: process.stdoutTail, done: make(chan struct{})})
 	}
+	if cfg.KeyLines {
+		process.keyLines = &keylines.Collector{}
+		for _, c := range process.captures {
+			c.lines = process.keyLines.Writer()
+		}
+	}
 	for _, c := range process.captures {
 		go c.copy()
 	}
@@ -178,6 +192,17 @@ func (p *Process) StdoutTail() string {
 // Stderr returns the last bytes the child wrote to stderr, up to the configured capacity.
 func (p *Process) Stderr() string {
 	return p.stderr.String()
+}
+
+// KeyLines returns the key lines of the streams kept in tails, from the whole of each stream, in the order the child
+// wrote them, as a keylines.Collector keeps them. Once Done has closed they hold every line the child wrote, its last
+// line included when it ended without a newline. It is nil without Config.KeyLines, and when the child wrote no key
+// line.
+func (p *Process) KeyLines() []string {
+	if p.keyLines == nil {
+		return nil
+	}
+	return p.keyLines.Lines()
 }
 
 // Done returns a channel that closes once the process is reaped.
@@ -238,11 +263,19 @@ func (p *Process) run() {
 	close(p.done)
 }
 
-// copy keeps the pipe's bytes in the tail until every writer closes the pipe, then closes the read end. Its error is
-// read by run only after done closes.
+// copy keeps the pipe's bytes in the tail, and writes them to lines when it is set, until every writer closes the pipe,
+// then adds the line the pipe ended on without a newline to lines and closes the read end. Its error is read by run
+// only after done closes.
 func (c *capture) copy() {
 	defer close(c.done)
-	_, copyErr := io.Copy(c.tail, c.read)
+	var into io.Writer = c.tail
+	if c.lines != nil {
+		into = io.MultiWriter(c.tail, c.lines)
+	}
+	_, copyErr := io.Copy(into, c.read)
+	if c.lines != nil {
+		c.lines.Flush()
+	}
 	c.err = errors.Join(ignoreClosed(copyErr), ignoreClosed(c.read.Close()))
 }
 

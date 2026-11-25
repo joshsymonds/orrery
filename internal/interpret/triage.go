@@ -30,11 +30,11 @@ const TriageSchema = `{
     "verdict": {"type": "string", "enum": ["environment", "flake", "change"]},
     "evidence": {
       "type": "string",
-      "description": "For environment or flake, the line or lines of the output tails that show it, copied exactly."
+      "description": "For environment or flake, the lines of the output tails or key lines that show it, copied exactly."
     },
     "citation": {
       "type": "string",
-      "description": "For change, the failing test or lint line copied exactly from the output tails; empty if none."
+      "description": "For change, the failing test or lint line copied exactly from the tails or key lines; empty if none."
     },
     "reason": {"type": "string", "description": "Why, in one or two sentences."}
   }

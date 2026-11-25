@@ -120,6 +120,7 @@ func migrationChecks() map[int64]migrationCheck {
 		115: stepPurposeDownAndUp(),
 		117: reproRulingsDownAndUp(),
 		118: parkChainCallsDownAndUp(),
+		120: nodeCheckKeyLinesDownAndUp(),
 	}
 }
 

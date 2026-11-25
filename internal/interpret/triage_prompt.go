@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/keylines"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -160,8 +161,9 @@ func capStat(stat string) string {
 	return strings.Join(kept, "\n")
 }
 
-// triagePrompt returns the prompt of a gate triage: the facts orreryd gathered (triageFacts), the gate's output tails as
-// TriageText reads them, how to weigh the facts, and what to return. The judgement of the facts is the judge's.
+// triagePrompt returns the prompt of a gate triage: the facts orreryd gathered (triageFacts), the gate's output tails and
+// key lines as TriageText reads them, how to weigh the facts, and what to return. The judgement of the facts is the
+// judge's.
 func triagePrompt(facts triageFacts) string {
 	var prompt strings.Builder
 	prompt.WriteString("A gate failed, and you decide why: because of the change under test, because of the machine " +
@@ -175,6 +177,7 @@ func triagePrompt(facts triageFacts) string {
 	facts.writeNamed(&prompt)
 	facts.writeBase(&prompt)
 	writeTails(&prompt, facts.check)
+	writeKeyLines(&prompt, facts.check)
 	prompt.WriteString(triageGuide)
 	return prompt.String()
 }
@@ -215,7 +218,9 @@ func (f triageFacts) writeGate(prompt *strings.Builder) {
 }
 
 // writeWhere writes the Where it ran section: the host the epic lives on, and the lines scripts/gate-remote.sh printed
-// about where the gate ran, the load and CPU count there, and how long it took.
+// about where the gate ran, the load and CPU count there, and how long it took, from the key lines and the output tails,
+// so the line that gives the load is found when the tails have cut it off. The load is read from every such line, and
+// the list keeps the newest triageFactLines of them.
 func (f triageFacts) writeWhere(prompt *strings.Builder) {
 	prompt.WriteString("## Where it ran\n")
 	if f.host == "" {
@@ -223,15 +228,17 @@ func (f triageFacts) writeWhere(prompt *strings.Builder) {
 	} else {
 		fmt.Fprintf(prompt, "The epic lives on host %s, as the store names it.\n", f.host)
 	}
-	lines := matching(f.check, triageGateRemote)
+	lines := allMatching(f.check, triageGateRemote)
 	if len(lines) == 0 {
-		prompt.WriteString("The output tails hold no gate-remote line, so where the gate ran and the load there are " +
-			"not known.\n\n")
+		prompt.WriteString(
+			"Neither the output tails nor the key lines hold a gate-remote line, so where the gate ran and the " +
+				"load there are not known.\n\n",
+		)
 		return
 	}
 	prompt.WriteString("The gate's own lines about where it ran, the load average (1, 5 and 15 minutes) and CPU " +
 		"count there, and how long it took:\n")
-	writeList(prompt, lines)
+	writeList(prompt, newest(lines))
 	if load := gateLoad(lines); load != "" {
 		prompt.WriteString(load + "\n")
 	}
@@ -278,7 +285,7 @@ func (f triageFacts) writeChange(prompt *strings.Builder) {
 }
 
 // writeNamed writes the What the failure names section: the failing tests and packages, the files and lines, each with
-// whether the change touches its file, and the error lines the output tails hold.
+// whether the change touches its file, and the error lines the key lines and the output tails hold.
 func (f triageFacts) writeNamed(prompt *strings.Builder) {
 	prompt.WriteString("## What the failure names\n")
 	tests := matching(f.check, triageFailingTest)
@@ -286,7 +293,8 @@ func (f triageFacts) writeNamed(prompt *strings.Builder) {
 	files := fileLines(f.check)
 	reported := matching(f.check, triageErrorLine)
 	if len(tests)+len(packages)+len(files)+len(reported) == 0 {
-		prompt.WriteString("The output tails name no failing test, package, file line or error line.\n\n")
+		prompt.WriteString("Neither the output tails nor the key lines name a failing test, package, file line or " +
+			"error line.\n\n")
 		return
 	}
 	writeNamedList(prompt, "Failing tests", tests)
@@ -337,11 +345,11 @@ func (f triageFacts) writeBase(prompt *strings.Builder) {
 }
 
 // writeTails writes the Output tails section: the newest part of each stream of check that orreryd kept, as
-// kinds.TriageText reads it, which is the text every quote is checked against.
+// kinds.TriageText reads it, which with the key lines is the text every quote is checked against.
 func writeTails(prompt *strings.Builder, check store.NodeCheck) {
 	fmt.Fprintf(prompt, "## Output tails\norreryd keeps the newest %d bytes of each stream, so a stream may start "+
-		"part way. Every quote you return is checked against these tails, with runs of white space read as one "+
-		"space.\n", store.NodeOutputMax)
+		"part way. Every quote you return is checked against these tails and the key lines below, with runs of white "+
+		"space read as one space.\n", store.NodeOutputMax)
 	for _, tail := range []struct{ name, text string }{{"stdout", check.Stdout}, {"stderr", check.Stderr}} {
 		text := strings.TrimRight(kinds.TriageText(tail.text), "\n")
 		if strings.TrimSpace(text) == "" {
@@ -351,6 +359,23 @@ func writeTails(prompt *strings.Builder, check store.NodeCheck) {
 		fmt.Fprintf(prompt, "### %s\n```\n%s\n```\n", tail.name, text)
 	}
 	prompt.WriteString("\n")
+}
+
+// writeKeyLines writes the Key lines section: the key lines of check's whole output that orreryd kept before its tails
+// were cut, as kinds.TriageText reads them, which every quote is checked against with the tails.
+func writeKeyLines(prompt *strings.Builder, check store.NodeCheck) {
+	fmt.Fprintf(prompt, "## Key lines\norreryd keeps these lines of the gate's whole output, both streams, in the "+
+		"order the gate wrote them, before the tails above are cut: the first and last gate-remote lines, and the "+
+		"newest lines that name a failure, such as a failing test, package or lint finding, a panic, a timeout or a "+
+		"failed task, at most %d lines and %d bytes in all. A line longer than %d bytes keeps its start and its end "+
+		"around \" ... \". A line here may be gone from the tails.\n", keylines.MaxLines, keylines.MaxBytes,
+		keylines.LineMax)
+	text := strings.TrimRight(kinds.TriageText(strings.Join(check.KeyLines, "\n")), "\n")
+	if strings.TrimSpace(text) == "" {
+		prompt.WriteString("(none)\n\n")
+		return
+	}
+	fmt.Fprintf(prompt, "```\n%s\n```\n\n", text)
 }
 
 // triageGuide is the part of a triage's prompt that says how to weigh the facts and what to return.
@@ -375,11 +400,11 @@ facts above are what you judge.
 ## Return
 Return status done, with:
 - verdict: environment, flake or change.
-- evidence: for environment or flake, the line or lines of the output tails above that show it, one per line, copied
-  exactly as they stand. Each is checked against the tails, and a verdict whose evidence is not found there counts as
-  change. Leave it empty for change.
-- citation: for change, the failing test or lint line copied exactly from the tails, such as its --- FAIL line or its
-  file:line finding. Leave it empty when the tails show none.
+- evidence: for environment or flake, the line or lines of the output tails or key lines above that show it, one per
+  line, copied exactly as they stand. Each is checked against the tails and key lines, and a verdict whose evidence is
+  not found there counts as change. Leave it empty for change.
+- citation: for change, the failing test or lint line copied exactly from the tails or key lines, such as its --- FAIL
+  line or its file:line finding. Leave it empty when they show none.
 - reason: why, in one or two sentences.
 `
 
@@ -399,11 +424,16 @@ func checkEnding(check store.NodeCheck) string {
 	return fmt.Sprintf("exited %d without running past its limit", check.Exit)
 }
 
-// matching returns the lines of check's stderr and then its stdout, as kinds.TriageText reads them and trimmed, that
-// pattern matches, each once, in order, keeping the newest triageFactLines of them.
+// matching returns the newest triageFactLines of the lines allMatching returns.
 func matching(check store.NodeCheck, pattern *regexp.Regexp) []string {
+	return newest(allMatching(check, pattern))
+}
+
+// allMatching returns the lines of check's key lines, then its stderr and then its stdout (checkTexts), as
+// kinds.TriageText reads them and trimmed, that pattern matches, each once, in order.
+func allMatching(check store.NodeCheck, pattern *regexp.Regexp) []string {
 	var lines []string
-	for _, text := range []string{check.Stderr, check.Stdout} {
+	for _, text := range checkTexts(check) {
 		for raw := range strings.Lines(kinds.TriageText(text)) {
 			line := strings.TrimSpace(raw)
 			if line != "" && pattern.MatchString(raw) && !slices.Contains(lines, line) {
@@ -411,14 +441,14 @@ func matching(check store.NodeCheck, pattern *regexp.Regexp) []string {
 			}
 		}
 	}
-	return newest(lines)
+	return lines
 }
 
 // fileLines returns the source files and lines check's output names, such as tmuxctl_test.go:533, each once, in the
 // order matching reads them, keeping the newest triageFactLines of them.
 func fileLines(check store.NodeCheck) []string {
 	var refs []string
-	for _, text := range []string{check.Stderr, check.Stdout} {
+	for _, text := range checkTexts(check) {
 		for _, ref := range triageFileLine.FindAllString(kinds.TriageText(text), -1) {
 			if !slices.Contains(refs, ref) {
 				refs = append(refs, ref)
@@ -426,6 +456,13 @@ func fileLines(check store.NodeCheck) []string {
 		}
 	}
 	return newest(refs)
+}
+
+// checkTexts returns the texts of check's output that a triage's facts are drawn from, in the order they are read: its
+// key lines, which come from the whole output and so hold its first gate-remote lines, then its stderr and its stdout
+// tails, which hold its newest lines.
+func checkTexts(check store.NodeCheck) []string {
+	return []string{strings.Join(check.KeyLines, "\n"), check.Stderr, check.Stdout}
 }
 
 // newest returns the last triageFactLines of lines, all of them when there are no more.

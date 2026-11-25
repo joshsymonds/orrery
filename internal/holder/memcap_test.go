@@ -3,6 +3,7 @@ package holder
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -120,10 +121,10 @@ func TestHolderRecordsTheKillsOfTheScopesMemoryCap(t *testing.T) {
 		Stderr:      "partial\norrery holder: the scope's memory cap (memory.max 8589934592) killed 2 processes",
 		MemoryKills: 2,
 	}
-	if got := readExitFile(t, cfg.Dir); got != want {
+	if got := readExitFile(t, cfg.Dir); !reflect.DeepEqual(got, want) {
 		t.Errorf("exit file = %+v, want %+v", got, want)
 	}
-	if run.exit != want {
+	if !reflect.DeepEqual(run.exit, want) {
 		t.Errorf("Run's exit = %+v, want %+v", run.exit, want)
 	}
 }
@@ -138,7 +139,7 @@ func TestHolderRecordsNoKillsWhenTheCountHolds(t *testing.T) {
 		t.Fatalf("Run = %v, want nil", err)
 	}
 	want := Exit{Reason: ReasonExited, Code: 3, Stderr: "err\n"}
-	if run.exit != want {
+	if !reflect.DeepEqual(run.exit, want) {
 		t.Errorf("Run's exit = %+v, want %+v", run.exit, want)
 	}
 }

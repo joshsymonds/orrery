@@ -3,11 +3,11 @@ package kinds
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
 
+	"github.com/joshsymonds/orrery/internal/keylines"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -221,8 +221,9 @@ func decodeTriage(raw []byte) (triageReturn, error) {
 
 // TriageFailures returns the lines on which raw, the return of the step that triages check, fails, which the step is
 // sent back to fix: it does not decode, it names no known verdict, an environment or flake verdict quotes no evidence
-// or quotes a line the check's output does not hold, or a change cites a line the output does not hold. A change that
-// cites nothing passes, since the output may show no failing line. It returns none for a return that passes.
+// or quotes a line the check's output does not hold, or a change cites a line the output does not hold. The check's
+// output is its stdout and stderr tails and its key lines (see unquoted). A change that cites nothing passes, since the
+// output may show no failing line. It returns none for a return that passes.
 func TriageFailures(check store.NodeCheck, raw []byte) []string {
 	ret, err := decodeTriage(raw)
 	if err != nil {
@@ -273,8 +274,8 @@ func citationFailures(check store.NodeCheck, ret triageReturn) []string {
 // JudgeTriage returns the triage to record for check from row, the step that triaged it, and allowed, the verdicts a
 // rerun of check's part may still follow. Its Verdict, Evidence, Citation and Reason are set, and the rest is left to
 // the caller. An environment or flake verdict stands, with its evidence and reason, only when its evidence passes
-// (evidenceFailures) and allowed holds it. A change stands with its citation when the check's output holds the line it
-// cites, and without it otherwise. Every other answer is recorded change, with why: the step did not end done, its
+// (evidenceFailures) and allowed holds it. A change stands with its citation when the check's output, its tails and key
+// lines, holds the line it cites, and without it otherwise. Every other answer is recorded change, with why: the step did not end done, its
 // return does not decode or names no known verdict, a rerun verdict's evidence fails, or its reruns are spent.
 func JudgeTriage(check store.NodeCheck, row store.StepRow, allowed []string) store.GateTriage {
 	if row.End != stepDone {
@@ -359,10 +360,12 @@ func stepEnding(row store.StepRow) string {
 }
 
 // unquoted returns each line of quote, with its spacing normalized, that the output of check does not hold: its stdout
-// and stderr, read as TriageText reads them, with their spacing normalized too. A blank line of quote is passed over, so
-// a quote of nothing holds every line.
+// and stderr tails and its key lines, which keep lines of its whole output that the tails may have cut off, each read as
+// TriageText reads them, with their spacing normalized too. A blank line of quote is passed over, so a quote of nothing
+// holds every line.
 func unquoted(check store.NodeCheck, quote string) []string {
-	output := spaced(TriageText(check.Stdout) + "\n" + TriageText(check.Stderr))
+	output := spaced(TriageText(check.Stdout) + "\n" + TriageText(check.Stderr) + "\n" +
+		TriageText(strings.Join(check.KeyLines, "\n")))
 	var missing []string
 	for raw := range strings.Lines(TriageText(quote)) {
 		if line := spaced(raw); line != "" && !strings.Contains(output, line) {
@@ -377,15 +380,11 @@ func spaced(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// terminalEscape matches an escape sequence a terminal reads: a control sequence such as a color, an operating system
-// command, or a two-byte escape.
-var terminalEscape = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])`)
-
-// TriageText returns text as a triage reads it: each escape sequence a terminal reads taken out, each carriage return
-// read as the end of a line, and every other control character but a tab or a newline taken out. A triage's prompt
-// shows a gate's output so, and its quotes are checked against the output read so.
+// TriageText returns text as a triage reads it: each escape sequence a terminal reads taken out (keylines.Plain), each
+// carriage return read as the end of a line, and every other control character but a tab or a newline taken out. A
+// triage's prompt shows a gate's output so, and its quotes are checked against the output read so.
 func TriageText(text string) string {
-	text = terminalEscape.ReplaceAllString(strings.ReplaceAll(text, "\r\n", "\n"), "")
+	text = keylines.Plain(strings.ReplaceAll(text, "\r\n", "\n"))
 	var cleaned strings.Builder
 	for _, r := range text {
 		switch {

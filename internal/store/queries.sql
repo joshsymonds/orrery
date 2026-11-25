@@ -1596,7 +1596,8 @@ SELECT * FROM epic_node_checks WHERE state = 'running' ORDER BY created, id;
 UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running';
 
 -- name: EndEpicNodeCheck :exec
-UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, key_lines = ?,
+    ended = ?
 WHERE id = ? AND state = 'running';
 
 -- name: InsertEpicReview :exec

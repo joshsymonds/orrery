@@ -3,12 +3,14 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/keylines"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -205,6 +207,41 @@ func TestEndNodeCheckKeepsNewestOutputBytesAtRuneStart(t *testing.T) {
 	want.Stderr = strings.Repeat("a", 4093) + "END"
 	want.Ended = checkTime(100)
 	requireNodeCheck(t, s, id, want)
+}
+
+// TestEndNodeCheckKeepsItsKeyLinesCapped checks that EndNodeCheck stores the key lines of a check's whole output as
+// keylines.Cap holds them, beside its tails, and that NodeCheck reads them back in their order: the gate-remote line
+// first, then the newest failure lines that fit, a line past keylines.LineMax cut.
+func TestEndNodeCheckKeepsItsKeyLinesCapped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openCheckStore(t)
+	const id = "id-check-key-lines"
+	if err := s.AddNodeCheck(ctx, runningCheck(id), checkTime(0)); err != nil {
+		t.Fatalf("AddNodeCheck: %v", err)
+	}
+	lines := make([]string, 0, 102)
+	lines = append(lines, "gate-remote: running just check here (no box; load 9.00 8.00 7.00, nproc 4)")
+	for i := range 100 {
+		lines = append(lines, fmt.Sprintf("FAIL: check %03d", i))
+	}
+	lines = append(lines, "--- FAIL: TestLong "+strings.Repeat("x ", keylines.LineMax))
+	if err := s.EndNodeCheck(ctx, id, store.NodeCheckEnd{Exit: 1, Stdout: "FAIL\n", KeyLines: lines},
+		checkTime(100)); err != nil {
+		t.Fatalf("EndNodeCheck: %v", err)
+	}
+	got, err := s.NodeCheck(ctx, id)
+	if err != nil {
+		t.Fatalf("NodeCheck %s: %v", id, err)
+	}
+	want := keylines.Cap(lines)
+	if !reflect.DeepEqual(got.KeyLines, want) || len(want) != keylines.MaxLines || want[0] != lines[0] ||
+		len(want[len(want)-1]) > keylines.LineMax {
+		t.Errorf("KeyLines = %q, want the %d capped lines %q", got.KeyLines, keylines.MaxLines, want)
+	}
+	if got.Stdout != "FAIL\n" {
+		t.Errorf("Stdout = %q, want the tail beside the key lines", got.Stdout)
+	}
 }
 
 // TestNodeCheckOfUnknownIDMatchesErrNoNodeCheck checks that NodeCheck returns an error matching ErrNoNodeCheck for an

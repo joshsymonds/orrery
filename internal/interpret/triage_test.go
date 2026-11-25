@@ -349,7 +349,7 @@ func TestTriagePromptStatesTheEarlierRunsAndTheBase(t *testing.T) {
 			`- run 1 exited 4 without running past its limit, and its triage found environment, quoting "load 300": ` +
 			"loaded.\n",
 		"The epic lives on host vermissian, as the store names it.\n",
-		"The output tails hold no gate-remote line",
+		"Neither the output tails nor the key lines hold a gate-remote line",
 		"- internal/a/x_test.go:9 (the change touches this file)\n",
 		"The latest run of the same command at the base base-1 exited 0 without running past its limit.\n",
 		"The last lines of its stdout:\n```\nok\nall passed\n```\n",

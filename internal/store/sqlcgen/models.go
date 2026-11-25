@@ -499,6 +499,7 @@ type EpicNodeCheck struct {
 	Stderr       string
 	Created      int64
 	Ended        int64
+	KeyLines     string
 }
 
 type EpicNodeRun struct {
