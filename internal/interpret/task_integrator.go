@@ -460,7 +460,8 @@ func roundRecordOf(act Action, round int64) store.IntegrateRound {
 	}
 }
 
-// taskStep returns the step with id among the steps labeled with the integrate run at path of epic.
+// taskStep returns the step with id among the steps labeled with the node run at path of epic: the step of a task
+// integrator round or of a triage.
 func (r *Runner) taskStep(ctx context.Context, epic, path, id string) (store.StepRow, error) {
 	labeled, err := r.store.LabelledSteps(ctx, epic, path)
 	if err != nil {
@@ -473,19 +474,20 @@ func (r *Runner) taskStep(ctx context.Context, epic, path, id string) (store.Ste
 	return labeled[i], nil
 }
 
-// roundSteps returns the steps of the task integrator rounds and the reproduction judges of the running integrate runs
-// among runs. EpicFlow reads no step of an integrate run, and a round's step and a judge's are labeled with their
-// integrate run's path, so each running integrate run's labeled steps are read here for the rows its rounds and judges
-// are decided on.
-func (r *Runner) roundSteps(ctx context.Context, epic string, runs []store.NodeRun) ([]store.StepRow, error) {
+// checkRunSteps returns the steps labeled with each running integrate, gate or command run among runs: the steps of an
+// integrate run's task integrator rounds and reproduction judges, and the triage steps of the failed checks of any of
+// them. EpicFlow reads no step of those kinds, and each such step is labeled with its run's path, so each running
+// run's labeled steps are read here for the rows its rounds, judges and triages are decided on.
+func (r *Runner) checkRunSteps(ctx context.Context, epic string, runs []store.NodeRun) ([]store.StepRow, error) {
 	var steps []store.StepRow
 	for _, run := range runs {
-		if run.Kind != kindIntegrate || run.State != store.NodeRunning {
+		labeledKind := run.Kind == kindIntegrate || run.Kind == kindGate || run.Kind == kindCommand
+		if !labeledKind || run.State != store.NodeRunning {
 			continue
 		}
 		labeled, err := r.store.LabelledSteps(ctx, epic, run.Path)
 		if err != nil {
-			return nil, fmt.Errorf("read the task integrator steps of node %s of epic %s: %w", run.Path, epic, err)
+			return nil, fmt.Errorf("read the labeled steps of node %s of epic %s: %w", run.Path, epic, err)
 		}
 		steps = append(steps, labeled...)
 	}

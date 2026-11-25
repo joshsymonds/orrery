@@ -39,10 +39,10 @@ const stepPart = "step"
 // again at the epic's stored base. Its work is a closure's, and its starts are a review's.
 const kindRerun = "rerun"
 
-// work carries out one work action of a check node run: the prepare, start, capture, repro, refs check or advance its
-// kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch; its task
-// integrator and reproduction judge work are their own. A review, closure or rerun run's prepare and start are its own.
-// The work of a release run is carried out by release.
+// work carries out one work action of a check node run: the prepare, start, capture, repro, refs check, advance or
+// triage step its kind asks for. An integrate run's prepare claims its batch, and its advance moves the epic's branch;
+// its task integrator and reproduction judge work are their own. A review, closure or rerun run's prepare and start
+// are its own. The work of a release run is carried out by release.
 func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at time.Time) error {
 	if act.NodeKind == kindRelease {
 		return r.release(ctx, epic, act, at)
@@ -72,6 +72,8 @@ func (r *Runner) work(ctx context.Context, epic store.EpicRow, act Action, at ti
 		return r.taskIntegrator(ctx, epic, act, at)
 	case kinds.ActReproJudge:
 		return r.reproJudge(ctx, epic, act, at)
+	case kinds.ActTriage:
+		return r.triage(ctx, epic, act, at)
 	default:
 		return fmt.Errorf("work %s is not one the executor carries out", act.Work)
 	}

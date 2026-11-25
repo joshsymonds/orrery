@@ -311,6 +311,7 @@ func integrateBatchGreenAdvancesBranchAndStoredBase(images *worldImages) func(t 
 
 // integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate: a failed Done gate leaves the branch at the stored
 // base, stores the candidate as the epic's candidate and wakes the planner. The next batch composes on that candidate.
+// The runner names no role file, so the gate's triage records a change at once and the batch's output says why.
 func integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(images *worldImages) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Parallel()
@@ -320,7 +321,8 @@ func integrateFailedGateKeepsBranchAndNextBatchComposesOnCandidate(images *world
 		w.pass()
 
 		run := runAt(t, w.s, integrateBatch)
-		if run.State != store.NodeEnded || run.Outcome != "failed" || run.Output != "Done gate lint failed" {
+		if run.State != store.NodeEnded || run.Outcome != "failed" ||
+			run.Output != "Done gate lint failed; "+refusedTriage {
 			t.Errorf("batch = %+v, want ended failed on the failed gate", run)
 		}
 		if epic := epicOf(t, w.s); epic.StoredBase != w.base || epic.Candidate != candidate {

@@ -22,10 +22,11 @@ func TestOrchestratorParkPassGivesThePlannerAnEpicParkedAtATopLevelNode(t *testi
 	check := workID(t, s, "lint", "check")
 
 	// The failed check parks the top-level node lint, which is a planner park: the epic has no plan run. The pass that
-	// parks it reads the epic before the park, so the next pass is the one that gives the planner the epic.
+	// parks it reads the epic before the park, so the next pass is the one that gives the planner the epic. The runner
+	// names no role file, so the check's triage records a change at once.
 	nodeEndCheck(t, s, check, 1, "lint failed")
 	runner.Pass(ctx)
-	if got := epicOf(t, s).Parked; got != "workflow node lint failed: lint failed" {
+	if got := epicOf(t, s).Parked; got != "workflow node lint failed: "+refusedTriage+"\nlint failed" {
 		t.Fatalf("epic Parked = %q, want the lint node's park", got)
 	}
 

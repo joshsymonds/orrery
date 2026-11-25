@@ -5254,6 +5254,39 @@ func (q *Queries) InsertEvidenceRun(ctx context.Context, arg InsertEvidenceRunPa
 	return err
 }
 
+const insertGateTriage = `-- name: InsertGateTriage :exec
+INSERT INTO gate_triages (epic, check_id, path, step, verdict, evidence, citation, reason, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, check_id) DO NOTHING
+`
+
+type InsertGateTriageParams struct {
+	Epic     string
+	CheckID  string
+	Path     string
+	Step     string
+	Verdict  string
+	Evidence string
+	Citation string
+	Reason   string
+	Created  int64
+}
+
+func (q *Queries) InsertGateTriage(ctx context.Context, arg InsertGateTriageParams) error {
+	_, err := q.db.ExecContext(ctx, insertGateTriage,
+		arg.Epic,
+		arg.CheckID,
+		arg.Path,
+		arg.Step,
+		arg.Verdict,
+		arg.Evidence,
+		arg.Citation,
+		arg.Reason,
+		arg.Created,
+	)
+	return err
+}
+
 const insertGrant = `-- name: InsertGrant :exec
 INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -7807,6 +7840,43 @@ func (q *Queries) ListEpicGapTurnsOf(ctx context.Context, arg ListEpicGapTurnsOf
 			&i.Epic,
 			&i.Gap,
 			&i.Turn,
+			&i.Reason,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicGateTriages = `-- name: ListEpicGateTriages :many
+SELECT epic, check_id, path, step, verdict, evidence, citation, reason, created FROM gate_triages WHERE epic = ? ORDER BY created, check_id
+`
+
+func (q *Queries) ListEpicGateTriages(ctx context.Context, epic string) ([]GateTriage, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicGateTriages, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GateTriage
+	for rows.Next() {
+		var i GateTriage
+		if err := rows.Scan(
+			&i.Epic,
+			&i.CheckID,
+			&i.Path,
+			&i.Step,
+			&i.Verdict,
+			&i.Evidence,
+			&i.Citation,
 			&i.Reason,
 			&i.Created,
 		); err != nil {

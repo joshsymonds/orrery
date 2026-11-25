@@ -106,10 +106,13 @@ func TestIntegrateEnvironmentExitDoneGates(t *testing.T) {
 			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: "Done gate just check failed"},
 		},
 		{
-			"Done gate that exits 1 fails at once",
+			"Done gate that exits 1 is not rerun once its triage finds a change",
 			batchNode(testRev, composedOne, true),
-			Rows{Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")}},
-			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: "Done gate just check failed"},
+			Rows{
+				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
+				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
+			},
+			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: "Done gate just check failed; " + changeNote},
 		},
 	}
 	checkDecisions(t, Integrate{}, cases)
@@ -222,10 +225,13 @@ func environmentCheckCases(kind string) []decideCase {
 			Action{Kind: ActEnd, Outcome: outcomeFailed},
 		},
 		{
-			"check that exits 1 fails at once",
+			"check that exits 1 is not rerun once its triage finds a change",
 			gateNode(kind, true),
-			Rows{Checks: []store.NodeCheck{failedCheck("check")}},
-			Action{Kind: ActEnd, Outcome: outcomeFailed},
+			Rows{
+				Checks:  []store.NodeCheck{failedCheck("check")},
+				Triages: []store.GateTriage{changeTriaged(workID("check"))},
+			},
+			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: changeNote},
 		},
 	}
 }
@@ -280,25 +286,38 @@ func TestEvidenceEnvironmentExit(t *testing.T) {
 	checkDecisions(t, Evidence{}, cases)
 }
 
+// TestRerunsAfterEnvironmentExit: with no triage rerun spent, the rule reruns as it always did, by position. A triage
+// rerun does not count toward the reruns an exit of 75 gets, and a triaged check reruns within its budget.
 func TestRerunsAfterEnvironmentExit(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name    string
 		k       int
 		outcome chainOutcome
+		spent   triageSpent
 		want    bool
 	}{
-		{"first run lost at a restart reruns", 0, chainLost, true},
-		{"rerun lost at a restart does not rerun again", 1, chainLost, false},
-		{"first run exiting 75 reruns", 0, chainEnvironment, true},
-		{"first rerun exiting 75 reruns once more", 1, chainEnvironment, true},
-		{"last run exiting 75 does not rerun", 2, chainEnvironment, false},
-		{"run that ended otherwise does not rerun", 0, chainEnded, false},
-		{"running run does not rerun", 1, chainRunning, false},
+		{"first run lost at a restart reruns", 0, chainLost, triageSpent{}, true},
+		{"rerun lost at a restart does not rerun again", 1, chainLost, triageSpent{}, false},
+		{"first run exiting 75 reruns", 0, chainEnvironment, triageSpent{}, true},
+		{"first rerun exiting 75 reruns once more", 1, chainEnvironment, triageSpent{}, true},
+		{"last run exiting 75 does not rerun", 2, chainEnvironment, triageSpent{}, false},
+		{"run that ended otherwise does not rerun", 0, chainEnded, triageSpent{}, false},
+		{"running run does not rerun", 1, chainRunning, triageSpent{}, false},
+		{"run exiting 75 after a triage rerun keeps its own two reruns", 2, chainEnvironment, triageSpent{flake: 1},
+			true},
+		{"third run exiting 75 past a triage rerun does not rerun", 3, chainEnvironment, triageSpent{flake: 1}, false},
+		{"untriaged check does not rerun", 0, chainTriage, triageSpent{}, false},
+		{"first environment verdict reruns", 0, chainTriagedEnvironment, triageSpent{}, true},
+		{"second environment verdict reruns", 1, chainTriagedEnvironment, triageSpent{environment: 1}, true},
+		{"third environment verdict does not rerun", 2, chainTriagedEnvironment, triageSpent{environment: 2}, false},
+		{"first flake verdict reruns", 0, chainTriagedFlake, triageSpent{}, true},
+		{"second flake verdict does not rerun", 1, chainTriagedFlake, triageSpent{flake: 1}, false},
+		{"flake verdict after two environment reruns reruns", 2, chainTriagedFlake, triageSpent{environment: 2}, true},
 	}
 	for _, tc := range cases {
-		if got := rerunsAfter(tc.k, tc.outcome); got != tc.want {
-			t.Errorf("%s: rerunsAfter(%d, %d) = %v, want %v", tc.name, tc.k, tc.outcome, got, tc.want)
+		if got := rerunsAfter(tc.k, tc.outcome, tc.spent); got != tc.want {
+			t.Errorf("%s: rerunsAfter(%d, %d, %+v) = %v, want %v", tc.name, tc.k, tc.outcome, tc.spent, got, tc.want)
 		}
 	}
 }

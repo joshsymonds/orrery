@@ -34,7 +34,8 @@ const (
 // amend_evidence actions are pending, and how many of its planner actions are pending.
 // GapTurns, Unresolvable and Reruns hold its gap turns, its unresolvable gaps and its review reruns as GapTurns,
 // UnresolvableGaps and ReviewReruns return them. Rounds holds its integrate rounds as readIntegrateRounds reads them,
-// and Rulings the rulings on its reproductions as ReproRulings returns them.
+// Rulings the rulings on its reproductions as ReproRulings returns them, and Triages its gate triages as GateTriages
+// returns them.
 // Steps holds the steps its agent and release node runs ran under as Step returns them, for the runs that have them,
 // then every step labeled with the epic and the path of one of its review, closure or release node runs, in the order
 // of the runs. Underway holds its work that has not ended, as Underway gives it.
@@ -56,6 +57,7 @@ type EpicFlow struct {
 	Reruns       []ReviewRerun
 	Rounds       []IntegrateRound
 	Rulings      []ReproRuling
+	Triages      []GateTriage
 	Underway     Underway
 }
 
@@ -70,9 +72,9 @@ type Underway struct {
 	Evidence []string
 }
 
-// EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs and
-// its pending trigger and planner action counts. All of them are read in one read transaction,
-// so they describe one state of the store. It returns an error matching ErrNoEpic when no epic has that id.
+// EpicFlow returns the stored epic with id with its review, node runs, checks, evidence runs, steps, release runs,
+// integrate rounds and gate triages, and its pending trigger and planner action counts. All of them are read in one read
+// transaction, so they describe one state of the store. It returns an error matching ErrNoEpic when no epic has that id.
 func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
 	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -88,8 +90,8 @@ func (s *Store) EpicFlow(ctx context.Context, id string) (EpicFlow, error) {
 	return flow, nil
 }
 
-// readEpicFlow reads the epic with id, its review, node runs, checks, evidence runs, steps, release runs and its
-// pending trigger and planner action counts with queries.
+// readEpicFlow reads the epic with id, its review, node runs, checks, evidence runs, steps, release runs, integrate
+// rounds and gate triages and its pending trigger and planner action counts with queries.
 func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (EpicFlow, error) {
 	epic, err := readEpic(ctx, queries, id)
 	if err != nil {
@@ -140,7 +142,7 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 	if err != nil {
 		return EpicFlow{}, err
 	}
-	rounds, rulings, err := readIntegrateRecords(ctx, queries, id)
+	rounds, rulings, triages, err := readCheckRecords(ctx, queries, id)
 	if err != nil {
 		return EpicFlow{}, err
 	}
@@ -152,25 +154,8 @@ func readEpicFlow(ctx context.Context, queries *sqlcgen.Queries, id string) (Epi
 		Epic: epic, Review: review, Runs: runs, Checks: checks, Evidence: currentRuns(stored, epic), Steps: steps,
 		Releases: releases, Pending: int(pending), AmendActions: int(amends), Actions: int(actions),
 		GapTurns: gapTurns, Unresolvable: unresolvable, Reruns: reruns, Rounds: rounds, Rulings: rulings,
-		Underway: underway,
+		Triages: triages, Underway: underway,
 	}, nil
-}
-
-// readIntegrateRecords returns the integrate rounds of epic and the rulings on its reproductions as queries read them,
-// in one read: the two records its integrate runs decide on beside their checks, as readIntegrateRounds and
-// readReproRulings read them.
-func readIntegrateRecords(
-	ctx context.Context, queries *sqlcgen.Queries, id string,
-) ([]IntegrateRound, []ReproRuling, error) {
-	rounds, err := readIntegrateRounds(ctx, queries, id)
-	if err != nil {
-		return nil, nil, err
-	}
-	rulings, err := readReproRulings(ctx, queries, id)
-	if err != nil {
-		return nil, nil, err
-	}
-	return rounds, rulings, nil
 }
 
 // readUnderway returns the work of epic that has not ended (Underway): its steps whose end is not stored, read by their
@@ -188,6 +173,27 @@ func readUnderway(ctx context.Context, queries *sqlcgen.Queries, epic string, st
 		}
 	}
 	return Underway{Steps: steps, Evidence: unended}, nil
+}
+
+// readCheckRecords returns the integrate rounds, the rulings on the reproductions and the gate triages of epic as queries
+// read them, in one read: the records of the judgements the epic's checks were given, which readIntegrateRounds,
+// readReproRulings and readGateTriages read.
+func readCheckRecords(
+	ctx context.Context, queries *sqlcgen.Queries, epic string,
+) ([]IntegrateRound, []ReproRuling, []GateTriage, error) {
+	rounds, err := readIntegrateRounds(ctx, queries, epic)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rulings, err := readReproRulings(ctx, queries, epic)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	triages, err := readGateTriages(ctx, queries, epic)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return rounds, rulings, triages, nil
 }
 
 // readGapRecords returns the gap turns, unresolvable gaps and review reruns of epic as queries read them, in one

@@ -161,11 +161,24 @@ func TestConflictIntegratorRoundChecksAtItsCommit(t *testing.T) {
 	cases := []decideCase{
 		{"the first gate starts at the commit", batchNode("cand-1", conflictLeftOut, true),
 			Rows{Epic: conflictEpic(), Rounds: merged}, gateStarted},
-		{"a gate that fails fails the round with its output", batchNode("cand-1", conflictLeftOut, true),
+		{"a gate that fails starts its triage under the round's id at the commit",
+			batchNode("cand-1", conflictLeftOut, true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: gateFailed},
 			Action{
+				Kind: ActTriage, IDs: []string{roundWork("triage done 1"), roundWork("done 1")},
+				Items:    []string{TriageStart, "just check", TriageEnvironment, TriageFlake},
+				Revision: "m1",
+			}},
+		{"a gate whose triage finds a change fails the round with its output and the triage's line",
+			batchNode("cand-1", conflictLeftOut, true),
+			Rows{
+				Epic: conflictEpic(), Rounds: merged, Checks: gateFailed,
+				Triages: []store.GateTriage{changeTriaged(roundWork("done 1"))},
+			},
+			Action{
 				Kind: ActTaskIntegrator, Items: []string{TaskFail, "1"}, Tasks: []int64{2},
-				Output: "Done gate just check failed on commit m1: it exited 1.\nstdout tail:\nboom",
+				Output: "Done gate just check failed on commit m1: it exited 1.\n" + changeNote +
+					"\nstdout tail:\nboom",
 			}},
 		{"passed gates start the captures at the commit", batchNode("cand-1", conflictLeftOut, true),
 			Rows{Epic: conflictEpic(), Rounds: merged, Checks: roundChecksPassed()}, captures},

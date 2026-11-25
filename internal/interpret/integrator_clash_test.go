@@ -76,9 +76,9 @@ func TestIntegratorClashSendsTheTaskBackWithItsExplanationAndTheDiff(t *testing.
 	}
 }
 
-// TestIntegratorClashThirdFailedRoundSendsTheTaskBack: three rounds whose commits fail their Done gate leave the task out,
-// and the batch goes on at its candidate. The task is sent back with the third round's failure, the candidate's change to
-// b.go since the merge base, and the three rounds' records kept.
+// TestIntegratorClashThirdFailedRoundSendsTheTaskBack: three rounds whose commits fail their Done gate, each triaged a
+// change, leave the task out, and the batch goes on at its candidate. The task is sent back with the third round's
+// failure, the candidate's change to b.go since the merge base, and the three rounds' records kept.
 func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
@@ -89,6 +89,7 @@ func TestIntegratorClashThirdFailedRoundSendsTheTaskBack(t *testing.T) {
 		w.pass()
 		w.endGateAt(head, 1, "still red")
 		w.pass()
+		w.answerTriage(head, "change", "", "still red")
 		third = head
 	}
 	w.endGate(integrateBatch, 0, "")

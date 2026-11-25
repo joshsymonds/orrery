@@ -250,9 +250,9 @@ func TestConflictIntegratorMergedRoundComposesTheTask(t *testing.T) {
 	}
 }
 
-// TestConflictIntegratorFailedGateStartsTheNextRound: a Done gate that fails on a round's commit records the round
-// failed with the gate's output, and the next round starts with that output as its previous attempt. Its merge then
-// composes task 2 once its gate passes.
+// TestConflictIntegratorFailedGateStartsTheNextRound: a Done gate that fails on a round's commit, and whose triage finds a
+// change, records the round failed with the gate's output and the triage's citation, and the next round starts with
+// that output as its previous attempt. Its merge then composes task 2 once its gate passes.
 func TestConflictIntegratorFailedGateStartsTheNextRound(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
@@ -261,10 +261,12 @@ func TestConflictIntegratorFailedGateStartsTheNextRound(t *testing.T) {
 	w.pass()
 	w.endGateAt(head1, 1, "lint: unused import")
 	w.pass()
+	w.answerTriage(head1, "change", "", "lint: unused import")
 
 	failed := w.roundRecord(1)
-	if failed.Outcome != "failed" || !strings.Contains(failed.Failure, "Done gate lint failed on commit "+head1) {
-		t.Errorf("round 1 = %+v, want failed on its gate at %s", failed, head1)
+	if failed.Outcome != "failed" || !strings.Contains(failed.Failure, "Done gate lint failed on commit "+head1) ||
+		!strings.Contains(failed.Failure, `triage: change, citing "lint: unused import": judged so`) {
+		t.Errorf("round 1 = %+v, want failed on its gate at %s with the triage's citation", failed, head1)
 	}
 	start := w.roundStart(2)
 	if !strings.Contains(start.Prompt, "\n## Previous attempt\nDone gate lint failed on commit "+head1) {
@@ -317,9 +319,9 @@ func TestConflictIntegratorUnjudgedCaptureStartsTheNextRound(t *testing.T) {
 	}
 }
 
-// TestConflictIntegratorThirdFailedRoundLeavesTheTaskOut: three rounds whose commits fail their Done gate start three
-// steps and no more. The task is then left out, and the batch goes on at its candidate: the Done gate walks there, and
-// the task is sent back.
+// TestConflictIntegratorThirdFailedRoundLeavesTheTaskOut: three rounds whose commits fail their Done gate, each triaged
+// a change, start three steps and no more. The task is then left out, and the batch goes on at its candidate: the Done
+// gate walks there, and the task is sent back.
 func TestConflictIntegratorThirdFailedRoundLeavesTheTaskOut(t *testing.T) {
 	t.Parallel()
 	w := newRoundWorld(t)
@@ -330,6 +332,7 @@ func TestConflictIntegratorThirdFailedRoundLeavesTheTaskOut(t *testing.T) {
 		w.pass()
 		w.endGateAt(head, 1, "still red")
 		w.pass()
+		w.answerTriage(head, "change", "", "still red")
 	}
 	if n := len(w.roundStarts()); n != 3 {
 		t.Fatalf("task integrator steps = %d, want three", n)

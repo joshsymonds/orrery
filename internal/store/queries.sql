@@ -2317,6 +2317,14 @@ ON CONFLICT (epic, repro_check, judge) DO NOTHING;
 -- name: ListEpicReproRulings :many
 SELECT * FROM repro_rulings WHERE epic = ? ORDER BY repro_check, judge;
 
+-- name: InsertGateTriage :exec
+INSERT INTO gate_triages (epic, check_id, path, step, verdict, evidence, citation, reason, created)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, check_id) DO NOTHING;
+
+-- name: ListEpicGateTriages :many
+SELECT * FROM gate_triages WHERE epic = ? ORDER BY created, check_id;
+
 -- name: InsertLLMAccount :exec
 INSERT INTO llm_accounts (id, name, provider, plan, token, fingerprint, created) VALUES (?, ?, ?, ?, ?, ?, ?);
 

@@ -1218,6 +1218,18 @@ CREATE TABLE repro_rulings (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, repro_check, judge)
 );
+CREATE TABLE gate_triages (
+    epic TEXT NOT NULL,
+    check_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    step TEXT NOT NULL,
+    verdict TEXT NOT NULL CHECK (verdict IN ('environment', 'flake', 'change')),
+    evidence TEXT NOT NULL DEFAULT '',
+    citation TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL,
+    PRIMARY KEY (epic, check_id)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1240,6 +1252,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (117,116,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (118,117,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (119,119,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);

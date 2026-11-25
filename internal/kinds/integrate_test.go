@@ -232,21 +232,30 @@ func TestIntegrateBatch(t *testing.T) {
 		{
 			"failed Done gate ends red with the captures skipped",
 			batchNode(testRev, composedLeftOut, true),
-			Rows{Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")}},
+			Rows{
+				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
+				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
+			},
 			Action{Kind: ActEnd, Outcome: outcomeFailed,
-				Output: "Done gate just check failed\nT2 overlaps T1 at a.go"},
+				Output: "Done gate just check failed; " + changeNote + "\nT2 overlaps T1 at a.go"},
 		},
 		{
 			"failed Done gate checks refs before it ends red",
 			batchNode(testRev, composedOne, false),
-			Rows{Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")}},
+			Rows{
+				Epic: epic, Checks: []store.NodeCheck{failedCheck("done 1")},
+				Triages: []store.GateTriage{changeTriaged(workID("done 1"))},
+			},
 			Action{Kind: ActRefs},
 		},
 		{
 			"timed out Done gate fails",
 			batchNode(testRev, composedOne, true),
-			Rows{Epic: epic, Checks: []store.NodeCheck{passedCheck("done 1"), timedOutCheck("done 2")}},
-			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: "Done gate just lint failed"},
+			Rows{
+				Epic: epic, Checks: []store.NodeCheck{passedCheck("done 1"), timedOutCheck("done 2")},
+				Triages: []store.GateTriage{changeTriaged(workID("done 2"))},
+			},
+			Action{Kind: ActEnd, Outcome: outcomeFailed, Output: "Done gate just lint failed; " + changeNote},
 		},
 		{
 			"Done gate that did not run fails",

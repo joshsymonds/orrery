@@ -38,20 +38,20 @@ type Owned struct{}
 // Agent is the agent kind. Its run's step is a read-only agent step, and the run ends passed when the step ends done.
 type Agent struct{}
 
-// Decide decides a gate run as checkRun does.
+// Decide decides a gate run as checkRun does, with its failed checks triaged.
 func (Gate) Decide(node Node, rows Rows) Action {
-	return checkRun(node, rows)
+	return checkRun(node, rows, true)
 }
 
-// Decide decides a command run as checkRun does.
+// Decide decides a command run as checkRun does, with its failed checks triaged.
 func (Command) Decide(node Node, rows Rows) Action {
-	return checkRun(node, rows)
+	return checkRun(node, rows, true)
 }
 
 // Decide decides a cost run as checkRun does, and ends it passed once its check has ended, with the same output: a
-// check that exits nonzero still passes, since the cost is measured and never judged.
+// check that exits nonzero still passes, since the cost is measured and never judged, so its checks are not triaged.
 func (Cost) Decide(node Node, rows Rows) Action {
-	act := checkRun(node, rows)
+	act := checkRun(node, rows, false)
 	if act.Kind == ActEnd {
 		act.Outcome = outcomePassed
 	}
@@ -60,24 +60,36 @@ func (Cost) Decide(node Node, rows Rows) Action {
 
 // checkRun decides a gate or command run: it prepares the run's revision, starts its check, waits while the check runs,
 // and starts the check's rerun when it exited store.EnvironmentExit. A check whose last rerun exits so parks the run.
-// Otherwise it checks the run's refs, and ends passed or failed on the check.
-func checkRun(node Node, rows Rows) Action {
+// With triaged set, a check that ran and failed otherwise is triaged (triageAction) while a triage rerun could still
+// follow it, and is rerun when its triage found the failure in its environment or a flake. Otherwise it checks the
+// run's refs, and ends passed or failed on the check, a failure's output led by what its triage found (triageNote).
+func checkRun(node Node, rows Rows, triaged bool) Action {
 	run := node.Run
 	if run.Revision == "" {
 		return prepare(rows)
 	}
-	check, id, outcome := checkChain(run, rows.Checks, checkPart, false)
+	check, end := checkChain(run, rows, checkPart, false, triaged)
 	switch {
-	case outcome == chainNone:
-		return Action{Kind: ActStart, IDs: []string{id}}
-	case outcome == chainRunning:
+	case end.outcome == chainNone:
+		return Action{Kind: ActStart, IDs: []string{end.id}}
+	case end.outcome == chainRunning:
 		return Action{Kind: ActNone}
-	case outcome == chainEnvironment:
+	case end.outcome == chainEnvironment:
 		return Action{Kind: ActPark, Output: environmentPark(node.Def.Kind + " " + run.Path)}
+	case end.outcome == chainTriage:
+		return triageAction(run, rows, end, gateOf(node))
 	case !run.RefsChecked:
 		return Action{Kind: ActRefs}
 	}
-	return checkEnd(check)
+	return checkEnd(check, triageNote(rows.Triages, end))
+}
+
+// gateOf returns the name of the gate a gate node runs, and "" for a node that names none, such as a command.
+func gateOf(node Node) string {
+	if node.Def.Settings == nil {
+		return ""
+	}
+	return node.Def.Settings.Gate
 }
 
 // chainOutcome is how a run of a part ended, as the walk over the reruns of the part reads it.
@@ -94,31 +106,66 @@ const (
 	chainEnvironment
 	// chainEnded is a run that ended any other way, which is decided as it always was.
 	chainEnded
+	// chainTriage is a check that ran and failed, whose failure a triage judges and has not yet judged, while a triage
+	// rerun could still follow it (triageSpent.open). Its triage decides whether its part is rerun.
+	chainTriage
+	// chainTriagedEnvironment is a check whose triage found the failure in the environment the gate ran in, and
+	// chainTriagedFlake one whose triage found that the gate failed by chance. Each is rerun within its triage budget
+	// (triageSpent.allows). A walk returns neither: one past its budget decides its part as chainEnded.
+	chainTriagedEnvironment
+	chainTriagedFlake
 )
 
-// chainWalk walks the runs of part at run's attempt, the first run and then each rerun of it in turn, and returns the work
-// id of the run that decides part with how that run ended. outcome gives how the run with a work id ended. A run that ends
-// where rerunsAfter says the next run of the part follows is passed over, so the walk stops at the first run that decides.
-func chainWalk(run store.NodeRun, part string, outcome func(id string) chainOutcome) (string, chainOutcome) {
+// chainEnd is where a walk over the runs of a part stopped: the work id and the work of the run that decides the part,
+// how that run ended, the work ids of the runs of the part before it in order, and the triage reruns among them.
+type chainEnd struct {
+	id, work string
+	outcome  chainOutcome
+	before   []string
+	spent    triageSpent
+}
+
+// chainWalk walks the runs of part at run's attempt, the first run and then each rerun of it in turn, and returns where
+// it stopped: the run that decides part, with how that run ended. outcome gives how the run with a work id ended. A run
+// that ends where rerunsAfter says the next run of the part follows is passed over, so the walk stops at the first run
+// that decides. A check left for its triage once no triage rerun could follow it decides as chainEnded, and so does a
+// triaged check whose rerun its budget does not allow.
+func chainWalk(run store.NodeRun, part string, outcome func(id string) chainOutcome) chainEnd {
+	var end chainEnd
 	for k := 0; ; k++ {
-		id := store.NodeWorkID(run.ID, run.Attempt, runWork(part, k))
-		ended := outcome(id)
-		if !rerunsAfter(k, ended) {
-			return id, ended
+		end.work = runWork(part, k)
+		end.id = store.NodeWorkID(run.ID, run.Attempt, end.work)
+		end.outcome = outcome(end.id)
+		if end.outcome == chainTriage && !end.spent.open() {
+			end.outcome = chainEnded
 		}
+		if !rerunsAfter(k, end.outcome, end.spent) {
+			if end.outcome == chainTriagedEnvironment || end.outcome == chainTriagedFlake {
+				end.outcome = chainEnded
+			}
+			return end
+		}
+		end.spent = end.spent.after(end.outcome)
+		end.before = append(end.before, end.id)
 	}
 }
 
-// rerunsAfter reports whether the run at position k of a part, which ended with outcome, is followed by a rerun. A run lost
-// at a restart is rerun once, when it is the first run. A run that exited store.EnvironmentExit is rerun until the part has
-// store.EnvironmentReruns reruns, so the last one that exits so decides the part.
-func rerunsAfter(k int, outcome chainOutcome) bool {
+// rerunsAfter reports whether the run at position k of a part, which ended with outcome after the walk passed over the
+// triage reruns spent, is followed by a rerun. A run lost at a restart is rerun once, when it is the first run. A run
+// that exited store.EnvironmentExit is rerun until the part has store.EnvironmentReruns reruns besides its triage
+// reruns, so the last one that exits so decides the part, and a part with no triage rerun counts its reruns by position
+// as it always did. A triaged check is rerun while spent allows a rerun on its triage's verdict.
+func rerunsAfter(k int, outcome chainOutcome, spent triageSpent) bool {
 	switch outcome {
 	case chainLost:
 		return k == 0
 	case chainEnvironment:
-		return k < store.EnvironmentReruns
-	case chainNone, chainRunning, chainEnded:
+		return k-spent.reruns() < store.EnvironmentReruns
+	case chainTriagedEnvironment:
+		return spent.allows(TriageEnvironment)
+	case chainTriagedFlake:
+		return spent.allows(TriageFlake)
+	case chainNone, chainRunning, chainEnded, chainTriage:
 		return false
 	}
 	return false
@@ -158,26 +205,29 @@ func evidenceOutcome(runs []store.EvidenceRun, id string, lostReruns bool) chain
 	return chainEnded
 }
 
-// checkChain returns the check that decides part of run, with its work id and how it ended. See chainWalk.
-func checkChain(
-	run store.NodeRun, checks []store.NodeCheck, part string, lostReruns bool,
-) (store.NodeCheck, string, chainOutcome) {
-	id, outcome := chainWalk(run, part, func(id string) chainOutcome {
-		return checkOutcome(checks, id, lostReruns)
+// checkChain returns the check among rows.Checks that decides part of run, with where the walk over its reruns stopped.
+// With triaged set, a check that ran and failed is read with its triage (triagedOutcome). See chainWalk.
+func checkChain(run store.NodeRun, rows Rows, part string, lostReruns, triaged bool) (store.NodeCheck, chainEnd) {
+	end := chainWalk(run, part, func(id string) chainOutcome {
+		outcome := checkOutcome(rows.Checks, id, lostReruns)
+		if triaged {
+			return triagedOutcome(rows, id, outcome)
+		}
+		return outcome
 	})
-	check, _ := checkByID(checks, id)
-	return check, id, outcome
+	check, _ := checkByID(rows.Checks, end.id)
+	return check, end
 }
 
 // evidenceChain returns the evidence run that decides part of run, with its work id and how it ended. See chainWalk.
 func evidenceChain(
 	run store.NodeRun, runs []store.EvidenceRun, part string, lostReruns bool,
 ) (store.EvidenceRun, string, chainOutcome) {
-	id, outcome := chainWalk(run, part, func(id string) chainOutcome {
+	end := chainWalk(run, part, func(id string) chainOutcome {
 		return evidenceOutcome(runs, id, lostReruns)
 	})
-	evidence, _ := evidenceByID(runs, id)
-	return evidence, id, outcome
+	evidence, _ := evidenceByID(runs, end.id)
+	return evidence, end.id, end.outcome
 }
 
 // EvidenceRunID returns the work id of the evidence run that decides part of run, as Evidence.Decide reads it: the first
@@ -195,16 +245,20 @@ func environmentPark(what string) string {
 }
 
 // checkEnd ends a check's run failed when the check did not run, with why. Otherwise it ends passed when the check
-// exited 0 without timing out, and failed when not, and its output is its stdout and stderr.
-func checkEnd(check store.NodeCheck) Action {
+// exited 0 without timing out, and failed when not, and its output is its stdout and stderr. A failure's output starts
+// with note, on a line of its own, when note is set.
+func checkEnd(check store.NodeCheck, note string) Action {
 	if check.NotRun != "" {
 		return Action{Kind: ActEnd, Outcome: outcomeFailed, Output: check.NotRun}
 	}
-	outcome := outcomeFailed
-	if !check.TimedOut && check.Exit == 0 {
-		outcome = outcomePassed
+	output := streams(check.Stdout, check.Stderr)
+	if checkPassed(check) {
+		return Action{Kind: ActEnd, Outcome: outcomePassed, Output: output}
 	}
-	return Action{Kind: ActEnd, Outcome: outcome, Output: streams(check.Stdout, check.Stderr)}
+	if note != "" {
+		output = streams(note, output)
+	}
+	return Action{Kind: ActEnd, Outcome: outcomeFailed, Output: output}
 }
 
 // streams returns stdout and stderr as one output: stdout, then stderr after a newline when both are set.
@@ -254,7 +308,7 @@ func (Evidence) Decide(node Node, rows Rows) Action {
 			missing = append(missing, item.ID)
 		case chainEnvironment:
 			return Action{Kind: ActPark, Output: environmentPark("capture " + item.ID)}
-		case chainRunning, chainLost, chainEnded:
+		case chainRunning, chainLost, chainEnded, chainTriage, chainTriagedEnvironment, chainTriagedFlake:
 			runs = append(runs, run)
 		}
 	}

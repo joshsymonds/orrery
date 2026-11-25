@@ -1000,6 +1000,18 @@ type EvidenceRun struct {
 	Gatherers   int64
 }
 
+type GateTriage struct {
+	Epic     string
+	CheckID  string
+	Path     string
+	Step     string
+	Verdict  string
+	Evidence string
+	Citation string
+	Reason   string
+	Created  int64
+}
+
 type Grant struct {
 	ID          string
 	Project     string

@@ -54,6 +54,7 @@ type Store interface {
 	) error
 	EndBatch(ctx context.Context, epic string, end store.BatchEnd, trigger *store.NodeTrigger, at time.Time) error
 	RecordIntegrateRound(ctx context.Context, epic string, round store.IntegrateRound, at time.Time) error
+	RecordGateTriage(ctx context.Context, epic string, triage store.GateTriage, at time.Time) error
 	ComposeIntegrateRound(
 		ctx context.Context, epic, path string, attempt, task, round int64, commit, result string, at time.Time,
 	) error
@@ -512,11 +513,11 @@ func (r *Runner) decide(ctx context.Context, epic string, flow workflow.Workflow
 		return store.EpicFlow{}, nil, fmt.Errorf("read epic %s: %w", epic, err)
 	}
 	rows := flowRows(read)
-	roundSteps, err := r.roundSteps(ctx, epic, read.Runs)
+	labeled, err := r.checkRunSteps(ctx, epic, read.Runs)
 	if err != nil {
 		return store.EpicFlow{}, nil, err
 	}
-	rows.Steps = append(rows.Steps, roundSteps...)
+	rows.Steps = append(rows.Steps, labeled...)
 	if awaitsDependencies(read.Epic.Tasks) {
 		host, hostErr := r.hostOf(read.Epic)
 		if hostErr != nil {
@@ -548,6 +549,7 @@ func flowRows(read store.EpicFlow) kinds.Rows {
 		Pending: read.Pending, Actions: read.Actions, Releases: read.Releases, Review: read.Review,
 		GapTurns: read.GapTurns, Unresolvable: read.Unresolvable, Reruns: read.Reruns, Rounds: read.Rounds,
 		Rulings: read.Rulings,
+		Triages: read.Triages,
 	}
 }
 

@@ -623,7 +623,8 @@ func TestOwnedRecordsAnEmptyArrayWhenNothingChanged(t *testing.T) {
 }
 
 // TestFailedTopLevelCheckParksAndTells: a gate at the top level whose check fails parks its node and the epic with the
-// failure as the reason, and tells it.
+// failure as the reason, and tells it. The runner names no role file, so the check's triage records a change at once
+// and the failure's output starts with why.
 func TestFailedTopLevelCheckParksAndTells(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -637,13 +638,13 @@ func TestFailedTopLevelCheckParksAndTells(t *testing.T) {
 	nodeEndCheck(t, s, check, 1, "lint failed")
 	runner.Pass(ctx)
 
-	reason := "workflow node lint failed: lint failed"
+	reason := "workflow node lint failed: " + refusedTriage + "\nlint failed"
 	if run := runAt(
 		t,
 		s,
 		"lint",
 	); run.State != store.NodeParked || run.Outcome != "failed" ||
-		run.Output != "lint failed" {
+		run.Output != refusedTriage+"\nlint failed" {
 		t.Errorf("node lint = %+v, want parked failed with the check's output", run)
 	}
 	if got := epicOf(t, s).Parked; got != reason {
@@ -681,11 +682,12 @@ func TestFailedPlanBodyCheckEndsWithItsTrigger(t *testing.T) {
 	nodeEndCheck(t, s, check, 1, "lint failed")
 	runner.Pass(ctx)
 
+	output := refusedTriage + "\nlint failed"
 	lint := runAt(t, s, "plan/S2/lint")
-	if lint.State != store.NodeEnded || lint.Outcome != "failed" || lint.Output != "lint failed" {
+	if lint.State != store.NodeEnded || lint.Outcome != "failed" || lint.Output != output {
 		t.Errorf("node plan/S2/lint = %+v, want ended failed with the check's output", lint)
 	}
-	end := []store.NodeEnd{{Path: "plan/S2/lint", Outcome: "failed", Output: "lint failed"}}
+	end := []store.NodeEnd{{Path: "plan/S2/lint", Outcome: "failed", Output: output}}
 	if !reflect.DeepEqual(counter.waking, [][]store.NodeEnd{end}) {
 		t.Errorf("ends that wake the planner = %+v, want %+v", counter.waking, [][]store.NodeEnd{end})
 	}
@@ -697,7 +699,7 @@ func TestFailedPlanBodyCheckEndsWithItsTrigger(t *testing.T) {
 		}
 	}
 	triggerID := "workflow:" + store.NodeRunID(runEpic, "plan/S2/lint", 0, "failed attempt 0")
-	wantCause := "workflow node plan/S2/lint failed: lint failed"
+	wantCause := "workflow node plan/S2/lint failed: " + output
 	triggers, err := s.TurnTriggers(ctx, runEpic, 0)
 	if err != nil {
 		t.Fatalf("TurnTriggers: %v", err)

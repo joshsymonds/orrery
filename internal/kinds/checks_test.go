@@ -113,16 +113,22 @@ func checkCases() []decideCase {
 			Action{Kind: ActEnd, Outcome: "passed", Output: "a\nb"},
 		},
 		{
-			"nonzero exit fails with its stdout",
+			"nonzero exit its triage finds a change fails with the triage's line and its stdout",
 			nodeWith(testRev, true),
-			Rows{Checks: []store.NodeCheck{{ID: workID("check"), State: store.NodeEnded, Exit: 1, Stdout: "FAIL"}}},
-			Action{Kind: ActEnd, Outcome: "failed", Output: "FAIL"},
+			Rows{
+				Checks:  []store.NodeCheck{{ID: workID("check"), State: store.NodeEnded, Exit: 1, Stdout: "FAIL"}},
+				Triages: []store.GateTriage{changeTriaged(workID("check"))},
+			},
+			Action{Kind: ActEnd, Outcome: "failed", Output: changeNote + "\nFAIL"},
 		},
 		{
-			"timed out fails even at exit 0",
+			"timed out fails even at exit 0 once its triage finds a change",
 			nodeWith(testRev, true),
-			Rows{Checks: []store.NodeCheck{{ID: workID("check"), State: store.NodeEnded, TimedOut: true}}},
-			Action{Kind: ActEnd, Outcome: "failed"},
+			Rows{
+				Checks:  []store.NodeCheck{{ID: workID("check"), State: store.NodeEnded, TimedOut: true}},
+				Triages: []store.GateTriage{changeTriaged(workID("check"))},
+			},
+			Action{Kind: ActEnd, Outcome: "failed", Output: changeNote},
 		},
 		{
 			"check that did not run fails with the reason",

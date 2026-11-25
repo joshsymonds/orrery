@@ -93,8 +93,8 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 	if !settled {
 		return act
 	}
-	if gate != "" {
-		return settle(run, []string{"Done gate " + gate + " failed"}, nil, leftOut)
+	if gate.name != "" {
+		return settle(run, []string{gate.cause(rows.Triages)}, nil, leftOut)
 	}
 	captured, act, settled := captures(run, rows, batchRequirements(run, rows))
 	if !settled {
@@ -238,18 +238,19 @@ func roundChecks(run store.NodeRun, rows Rows, seq, round int64, record store.In
 // revision of checked, the commit a round of the task integrator made, under checked's id: a merge of a task into the
 // candidate can change any of them. Until they settle it returns the action the first one that is not decided asks
 // for. Once they settle, failure is "" when every gate passed and no capture failed. Otherwise it is the reason of the
-// first gate that failed, or of the captures that failed, and previous is what that failure was, with the gate's exit
-// and output tails or each capture's verdict, as the next round of the task integrator reads it. A capture fails as an
-// integrate run's does (captureCauses): it was not captured or not judged, or its Requirement was green at the stored
-// base and its capture does not pass at the commit.
+// first gate that failed, or of the captures that failed, and previous is what that failure was, with the gate's exit,
+// its triage's line and output tails, or each capture's verdict, as the next round of the task integrator reads it. A
+// gate is triaged before it fails, under checked's id (gateCheck). A capture fails as an integrate run's does
+// (captureCauses): it was not captured or not judged, or its Requirement was green at the stored base and its capture
+// does not pass at the commit.
 func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, bool) {
 	gate, act, settled := doneGates(checked, rows)
 	if !settled {
 		return "", "", act, false
 	}
-	if gate != "" {
-		failure := fmt.Sprintf("done gate %s did not pass at %s", gate, checked.Revision)
-		return failure, gateFailure(checked, rows), Action{}, true
+	if gate.name != "" {
+		failure := fmt.Sprintf("done gate %s did not pass at %s", gate.name, checked.Revision)
+		return failure, gateFailure(checked.Revision, gate, rows.Triages), Action{}, true
 	}
 	captured, act, settled := captures(checked, rows, itemRequirements(rows.Epic.Requirements))
 	if !settled {
@@ -263,33 +264,31 @@ func mergedChecks(checked store.NodeRun, rows Rows) (string, string, Action, boo
 	return failure, captureFailures(checked.Revision, rows, captured), Action{}, true
 }
 
-// gateFailure returns what the first Done gate that did not pass at the revision of checked, the commit of a round of
-// the task integrator, was: its name and how it ended, then the tails of its stdout and stderr that are not empty.
-func gateFailure(checked store.NodeRun, rows Rows) string {
-	for i, gate := range rows.Epic.DoneGates {
-		check, _, decided := gateCheck(checked, i, gate, rows.Checks)
-		if !decided || checkPassed(check) {
-			continue
-		}
-		var how string
-		switch {
-		case check.NotRun != "":
-			how = "it did not run: " + check.NotRun
-		case check.TimedOut:
-			how = "it ran past its limit and was killed"
-		default:
-			how = fmt.Sprintf("it exited %d", check.Exit)
-		}
-		lines := []string{fmt.Sprintf("Done gate %s failed on commit %s: %s.", gate, checked.Revision, how)}
-		if tail := strings.TrimSpace(check.Stdout); tail != "" {
-			lines = append(lines, "stdout tail:", tail)
-		}
-		if tail := strings.TrimSpace(check.Stderr); tail != "" {
-			lines = append(lines, "stderr tail:", tail)
-		}
-		return strings.Join(lines, "\n")
+// gateFailure returns what gate, the first Done gate that did not pass at revision, the commit of a round of the task
+// integrator, was: its name and how it ended, what its triage found when that is known (triageNote), then the tails of
+// its stdout and stderr that are not empty.
+func gateFailure(revision string, gate failedGate, triages []store.GateTriage) string {
+	check := gate.check
+	var how string
+	switch {
+	case check.NotRun != "":
+		how = "it did not run: " + check.NotRun
+	case check.TimedOut:
+		how = "it ran past its limit and was killed"
+	default:
+		how = fmt.Sprintf("it exited %d", check.Exit)
 	}
-	return ""
+	lines := []string{fmt.Sprintf("Done gate %s failed on commit %s: %s.", gate.name, revision, how)}
+	if note := triageNote(triages, gate.end); note != "" {
+		lines = append(lines, note)
+	}
+	if tail := strings.TrimSpace(check.Stdout); tail != "" {
+		lines = append(lines, "stdout tail:", tail)
+	}
+	if tail := strings.TrimSpace(check.Stderr); tail != "" {
+		lines = append(lines, "stderr tail:", tail)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // captureFailures returns one line for each capture at revision, the commit of a round of the task integrator, that
@@ -372,46 +371,70 @@ func batchOf(path string, tasks []store.EpicTask) []int64 {
 	return batch
 }
 
-// doneGates walks the epic's Done gates in order. It returns the name of the first gate whose check failed, and settled
-// true once every gate passed or one failed. Until then it returns the action the gate that is not decided asks for.
-func doneGates(run store.NodeRun, rows Rows) (string, Action, bool) {
-	for i, gate := range rows.Epic.DoneGates {
-		check, act, decided := gateCheck(run, i, gate, rows.Checks)
-		if !decided {
-			return "", act, false
-		}
-		if !checkPassed(check) {
-			return gate, Action{}, true
-		}
-	}
-	return "", Action{}, true
+// failedGate is the first Done gate whose check failed: its name, the check that decided it, and where the walk over the
+// gate's reruns stopped. Its name is "" when no gate failed.
+type failedGate struct {
+	name  string
+	check store.NodeCheck
+	end   chainEnd
 }
 
-// gateCheck returns the check that decides Done gate i of the run: its check, or the last rerun of it the walk over its
-// reruns reaches. It returns decided false, with the action the gate asks for, while that check is not decided, and
-// with a park when the gate's last rerun was lost at a restart or exited store.EnvironmentExit.
-func gateCheck(run store.NodeRun, i int, gate string, checks []store.NodeCheck) (store.NodeCheck, Action, bool) {
+// cause returns the cause an integrate run fails with for the gate: that it failed, and then what its triage found,
+// as triageNote gives it from triages, when that is known.
+func (g failedGate) cause(triages []store.GateTriage) string {
+	cause := "Done gate " + g.name + " failed"
+	if note := triageNote(triages, g.end); note != "" {
+		cause += "; " + note
+	}
+	return cause
+}
+
+// doneGates walks the epic's Done gates in order. It returns the first gate whose check failed, and settled true once
+// every gate passed or one failed. Until then it returns the action the gate that is not decided asks for.
+func doneGates(run store.NodeRun, rows Rows) (failedGate, Action, bool) {
+	for i, gate := range rows.Epic.DoneGates {
+		check, end, act, decided := gateCheck(run, i, gate, rows)
+		if !decided {
+			return failedGate{}, act, false
+		}
+		if !checkPassed(check) {
+			return failedGate{name: gate, check: check, end: end}, Action{}, true
+		}
+	}
+	return failedGate{}, Action{}, true
+}
+
+// gateCheck returns the check that decides Done gate i of the run, with where the walk over its reruns stopped: its
+// check, or the last rerun of it the walk reaches. A check that ran and failed is triaged (triageAction) while a triage
+// rerun could still follow it, and is rerun when its triage found the failure in its environment or a flake. It returns
+// decided false, with the action the gate asks for, while that check is not decided, and with a park when the gate's
+// last rerun was lost at a restart or exited store.EnvironmentExit.
+func gateCheck(
+	run store.NodeRun, i int, gate string, rows Rows,
+) (store.NodeCheck, chainEnd, Action, bool) {
 	part := fmt.Sprintf("done %d", i+1)
-	check, id, outcome := checkChain(run, checks, part, true)
-	switch outcome {
+	check, end := checkChain(run, rows, part, true, true)
+	switch end.outcome {
 	case chainNone:
-		return store.NodeCheck{}, Action{Kind: ActStart, IDs: []string{id}, Items: []string{gate}}, false
+		return store.NodeCheck{}, end, Action{Kind: ActStart, IDs: []string{end.id}, Items: []string{gate}}, false
 	case chainRunning:
-		return store.NodeCheck{}, Action{Kind: ActNone}, false
+		return store.NodeCheck{}, end, Action{Kind: ActNone}, false
+	case chainTriage:
+		return store.NodeCheck{}, end, triageAction(run, rows, end, gate), false
 	case chainLost:
-		return store.NodeCheck{}, Action{
+		return store.NodeCheck{}, end, Action{
 			Kind:   ActPark,
 			Output: fmt.Sprintf("%s %s: Done gate %s lost at a restart twice", kindIntegrate, run.Path, gate),
 		}, false
 	case chainEnvironment:
-		return store.NodeCheck{}, Action{
+		return store.NodeCheck{}, end, Action{
 			Kind:   ActPark,
 			Output: fmt.Sprintf("%s %s: %s", kindIntegrate, run.Path, environmentPark("Done gate "+gate)),
 		}, false
-	case chainEnded:
-		return check, Action{}, true
+	case chainEnded, chainTriagedEnvironment, chainTriagedFlake:
+		return check, end, Action{}, true
 	}
-	return check, Action{}, true
+	return check, end, Action{}, true
 }
 
 // checkPassed reports whether a check ran, exited 0 and did not time out.
@@ -463,7 +486,7 @@ func captures(
 			lost = append(lost, requirement.ID)
 		case chainEnvironment:
 			environment = append(environment, requirement.ID)
-		case chainEnded:
+		case chainEnded, chainTriage, chainTriagedEnvironment, chainTriagedFlake:
 			captured[requirement.ID] = capture
 		}
 	}
