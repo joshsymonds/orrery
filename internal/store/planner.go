@@ -1167,9 +1167,10 @@ func setPark(ctx context.Context, queries *sqlcgen.Queries, epic, park string, c
 }
 
 // parkEpicAs parks epic with reason as class of subject, in the caller's write. A question class opens the park question
-// and adds reason as a tell that carries it, and the epic's steerer is told of the question. A planner class opens no question and adds no tell: it adds the pending trigger
-// that wakes the planner, which carries reason as its cause. A planner park at the bound of its chain is stored as
-// retry_bound instead: parkPlanner has opened its question and added its tell, so no trigger is added.
+// and adds reason as a tell that carries it, and the epic's steerer is told of the question. A planner class opens no
+// question and adds no tell: it adds the pending trigger that wakes the planner, which carries reason as its cause. A
+// planner park that parkPlanner sends to the owner is stored as retry_bound instead: parkPlanner has opened its question
+// and added its tell, so no trigger is added.
 func parkEpicAs(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1184,7 +1185,7 @@ func parkEpicAs(
 }
 
 // parkEpicQuestion parks epic as parkEpicAs does, in the caller's write, and returns the seq of the park question it
-// opens: a question class's question, or the retry_bound question of a planner park at the bound of its chain. It
+// opens: a question class's question, or the retry_bound question of a planner park parkPlanner sends to the owner. It
 // returns 0 when the park opens none, which wakes the planner instead.
 func parkEpicQuestion(
 	ctx context.Context,

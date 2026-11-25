@@ -23,8 +23,10 @@ const (
 	// ParkClassOrchestrator is an orchestrator unable to run: its role or agent does not resolve, or its pinned workflow
 	// does not load.
 	ParkClassOrchestrator ParkClass = "orchestrator"
-	// ParkClassRetryBound is a planner park that came back after two planner actions on its chain. The planner is not
-	// woken again for it: the owner answers it.
+	// ParkClassRetryBound is a planner park sent to the owner: one the planner called the same problem back with no
+	// progress at the bound of its chain, one whose chain holds two refused actions, one an action reached before the
+	// planner's call at the bound, or one that came after the planner answered four parks in a row with no progress. The
+	// planner is not woken again for it: the owner answers it.
 	ParkClassRetryBound ParkClass = "retry_bound"
 	// ParkClassStall is an epic the stall check found idle twice with nothing changed, or idle with no plan run to wake.
 	ParkClassStall ParkClass = "stall"

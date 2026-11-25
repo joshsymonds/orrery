@@ -335,8 +335,9 @@ const unchangedProof = " It keeps the conclusion and kind, so it needs no red ru
 // starts one, by the planner, keeping the action's turn and position on it. The same write links the action to the park
 // it answers, as any action is linked when it is carried out, and then applies the amendment when it keeps the conclusion
 // and kind, which a planner's amendment must (see applyUnchanged), so the action is taken in that write. A planner
-// amendment that would change them is refused. An action whose amendment is stored already changes nothing. A refusal is
-// recorded as CarryOutAction records any refusal of an action, and the amendment is not stored.
+// amendment that would change them is refused, and so is one on an epic whose park waits on the planner's call
+// (refuseUncalled). An action whose amendment is stored already changes nothing. A refusal is recorded as CarryOutAction
+// records any refusal of an action, and the amendment is not stored.
 func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction, at time.Time) error {
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
 		_, err := queries.GetActionAmendment(ctx, sqlcgen.GetActionAmendmentParams{
@@ -356,6 +357,9 @@ func (s *Store) startPlannedAmendment(ctx context.Context, action PlannerAction,
 		park, err := actionPark(ctx, queries, action, head)
 		if err != nil {
 			return err
+		}
+		if refusal := refuseUncalled(ctx, queries, action, head); refusal != nil {
+			return refusal
 		}
 		amended, err := startAmendment(ctx, queries, action.Epic, amendStart{
 			amender: AmenderPlanner, turn: action.Turn, position: action.Position,

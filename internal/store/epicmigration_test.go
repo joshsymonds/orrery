@@ -176,8 +176,12 @@ func epicTableColumns() map[string][]string {
 			"state", "red_attempt", "red_run", "stored_base", "green_attempt", "green_run", "repro_check", "refusal",
 			"created", "settled",
 		},
-		// R5: the planner-class parks of each epic and their chains, from 00051_park_bound.sql.
-		"epic_parks":         {"epic", "seq", "class", "subject", "chain", "reason", "created"},
+		// R5: the planner-class parks of each epic and their chains, from 00051_park_bound.sql. state, stored_base and
+		// candidate, who answers a park under its chain's bound and the epic's heads when it was stored, are
+		// 00118_park_chain_calls.sql.
+		"epic_parks": {
+			"epic", "seq", "class", "subject", "chain", "reason", "created", "state", "stored_base", "candidate",
+		},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",

@@ -57,7 +57,7 @@ func TestSendBackHistoryPromptShowsOnlyTheCurrentLadder(t *testing.T) {
 		}
 	}
 
-	prompt, err := Prompt(epicOf(t, s), 2, nil, nil, nil)
+	prompt, err := Prompt(epicOf(t, s), 2, nil, nil, nil, store.BoundChain{})
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}

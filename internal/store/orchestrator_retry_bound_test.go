@@ -128,10 +128,11 @@ func TestOrchestratorRetryBoundRepeatedParkAfterOneActionWakesThePlanner(t *test
 	}
 }
 
-// TestOrchestratorRetryBoundThirdParkOpensTheOwnerQuestion checks that a third park of the node class on the same node,
-// after a second action on it, is stored as retry_bound. Its owner question holds the park, then both earlier parks and
-// both actions, and its tell carries the same text. It adds no park trigger.
-func TestOrchestratorRetryBoundThirdParkOpensTheOwnerQuestion(t *testing.T) {
+// TestOrchestratorRetryBoundThirdParkCalledRecurringOpensTheOwnerQuestion checks that a third park of the node class on
+// the same node, after a second action on it, waits on the planner's call and opens no question, and that the planner's
+// park_recurs call stores it as retry_bound. Its owner question holds the park, then both earlier parks and every action
+// on the chain, the call among them, and its tell carries the same text. The call adds no park trigger.
+func TestOrchestratorRetryBoundThirdParkCalledRecurringOpensTheOwnerQuestion(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
@@ -145,6 +146,19 @@ func TestOrchestratorRetryBoundThirdParkOpensTheOwnerQuestion(t *testing.T) {
 
 	const third = "no verdict at attempt 3"
 	parkCheckRun(t, s, 3, third)
+	if epic := closeRow(t, s, claimEpic); epic.Parked != third || epic.ParkClass != ParkClassNode {
+		t.Errorf("park of epic before the call = %q %q, want %q %q", epic.ParkClass, epic.Parked, ParkClassNode, third)
+	}
+	if got := questionsOf(t, s); len(got) != 0 {
+		t.Errorf("questions before the call = %+v, want none: the planner calls a park at the bound first", got)
+	}
+	if want := []string{third}; !reflect.DeepEqual(pendingCauses(t, s), want) {
+		t.Errorf("pending park triggers before the call = %v, want %v", pendingCauses(t, s), want)
+	}
+	completePlannerTurn(t, s, EpicPlan{Actions: []EpicActionInput{
+		{Kind: ActionParkRecurs, Reason: "the verdict is missing a third time"},
+	}})
+	carryOutPending(t, s)
 
 	const text = third +
 		"\nEarlier parks on this chain:" +
@@ -152,7 +166,8 @@ func TestOrchestratorRetryBoundThirdParkOpensTheOwnerQuestion(t *testing.T) {
 		"\n- no verdict at attempt 2" +
 		"\nPlanner actions on this chain:" +
 		"\n- retry node check: the verdict file was missing (taken)" +
-		"\n- retry node check: the verdict file is written now (taken)"
+		"\n- retry node check: the verdict file is written now (taken)" +
+		"\n- park recurs: the verdict is missing a third time (taken)"
 	if epic := closeRow(t, s, claimEpic); epic.Parked != third || epic.ParkClass != ParkClassRetryBound {
 		t.Errorf("park of epic = %q %q, want %q %q", epic.ParkClass, epic.Parked, ParkClassRetryBound, third)
 	}
@@ -163,7 +178,7 @@ func TestOrchestratorRetryBoundThirdParkOpensTheOwnerQuestion(t *testing.T) {
 		t.Errorf("tells after the third park = %q, want %q", got, want)
 	}
 	if n := len(pendingCauses(t, s)); n != 0 {
-		t.Errorf("pending triggers after the third park = %d, want none: a retry-bound park wakes no planner", n)
+		t.Errorf("pending triggers after the call = %d, want none: a retry-bound park wakes no planner", n)
 	}
 }
 
@@ -207,7 +222,8 @@ func TestOrchestratorRetryBoundTwoRefusedActionsReachTheOwnerQuestion(t *testing
 // TestOrchestratorRetryBoundReplacedTaskParkContinuesItsPredecessorCount checks that a task park on a task that replaces one
 // the planner failed continues that task's count. Task 2 replaces task 1, so its park is counted with the fail of task 1
 // and wakes the planner. Task 3 replaces task 2, so its park is counted with the fails of tasks 1 and 2 and reaches the
-// owner question.
+// bound: it waits on the planner's call, whose chain holds the parks of tasks 1 and 2 and both fails, and opens no
+// question. The planner's park_recurs call then opens the owner question.
 func TestOrchestratorRetryBoundReplacedTaskParkContinuesItsPredecessorCount(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
@@ -233,13 +249,35 @@ func TestOrchestratorRetryBoundReplacedTaskParkContinuesItsPredecessorCount(t *t
 	const third = "the build of T3 parked"
 	parkTaskBuild(t, s, 3, third)
 
+	chain, err := s.BoundChain(context.Background(), claimEpic)
+	if err != nil {
+		t.Fatalf("BoundChain: %v", err)
+	}
+	earlier := []string{"the build of T1 parked", "the build of T2 parked"}
+	actions := []string{
+		"fail task 1: the build cannot reach the store (taken)",
+		"fail task 2: the build cannot reach the store again (taken)",
+	}
+	if chain.Park != third || !reflect.DeepEqual(chain.Earlier, earlier) || !reflect.DeepEqual(chain.Actions, actions) {
+		t.Errorf("bound chain of the replacing park = %+v, want park %q, earlier %q and actions %q",
+			chain, third, earlier, actions)
+	}
+	if got := questionsOf(t, s); len(got) != 0 {
+		t.Errorf("questions before the call = %+v, want none", got)
+	}
+	completePlannerTurn(t, s, EpicPlan{Actions: []EpicActionInput{
+		{Kind: ActionParkRecurs, Reason: "the store is out of reach a third time"},
+	}})
+	carryOutPending(t, s)
+
 	text := third +
 		"\nEarlier parks on this chain:" +
 		"\n- the build of T1 parked" +
 		"\n- the build of T2 parked" +
 		"\nPlanner actions on this chain:" +
 		"\n- fail task 1: the build cannot reach the store (taken)" +
-		"\n- fail task 2: the build cannot reach the store again (taken)"
+		"\n- fail task 2: the build cannot reach the store again (taken)" +
+		"\n- park recurs: the store is out of reach a third time (taken)"
 	if epic := closeRow(t, s, claimEpic); epic.Parked != third || epic.ParkClass != ParkClassRetryBound {
 		t.Errorf("park of epic = %q %q, want %q %q", epic.ParkClass, epic.Parked, ParkClassRetryBound, third)
 	}

@@ -178,6 +178,74 @@ func checkPark(ret Return, park string) []string {
 	}
 }
 
+// The refusals of a return's call on a park at the bound of its chain (checkCall).
+const (
+	refusalNoCall = "actions: the park is at the bound of its chain and waits on your call; return park_recurs as " +
+		"the only action, or park_new first and then the actions that answer the park"
+	refusalRecursAlone = "actions: park_recurs sends the park to the owner, so it is the only action of the return"
+	refusalNewAlone    = "actions: park_new answers nothing on its own; return the actions that answer the park after it"
+	reasonSecondCall   = "a second call on the park; return one of park_recurs and park_new"
+	reasonCallFirst    = "the call comes first, before the actions that answer the park"
+	reasonNoBound      = "the epic holds no park at the bound of its chain; only such a park is called"
+)
+
+// checkCall returns the refusals of ret's call on the park the epic holds, by bound, whether that park is at the bound
+// of its chain and waits on the planner's call. Off the bound, each park_recurs and park_new is refused. At the bound, a
+// return with no action and a question passes, since the owner answers the question. Any other return makes exactly one
+// call: park_recurs as its only action, or park_new as its first action with at least one action after it that answers
+// the park. A return at the bound with neither an action nor a question is refused here for making no call, in place of
+// checkPark's refusal.
+func checkCall(ret Return, bound bool) []string {
+	calls := callPositions(ret.Actions)
+	if !bound {
+		return callRefusals(ret.Actions, calls, reasonNoBound)
+	}
+	switch {
+	case len(ret.Actions) == 0 && len(ret.Questions) > 0:
+		return nil
+	case len(calls) == 0:
+		return []string{refusalNoCall}
+	case len(calls) > 1:
+		return callRefusals(ret.Actions, calls[1:], reasonSecondCall)
+	}
+	first := calls[0]
+	switch {
+	case ret.Actions[first].Kind == store.ActionParkRecurs && len(ret.Actions) > 1:
+		return []string{refusalRecursAlone}
+	case ret.Actions[first].Kind == store.ActionParkRecurs:
+		return nil
+	case first != 0:
+		return callRefusals(ret.Actions, calls, reasonCallFirst)
+	case len(ret.Actions) == 1:
+		return []string{refusalNewAlone}
+	}
+	return nil
+}
+
+// callPositions returns the positions in actions of each park_recurs and park_new, in order.
+func callPositions(actions []EngineAction) []int {
+	var calls []int
+	for i, action := range actions {
+		if store.ActionParkRecurs == action.Kind || store.ActionParkNew == action.Kind {
+			calls = append(calls, i)
+		}
+	}
+	return calls
+}
+
+// callRefusals returns one refusal for the action at each of positions in actions, named as checkAction names its lines,
+// with reason, or nil when positions is empty.
+func callRefusals(actions []EngineAction, positions []int, reason string) []string {
+	if len(positions) == 0 {
+		return nil
+	}
+	refusals := make([]string, 0, len(positions))
+	for _, i := range positions {
+		refusals = append(refusals, fmt.Sprintf(`actions[%d] "%s": %s`, i, actions[i].Kind, reason))
+	}
+	return refusals
+}
+
 // checkUnresolvable returns the refusals of ret's unresolvable list. When the string it was read from was not a JSON array
 // of objects, the list is refused as a whole with one line and no entry is checked. Otherwise an entry with an empty gap or
 // an empty reason gets one line for it, and an entry whose recommendation is not release or correct gets one. An entry
@@ -432,7 +500,8 @@ func actionKinds() []string {
 	return []string{
 		store.ActionRetryNode, store.ActionRetryEpic, store.ActionFailTask, store.ActionResumeRelease,
 		store.ActionCloseEpic, store.ActionAmendEvidence, store.ActionChangeApproach, store.ActionSendBack,
-		store.ActionRerunReview, store.ActionReopenDesign, store.ActionSplit,
+		store.ActionRerunReview, store.ActionReopenDesign, store.ActionSplit, store.ActionParkRecurs,
+		store.ActionParkNew,
 	}
 }
 
@@ -463,6 +532,8 @@ func actionFields(kind string) ([]string, bool) {
 		return []string{argTask, argDeliverable}, true
 	case store.ActionSplit:
 		return []string{argTask, argTasks}, true
+	case store.ActionParkRecurs, store.ActionParkNew:
+		return nil, true
 	}
 	return nil, false
 }

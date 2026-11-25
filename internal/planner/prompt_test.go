@@ -98,7 +98,7 @@ func triggersNamingT1() []store.EpicTrigger {
 // promptOf returns the prompt of turn of epic, and fails the test when it cannot be rendered.
 func promptOf(t *testing.T, epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
 	t.Helper()
-	prompt, err := Prompt(epic, turn, triggers, nil, nil)
+	prompt, err := Prompt(epic, turn, triggers, nil, nil, store.BoundChain{})
 	if err != nil {
 		t.Fatalf("Prompt of turn %d: %v", turn, err)
 	}
@@ -335,7 +335,7 @@ func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
 		{Label: "cache-ttl", Answered: 2, Followed: 1},
 		{Label: "which-store", Answered: 3, Followed: 2},
 	}
-	prompt, err := Prompt(adviceEpic(), 2, syntheticTriggers(), follows, nil)
+	prompt, err := Prompt(adviceEpic(), 2, syntheticTriggers(), follows, nil, store.BoundChain{})
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}

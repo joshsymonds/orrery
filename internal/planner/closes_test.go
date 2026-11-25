@@ -114,7 +114,7 @@ func TestCheckClosesRefusesAChoiceClosingWhatNoClosureRoundCloses(t *testing.T) 
 func TestReturnCheckChecksTheFindingsAChoiceClosesAgainstTheReview(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Phase: phaseCorrecting, Requirements: []store.EpicRequirement{{ID: "R1"}}}
-	check := returnCheck(context.Background(), epic, closesReview(), testResolver{}, nil)
+	check := returnCheck(context.Background(), epic, closesReview(), testResolver{}, nil, false)
 	const keep = "Keep the app.test.tsx edit and close conformance-1 with no code change."
 	cases := []struct {
 		name string

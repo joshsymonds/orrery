@@ -10,8 +10,8 @@ import (
 
 // ReadoptCheck returns the return check a re-adopted step row is restored with. A row that is the step of a running
 // planner turn gets the plan check of that turn's epic and its review, resolved by resolve, with the planner turns each
-// gap of the epic was given before that turn, read with the triggers it claimed, and any other row gets a nil check. A
-// store error is returned.
+// gap of the epic was given before that turn, read with the triggers it claimed, and whether the epic holds a park at the
+// bound of its chain that waits on the planner's call, and any other row gets a nil check. A store error is returned.
 func ReadoptCheck(
 	st Store,
 	resolve Resolver,
@@ -52,5 +52,9 @@ func readoptTurnCheck(
 	if gapTurnsErr != nil {
 		return nil, fmt.Errorf("read the gap turns of epic %s: %w", turn.Epic, gapTurnsErr)
 	}
-	return returnCheck(ctx, epic, review, resolve, priorGapTurns(gapTurns, triggers)), nil
+	chain, chainErr := st.BoundChain(ctx, turn.Epic)
+	if chainErr != nil {
+		return nil, fmt.Errorf("read the park bound of epic %s: %w", turn.Epic, chainErr)
+	}
+	return returnCheck(ctx, epic, review, resolve, priorGapTurns(gapTurns, triggers), chain.Seq != 0), nil
 }

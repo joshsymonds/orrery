@@ -1753,7 +1753,40 @@ WHERE epic = sqlc.arg(epic) AND turn = sqlc.arg(turn) AND position = sqlc.arg(po
 SELECT CAST(COALESCE(MAX(park), 0) AS INTEGER) FROM planner_actions WHERE epic = ? AND turn = ?;
 
 -- name: InsertEpicPark :exec
-INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created, state, stored_base, candidate)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SetEpicParkState :exec
+UPDATE epic_parks SET state = sqlc.arg(state) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- RenewEpicParkChain moves the park seq of an epic, stored at the bound of its chain, to a chain of its own, which its
+-- seq numbers, and makes it a park the planner answers. A park that is not at the bound is left as it is.
+-- name: RenewEpicParkChain :execrows
+UPDATE epic_parks SET chain = seq, state = 'planner'
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND state = 'bound';
+
+-- name: ListLatestEpicParks :many
+SELECT * FROM epic_parks WHERE epic = sqlc.arg(epic) ORDER BY seq DESC LIMIT sqlc.arg(count);
+
+-- LatestEpicPass returns the latest time, in unix seconds, a node run of an epic ended passed or a release step of it
+-- passed, or 0 when none has.
+-- name: LatestEpicPass :one
+SELECT CAST(MAX(
+    COALESCE((SELECT MAX(runs.ended) FROM epic_node_runs AS runs
+              WHERE runs.epic = sqlc.arg(epic) AND runs.outcome = 'passed'), 0),
+    COALESCE((SELECT MAX(steps.at) FROM epic_release_runs AS steps
+              WHERE steps.epic = sqlc.arg(epic) AND steps.part = 'release' AND steps.passed), 0)
+) AS INTEGER);
+
+-- name: ListEpicNodeRunsPassedAfter :many
+SELECT path FROM epic_node_runs
+WHERE epic = sqlc.arg(epic) AND outcome = 'passed' AND ended > sqlc.arg(after)
+ORDER BY ended, path;
+
+-- name: ListEpicReleaseStepsPassedAfter :many
+SELECT position, attempt FROM epic_release_runs
+WHERE epic = sqlc.arg(epic) AND part = 'release' AND passed AND at > sqlc.arg(after)
+ORDER BY at, attempt, position;
 
 -- name: MaxEpicParkSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_parks WHERE epic = ?;

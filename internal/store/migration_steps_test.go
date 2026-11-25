@@ -119,6 +119,7 @@ func migrationChecks() map[int64]migrationCheck {
 		101: {columnsAtEnd: "epics"},
 		115: stepPurposeDownAndUp(),
 		117: reproRulingsDownAndUp(),
+		118: parkChainCallsDownAndUp(),
 	}
 }
 

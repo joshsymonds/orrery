@@ -525,13 +525,16 @@ type EpicNodeRun struct {
 }
 
 type EpicPark struct {
-	Epic    string
-	Seq     int64
-	Class   string
-	Subject string
-	Chain   int64
-	Reason  string
-	Created int64
+	Epic       string
+	Seq        int64
+	Class      string
+	Subject    string
+	Chain      int64
+	Reason     string
+	Created    int64
+	State      string
+	StoredBase string
+	Candidate  string
 }
 
 type EpicParkQuestionRun struct {

@@ -142,7 +142,14 @@ func TestSpentLinesReturnsATriggerReadError(t *testing.T) {
 
 func TestPlannerInfoPromptListsTheSpentLines(t *testing.T) {
 	t.Parallel()
-	prompt, err := Prompt(syntheticEpic(), 2, syntheticTriggers(), nil, []SpentLine{{Failed: []int64{17, 19}}})
+	prompt, err := Prompt(
+		syntheticEpic(),
+		2,
+		syntheticTriggers(),
+		nil,
+		[]SpentLine{{Failed: []int64{17, 19}}},
+		store.BoundChain{},
+	)
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}

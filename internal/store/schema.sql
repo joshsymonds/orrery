@@ -502,7 +502,7 @@ CREATE TABLE epic_parks (
     subject TEXT NOT NULL,
     chain INTEGER NOT NULL,
     reason TEXT NOT NULL,
-    created INTEGER NOT NULL,
+    created INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'planner' CHECK (state IN ('planner', 'bound', 'owner')), stored_base TEXT NOT NULL DEFAULT '', candidate TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (epic, seq)
 );
 CREATE TABLE archived_rows (
@@ -1252,8 +1252,9 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (115,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (116,115,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (117,116,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (118,117,1);
-INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (119,119,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (119,118,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,119,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);

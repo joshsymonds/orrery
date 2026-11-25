@@ -27,13 +27,19 @@ const (
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the reading section that names the
 // read command of epic, then the contract, the decisions, the new notes, the open questions, the advice followed, the
-// tasks, the Requirements no live task claims, the evidence amendments, the triggers, the spent lines and the failed
-// turns that ran before turn. epic is read after the turn is claimed, so its Turns include turn, and triggers are the
-// triggers turn claimed. follows are the store's follow counts per label, and spent are the spent lines of failed tasks
-// (spentLines). It returns an error when a gate, a Requirement's evidence item, a task's evidence item or an
-// amendment's item cannot be encoded.
+// tasks, the Requirements no live task claims, the evidence amendments, the triggers, the park bound when the epic holds
+// a park at the bound of its chain, the spent lines and the failed turns that ran before turn. epic is read after the
+// turn is claimed, so its Turns include turn, and triggers are the triggers turn claimed. follows are the store's follow
+// counts per label, spent are the spent lines of failed tasks (spentLines), and chain is the chain of the park the epic
+// holds at the bound of its chain, the zero BoundChain when it holds none. It returns an error when a gate, a
+// Requirement's evidence item, a task's evidence item or an amendment's item cannot be encoded.
 func Prompt(
-	epic store.EpicRow, turn int64, triggers []store.EpicTrigger, follows []store.LabelFollow, spent []SpentLine,
+	epic store.EpicRow,
+	turn int64,
+	triggers []store.EpicTrigger,
+	follows []store.LabelFollow,
+	spent []SpentLine,
+	chain store.BoundChain,
 ) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
@@ -60,6 +66,9 @@ func Prompt(
 	}
 	WriteSection(&out, "Evidence amendments", amendments)
 	WriteSection(&out, "Triggers", triggerLines(triggers))
+	if chain.Seq != 0 {
+		WriteSection(&out, "Park bound", boundLines(chain))
+	}
 	spentText := make([]string, len(spent))
 	for i, line := range spent {
 		spentText[i] = spentLineText(line)
@@ -618,6 +627,26 @@ func amendmentLines(amendments []store.EvidenceAmendment) ([]string, error) {
 		}
 	}
 	return lines, nil
+}
+
+// boundLines returns the Park bound section of a turn whose epic holds a park at the bound of its chain: the park as
+// `Park: reason`, then the earlier parks of the chain, the planner actions on it with their outcomes, and what changed
+// since the chain's previous park, each a list of `- item` lines under its label, or its label with None. when it has
+// none.
+func boundLines(chain store.BoundChain) []string {
+	lines := []string{"Park: " + chain.Park}
+	lines = append(lines, ListLines("Earlier parks on this chain", bulletItems(chain.Earlier))...)
+	lines = append(lines, ListLines("Planner actions on this chain", bulletItems(chain.Actions))...)
+	return append(lines, ListLines("Changed since the chain's previous park", bulletItems(chain.Changes))...)
+}
+
+// bulletItems returns each of texts as `- text`.
+func bulletItems(texts []string) []string {
+	items := make([]string, 0, len(texts))
+	for _, text := range texts {
+		items = append(items, "- "+text)
+	}
+	return items
 }
 
 // triggerLines returns each trigger as `- id: cause`.

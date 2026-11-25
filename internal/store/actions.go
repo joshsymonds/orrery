@@ -17,7 +17,8 @@ import (
 )
 
 // The kinds of planner action. Each is carried out by the control of the same name, with the action's fields as given.
-// amend_evidence is AmendEvidence by the planner, whose action stays pending until its amendment is settled.
+// amend_evidence is AmendEvidence by the planner, whose action stays pending until its amendment is settled. park_recurs
+// and park_new are the planner's call on a park at the bound of its chain (isJudgment).
 const (
 	ActionRetryNode      = "retry_node"
 	ActionRetryEpic      = "retry_epic"
@@ -30,7 +31,16 @@ const (
 	ActionRerunReview    = "rerun_review"
 	ActionReopenDesign   = "reopen_design"
 	ActionSplit          = "split"
+	ActionParkRecurs     = "park_recurs"
+	ActionParkNew        = "park_new"
 )
+
+// isJudgment reports whether an action of kind is the planner's call on a park at the bound of its chain: park_recurs,
+// which sends the park to the owner, or park_new, which moves it to a chain of its own. A judgment is not an action on
+// the chain, so a taken one does not count toward its bound (countChain).
+func isJudgment(kind string) bool {
+	return kind == ActionParkRecurs || kind == ActionParkNew
+}
 
 // The states a planner action leaves its pending state in, once: taken, or refused. The state is stored as text, so
 // the write that carries an action out compares against pending in its query.
@@ -138,9 +148,10 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // resume_release is the planner's resume of a stopped release, close_epic is CloseEpic by the planner, change_approach
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
 // send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, rerun_review
-// records a rerun of the epic's review for the action's reviewer, as rerunReview does, and reopen_design adds the design
-// task that revises the action's task, as reopenDesign does, and split divides the action's task into its descendants,
-// as splitTask does.
+// records a rerun of the epic's review for the action's reviewer, as rerunReview does, reopen_design adds the design
+// task that revises the action's task, as reopenDesign does, split divides the action's task into its descendants, as
+// splitTask does, park_recurs sends the park its epic holds at the bound of its chain to the owner, as parkRecurs does,
+// and park_new moves that park to a chain of its own, as parkNew does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -193,7 +204,8 @@ func (s *Store) refuse(ctx context.Context, action PlannerAction, refusal Refusa
 // epic head is read before the control runs, so the park the action answers is the one the epic held when it was taken.
 // The action is marked taken in the same write, so an action that is not pending is errActionSettled. An action on a
 // closed epic is a RefusalError. So is a retry_node or retry_epic action on an epic whose park the owner holds: only the
-// owner retries such a park, so the park, its class and its question stay as they are.
+// owner retries such a park, so the park, its class and its question stay as they are. So is any action but a judgment on
+// an epic whose park waits on the planner's call (refuseUncalled).
 func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) ([]string, error) {
 	head, err := epicHead(ctx, queries, action.Epic)
 	if err != nil {
@@ -217,6 +229,9 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 			action.Epic,
 			head.ParkClass,
 		))
+	}
+	if refusal := refuseUncalled(ctx, queries, action, head); refusal != nil {
+		return nil, refusal
 	}
 	stop, err := carryOutAction(ctx, queries, action, at)
 	if err != nil {
@@ -349,6 +364,10 @@ func carryOutAction(
 		return nil, reopenDesign(ctx, queries, action)
 	case ActionSplit:
 		return splitTask(ctx, queries, action, at)
+	case ActionParkRecurs:
+		return nil, parkRecurs(ctx, queries, action, at)
+	case ActionParkNew:
+		return nil, parkNew(ctx, queries, action)
 	}
 	return nil, RefusalError(fmt.Sprintf("%q is not a planner action", action.Kind))
 }
@@ -577,9 +596,9 @@ func openTaskSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 
 // refuseAction records the refusal of action in the caller's write: the action is marked refused with the refusal and the
 // park it answers, a decision holds the refusal and the planner's reason, and for amend_evidence the Requirement's item
-// and the item the action asked for, and then either the held planner park is stored
-// as retry_bound, when its chain is at the bound, or a pending trigger whose cause names the action and the refusal is
-// added.
+// and the item the action asked for, and then either the held planner park is sent to the owner as retry_bound, when it
+// waits on the planner's call or its chain holds boundRefusals refusals (boundHeldPark), or a pending trigger whose cause
+// names the action and the refusal is added.
 func refuseAction(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, refusal RefusalError, at time.Time,
 ) error {

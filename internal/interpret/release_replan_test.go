@@ -240,7 +240,7 @@ func (w replanWorld) claimReplanTurn() (store.EpicTurn, string) {
 	if err != nil {
 		w.t.Fatalf("Epic: %v", err)
 	}
-	prompt, err := planner.Prompt(epic, turn.Seq, triggers, nil, nil)
+	prompt, err := planner.Prompt(epic, turn.Seq, triggers, nil, nil, store.BoundChain{})
 	if err != nil {
 		w.t.Fatalf("Prompt: %v", err)
 	}

@@ -23,7 +23,7 @@ func claimPlan(outcome string, requirements ...string) string {
 func TestPlannerInfoAcceptsAReturnThatLeavesARequirementUnclaimed(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}, {ID: "R2"}}}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, false)
 	for _, outcome := range []string{"work", "complete"} {
 		if got := check(json.RawMessage(claimPlan(outcome, "R1"))); got != nil {
 			t.Errorf("returnCheck of a %s return leaving R2 unclaimed = %q, want none", outcome, got)
@@ -37,7 +37,7 @@ func TestPlannerInfoPromptListsEachUnclaimedRequirement(t *testing.T) {
 		Requirements: []store.EpicRequirement{{ID: "R1"}, {ID: "R2"}, {ID: "R3"}},
 		Tasks:        []store.EpicTask{{Seq: 1, Title: "stored", Status: "open", Requirements: []string{"R1"}}},
 	}
-	prompt, err := Prompt(epic, 2, nil, nil, nil)
+	prompt, err := Prompt(epic, 2, nil, nil, nil, store.BoundChain{})
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestPlannerInfoStillRefusesAnUnknownRequirementWithAnOpenTasksFile(t *testi
 		Requirements: []store.EpicRequirement{{ID: "R1"}},
 		Tasks:        []store.EpicTask{{Seq: 1, Title: "open", Status: "open", Files: []string{"internal/a.go"}}},
 	}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, false)
 	want := []string{`tasks[0] "Touch a" requirements[0]: not a Requirement of the epic`}
 	if got := check(json.RawMessage(claimPlan("work", "R9"))); !reflect.DeepEqual(got, want) {
 		t.Errorf("returnCheck of an unknown Requirement and an open task's file = %q, want %q", got, want)
@@ -67,7 +67,7 @@ func TestPlannerInfoStillRefusesAnUnknownRequirementWithAnOpenTasksFile(t *testi
 func TestPlannerInfoStillRefusesAnUnknownContribution(t *testing.T) {
 	t.Parallel()
 	epic := store.EpicRow{Requirements: []store.EpicRequirement{{ID: "R1"}}}
-	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil)
+	check := returnCheck(context.Background(), epic, store.Review{}, testResolver{}, nil, false)
 	plan := strings.Replace(
 		claimPlan("work", "R1"),
 		`"requirements":["R1"]`,
@@ -102,7 +102,7 @@ func TestPlannerInfoPromptReadsTheFailuresOfTheRunBeforeIt(t *testing.T) {
 		{Seq: 5, State: "failed", Reason: "third failure"},
 		{Seq: 6, State: "running"},
 	}}
-	prompt, err := Prompt(epic, 6, nil, nil, nil)
+	prompt, err := Prompt(epic, 6, nil, nil, nil, store.BoundChain{})
 	if err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}

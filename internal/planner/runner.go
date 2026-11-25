@@ -38,6 +38,7 @@ type Store interface {
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 	Follows(ctx context.Context) ([]store.LabelFollow, error)
 	GapTurns(ctx context.Context, epic string) ([]store.GapTurn, error)
+	BoundChain(ctx context.Context, epic string) (store.BoundChain, error)
 	MoveEpicBase(ctx context.Context, epic, from, to string, at time.Time) (bool, error)
 	TellEpic(ctx context.Context, epic, text string, at time.Time) error
 }
@@ -318,7 +319,11 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read the gap turns of epic %s: %w", epic, err)
 	}
-	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent)
+	chain, err := r.store.BoundChain(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read the park bound of epic %s: %w", epic, err)
+	}
+	prompt, err := Prompt(row, turn.Seq, triggers, follows, spent, chain)
 	if err != nil {
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
@@ -336,7 +341,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		ReadOnly:    true,
 		Epic:        row.ID,
 		Purpose:     fmt.Sprintf("Plan turn %d of %s.", turn.Seq, epicSlug(row.ID)),
-		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers)),
+		ReturnCheck: returnCheck(ctx, row, review, r.resolve, priorGapTurns(gapTurns, triggers), chain.Seq != 0),
 	})
 	if id != "" {
 		if setErr := r.recordStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -810,16 +815,23 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
 // Any other return gets the refusals of Check, against the epic's Requirement ids and its tasks, whose tasks a depends_on
-// entry may name, and the gates and judges that resolve answers for epic, then those
-// of checkAmendKeeps against the epic's Requirements, then those of checkClosureTasks against the epic's phase, then
-// those of checkCloses against the epic's phase and the findings of review that the next closure round checks, then
-// those of checkSpentGaps against gapTurns, the planner turns each gap of the epic was given before the checked turn,
-// for the rerun_review actions that name a reviewer whose gap has spent its turns. Coverage and the spent lines are not
-// refusals: the prompt names them. When epic holds a planner-class park, a return with no action and no question gets one more line from checkPark, which names the park
-// reason. A question park is not checked, since its park question answers it. The gate resolves under ctx without its
-// cancellation, so the turn that started the step ending does not refuse its return.
+// entry may name, and the gates and judges that resolve answers for epic, then those of checkAmendKeeps against the
+// epic's Requirements, then those of checkClosureTasks against the epic's phase, then those of checkCloses against the
+// epic's phase and the findings of review that the next closure round checks, then those of checkSpentGaps against
+// gapTurns, the planner turns each gap of the epic was given before the checked turn, for the rerun_review actions that
+// name a reviewer whose gap has spent its turns, then those of checkCall, by bound, whether the park epic holds is at
+// the bound of its chain and waits on the planner's call. Coverage and the spent lines are not refusals: the prompt names
+// them. When epic holds a planner-class park that is not at the bound, a return with no action and no question gets one
+// more line from checkPark, which names the park reason; at the bound, checkCall refuses that return instead. A question
+// park is not checked, since its park question answers it. The gate resolves under ctx without its cancellation, so the
+// turn that started the step ending does not refuse its return.
 func returnCheck(
-	ctx context.Context, epic store.EpicRow, review store.Review, resolve Resolver, gapTurns []store.GapTurn,
+	ctx context.Context,
+	epic store.EpicRow,
+	review store.Review,
+	resolve Resolver,
+	gapTurns []store.GapTurn,
+	bound bool,
 ) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
@@ -847,6 +859,10 @@ func returnCheck(
 		refusals = append(refusals, checkClosureTasks(ret, epic.Phase)...)
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
 		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
+		refusals = append(refusals, checkCall(ret, bound)...)
+		if bound {
+			return refusals
+		}
 		return append(refusals, checkPark(ret, park)...)
 	}
 }

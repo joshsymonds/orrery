@@ -2468,7 +2468,7 @@ func (q *Queries) GetLatestEndedEpicTurn(ctx context.Context, epic string) (Epic
 }
 
 const getLatestEpicPark = `-- name: GetLatestEpicPark :one
-SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ? ORDER BY seq DESC LIMIT 1
+SELECT epic, seq, class, subject, chain, reason, created, state, stored_base, candidate FROM epic_parks WHERE epic = ? ORDER BY seq DESC LIMIT 1
 `
 
 func (q *Queries) GetLatestEpicPark(ctx context.Context, epic string) (EpicPark, error) {
@@ -2482,12 +2482,15 @@ func (q *Queries) GetLatestEpicPark(ctx context.Context, epic string) (EpicPark,
 		&i.Chain,
 		&i.Reason,
 		&i.Created,
+		&i.State,
+		&i.StoredBase,
+		&i.Candidate,
 	)
 	return i, err
 }
 
 const getLatestEpicParkOf = `-- name: GetLatestEpicParkOf :one
-SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ?1 AND class = ?2 AND subject = ?3
+SELECT epic, seq, class, subject, chain, reason, created, state, stored_base, candidate FROM epic_parks WHERE epic = ?1 AND class = ?2 AND subject = ?3
 ORDER BY seq DESC LIMIT 1
 `
 
@@ -2508,6 +2511,9 @@ func (q *Queries) GetLatestEpicParkOf(ctx context.Context, arg GetLatestEpicPark
 		&i.Chain,
 		&i.Reason,
 		&i.Created,
+		&i.State,
+		&i.StoredBase,
+		&i.Candidate,
 	)
 	return i, err
 }
@@ -4183,17 +4189,21 @@ func (q *Queries) InsertEpicNodeRun(ctx context.Context, arg InsertEpicNodeRunPa
 }
 
 const insertEpicPark = `-- name: InsertEpicPark :exec
-INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_parks (epic, seq, class, subject, chain, reason, created, state, stored_base, candidate)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParkParams struct {
-	Epic    string
-	Seq     int64
-	Class   string
-	Subject string
-	Chain   int64
-	Reason  string
-	Created int64
+	Epic       string
+	Seq        int64
+	Class      string
+	Subject    string
+	Chain      int64
+	Reason     string
+	Created    int64
+	State      string
+	StoredBase string
+	Candidate  string
 }
 
 func (q *Queries) InsertEpicPark(ctx context.Context, arg InsertEpicParkParams) error {
@@ -4205,6 +4215,9 @@ func (q *Queries) InsertEpicPark(ctx context.Context, arg InsertEpicParkParams) 
 		arg.Chain,
 		arg.Reason,
 		arg.Created,
+		arg.State,
+		arg.StoredBase,
+		arg.Candidate,
 	)
 	return err
 }
@@ -5849,6 +5862,24 @@ func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const latestEpicPass = `-- name: LatestEpicPass :one
+SELECT CAST(MAX(
+    COALESCE((SELECT MAX(runs.ended) FROM epic_node_runs AS runs
+              WHERE runs.epic = ?1 AND runs.outcome = 'passed'), 0),
+    COALESCE((SELECT MAX(steps.at) FROM epic_release_runs AS steps
+              WHERE steps.epic = ?1 AND steps.part = 'release' AND steps.passed), 0)
+) AS INTEGER)
+`
+
+// LatestEpicPass returns the latest time, in unix seconds, a node run of an epic ended passed or a release step of it
+// passed, or 0 when none has.
+func (q *Queries) LatestEpicPass(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, latestEpicPass, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const latestEpicStall = `-- name: LatestEpicStall :one
@@ -7545,7 +7576,7 @@ func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainAct
 }
 
 const listEpicChainParks = `-- name: ListEpicChainParks :many
-SELECT epic, seq, class, subject, chain, reason, created FROM epic_parks WHERE epic = ?1 AND chain = ?2 ORDER BY seq
+SELECT epic, seq, class, subject, chain, reason, created, state, stored_base, candidate FROM epic_parks WHERE epic = ?1 AND chain = ?2 ORDER BY seq
 `
 
 type ListEpicChainParksParams struct {
@@ -7570,6 +7601,9 @@ func (q *Queries) ListEpicChainParks(ctx context.Context, arg ListEpicChainParks
 			&i.Chain,
 			&i.Reason,
 			&i.Created,
+			&i.State,
+			&i.StoredBase,
+			&i.Candidate,
 		); err != nil {
 			return nil, err
 		}
@@ -8210,6 +8244,40 @@ func (q *Queries) ListEpicNodeRuns(ctx context.Context, epic string) ([]EpicNode
 	return items, nil
 }
 
+const listEpicNodeRunsPassedAfter = `-- name: ListEpicNodeRunsPassedAfter :many
+SELECT path FROM epic_node_runs
+WHERE epic = ?1 AND outcome = 'passed' AND ended > ?2
+ORDER BY ended, path
+`
+
+type ListEpicNodeRunsPassedAfterParams struct {
+	Epic  string
+	After int64
+}
+
+func (q *Queries) ListEpicNodeRunsPassedAfter(ctx context.Context, arg ListEpicNodeRunsPassedAfterParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicNodeRunsPassedAfter, arg.Epic, arg.After)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		items = append(items, path)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicPlanStates = `-- name: ListEpicPlanStates :many
 SELECT epics.id, epics.paused, epics.parked, epics.park_class,
     CAST(EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id AND epic_turns.state = 'running') AS INTEGER) AS running,
@@ -8437,6 +8505,45 @@ func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]Epic
 			&i.Kind,
 			&i.Params,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReleaseStepsPassedAfter = `-- name: ListEpicReleaseStepsPassedAfter :many
+SELECT position, attempt FROM epic_release_runs
+WHERE epic = ?1 AND part = 'release' AND passed AND at > ?2
+ORDER BY at, attempt, position
+`
+
+type ListEpicReleaseStepsPassedAfterParams struct {
+	Epic  string
+	After int64
+}
+
+type ListEpicReleaseStepsPassedAfterRow struct {
+	Position int64
+	Attempt  int64
+}
+
+func (q *Queries) ListEpicReleaseStepsPassedAfter(ctx context.Context, arg ListEpicReleaseStepsPassedAfterParams) ([]ListEpicReleaseStepsPassedAfterRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReleaseStepsPassedAfter, arg.Epic, arg.After)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicReleaseStepsPassedAfterRow
+	for rows.Next() {
+		var i ListEpicReleaseStepsPassedAfterRow
+		if err := rows.Scan(&i.Position, &i.Attempt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -10901,6 +11008,49 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, task string) ([]Step, e
 			&i.LinesRemoved,
 			&i.Host,
 			&i.Purpose,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestEpicParks = `-- name: ListLatestEpicParks :many
+SELECT epic, seq, class, subject, chain, reason, created, state, stored_base, candidate FROM epic_parks WHERE epic = ?1 ORDER BY seq DESC LIMIT ?2
+`
+
+type ListLatestEpicParksParams struct {
+	Epic  string
+	Count int64
+}
+
+func (q *Queries) ListLatestEpicParks(ctx context.Context, arg ListLatestEpicParksParams) ([]EpicPark, error) {
+	rows, err := q.db.QueryContext(ctx, listLatestEpicParks, arg.Epic, arg.Count)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicPark
+	for rows.Next() {
+		var i EpicPark
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Class,
+			&i.Subject,
+			&i.Chain,
+			&i.Reason,
+			&i.Created,
+			&i.State,
+			&i.StoredBase,
+			&i.Candidate,
 		); err != nil {
 			return nil, err
 		}
@@ -14455,6 +14605,26 @@ func (q *Queries) RenameLLMAccount(ctx context.Context, arg RenameLLMAccountPara
 	return result.RowsAffected()
 }
 
+const renewEpicParkChain = `-- name: RenewEpicParkChain :execrows
+UPDATE epic_parks SET chain = seq, state = 'planner'
+WHERE epic = ?1 AND seq = ?2 AND state = 'bound'
+`
+
+type RenewEpicParkChainParams struct {
+	Epic string
+	Seq  int64
+}
+
+// RenewEpicParkChain moves the park seq of an epic, stored at the bound of its chain, to a chain of its own, which its
+// seq numbers, and makes it a park the planner answers. A park that is not at the bound is left as it is.
+func (q *Queries) RenewEpicParkChain(ctx context.Context, arg RenewEpicParkChainParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renewEpicParkChain, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const replacedEpicTask = `-- name: ReplacedEpicTask :one
 SELECT CAST(COALESCE(MIN(failed.seq), 0) AS INTEGER)
 FROM epic_tasks AS failed
@@ -14848,6 +15018,21 @@ type SetEpicNodeCheckGrantParams struct {
 
 func (q *Queries) SetEpicNodeCheckGrant(ctx context.Context, arg SetEpicNodeCheckGrantParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicNodeCheckGrant, arg.GrantID, arg.Holder, arg.ID)
+	return err
+}
+
+const setEpicParkState = `-- name: SetEpicParkState :exec
+UPDATE epic_parks SET state = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicParkStateParams struct {
+	State string
+	Epic  string
+	Seq   int64
+}
+
+func (q *Queries) SetEpicParkState(ctx context.Context, arg SetEpicParkStateParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicParkState, arg.State, arg.Epic, arg.Seq)
 	return err
 }
 
