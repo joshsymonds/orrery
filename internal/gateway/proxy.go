@@ -30,6 +30,7 @@ const (
 	errorTypeAuthentication = "authentication_error"
 	errorTypeInvalidRequest = "invalid_request_error"
 	errorTypeNotFound       = "not_found_error"
+	errorTypePermission     = "permission_error"
 )
 
 // The messages a refusal's body carries. They are fixed strings, so a body never echoes what the caller or the upstream
@@ -102,6 +103,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An account pin is judged before the seat is served, so that a pin no loopback peer makes, or one that names no
+	// stored account or a seat other than forward, is refused before anything is sent upstream.
+	pin, pinRefused := pinnedToken(r, res.Seat, snap.AccountTokens)
+	if pinRefused != nil {
+		g.abort(r.Context(), w, pinRefused.status, pinRefused.errType, pinRefused.message, pinRefused.err)
+		return
+	}
+
 	// An inject or sigv4 seat spends the household key, so a request to one must present the caller key before anything
 	// is read or sent upstream. A forward seat spends the caller's own credential and needs no key.
 	if res.Seat.AuthMode != llmroutes.AuthForward {
@@ -111,8 +120,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Hook points for the later steps. The pin header is set in send, beside the credential. The ledger record is
-	// started before the seat is served and finished after its relay, through g.ledger.
+	// Hook points for the later steps. A pinned account's token is the credential send applies, beside the caller's.
+	// The ledger record is started before the seat is served and finished after its relay, through g.ledger.
 	switch res.Seat.AuthMode {
 	case llmroutes.AuthForward:
 		// The seat's rewrites apply to the body before it is forwarded, so that the upstream receives the rewritten
@@ -122,7 +131,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			g.abort(r.Context(), w, failure.status, failure.errType, failure.message, failure.err)
 			return
 		}
-		g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, rewritten)
+		g.forward(w, r, res.Seat, res.Context.Account, snap.Tokens, pin, rewritten)
 	case llmroutes.AuthInject:
 		g.inject(w, r, res.Seat, body)
 	case llmroutes.AuthSigV4:
@@ -134,19 +143,25 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // forward sends the request to the upstream a forward seat reaches and relays the upstream's answer. The caller's own
-// credential passes through untouched unless the context names an account, whose token replaces it.
+// credential passes through untouched unless an account is named, whose token replaces it: the account the request
+// pinned, when it pinned one, and otherwise the account the context names.
 func (g *Gateway) forward(
 	w http.ResponseWriter,
 	r *http.Request,
 	seat llmroutes.Seat,
 	account string,
 	tokens map[string]string,
+	pin string,
 	body []byte,
 ) {
-	token, err := accountToken(account, tokens)
-	if err != nil {
-		g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgAccountNoToken, err)
-		return
+	token := pin
+	if token == "" {
+		contextToken, err := accountToken(account, tokens)
+		if err != nil {
+			g.abort(r.Context(), w, http.StatusInternalServerError, errorTypeAPI, msgAccountNoToken, err)
+			return
+		}
+		token = contextToken
 	}
 
 	g.exchange(w, r, seat, g.upstream, token, body)
@@ -211,9 +226,9 @@ func accountToken(account string, tokens map[string]string) (string, error) {
 }
 
 // send builds the request a seat sends upstream and sends it: the base URL's scheme and host, the path the caller named
-// after its context, the caller's method, query and body, and the caller's headers without the caller key. The seat's
-// stripped betas are removed from the anthropic-beta header. When bearer is set, the caller's Authorization and
-// x-api-key are replaced by it.
+// after its context, the caller's method, query and body, and the caller's headers without the caller key or the
+// account pin. The seat's stripped betas are removed from the anthropic-beta header. When bearer is set, the caller's
+// Authorization and x-api-key are replaced by it.
 //
 // The target is a copy of base, so no part of the caller's request can change its scheme or host. The path after the
 // context is set as both the decoded path and the escaped path, so an escaped byte reaches the upstream as it arrived.
@@ -247,7 +262,8 @@ func (g *Gateway) send(
 	req.Method = r.Method
 	req.URL = &target
 
-	copyHeader(req.Header, r.Header, droppedHeaders(r.Header, headerContentLength, patchbayKeyHeader))
+	copyHeader(req.Header, r.Header,
+		droppedHeaders(r.Header, headerContentLength, patchbayKeyHeader, accountPinHeader))
 	stripBetaHeader(req.Header, seat.StripBetas)
 	if bearer != "" {
 		applyAuth(req.Header, bearer)
