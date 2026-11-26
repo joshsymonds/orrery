@@ -12,7 +12,7 @@ import { type Epic, EpicSchema, EpicsGetResponseSchema } from "./gen/orrery/v1/e
 import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import { type HeadStore, localHeadStore, memoryHeadStore } from "./headfold";
 import type { Row } from "./rows";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -408,7 +408,7 @@ test("HeadTitle: the title row has no pill or state, and its crumbs are the dire
 test("HeadTitle: a pane on another host reads its host alone, and draws no stats and no line about meters", (t) =>
   withHead(t.signal, { rows: [row({ key: "x", label: "x", host: "laptop" })] }, ({ container }) => {
     assert.equal(textOf(container, 'section[aria-label="reader"] .pane-strip-host'), "laptop");
-    assert.equal(container.querySelector('section[aria-label="reader"] .pane-strip .other'), null, "no line about meters");
+    assertNone(container.querySelector('section[aria-label="reader"] .pane-strip .other'), "no line about meters");
     assert.equal(container.querySelectorAll('section[aria-label="reader"] .meter').length, 0);
   }));
 

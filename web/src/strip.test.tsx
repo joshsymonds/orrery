@@ -16,7 +16,7 @@ import {
 import { Meter, type MeterStat } from "./meter";
 import type { Row } from "./rows";
 import { ContextMeter, PaneStrip } from "./strip";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -396,6 +396,6 @@ test("HeadTitle: an other host draws its name alone, with no meters and no line 
   await withDrawn(<PaneStrip host={host} />, (container) => {
     assert.equal(textOf(container, ".pane-strip-host"), "brine");
     assert.equal(container.querySelectorAll(".meter").length, 0, "the strip draws no meters");
-    assert.equal(container.querySelector(".other"), null, "the strip draws no line about meters");
+    assertNone(container.querySelector(".other"), "the strip draws no line about meters");
   });
 });

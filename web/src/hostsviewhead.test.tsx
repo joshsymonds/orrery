@@ -159,7 +159,7 @@ function assertHostOnlyHead(container: HTMLElement, host: string, what: string):
   assert.ok(band !== null, `${what} draws its machine band`);
   assert.deepEqual(hostNamesIn(band), [host], `${what}: its band names its host as a HostLabel`);
   assert.equal(head.querySelectorAll(".meter").length, 0, `${what}: its head draws no meter`);
-  assert.equal(head.querySelector(".other"), null, `${what}: its head draws no line about meters`);
+  assertNone(head.querySelector(".other"), `${what}: its head draws no line about meters`);
 }
 
 test("HostsWebHostsView head: a pane's head and band name its host as a HostLabel and draw no meter, on the serving host and on another", async (t) => {
