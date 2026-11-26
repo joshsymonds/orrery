@@ -56,7 +56,7 @@ func TestAgentFoldersListsRootDirs(t *testing.T) {
 	if err := os.Symlink(filepath.Join(root, "a"), filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
 	}
-	addr := startConfiguredAgent(t, AgentConfig{Root: root})
+	addr := startConfiguredAgent(t, AgentConfig{Roots: []string{root}})
 
 	resp := ask(t, addr, Request{Version: Version, Op: OpFolders})
 	if resp.Code != "" {
@@ -97,7 +97,7 @@ func TestAgentFolderResolvesUnderRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := startConfiguredAgent(t, AgentConfig{Root: root})
+	addr := startConfiguredAgent(t, AgentConfig{Roots: []string{root}})
 
 	for _, tc := range []struct {
 		name, dir, want string
@@ -126,7 +126,7 @@ func TestAgentFolderRefusesOutsideRoot(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	addr := startConfiguredAgent(t, AgentConfig{Root: root})
+	addr := startConfiguredAgent(t, AgentConfig{Roots: []string{root}})
 
 	for _, tc := range []struct {
 		name, dir, reason string
@@ -151,7 +151,7 @@ func TestAgentFolderRefusesMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	addr := startConfiguredAgent(t, AgentConfig{Root: root})
+	addr := startConfiguredAgent(t, AgentConfig{Roots: []string{root}})
 
 	for _, tc := range []struct {
 		name, dir, reason string

@@ -164,6 +164,10 @@ const (
 // sets it over any value the caller sent, so the name it carries is the one the listener admitted.
 const HeaderHost = "Orrery-Host"
 
+// HeaderSecret carries the fleet secret that a host's forwarder sets on each session-service call it relays to the
+// controller. The relay admits a call only when the secret it carries matches the relay's own.
+const HeaderSecret = "Orrery-Fleet-Secret"
+
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
 // else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.
 func SocketPath(flagValue string, getenv func(string) string) (string, error) {

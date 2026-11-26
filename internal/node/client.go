@@ -40,6 +40,8 @@ type ClientConfig struct {
 	Bound time.Duration
 	// Clock times the waits of the ops. Nil takes holder.SystemClock{}.
 	Clock holder.Clock
+	// Secret is the fleet secret that the client sends in the Secret of each Request it makes to the agent.
+	Secret string
 	// Logger receives the client's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }
