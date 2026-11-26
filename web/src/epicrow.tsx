@@ -7,6 +7,7 @@ import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { type EpicBlock, epicLine, type StepItem } from "./epics";
 import { Icon, StateGlyph } from "./glyphs";
 import type { HeldMove } from "./held";
+import { HostLabel } from "./hostlabel";
 import { epicNeeds } from "./needs";
 import { Pips } from "./pips";
 import { durationText } from "./phases";
@@ -153,11 +154,12 @@ function stepState(step: StepItem): string {
 // EpicRow draws a row of the inbox tree: an epic hung under its conversation, with its running steps under it, or a
 // contract hung there, with the contract's mark. An epic's row draws its EpicMark at 32, from the epic's detail. Its
 // name, count, words, blocker and newest sentence are epicRowWords'. The row's first line is the name with the count at
-// its end, its second the words, and its third the blocker, else the newest sentence. An epic's row draws each running
-// step, then a line for the steps past the shown ones and the block's tail. A press on the row calls onSelect with its
-// key, and a press on a step with the step's key. currentStep is the key of the step the cursor is on. held is whether
-// this row's thing is the one held open, which the row marks open, and move is the motion of the change that holds it,
-// which a held row carries as data-move. The row draws no command.
+// its end, its second the epic's host, inline, then the words, and its third the blocker, else the newest sentence. An
+// epic's row draws each running step, with its host inline under it, then a line for the steps past the shown ones and
+// the block's tail. A press on the row calls onSelect with its key, and a press on a step with the step's key.
+// currentStep is the key of the step the cursor is on. held is whether this row's thing is the one held open, which the
+// row marks open, and move is the motion of the change that holds it, which a held row carries as data-move. The row
+// draws no command.
 export function EpicRow({
   hung,
   now,
@@ -179,6 +181,7 @@ export function EpicRow({
   const contract = contractOf(hung);
   const epic = hung.kind === "epic" && contract === null ? hung : null;
   const ended = hung.kind === "epic" && !hung.listed.live;
+  const host = hung.kind === "epic" ? hung.listed.host : "";
   const name = hungName(hung);
   const classes = ["row", "epic"];
   if (contract !== null) classes.push("contract");
@@ -204,7 +207,11 @@ export function EpicRow({
         )}
         <span class="title">{name}</span>
         <span class="age">{words.count}</span>
-        <span class="l2">{words.words}</span>
+        <span class="l2">
+          <HostLabel name={host} />
+          {host !== "" && words.words !== "" && " · "}
+          {words.words}
+        </span>
         {words.blocker !== "" ? (
           <span class="l3">
             <Icon name="question" />
@@ -251,6 +258,11 @@ function EpicSteps({
             <span class="label">{step.label}</span>
             {step.step.task !== "" && <Pips cells={step.pips} />}
             <span class="doing">{step.doing}</span>
+            {step.step.host !== "" && (
+              <span class="l2 host-line">
+                <HostLabel name={step.step.host} />
+              </span>
+            )}
           </div>
         );
       })}

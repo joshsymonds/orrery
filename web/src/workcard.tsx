@@ -5,6 +5,7 @@ import { type MarkDetail, epicRowWords, markDetailOf } from "./epicrow";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { Icon } from "./glyphs";
+import { HostLabel } from "./hostlabel";
 import { type Need, epicNeeds } from "./needs";
 import { nowSentenceOf } from "./recordwords";
 import { trackPart, trackParts } from "./status";
@@ -18,8 +19,8 @@ export type TrackStage = "done" | "now" | "ahead";
 
 // CardModel is one card's words: the item key its card, act and Open open, its slug, the detail its mark reads (null for a
 // contract), its tone (attention, live, or none), its state (the pill's words), its track (one stage per trackParts
-// part), its now sentence, its asks (empty when nothing is asked), the button that answers the ask (empty when none), and
-// its count.
+// part), its now sentence, its asks (empty when nothing is asked), the button that answers the ask (empty when none), its
+// count, and the host its epic runs on (empty for a contract, and for an epic with none).
 export interface CardModel {
   key: string;
   slug: string;
@@ -31,6 +32,7 @@ export interface CardModel {
   asks: string;
   act: string;
   count: string;
+  host: string;
 }
 
 // workCardOf reads the card of a hung thing at now, in unix seconds: a contract waiting to be read and accepted, whether
@@ -65,6 +67,7 @@ function contractCard(key: string, contract: Contract): CardModel {
         : "waits for you to accept",
     act: waiting ? "Read and decide" : "",
     count: `v${contract.version}`,
+    host: "",
   };
 }
 
@@ -89,6 +92,7 @@ function epicCard(node: EpicNode, now: number): CardModel {
     asks: ask.asks,
     act: ask.act,
     count: words.count,
+    host: listed.host,
   };
 }
 
@@ -118,7 +122,8 @@ function stagesOf(current: number, hasNow = true): TrackStage[] {
 }
 
 // WorkCard draws one card of a project's page: its mark, slug and pill, its track, its now sentence, its ask with the
-// button that answers it, and its count with Open. The card, its act button and Open each call onOpen with the card's key.
+// button that answers it, and its foot: the host its epic runs on, inline, then its count with Open. The card, its act
+// button and Open each call onOpen with the card's key.
 export function WorkCard({ card, onOpen }: { card: CardModel; onOpen: (key: string) => void }): JSX.Element {
   const pillTone = card.tone === "attention" ? "waiting" : card.tone === "live" ? "working" : "idle";
   return (
@@ -149,6 +154,7 @@ export function WorkCard({ card, onOpen }: { card: CardModel; onOpen: (key: stri
         </div>
       )}
       <div class="foot">
+        <HostLabel name={card.host} />
         <span>{card.count}</span>
         <button type="button" class="link end">
           Open
