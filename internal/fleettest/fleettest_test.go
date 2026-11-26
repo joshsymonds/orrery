@@ -1,6 +1,7 @@
 package fleettest
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,10 +32,18 @@ func TestFleetGitRunsOnEachAgent(t *testing.T) {
 
 func TestFleetReachFollowsStoppedAgent(t *testing.T) {
 	f := Start(t, "a")
+	if _, err := f.Clients["a"].Sessions(t.Context()); err != nil {
+		t.Fatalf("agent a does not answer a call before it stops: %v", err)
+	}
 	if reach, _ := f.Clients["a"].Reach(); !reach {
-		t.Fatal("a client reads unreachable before its agent stops")
+		t.Fatal("a client reads unreachable while its agent answers")
 	}
 	f.StopAgent(t, "a")
+	addr := f.agents["a"].listener.Addr().String()
+	if conn, err := net.Dial("tcp", addr); err == nil {
+		_ = conn.Close()
+		t.Fatalf("agent a still accepts connections at %s after it stops", addr)
+	}
 	f.WaitReach(t, "a", false)
 }
 

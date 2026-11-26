@@ -32,6 +32,9 @@ const (
 	fleetLogin = "owner@fleet.test"
 	// clientBound is the Bound of each client. The clients run on the fleet's clock, so it sets no wall-clock wait.
 	clientBound = 3 * time.Second
+	// maxClockRounds bounds how many times WaitReach fires a stopped agent's clock. A stopped agent's client reads
+	// unreachable within a round or two, so a client that has not changed after this many rounds has failed.
+	maxClockRounds = 100
 )
 
 // Fleet is a controller and the agents that a test runs its work over.
@@ -145,11 +148,12 @@ func (f *Fleet) StopAgent(tb testing.TB, name string) {
 // WaitReach waits until the client of the agent named name reads want. It waits on the client's Reach change channel.
 // The client's clock passes time only while WaitReach waits on a stopped agent: then the client's pings fail, and its
 // expiry comes due. A running agent answers its pings, so its client does not go unreachable by waiting. WaitReach
-// fails the test for a want that a running agent cannot reach.
+// fails the test for a want that a running agent cannot reach, and for a want that a stopped agent does not reach within
+// maxClockRounds firings of its clock.
 func (f *Fleet) WaitReach(tb testing.TB, name string, want bool) {
 	tb.Helper()
 	rig := f.rig(tb, name)
-	for {
+	for rounds := 0; ; rounds++ {
 		reach, changed := rig.client.Reach()
 		if reach == want {
 			return
@@ -157,6 +161,10 @@ func (f *Fleet) WaitReach(tb testing.TB, name string, want bool) {
 		if !rig.stopped.Load() {
 			tb.Fatalf("WaitReach(%q, %t): the agent runs and its client reads %t; "+
 				"WaitReach passes time only on a stopped agent", name, want, reach)
+		}
+		if rounds == maxClockRounds {
+			tb.Fatalf("WaitReach(%q, %t): the client still reads %t after %d firings of its clock",
+				name, want, reach, rounds)
 		}
 		rig.clock.fire()
 		select {
