@@ -394,7 +394,7 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 	item := captureItem(capture, prefix)
 	return c.begin(ctx, capture.ID, func(driveCtx context.Context) {
 		if capture.Grant != "" {
-			end, readoptErr := c.captures.on(host).readopt(
+			end, readoptErr := c.captures.onHost(row.Host, host).readopt(
 				driveCtx,
 				row.Repository,
 				capture.Commit,
@@ -427,10 +427,16 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 }
 
 // runFresh runs capture at its commit in repo on host under a grant of the gate pool. The grant is recorded once it holds,
-// and the capture is then settled (see settle).
+// and the capture is then settled (see settle). The grant names the name its epic is stored with as its host, which is read
+// here, and a capture whose epic's host cannot be read is left for a restart.
 func (c *Captures) runFresh(
 	ctx context.Context, host hostexec.Host, repo string, capture store.Capture, item evidence.Item,
 ) {
+	hostName, err := c.store.EpicHost(ctx, capture.Epic)
+	if err != nil {
+		c.settle(ctx, capture, store.EvidenceCapture{}, fmt.Errorf("host of epic %s: %w", capture.Epic, err), false)
+		return
+	}
 	launched := false
 	started := func(startCtx context.Context, grant, holder string) error {
 		if err := c.retry(startCtx, "capture grant", capture.ID, func(storeCtx context.Context) error {
@@ -441,7 +447,7 @@ func (c *Captures) runFresh(
 		launched = true
 		return nil
 	}
-	end, err := c.captures.on(host).run(ctx, repo, capture.Commit, capture.ID, item, started)
+	end, err := c.captures.onHost(hostName, host).run(ctx, repo, capture.Commit, capture.ID, item, started)
 	c.settle(ctx, capture, end, err, launched)
 }
 

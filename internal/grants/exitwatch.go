@@ -1,6 +1,7 @@
 package grants
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,86 @@ import (
 // watched process or holder may still live. Such a failure is logged and tried again, so a live client or holder is
 // never left unwatched.
 const exitWatchRetry = 5 * time.Second
+
+// remotePoll is how long a watch of a process or holder on another host waits between its asks of that host.
+const remotePoll = 10 * time.Second
+
+// remoteClientWatch watches the client process with pid that started at start on processes, the processes of another
+// host. exited closes once that host reports the process gone, and stop ends the watch without closing exited. The
+// watch asks each remotePoll on afterFunc's clock, and asks again after an ask that fails.
+func remoteClientWatch(
+	ctx context.Context,
+	logger *slog.Logger,
+	afterFunc func(time.Duration, func()) func() bool,
+	processes HostProcesses,
+	pid int,
+	start int64,
+) (<-chan struct{}, func()) {
+	return pollWatch(ctx, logger, afterFunc, fmt.Sprintf("client process %d", pid),
+		func(askCtx context.Context) (bool, error) {
+			alive, err := processes.ProcessAlive(askCtx, pid, start)
+			return !alive, err
+		})
+}
+
+// remoteHolderWatch watches the holder directory dir on processes, the processes of another host, as remoteClientWatch
+// watches a client process: exited closes once that host reports the holder gone.
+func remoteHolderWatch(
+	ctx context.Context,
+	logger *slog.Logger,
+	afterFunc func(time.Duration, func()) func() bool,
+	processes HostProcesses,
+	dir string,
+) (<-chan struct{}, func()) {
+	return pollWatch(ctx, logger, afterFunc, "holder directory "+dir,
+		func(askCtx context.Context) (bool, error) {
+			alive, err := processes.HolderAlive(askCtx, dir)
+			return !alive, err
+		})
+}
+
+// pollWatch starts a watch that asks gone each time a remotePoll wait on afterFunc's clock ends. gone reports whether
+// the watched thing is gone, or an error when the host did not answer. exited closes once gone reports it gone, and
+// stop ends the watch without closing exited. A failed ask is logged, and the watch waits and asks again, so a host that
+// does not answer never closes exited.
+func pollWatch(
+	ctx context.Context,
+	logger *slog.Logger,
+	afterFunc func(time.Duration, func()) func() bool,
+	what string,
+	gone func(context.Context) (bool, error),
+) (<-chan struct{}, func()) {
+	exited := make(chan struct{})
+	stopped := make(chan struct{})
+	var stopOnce sync.Once
+	go func() {
+		for {
+			fired := make(chan struct{})
+			cancelWait := afterFunc(remotePoll, func() { close(fired) })
+			select {
+			case <-stopped:
+				cancelWait()
+				return
+			case <-fired:
+			}
+			isGone, err := gone(ctx)
+			if err != nil {
+				logger.WarnContext(ctx, "remote exit watch failed; trying again", "watch", what, "err", err)
+				continue
+			}
+			if !isGone {
+				continue
+			}
+			select {
+			case <-stopped:
+			default:
+				close(exited)
+			}
+			return
+		}
+	}()
+	return exited, func() { stopOnce.Do(func() { close(stopped) }) }
+}
 
 // holderEvents are the inotify events a holder watch waits for: a close of the holder's lock file. The holder's close
 // lets go of its lock, and any other open file's close may leave the lock free as well.

@@ -1017,6 +1017,7 @@ type sessionHost struct {
 	writer     *enginehost.Writer
 	broker     *grants.Broker
 	pools      enginehost.PoolCommands
+	grantHosts map[string]grants.HostProcesses
 	evidence   *enginehost.Evidence
 	captures   *enginehost.Captures  // the capture runner over the store, the steps and the pools, nil without a store
 	gatherers  *enginehost.Gatherers // the gatherer runner over the store and the steps, nil without a store
@@ -1184,6 +1185,7 @@ func startSessions(
 			CronWake:    host.cron.Wake, PutOffs: st, Panes: controllerPaneQuestions(opts, router),
 			EventWake: host.callerEvents.Wake, Hosts: holderHosts(clients),
 		})
+		host.grantHosts = grantHosts(clients)
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
@@ -1508,6 +1510,7 @@ func (h *sessionHost) reconcile(
 func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *store.Store, logger *slog.Logger) {
 	h.broker = grants.NewBroker(grants.Config{
 		Host:        hostName,
+		Hosts:       h.grantHosts,
 		Store:       st,
 		Environ:     os.Environ(),
 		Logger:      logger,
@@ -1519,6 +1522,16 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 		return
 	}
 	h.pools = h.broker
+}
+
+// grantHosts returns the processes of each client, by the host's name, which the grants broker follows for the grants of
+// that host.
+func grantHosts(clients map[string]*node.Client) map[string]grants.HostProcesses {
+	hosts := make(map[string]grants.HostProcesses, len(clients))
+	for name, client := range clients {
+		hosts[name] = client
+	}
+	return hosts
 }
 
 // holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
