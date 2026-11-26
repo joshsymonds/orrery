@@ -103,4 +103,10 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // ConvoRow draws a conversation that holds what it opened, its block the tab and its row and the open row necks: round 6
   // draws a conversation's row and what it steers, and no held thing.
   "convo-row/held": { replacement: "ConvoRow", epic: "F4" },
+  // HostLabel's heading state is its card-heading form, the host a card's rows are grouped under: round 6 names it CardHeading,
+  // and this story bears the name heading.
+  "host-label/heading": { replacement: "HostLabel", epic: "F2" },
+  // HostLabel's down state is the host beside the word unreachable, which round 6 draws within InboxRow's Unreachable state, so
+  // HostLabel stands for it.
+  "host-label/down": { replacement: "HostLabel", epic: "F2" },
 };

@@ -13,6 +13,7 @@ export const StateGlyph: Stories = {
   interrupting: () => <glyphs.StateGlyph state="interrupting" />,
   limited: () => <glyphs.StateGlyph state="limited" />,
   stopped: () => <glyphs.StateGlyph state="stopped" />,
+  unreachable: () => <glyphs.StateGlyph state="unreachable" />,
   waiting: () => <glyphs.StateGlyph state="waiting" />,
   working: () => <glyphs.StateGlyph state="working" />,
 };
