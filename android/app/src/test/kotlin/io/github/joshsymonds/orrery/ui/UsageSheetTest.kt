@@ -175,8 +175,6 @@ class UsageSheetTest {
                     title = "Tide table cache warm-up",
                     context = ConversationContext(tokens = 86_000L, window = 1_000_000L),
                     note = "",
-                    stats = null,
-                    otherHost = null,
                     goal = "",
                     lines = emptyList(),
                     asking = "",

@@ -11,7 +11,6 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -23,7 +22,7 @@ import org.robolectric.annotation.GraphicsMode
 
 private const val HEAD_TAG = "head"
 private const val TITLE_TAG = "head-title"
-private const val METERS_TAG = "head-meters"
+private const val HOST_METERS_TAG = "host-meters"
 private const val BAND_TAG = "band"
 private const val BAND_GOAL_TAG = "band-goal"
 private const val BAND_HIDE_TAG = "band-hide"
@@ -40,10 +39,6 @@ class PhoneHeadViewTest {
     @get:Rule
     val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
-    private val stats = listOf(
-        HostStat("cpu", "42%", 42.0, "ok"),
-        HostStat("disk", "71%", 71.0, "warn"),
-    )
     private val lines = listOf(
         AskLine(epicId = "epic-one", slug = "rota-export", text = "asks: Bump the embedded tz database?", way = AskWay.ANSWER),
     )
@@ -65,8 +60,6 @@ class PhoneHeadViewTest {
                     title = "Tide table cache warm-up",
                     context = null,
                     note = "",
-                    stats = stats,
-                    otherHost = null,
                     goal = "Every port’s tide table is cached through December 17.",
                     lines = lines,
                     asking = asking,
@@ -84,12 +77,12 @@ class PhoneHeadViewTest {
     private fun stateIs(state: String) = SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, state)
 
     @Test
-    fun openDrawsTheTitleMetersAndBandAndNoCompactLine() {
+    fun openDrawsTheTitleAndBandAndNoHostMetersAndNoCompactLine() {
         setHead(HeadFold.OPEN)
 
         composeRule.onNodeWithTag(HEAD_TAG).assert(stateIs("open"))
         composeRule.onNodeWithTag(TITLE_TAG).assertIsDisplayed()
-        composeRule.onNodeWithTag(METERS_TAG).assertIsDisplayed()
+        composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
         composeRule.onNodeWithTag(BAND_TAG).assertIsDisplayed()
         composeRule.onAllNodesWithTag(COMPACT_TAG).assertCountEquals(0)
     }
@@ -103,7 +96,7 @@ class PhoneHeadViewTest {
         composeRule.onNodeWithTag(COMPACT_TAG).assertIsDisplayed()
         composeRule.onAllNodesWithTag(BAND_TAG).assertCountEquals(0)
         composeRule.onAllNodesWithTag(BAND_GOAL_TAG).assertCountEquals(0)
-        composeRule.onAllNodesWithTag(METERS_TAG).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
@@ -114,7 +107,7 @@ class PhoneHeadViewTest {
         composeRule.onNodeWithTag(TITLE_TAG).assertIsDisplayed()
         composeRule.onNodeWithTag(COMPACT_TAG).assertIsDisplayed()
         composeRule.onAllNodesWithTag(BAND_TAG).assertCountEquals(0)
-        composeRule.onAllNodesWithTag(METERS_TAG).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test

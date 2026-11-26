@@ -38,7 +38,6 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
@@ -259,7 +258,6 @@ fun SessionScreen(
     var stepRead by remember(sessionId) { mutableStateOf(false) }
     var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
-    var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
     var nowSeconds by remember { mutableLongStateOf(clock()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -314,10 +312,7 @@ fun SessionScreen(
                             epics?.let { headEpics = it }
                             designList?.let { designs = it }
                             listed?.let { contracts = it }
-                            host?.let {
-                                servingHost = it.host
-                                stats = it.stats
-                            }
+                            host?.let { servingHost = it.host }
                             delay(HEAD_POLL_MILLIS)
                         }
                     }
@@ -420,7 +415,6 @@ fun SessionScreen(
     val steered = headEpics.steered
     val lines = askLines(steered, headEpics.details)
     val asking = askingWords(ownName = pane?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
-    val otherHost = pane?.let { otherHostOf(it.host, servingHost) }
     val bandLines = contractBandLines(contracts, sessionId)
     // The work link, the band line and the transcript line of a contract the conversation proposed open live while it runs.
     // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
@@ -494,8 +488,6 @@ fun SessionScreen(
                         title = shown.label.ifEmpty { shown.command },
                         context = conversation?.context,
                         note = if (refreshFailed) REFRESH_FAILED else "",
-                        stats = if (otherHost == null) stats else null,
-                        otherHost = otherHost,
                         goal = conversation?.goal.orEmpty(),
                         lines = lines,
                         asking = asking,
