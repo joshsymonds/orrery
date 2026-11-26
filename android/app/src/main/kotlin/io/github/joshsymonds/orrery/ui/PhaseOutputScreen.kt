@@ -94,6 +94,11 @@ fun PhaseOutputScreen(
             Result.failure(error)
         }
     }
+    // The serving host's name, which an epic with no host of its own reads as in the band's pin.
+    var servingHost by remember(client) { mutableStateOf("") }
+    LaunchedEffect(client) {
+        fetchHost(client)?.let { servingHost = it.host }
+    }
 
     val detail = load?.getOrNull()
     val briefStep = detail?.let { briefStepOf(it, task) }
@@ -130,6 +135,7 @@ fun PhaseOutputScreen(
             onLanded = { generation++ },
             loadArtifact = loadArtifact,
             modifier = modifier,
+            servingHost = servingHost,
         )
     } else {
         val current = load
@@ -172,6 +178,7 @@ internal fun PhaseOutputBody(
     onLanded: () -> Unit,
     loadArtifact: ArtifactLoader,
     modifier: Modifier = Modifier,
+    servingHost: String = "",
 ) {
     val record = recordTasksOf(detail).find { it.task == task }
     val bodies = stageBodiesOf(detail, task)
@@ -221,7 +228,14 @@ internal fun PhaseOutputBody(
             )
         }
         Column(modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
-            ContextBand(detail = detail, currentTask = task, now = now, onOpenEpic = onOpenEpic, onOpenTask = onOpenTask)
+            ContextBand(
+                detail = detail,
+                currentTask = task,
+                now = now,
+                onOpenEpic = onOpenEpic,
+                onOpenTask = onOpenTask,
+                servingHost = servingHost,
+            )
             record.requirements.forEach { id ->
                 RequirementLine(id = id, text = detail.requirements.find { it.id == id }?.text)
             }

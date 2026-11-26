@@ -138,7 +138,8 @@ private fun isShownContract(contract: ContractRow, heldIds: Set<String>): Boolea
  * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock,
  * and [doing] says what the step is doing there. [epic] is the id of the epic the step belongs to and [task] the id of
  * its task: the screen reads the epic, and the step's title, state and end come from its record once it is read.
- * Until then [label], [held] and [doing] stand.
+ * Until then [label], [held] and [doing] stand. [host] is the name of the step's host, which its title row names; empty
+ * reads as the serving host.
  */
 data class StepMode(
     val held: Boolean,
@@ -146,7 +147,39 @@ data class StepMode(
     val doing: String = "",
     val epic: String = "",
     val task: String = "",
+    val host: String = "",
 )
+
+/**
+ * A step's page title row: back, then, once the step's epic [detail] is read, the crumbs of its epic and of its task
+ * (the task's [title], which opens the task at [phase]), then its own session's crumb. The step's host is labelled
+ * inline; [StepMode.host] names it, and an empty one reads as [servingHost]. [onFind] is the row's More's Find.
+ */
+@Composable
+internal fun StepTitleRow(
+    step: StepMode,
+    detail: EpicDetail?,
+    title: String,
+    phase: Phase,
+    servingHost: String,
+    onBack: () -> Unit,
+    onOpenEpic: (String) -> Unit,
+    onOpenTask: (String, Phase) -> Unit,
+    onFind: () -> Unit,
+) {
+    TitleRow(
+        crumbs = buildList {
+            if (detail != null) {
+                add(Crumb(label = detail.epic.slug, onGo = { onOpenEpic(step.epic) }))
+                add(Crumb(label = title, onGo = { onOpenTask(step.task, phase) }))
+            }
+            add(Crumb(label = "Worker session"))
+        },
+        onBack = onBack,
+        onFind = onFind,
+        host = step.host.ifEmpty { servingHost },
+    )
+}
 
 /**
  * A headless session's screen: its conversation, streamed while the screen is started. Each delta is
@@ -424,15 +457,15 @@ fun SessionScreen(
         }
         if (step != null) {
             val detail = stepDetail
-            TitleRow(
-                crumbs = buildList {
-                    if (detail != null) {
-                        add(Crumb(label = detail.epic.slug, onGo = { onOpenEpic(step.epic) }))
-                        add(Crumb(label = stepTitle, onGo = { onOpenTask(step.task, stepPhase) }))
-                    }
-                    add(Crumb(label = "Worker session"))
-                },
+            StepTitleRow(
+                step = step,
+                detail = detail,
+                title = stepTitle,
+                phase = stepPhase,
+                servingHost = servingHost,
                 onBack = onBack,
+                onOpenEpic = onOpenEpic,
+                onOpenTask = onOpenTask,
                 onFind = { finding = FindSession(query = "") },
             )
             detail?.let { shown ->
@@ -443,6 +476,7 @@ fun SessionScreen(
                     onOpenEpic = { onOpenEpic(step.epic) },
                     onOpenTask = onOpenTask,
                     modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                    servingHost = servingHost,
                 )
             }
         }
