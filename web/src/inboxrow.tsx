@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 
 import { Icon, StateGlyph } from "./glyphs";
 import { HostLabel } from "./hostlabel";
+import { type HostReach, hostDown } from "./hostreach";
 import { Menu, type MenuEntry } from "./menu";
 import { parseQuestion } from "./question";
 import { type Row, waitsOnYou } from "./rows";
@@ -27,11 +28,12 @@ export interface RowMore {
 
 // InboxRow draws one row of the inbox list as round 6 draws it: its dot and state glyph, its title and age, its second
 // line, and its More. A row with no directory is the no-directory place, which no card names a host for, so the row draws
-// its host inline after its second line; a row under a card draws no host of its own. A click calls onOpen and a
-// double-click calls onSeen, each unless the press landed on a link. cursor
-// is whether the row is the cursor's; open is whether its page is open, hover whether it is drawn hovered, and moving
-// whether a list answer moved it into this place, which marks it until the move's time has passed. data-held is the held
-// mark a conversation's row carries when it holds what it opened, drawn as its attribute.
+// its host inline after its second line; a row under a card draws no host of its own. A row whose host does not answer,
+// by its Row.unreachable or by reach, draws the unreachable glyph and the word unreachable in grey in place of its second
+// line. A click calls onOpen and a double-click calls onSeen, each unless the press landed on a link. cursor is whether the
+// row is the cursor's; open is whether its page is open, hover whether it is drawn hovered, and moving whether a list
+// answer moved it into this place, which marks it until the move's time has passed. data-held is the held mark a
+// conversation's row carries when it holds what it opened, drawn as its attribute.
 export function InboxRow({
   row,
   now,
@@ -39,6 +41,7 @@ export function InboxRow({
   open = false,
   hover = false,
   moving = false,
+  reach = new Map(),
   "data-held": held,
   "data-move": move,
   more,
@@ -51,12 +54,15 @@ export function InboxRow({
   open?: boolean;
   hover?: boolean;
   moving?: boolean;
+  // reach is each listed host's reach; absent reads every host as reachable.
+  reach?: HostReach;
   "data-held"?: string;
   "data-move"?: string;
   more: RowMore;
   onOpen: () => void;
   onSeen: () => void;
 }) {
+  const down = row.unreachable === true || hostDown(reach, row.host);
   return (
     <div
       class={rowClass(cursor, open, hover, more.open)}
@@ -80,7 +86,7 @@ export function InboxRow({
       }}
     >
       <span class="dot" title={row.unseen ? "new since you looked" : undefined} />
-      <StateGlyph state={glyphStateOf(row)} />
+      <StateGlyph state={down ? "unreachable" : glyphStateOf(row)} />
       <div class="main">
         <div class="l1">
           <span class="title">
@@ -89,7 +95,13 @@ export function InboxRow({
           <span class="age">{ageText(row.changed, now)}</span>
           <More more={more} title={row.label} />
         </div>
-        <SecondLine row={row} now={now} />
+        {down ? (
+          <div class="l2 one">
+            <span class="unreach">unreachable</span>
+          </div>
+        ) : (
+          <SecondLine row={row} now={now} />
+        )}
         {row.project === "" && <HostLabel name={row.host} />}
       </div>
     </div>

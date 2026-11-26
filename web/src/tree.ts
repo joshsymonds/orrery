@@ -2,12 +2,14 @@ import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import type { Design, DesignContract } from "./gen/orrery/v1/designs_pb";
 import type { Epic, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { blockOf, type EpicBlock, repositoryName } from "./epics";
+import type { HostReach } from "./hostreach";
 import { epicNeeds } from "./needs";
 import { type Row, waitsOnYou } from "./rows";
 
 // EpicNode is a listed epic hung under its conversation with its running steps (block.steps, at most four, block.more
-// for the rest, block.tail) and, when Contracts.List holds a contract of the same id, that contract.
-export interface EpicNode { kind: "epic"; key: string /* `epic:${id}` */; block: EpicBlock; listed: Epic; contract: Contract | null }
+// for the rest, block.tail) and, when Contracts.List holds a contract of the same id, that contract. reach is each listed
+// host's reach, which the epic's row reads for its host and its steps' hosts; absent reads every host as reachable.
+export interface EpicNode { kind: "epic"; key: string /* `epic:${id}` */; block: EpicBlock; listed: Epic; contract: Contract | null; reach?: HostReach }
 // ContractItem is a contract hung under its conversation: proposed, or accepted while no listed epic has its id.
 export interface ContractItem { kind: "contract"; key: string /* `contract:${id}` */; contract: Contract }
 export type Hung = EpicNode | ContractItem;
@@ -45,6 +47,7 @@ export interface TreeInput {
   contracts: readonly Contract[];                 // Contracts.List
   designs?: readonly Design[];                    // the designs; absent reads as none
   host: string;                                   // the serving host, "" when unknown
+  reach?: HostReach;                              // each listed host's reach; absent reads every host as reachable
   view: View;
 }
 
@@ -194,7 +197,14 @@ export function buildTree(input: TreeInput): Project[] {
       // An epic hung under a drawn conversation that carries a proposed contract stays in the tree: the contract's ask is
       // live work. An epic with no drawn conversation is its own row, ended once it is not live.
       ended: inbox && !epic.live && (conversation === undefined || contract === null),
-      hung: { kind: "epic", key: `epic:${epic.id}`, block: blockOf(epic, input.details.get(epic.id)), listed: epic, contract },
+      hung: {
+        kind: "epic",
+        key: `epic:${epic.id}`,
+        block: blockOf(epic, input.details.get(epic.id)),
+        listed: epic,
+        contract,
+        reach: input.reach,
+      },
     });
   }
   for (const contract of shown) {
