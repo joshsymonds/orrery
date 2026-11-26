@@ -133,7 +133,7 @@ private fun ColumnScope.ProjectBody(
         Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight)) {
             SectionHead("Conversations", count = conversationsOf(project).toString())
             for (convo in project.convos) {
-                ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
+                ConvoBlock(convo, now, project.host, onOpen, state.foldOpen) { state.toggleFold(it) }
             }
         }
         if (project.ended.isNotEmpty()) {
@@ -141,7 +141,7 @@ private fun ColumnScope.ProjectBody(
             EndedLine(project, unfolded, onClick = { state.toggleEnded(project.key) })
             if (unfolded) {
                 for (convo in project.ended) {
-                    ConvoBlock(convo, now, onOpen, state.foldOpen) { state.toggleFold(it) }
+                    ConvoBlock(convo, now, project.host, onOpen, state.foldOpen) { state.toggleFold(it) }
                 }
             }
         }
@@ -159,18 +159,24 @@ private fun ColumnScope.ProjectBody(
     }
 }
 
-/** The path with the host when it is another host, then the counts: conversations, epics, what waits, the last change. */
+/**
+ * The card's host as a HostLabel, once on the head, then the path, then the counts: conversations, epics, what waits,
+ * the last change.
+ */
 @Composable
 private fun ProjectHead(project: Project, now: Long) {
-    val place = listOf(project.path, if (project.host.isEmpty()) "" else "on ${project.host}")
-        .filter { it.isNotEmpty() }
-        .joinToString(" · ")
     val epics = project.convos.sumOf { convo -> convo.allHung.count { it is EpicNode } }
     val waits = projectWaiting(project)
     val newest = newestChangeOf(project)
-    Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
-        if (place.isNotEmpty()) {
-            Text(place, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
+    Column(
+        modifier = Modifier.testTag("card-host:${project.key}"),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
+    ) {
+        if (project.host.isNotEmpty()) {
+            HostLabel(name = project.host)
+        }
+        if (project.path.isNotEmpty()) {
+            Text(project.path, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.sixteen)) {
             Text(
@@ -200,12 +206,14 @@ private fun ProjectHead(project: Project, now: Long) {
 /**
  * One conversation and the epics and contracts hung under it, each a WorkCard, then its folded ended epics under a fold
  * line, which opens to them as WorkCards while [foldOpen] holds its key. A row with no pane is an own row: its one thing
- * draws as its WorkCard alone. A tap on the fold line calls [onFold] with the conversation's key.
+ * draws as its WorkCard alone. A headless session's row names its host inline, and [cardHost] is the host it reads as
+ * when it names none. A tap on the fold line calls [onFold] with the conversation's key.
  */
 @Composable
 private fun ConvoBlock(
     convo: Convo,
     now: Long,
+    cardHost: String,
     onOpen: (String) -> Unit,
     foldOpen: Set<String>,
     onFold: (String) -> Unit,
@@ -238,6 +246,11 @@ private fun ConvoBlock(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // A headless session's row is not under an inbox card, so it names its host inline; an empty host
+                    // reads as the card's, which is the serving host's when the session names none.
+                    if (pane.headless) {
+                        HostLabel(name = pane.host.ifEmpty { cardHost })
+                    }
                 }
                 if (pane.changed != 0L) {
                     Text(

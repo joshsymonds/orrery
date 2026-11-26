@@ -114,8 +114,8 @@ class WaitsOnYouTest {
                 pane("%2", "o2", "waiting", cwd = "/home/user/b"),
             ),
         )
-        assertEquals(0, projectWaiting(projects.named("|/home/user/a")))
-        assertEquals(1, projectWaiting(projects.named("|/home/user/b")))
+        assertEquals(0, projectWaiting(projects.named("laptop|/home/user/a")))
+        assertEquals(1, projectWaiting(projects.named("laptop|/home/user/b")))
     }
 
     @Test

@@ -147,7 +147,7 @@ class InboxTreeTest {
                 tmux("%2", "o2", "/home/user/code/lighthouse"),
             ),
         ).single()
-        assertEquals("|/home/user/code/lighthouse", project.key)
+        assertEquals("laptop|/home/user/code/lighthouse", project.key)
         assertEquals("lighthouse", project.name)
         assertEquals("~/code/lighthouse", project.path)
         assertEquals(2, project.convos.size)
@@ -163,7 +163,7 @@ class InboxTreeTest {
             ),
         )
         val project = projects.single()
-        assertEquals("|/home/user/repo", project.key)
+        assertEquals("laptop|/home/user/repo", project.key)
         assertEquals("repo", project.name)
         assertEquals("~/repo", project.path)
         assertEquals(3, project.convos.size)
@@ -172,22 +172,22 @@ class InboxTreeTest {
     @Test
     fun subdirectoryOfAWorktreeIsItsOwnProjectUnderTheRepository() {
         val project = tree(panes = listOf(tmux("%1", "o1", "/home/user/repo.worktrees/feat/sub"))).single()
-        assertEquals("|/home/user/repo/sub", project.key)
+        assertEquals("laptop|/home/user/repo/sub", project.key)
         assertEquals("sub", project.name)
         assertEquals("~/repo/sub", project.path)
     }
 
     @Test
-    fun hostIsNamedOnlyWhenTheRowsHostIsNotTheServingOne() {
+    fun hostIsNamedOnEveryCardIncludingTheServingOne() {
         val projects = tree(
             panes = listOf(
                 tmux("%1", "o1", "/home/user/app", host = "box"),
                 tmux("%2", "o2", "/home/user/app"),
             ),
         )
-        assertEquals(setOf("box|/home/user/app", "|/home/user/app"), projects.map { it.key }.toSet())
+        assertEquals(setOf("box|/home/user/app", "laptop|/home/user/app"), projects.map { it.key }.toSet())
         assertEquals("box", projects.named("box|/home/user/app").host)
-        assertEquals("", projects.named("|/home/user/app").host)
+        assertEquals("laptop", projects.named("laptop|/home/user/app").host)
     }
 
     @Test
@@ -195,8 +195,8 @@ class InboxTreeTest {
         val project = tree(
             panes = listOf(headless("h1", "/home/user/repo"), tmux("%1", "o1", "/home/user/repo")),
         ).single()
-        assertEquals("|/home/user/repo", project.key)
-        assertEquals("", project.host)
+        assertEquals("laptop|/home/user/repo", project.key)
+        assertEquals("laptop", project.host)
         assertEquals(2, project.convos.size)
     }
 
@@ -205,10 +205,10 @@ class InboxTreeTest {
         val projects = tree(
             panes = listOf(tmux("%1", "o1", "/home/user"), tmux("%2", "o2", "/srv/app")),
         )
-        assertEquals("~", projects.named("|/home/user").name)
-        assertEquals("~", projects.named("|/home/user").path)
-        assertEquals("/srv/app", projects.named("|/srv/app").path)
-        assertEquals("app", projects.named("|/srv/app").name)
+        assertEquals("~", projects.named("laptop|/home/user").name)
+        assertEquals("~", projects.named("laptop|/home/user").path)
+        assertEquals("/srv/app", projects.named("laptop|/srv/app").path)
+        assertEquals("app", projects.named("laptop|/srv/app").name)
     }
 
     @Test
@@ -219,7 +219,7 @@ class InboxTreeTest {
                 tmux("%2", "o2", "/home/user/repo", changed = 1L),
             ),
         )
-        assertEquals(listOf("|/home/user/repo", "nodir"), projects.map { it.key })
+        assertEquals(listOf("laptop|/home/user/repo", "laptop|nodir"), projects.map { it.key })
         assertEquals("No directory", projects.last().name)
     }
 
@@ -228,7 +228,7 @@ class InboxTreeTest {
         val project = tree(
             epics = listOf(epic("e1", path = "", repository = "lighthouse-abc1234")),
         ).single()
-        assertEquals("repo:lighthouse-abc1234", project.key)
+        assertEquals("laptop|repo:lighthouse-abc1234", project.key)
         assertEquals("lighthouse", project.name)
         assertEquals("", project.path)
         assertEquals("epic:e1", project.convos.single().key)
@@ -396,7 +396,7 @@ class InboxTreeTest {
         val project = tree(
             contracts = listOf(contract("c1", conversation = "", repository = "lighthouse")),
         ).single()
-        assertEquals("repo:lighthouse", project.key)
+        assertEquals("laptop|repo:lighthouse", project.key)
         val own = project.convos.single()
         assertEquals("contract:c1", own.key)
         assertEquals(null, own.pane)
@@ -427,7 +427,7 @@ class InboxTreeTest {
             archivedIds = setOf("o2"),
             epics = listOf(epic("e1", steering = "o1", archived = true)),
         )
-        assertEquals(listOf("|/home/user/repo"), projects.map { it.key })
+        assertEquals(listOf("laptop|/home/user/repo"), projects.map { it.key })
         assertEquals(emptyList<Hung>(), projects.single().convos.single().hung)
     }
 
@@ -506,7 +506,7 @@ class InboxTreeTest {
             ),
         )
         assertEquals(
-            listOf("|/home/user/beta", "|/home/user/gamma", "|/home/user/alpha", "nodir"),
+            listOf("laptop|/home/user/beta", "laptop|/home/user/gamma", "laptop|/home/user/alpha", "laptop|nodir"),
             projects.map { it.key },
         )
     }

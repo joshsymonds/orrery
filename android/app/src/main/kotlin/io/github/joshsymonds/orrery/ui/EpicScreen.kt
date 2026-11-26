@@ -130,10 +130,11 @@ fun EpicScreen(
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
     var notice by remember(client, epicId) { mutableStateOf("") }
-    // The serving host's name, which an epic with no host of its own reads as. Read once the title row is drawn.
+    // The serving host's name, which an epic or step with no host of its own reads as. Read whether or not the title row
+    // is drawn, since the body's Now steps name it too.
     var servingHost by remember(client) { mutableStateOf("") }
-    LaunchedEffect(client, titled) {
-        if (titled) fetchHost(client)?.let { servingHost = it.host }
+    LaunchedEffect(client) {
+        fetchHost(client)?.let { servingHost = it.host }
     }
     val scope = rememberCoroutineScope()
     val releaseCall = remember(client, epicId) { OwnerCall() }
@@ -279,6 +280,7 @@ fun EpicScreen(
             is EpicLoad.Loaded -> EpicBody(
                 loaded = current,
                 now = nowAt,
+                servingHost = servingHost,
                 listState = listState,
                 openAt = openAt,
                 loadArtifact = loadArtifact,
@@ -419,6 +421,7 @@ private class UsageRead {
 private fun EpicBody(
     loaded: EpicLoad.Loaded,
     now: Long,
+    servingHost: String,
     listState: LazyListState,
     openAt: EpicOpening?,
     loadArtifact: ArtifactLoader,
@@ -480,7 +483,7 @@ private fun EpicBody(
                 }
             }
         }
-        section("now") { NowSection(detail = detail, now = now, actions = actions) }
+        section("now") { NowSection(detail = detail, now = now, servingHost = servingHost, actions = actions) }
         if (reached.history) {
             section("happened") {
                 JustHappened(entries = loaded.history, steps = detail.steps, onOpenStep = onOpenStep)
@@ -555,9 +558,9 @@ private fun EpicBody(
 }
 
 // NowSection is Now: its sentence and what asks, then the running steps. Stop… on an owner's park opens a confirm here;
-// Stop is sent only once that confirm is given.
+// Stop is sent only once that confirm is given. A step with no host of its own names the serving host.
 @Composable
-private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
+private fun NowSection(detail: EpicDetail, now: Long, servingHost: String, actions: NowActions) {
     var stopAsking by remember { mutableStateOf(false) }
     NowAsk(
         detail = detail,
@@ -583,7 +586,8 @@ private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
             Text("Keep it running")
         }
     }
-    StepRows(lines = stepLinesOf(detail), tasks = recordTasksOf(detail), now = now)
+    val lines = stepLinesOf(detail).map { line -> line.copy(host = line.host.ifEmpty { servingHost }) }
+    StepRows(lines = lines, tasks = recordTasksOf(detail), now = now)
 }
 
 // Summary is the summary paragraph, then its two doors: the contract, and the conversation that steers the epic. A door
