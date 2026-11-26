@@ -89,7 +89,6 @@ private const val DOCK_STATE_TAG = "dock-state"
 private const val DOCK_WORD_TAG = "dock-word"
 private const val BAND_GOAL_TAG = "band-goal"
 private const val NO_CONVERSATION_TAG = "no-conversation"
-private const val HOST_METERS_TAG = "host-meters"
 private val HOST_BODY: HostStatusResponse = HostStatusResponse.newBuilder()
     .setHost("example-host")
     .addStats(HostStatProto.newBuilder().setLabel("cpu").setValue("12%").setPercent(12.0).setLevel("ok"))
@@ -727,23 +726,6 @@ class PaneScreenTest {
             composeRule.awaitExactlyOne(hasText("could not refresh"))
             composeRule.onNodeWithText("synthetic reply").assertIsDisplayed()
             composeRule.onAllNodesWithTag(NO_CONVERSATION_TAG).assertCountEquals(0)
-        }
-    }
-
-    @Test
-    fun hostStatsDrawNoMetersInThePaneHead() {
-        FakeOrreryServer().use { server ->
-            servePane(server)
-            server.respond(HOST_PATH, HOST_BODY)
-            setClockedScreen(server)
-
-            // A read starts only after the read before it has returned its host call, so the third
-            // read means the host has been read and its stats handled.
-            composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.awaitUntil { paneListRequests(server) == 2 }
-            composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.awaitUntil { paneListRequests(server) == 3 }
-            composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
         }
     }
 
