@@ -2913,8 +2913,8 @@ test("InboxTree: each project is a card named by its directory, holding its conv
     assert.deepEqual(drawnKeys(dirCard(container, "docs")), ["c"]);
     assert.deepEqual(drawnKeys(dirCard(container, "web")), ["b"]);
     assert.equal(dirCard(container, "api").querySelector(".path")?.textContent, "/work/api");
-    assert.equal(dirCard(container, "docs").querySelector(".chip")?.textContent, "laptop", "a project on another host names it");
-    assert.equal(dirCard(container, "api").querySelector(".chip") === null, true, "a project on the serving host names no host");
+    assert.equal(dirCard(container, "docs").querySelector(".host-label.heading .name")?.textContent, "laptop", "a project on another host names it");
+    assert.equal(dirCard(container, "api").querySelector(".host-label.heading .name")?.textContent, treeHost.host, "a project on the serving host names it too");
   }));
 
 test("InboxTree: an epic and a proposed contract hang under the conversation that steers them, each drawn once", (t) =>

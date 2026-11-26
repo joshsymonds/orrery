@@ -75,10 +75,16 @@ test("InboxTree projectOf folds a worktree into its repo and leaves a last workt
   assert.deepEqual({ name: bare.name, path: bare.path }, { name: "tide.worktrees", path: "/srv/tide.worktrees" });
 });
 
-test("InboxTree projectOf shows a host only when it is not the serving host", () => {
+test("InboxTree projectOf names the host a directory runs on, the serving host's included, and keys the serving host blank", () => {
   const dir = "/srv/app";
-  assert.equal(projectOf(dir, "brine", serving).host, "brine");
-  assert.equal(projectOf(dir, serving, serving).host, "");
+  assert.deepEqual(
+    { host: projectOf(dir, "brine", serving).host, key: projectOf(dir, "brine", serving).key },
+    { host: "brine", key: "brine|/srv/app" },
+  );
+  assert.deepEqual(
+    { host: projectOf(dir, serving, serving).host, key: projectOf(dir, serving, serving).key },
+    { host: serving, key: "|/srv/app" },
+  );
   assert.equal(projectOf(dir, "", serving).host, "");
 });
 
@@ -94,9 +100,9 @@ test("InboxTree groups rows into one project per directory and host", () => {
   assert.deepEqual(
     byName.sort((a, b) => a.name.localeCompare(b.name) || a.host.localeCompare(b.host)),
     [
-      { name: "docs", host: "", count: 1 },
-      { name: "lighthouse", host: "", count: 2 },
+      { name: "docs", host: serving, count: 1 },
       { name: "lighthouse", host: "brine", count: 1 },
+      { name: "lighthouse", host: serving, count: 2 },
     ],
   );
 });

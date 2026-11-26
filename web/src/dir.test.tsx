@@ -82,12 +82,16 @@ test("InboxTree Dir: the head names the project and its path", () =>
     assert.equal(textOf(container, ".dir-head .path"), "~/code/lighthouse");
   }));
 
-test("InboxTree Dir: the head carries a host chip only when the project is on another host", async () => {
+test("InboxTree Dir: the head names the host its project runs on once, as a heading label, on another host and on the serving host", async () => {
   await withDir({ project: makeProject({ host: "brine" }) }, (container) => {
-    assert.equal(textOf(container, ".dir-head .chip"), "brine");
+    assert.equal(textOf(container, ".dir-head .host-label.heading .name"), "brine");
+    assert.equal(container.querySelectorAll(".dir-head .host-label").length, 1, "the head names the host once");
+  });
+  await withDir({ project: makeProject({ host: "halyard" }) }, (container) => {
+    assert.equal(textOf(container, ".dir-head .host-label.heading .name"), "halyard", "a project on the serving host names it too");
   });
   await withDir({ project: makeProject({ host: "" }) }, (container) => {
-    assert.equal(container.querySelector(".chip"), null, "a project on the serving host draws a host chip");
+    assert.equal(container.querySelector(".host-label"), null, "a project with no host draws a host label");
   });
 });
 

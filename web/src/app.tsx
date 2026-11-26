@@ -3890,13 +3890,14 @@ export function stepStrip(step: EpicStep): JSX.Element | null {
   );
 }
 
-// stripHost is the host a page's strip names. A pane row on another host names that host alone, with no stats. Any
-// other page names the serving host with its stats, and with no status there is no host part.
-function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost | null {
+// stripHost is the host a page's strip names. A pane or headless session row names the host it runs on: on another host
+// that host alone, with no stats, and on the serving host the serving status with its stats. A row with no host, such as
+// a Sessions.List row, and any other page name the serving host, and with no status there is no host part.
+export function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost | null {
   if (host === null) {
     return null;
   }
-  if (row !== null && row.kind === "pane" && row.host !== "" && row.host !== host.host) {
+  if (row !== null && row.host !== "" && row.host !== host.host) {
     return { host: row.host, stats: [], other: true };
   }
   return host;

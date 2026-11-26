@@ -1,6 +1,7 @@
 import type { ComponentChildren, JSX } from "preact";
 
 import { Icon } from "./glyphs";
+import { HostLabel } from "./hostlabel";
 import type { Project } from "./tree";
 
 // DirProps are a project's card: the project; whether it is folded; the waiting count a folded head says; whether the
@@ -21,11 +22,11 @@ export interface DirProps {
   ended: ComponentChildren;
 }
 
-// Dir draws a project's card. Its head is the fold button, the folder icon, the project's name and path, and a host chip
-// only when the project is on another host. With onOpen, the folder, the name and the path are one button that opens the
-// project. Folded, the head also says how many things wait on you (only when the count is not zero) and how many
-// conversations it holds, and nothing else is drawn. Open, the conversations hang from a line under the head, then the
-// ended line, which opens to the ended conversations.
+// Dir draws a project's card. Its head is the fold button, the folder icon, the project's name and path, and the host the
+// project's rows run on, drawn once as a heading label (none for a card with no host). With onOpen, the folder, the name
+// and the path are one button that opens the project. Folded, the head also says how many things wait on you (only when
+// the count is not zero) and how many conversations it holds, and nothing else is drawn. Open, the conversations hang from
+// a line under the head, then the ended line, which opens to the ended conversations.
 export function Dir({
   project,
   folded,
@@ -69,12 +70,7 @@ export function Dir({
         </button>
       )}
       <span class="end">
-        {project.host !== "" && (
-          <span class="chip">
-            <Icon name="host" />
-            {project.host}
-          </span>
-        )}
+        <HostLabel name={project.host} heading />
         {folded && waiting > 0 && <span class="is-attention">{waiting} waiting</span>}
         {folded && <span>{conversationCount(project)}</span>}
       </span>
