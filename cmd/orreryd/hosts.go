@@ -11,6 +11,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostfollow"
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
@@ -89,6 +91,70 @@ func loadHostsFile(getenv func(string) string) (hosts.File, error) {
 		file = loaded
 	}
 	return file, nil
+}
+
+// hostClients returns one node.Client for each host of the hosts file that getenv locates, by the host's name. Each
+// client dials its host's agent as startHostFollows dials it, and sends the fleet secret that the file at fleetSecretFile
+// holds. startSessions routes each host's work through its client, and the caller-event delivery wakes panes through the
+// same clients (see paneWaiters and holderHosts). A hosts file that does not load, or a fleet secret that fleetSecretOf
+// refuses, is logged, and no client is returned. controllerHost and startHostFollows have already refused the same file
+// and flag.
+func hostClients(
+	ctx context.Context, getenv func(string) string, logger *slog.Logger, fleetSecretFile string,
+) map[string]*node.Client {
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "remote hosts: serving without their agents", "error", err)
+		return nil
+	}
+	secret, err := fleetSecretOf(file, fleetSecretFile)
+	if err != nil {
+		logger.ErrorContext(ctx, "remote hosts: serving without their agents", "error", err)
+		return nil
+	}
+	var dialer net.Dialer
+	clients := make(map[string]*node.Client, len(file.Hosts))
+	for _, host := range file.Hosts {
+		clients[host.Name] = node.NewClient(node.ClientConfig{
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger,
+		})
+	}
+	return clients
+}
+
+// routedHosts returns the hostexec.Map that startSessions resolves each host's work through, and the node.Client of each
+// hosts.toml host by the host's name. The controller's own Local is under hostName, and each client's RemoteHost is under
+// its host's name, each passed through opts.wrapHost. A hosts file that does not load leaves the map with the controller
+// alone and no clients (see hostClients).
+func routedHosts(
+	ctx context.Context, opts options, hostName string, getenv func(string) string, logger *slog.Logger,
+) (hostexec.Map, map[string]*node.Client) {
+	clients := hostClients(ctx, getenv, logger, opts.fleetSecret)
+	routed := hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}
+	for name, client := range clients {
+		routed[name] = opts.wrapHost(name, node.NewRemoteHost(client))
+	}
+	return routed, clients
+}
+
+// holderHosts returns the holderhost.Host of each client, by the host's name. The session manager starts a session on a
+// remote host through the holder host of that name.
+func holderHosts(clients map[string]*node.Client) map[string]holderhost.Host {
+	hosts := make(map[string]holderhost.Host, len(clients))
+	for name, client := range clients {
+		hosts[name] = client
+	}
+	return hosts
+}
+
+// paneWaiters returns the enginehost.PaneWaker of each client, by the host's name. HostPaneWake wakes a pane on that host
+// through it.
+func paneWaiters(clients map[string]*node.Client) map[string]enginehost.PaneWaker {
+	agents := make(map[string]enginehost.PaneWaker, len(clients))
+	for name, client := range clients {
+		agents[name] = client
+	}
+	return agents
 }
 
 // controllerPageNotices returns the PageNotices serve answers the Notices service with: it watches pages, reports each

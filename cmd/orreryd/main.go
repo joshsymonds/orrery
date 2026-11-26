@@ -242,6 +242,10 @@ type options struct {
 	// relayWhoIs is a test seam: the WhoIs the relay of --relay-listen admits its connections by, in place of
 	// node.Tailnet(). Production leaves it nil.
 	relayWhoIs node.WhoIs
+	// hostWrap is a test seam: it wraps each host that startSessions puts in its hostexec.Map, the controller's Local and
+	// each hosts.toml host's RemoteHost, by the host's name, in place of the host itself (see wrapHost). Production leaves
+	// it nil.
+	hostWrap func(name string, host hostexec.Host) hostexec.Host
 	// probeNow is a test seam: the clock the limit prober reads in place of time.Now. Production leaves it nil.
 	probeNow func() time.Time
 	// probeExec is a test seam: the Exec the limit prober runs each probe with in place of running claude. Production
@@ -1153,8 +1157,9 @@ func startSessions(
 	var evidence enginehost.EvidenceCommands
 	var crons enginehost.CronCommands
 	// The controller's host is the one this machine runs as hostName, and every epic and contract the controller serves
-	// resolves its host through hosts.
-	hosts := hostexec.Map{hostName: hostexec.NewLocal()}
+	// resolves its host through hosts. Each hosts.toml host's name resolves to its RemoteHost, which its agent serves, so
+	// work whose host is that name runs on that machine.
+	hosts, clients := routedHosts(ctx, opts, hostName, getenv, logger)
 	if st != nil {
 		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
@@ -1162,7 +1167,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		host.newWakes(ctx, st, opts, router, getenv, logger)
+		host.newWakes(st, opts, clients, router, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
@@ -1177,7 +1182,7 @@ func startSessions(
 			Logger:      logger,
 			Metrics:     opts.metrics,
 			CronWake:    host.cron.Wake, PutOffs: st, Panes: controllerPaneQuestions(opts, router),
-			EventWake: host.callerEvents.Wake,
+			EventWake: host.callerEvents.Wake, Hosts: holderHosts(clients),
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -1926,17 +1931,15 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 
 // newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
 // calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
-// The caller-event delivery wakes a pane on a remote host through the agents of the hosts file that getenv locates (see
-// paneAgents).
+// The caller-event delivery wakes a pane on a remote host through the clients of the hosts file, by way of paneWaiters.
 func (h *sessionHost) newWakes(
-	ctx context.Context,
 	st *store.Store,
 	opts options,
+	clients map[string]*node.Client,
 	router enginehost.Router,
-	getenv func(string) string,
 	logger *slog.Logger,
 ) {
-	opts.paneAgents = paneAgents(ctx, getenv, logger, opts.fleetSecret)
+	opts.paneAgents = paneWaiters(clients)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)
 }
@@ -2015,32 +2018,13 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 	st.OnCallerEvent(h.callerEvents.Wake)
 }
 
-// paneAgents returns one node.Client for each host of the hosts file that getenv locates, by the host's name.
-// HostPaneWake wakes a pane on that host through its client. Each client dials as startHostFollows dials its host, and
-// sends the fleet secret that the file at fleetSecretFile holds. A hosts file that does not load, or a fleet secret that
-// fleetSecretOf refuses, is logged, and no agent is returned. controllerHost and startHostFollows have already refused
-// the same file and flag.
-func paneAgents(
-	ctx context.Context, getenv func(string) string, logger *slog.Logger, fleetSecretFile string,
-) map[string]enginehost.PaneWaker {
-	file, err := loadHostsFile(getenv)
-	if err != nil {
-		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
-		return nil
+// wrapHost returns host as the hostWrap seam wraps it under name, or host itself when no seam is set. startSessions
+// passes each host of its hostexec.Map through it.
+func (opts options) wrapHost(name string, host hostexec.Host) hostexec.Host {
+	if opts.hostWrap == nil {
+		return host
 	}
-	secret, err := fleetSecretOf(file, fleetSecretFile)
-	if err != nil {
-		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
-		return nil
-	}
-	var dialer net.Dialer
-	agents := make(map[string]enginehost.PaneWaker, len(file.Hosts))
-	for _, host := range file.Hosts {
-		agents[host.Name] = node.NewClient(node.ClientConfig{
-			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger,
-		})
-	}
-	return agents
+	return opts.hostWrap(name, host)
 }
 
 // startCallerEvents runs h.callerEvents until shutdown, on one goroutine. Its Run makes one round at its start, then
