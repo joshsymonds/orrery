@@ -203,7 +203,7 @@ class PaneListScreenTest {
             assertRowsShown("%1", "%2", "%3", "%4", "%5")
             assertEquals(
                 1,
-                countNodes(hasTestTag(sessionTag(HEADLESS_ID)) and hasAnyAncestor(hasTestTag("project:|$ALPHA"))),
+                countNodes(hasTestTag(sessionTag(HEADLESS_ID)) and hasAnyAncestor(hasTestTag("project:$HOST|$ALPHA"))),
             )
             assertEquals(1, countNodes(hasText(HEADLESS_LABEL) and hasAnyAncestor(hasTestTag(sessionTag(HEADLESS_ID)))))
             assertEquals(1, countNodes(hasText("? Proceed with the synthetic plan?") and hasAnyAncestor(hasTestTag(sessionTag(HEADLESS_ID)))))
@@ -323,7 +323,7 @@ class PaneListScreenTest {
             awaitRow("%1")
 
             val newTop = composeRule.onNodeWithTag("picker-new").fetchSemanticsNode().boundsInRoot.top
-            val cardTop = composeRule.onNodeWithTag("project:|$ALPHA").fetchSemanticsNode().boundsInRoot.top
+            val cardTop = composeRule.onNodeWithTag("project:$HOST|$ALPHA").fetchSemanticsNode().boundsInRoot.top
             assertTrue(newTop < cardTop)
         }
     }
@@ -445,14 +445,15 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun aPaneOnTheServingHostDrawsItsCardWithNoHostName() {
+    fun aPaneOnTheServingHostDrawsItsCardNamedWithTheHost() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
-            assertEquals(0, countNodes(hasTagPrefix("project:$HOST|")))
-            assertEquals(1, countNodes(hasTestTag("project:|$ALPHA")))
+            assertEquals(0, countNodes(hasTestTag("project:|$ALPHA")))
+            assertEquals(1, countNodes(hasTestTag("project:$HOST|$ALPHA")))
+            assertEquals(1, countNodes(hasText(HOST) and hasAnyAncestor(hasTestTag("card-host:$HOST|$ALPHA"))))
         }
     }
 }

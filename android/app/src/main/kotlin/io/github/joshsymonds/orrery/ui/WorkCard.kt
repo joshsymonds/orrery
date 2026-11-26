@@ -32,7 +32,8 @@ internal enum class TrackState { DONE, NOW, AHEAD }
 /**
  * What a WorkCard says of a [Hung] at a time: its item [key], its [slug], its [mark] (null for a contract), its [tone],
  * its [state] words, its five-part [track] (contract, planning, building, releasing, report), its [now] line, its [asks]
- * with the [act] that answers them (both empty when nothing asks), and its [count].
+ * with the [act] that answers them (both empty when nothing asks), its [count], and the [host] it runs on, named
+ * inline.
  */
 internal data class WorkCardWords(
     val key: String,
@@ -45,6 +46,7 @@ internal data class WorkCardWords(
     val asks: String,
     val act: String,
     val count: String,
+    val host: String = "",
 )
 
 private const val CONTRACT_PROPOSED = "proposed"
@@ -60,12 +62,13 @@ private val TRACK_PARTS = listOf("contract", "planning", "building", "releasing"
  * draw as the contract; every other epic draws as its row says it, with its track from its phase.
  */
 internal fun workCardOf(hung: Hung, now: Long): WorkCardWords = when (hung) {
-    is ContractNode -> contractCardOf(hung.key, hung.contract)
-    is EpicNode -> hung.contract?.takeIf { it.state == CONTRACT_PROPOSED }?.let { contractCardOf(hung.key, it) }
+    is ContractNode -> contractCardOf(hung.key, hung.contract, hung.host)
+    is EpicNode -> hung.contract?.takeIf { it.state == CONTRACT_PROPOSED }
+        ?.let { contractCardOf(hung.key, it, hung.host) }
         ?: epicCardOf(hung, now)
 }
 
-private fun contractCardOf(key: String, contract: ContractRow): WorkCardWords {
+private fun contractCardOf(key: String, contract: ContractRow, host: String): WorkCardWords {
     val waiting = contract.state == CONTRACT_PROPOSED
     return WorkCardWords(
         key = key,
@@ -82,6 +85,7 @@ private fun contractCardOf(key: String, contract: ContractRow): WorkCardWords {
         },
         act = if (waiting) READ_AND_DECIDE else "",
         count = "v${contract.version}",
+        host = host,
     )
 }
 
@@ -122,6 +126,7 @@ private fun epicCardOf(node: EpicNode, now: Long): WorkCardWords {
             else -> DECIDE
         },
         count = words.count,
+        host = epic.host,
     )
 }
 
@@ -137,8 +142,9 @@ private fun trackAt(current: Int, hasNow: Boolean = true): List<TrackState> = TR
 }
 
 /**
- * A WorkCard of the project page: its mark and slug with its state, its track, its now line, its asks with the act that
- * answers them, and its count with Open. A tap on the card, on its act or on Open calls [onOpen] with the item key.
+ * A WorkCard of the project page: its mark and slug with its state, its host inline, its track, its now line, its asks
+ * with the act that answers them, and its count with Open. A tap on the card, on its act or on Open calls [onOpen] with
+ * the item key.
  */
 @Composable
 internal fun WorkCard(card: WorkCardWords, onOpen: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -170,6 +176,9 @@ internal fun WorkCard(card: WorkCardWords, onOpen: (String) -> Unit, modifier: M
             if (card.state.isNotEmpty()) {
                 Text(card.state, style = OrreryTokens.Type.small, color = tone, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+        }
+        if (card.host.isNotEmpty()) {
+            HostLabel(name = card.host)
         }
         TrackBar(card.track, tone)
         if (card.now.isNotEmpty()) {

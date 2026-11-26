@@ -49,7 +49,7 @@ class InboxDroidNoticeTest {
         const val ALPHA = "/home/user/alpha"
         const val BETA = "/home/user/beta"
         const val HOST = "example-host"
-        const val ALPHA_KEY = "|$ALPHA"
+        const val ALPHA_KEY = "$HOST|$ALPHA"
         const val ALPHA_TAG = "project:$ALPHA_KEY"
         const val ALPHA_FOLD_TAG = "fold:$ALPHA_KEY"
         const val PANES_LIST = "/orrery.v1.Panes/List"

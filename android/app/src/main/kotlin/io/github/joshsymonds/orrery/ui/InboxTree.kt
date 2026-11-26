@@ -6,21 +6,27 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.Pane
 
-/** A thing drawn under a conversation's row or on its own row: a listed epic, or a contract that no drawn epic carries. */
+/**
+ * A thing drawn under a conversation's row or on its own row: a listed epic, or a contract that no drawn epic carries.
+ * [host] is the host the thing runs on, named by its row or its work card; empty when none is known.
+ */
 internal sealed interface Hung {
     val key: String
+    val host: String
 }
 
 /**
  * A listed epic hung under its conversation. [detail] is its loaded detail, null until it loads; [contract] is the
- * contract of its id when Contracts.List holds one, drawn with the epic.
+ * contract of its id when Contracts.List holds one, drawn with the epic. Its host is the epic's own, with an empty one
+ * read as the serving host when the tree is placed.
  */
 internal data class EpicNode(val epic: EpicRow, val detail: EpicDetail?, val contract: ContractRow?) : Hung {
     override val key: String = "epic:${epic.id}"
+    override val host: String get() = epic.host
 }
 
-/** A contract hung under the conversation that wrote it, or on its own row. */
-internal data class ContractNode(val contract: ContractRow) : Hung {
+/** A contract hung under the conversation that wrote it, or on its own row, on the host of that conversation. */
+internal data class ContractNode(val contract: ContractRow, override val host: String = "") : Hung {
     override val key: String = "contract:${contract.id}"
 }
 
@@ -95,8 +101,18 @@ private class Conversation(val pane: Pane, val archived: Boolean, val place: Car
     val key: String = convoKeyOf(pane)
 }
 
-/** Where a card sits: its key, absolute directory, name, shown path, and the host when it is not the serving one. */
-private data class CardPlace(val key: String, val dir: String, val name: String, val path: String, val host: String)
+/**
+ * Where a card sits: its key, absolute directory, name, shown path, and its host, which the card names on its heading.
+ * [noDirectory] marks the No directory card, which sorts last.
+ */
+private data class CardPlace(
+    val key: String,
+    val dir: String,
+    val name: String,
+    val path: String,
+    val host: String,
+    val noDirectory: Boolean = false,
+)
 
 /** One row being built: its place, its key within the place, and what hangs under it. */
 private class Slot(
@@ -112,7 +128,7 @@ private class Slot(
     fun toConvo(): Convo = Convo(key, pane, hung.toList(), folded.sortedByDescending { it.epic.changed }, designs.toList())
 }
 
-private class Ranked(val project: Project, val best: Int, val newest: Long)
+private class Ranked(val project: Project, val best: Int, val newest: Long, val noDirectory: Boolean)
 
 /** The rows of a tree, keyed by the card they sit in, whether they are ended, and their key. */
 private class Slots {
@@ -143,11 +159,12 @@ private class Slots {
                 Project(place.key, place.dir, place.name, place.path, place.host, convos, ended),
                 convos.minOfOrNull { rankOf(it) } ?: (RANK_REST + 1),
                 (convos + ended).maxOfOrNull { changedOf(it) } ?: 0L,
+                place.noDirectory,
             )
         }
         return cards
             .sortedWith(
-                compareBy<Ranked> { it.project.key == NO_DIRECTORY_KEY }
+                compareBy<Ranked> { it.noDirectory }
                     .thenBy { it.best }
                     .thenByDescending { it.newest },
             )
@@ -181,15 +198,28 @@ private class Index(
     fun node(epic: EpicRow): EpicNode =
         EpicNode(epic, details[epic.id], contractsById[epic.id]?.takeIf { it.state == CONTRACT_PROPOSED })
 
-    fun placeOfEpic(epic: EpicRow): CardPlace =
-        if (epic.path.startsWith("/")) placeOfDirectory(epic.path, host, host) else placeOfRepository(epic.repository)
+    /** The host a contract runs on: its conversation's when one is listed, else the serving host. */
+    fun hostOfContract(contract: ContractRow): String =
+        target(contract.conversation)?.pane?.host?.ifEmpty { host } ?: host
 
-    fun placeOfContract(contract: ContractRow): CardPlace =
-        if (contract.repository.startsWith("/")) {
-            placeOfDirectory(contract.repository, host, host)
+    fun contractNode(contract: ContractRow): ContractNode = ContractNode(contract, hostOfContract(contract))
+
+    /** An epic's card is on its own host, which [inboxTree] has read the serving host into when the epic had none. */
+    fun placeOfEpic(epic: EpicRow): CardPlace =
+        if (epic.path.startsWith("/")) {
+            placeOfDirectory(epic.path, epic.host)
         } else {
-            placeOfRepository(contract.repository)
+            placeOfRepository(epic.repository, epic.host)
         }
+
+    fun placeOfContract(contract: ContractRow): CardPlace {
+        val hosted = hostOfContract(contract)
+        return if (contract.repository.startsWith("/")) {
+            placeOfDirectory(contract.repository, hosted)
+        } else {
+            placeOfRepository(contract.repository, hosted)
+        }
+    }
 }
 
 /**
@@ -231,7 +261,7 @@ private fun placeInbox(index: Index, slots: Slots, designs: List<DesignRow>) {
         for (contract in contractItems) {
             add(
                 Item(
-                    ContractNode(contract),
+                    index.contractNode(contract),
                     index.placeOfContract(contract),
                     ended = false,
                     row = index.drawnTarget(contract.conversation, false),
@@ -268,7 +298,7 @@ private fun placeArchived(index: Index, slots: Slots, designs: List<DesignRow>) 
         for (contract in index.shownContracts) {
             if (contract.id in carried) continue
             val row = index.drawnTarget(contract.conversation, true) ?: continue
-            add(Item(ContractNode(contract), index.placeOfContract(contract), ended = false, row = row))
+            add(Item(index.contractNode(contract), index.placeOfContract(contract), ended = false, row = row))
         }
     }
     val planned = planDesigns(index, items, designs, inbox = false)
@@ -376,7 +406,7 @@ internal fun inboxTree(
         // archivedIds of their own.
         Conversation(pane.copy(archived = archived), archived, placeOfConversation(pane, host))
     }
-    val index = Index(host, details, epics, contracts, conversations)
+    val index = Index(host, details, epics.map { it.hostedOn(host) }, contracts, conversations)
     val slots = Slots()
     when (view) {
         TreeView.INBOX -> placeInbox(index, slots, designs)
@@ -427,25 +457,30 @@ private fun changedOfHung(hung: Hung): Long = when (hung) {
     is ContractNode -> hung.contract.changed
 }
 
-/** The card a conversation sits in: its directory, or the No directory card when it has none. */
-private fun placeOfConversation(pane: Pane, serving: String): CardPlace =
-    if (pane.cwd.isEmpty()) {
-        CardPlace(NO_DIRECTORY_KEY, "", NO_DIRECTORY_NAME, "", "")
+/**
+ * The card a conversation sits in: its directory on its host, or the No directory card on its host when it has none. A
+ * conversation whose pane names no host is on the serving one.
+ */
+private fun placeOfConversation(pane: Pane, serving: String): CardPlace {
+    val host = pane.host.ifEmpty { serving }
+    return if (pane.cwd.isEmpty()) {
+        CardPlace("$host|$NO_DIRECTORY_KEY", "", NO_DIRECTORY_NAME, "", host, noDirectory = true)
     } else {
-        placeOfDirectory(pane.cwd, pane.host, serving)
+        placeOfDirectory(pane.cwd, host)
     }
+}
 
 /**
- * The card of a directory: a `<repo>.worktrees/<x>` or `<repo>-worktrees/<x>` pair folds to `<repo>`, home is shown
- * as ~ under /home/<user> or /Users/<user>, and the host is named only when it is not the serving one.
+ * The card of a directory on [host]: a `<repo>.worktrees/<x>` or `<repo>-worktrees/<x>` pair folds to `<repo>`, and
+ * home is shown as ~ under /home/<user> or /Users/<user>. Its key carries the host, so one folder on two hosts is two
+ * cards.
  */
-private fun placeOfDirectory(dir: String, host: String, serving: String): CardPlace {
+private fun placeOfDirectory(dir: String, host: String): CardPlace {
     val parts = dir.split('/').filter { it.isNotEmpty() }
     val homed = parts.size >= 2 && parts[0] in HOME_PARENTS
     val head = if (homed) parts.take(2) else emptyList()
     val folders = foldWorktrees(if (homed) parts.drop(2) else parts)
     val absolute = "/" + (head + folders).joinToString("/")
-    val shownHost = if (host == serving) "" else host
     val path = when {
         !homed -> absolute
         folders.isEmpty() -> "~"
@@ -456,12 +491,21 @@ private fun placeOfDirectory(dir: String, host: String, serving: String): CardPl
         homed -> "~"
         else -> "/"
     }
-    return CardPlace("$shownHost|$absolute", absolute, name, path, shownHost)
+    return CardPlace("$host|$absolute", absolute, name, path, host)
 }
 
-/** The card of a repository named by no absolute path: its name, without the hex suffix a repository name carries. */
-private fun placeOfRepository(repository: String): CardPlace =
-    CardPlace("repo:$repository", "", repository.replace(HEX_SUFFIX, ""), "", "")
+/**
+ * The card of a repository named by no absolute path, on [host]: its name, without the hex suffix a repository name
+ * carries.
+ */
+private fun placeOfRepository(repository: String, host: String): CardPlace =
+    CardPlace("$host|repo:$repository", "", repository.replace(HEX_SUFFIX, ""), "", host)
+
+/** The epic with its host read as [serving] when it has none, and each running step's host read the same way. */
+private fun EpicRow.hostedOn(serving: String): EpicRow = copy(
+    host = host.ifEmpty { serving },
+    runningSteps = runningSteps.map { step -> step.copy(host = step.host.ifEmpty { serving }) },
+)
 
 private fun foldWorktrees(parts: List<String>): List<String> {
     val folders = mutableListOf<String>()

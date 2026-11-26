@@ -295,8 +295,8 @@ class InboxTreeFilterTest {
             epics = listOf(e),
             details = mapOf("e1" to detail(e, parked = "held")),
         )
-        val a = projects.named("|/home/user/a")
-        val b = projects.named("|/home/user/b")
+        val a = projects.named("laptop|/home/user/a")
+        val b = projects.named("laptop|/home/user/b")
         assertEquals(1, projectWaiting(a))
         assertEquals(2, projectWaiting(b))
         assertEquals(countsOf(listOf(b)).waiting, projectWaiting(b))
@@ -400,7 +400,7 @@ class InboxTreeFilterTest {
             epics = listOf(epic("e1", steering = "o1", slug = "tide-alerts"), epic("e2", steering = "o1", slug = "cleanup")),
         )
         val kept = search(projects, "tide").single()
-        assertEquals("|/home/user/repo", kept.key)
+        assertEquals("laptop|/home/user/repo", kept.key)
         assertEquals(setOf("epic:e1"), kept.convo("pane:laptop:%1").hung.map { it.key }.toSet())
     }
 

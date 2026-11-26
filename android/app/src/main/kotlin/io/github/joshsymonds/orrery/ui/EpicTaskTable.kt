@@ -152,6 +152,9 @@ private fun StepLineRow(line: StepLine, cells: List<CellTone>, now: Long) {
                 modifier = Modifier.testTag("step-doing:${line.id}"),
                 style = OrreryTokens.Type.small,
             )
+            if (line.host.isNotEmpty()) {
+                HostLabel(name = line.host)
+            }
         }
         if (line.task.isNotEmpty()) {
             Pips(cells = cells)

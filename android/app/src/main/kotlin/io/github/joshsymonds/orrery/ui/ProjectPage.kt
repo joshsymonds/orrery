@@ -159,18 +159,24 @@ private fun ColumnScope.ProjectBody(
     }
 }
 
-/** The path with the host when it is another host, then the counts: conversations, epics, what waits, the last change. */
+/**
+ * The card's host as a HostLabel, once on the head, then the path, then the counts: conversations, epics, what waits,
+ * the last change.
+ */
 @Composable
 private fun ProjectHead(project: Project, now: Long) {
-    val place = listOf(project.path, if (project.host.isEmpty()) "" else "on ${project.host}")
-        .filter { it.isNotEmpty() }
-        .joinToString(" · ")
     val epics = project.convos.sumOf { convo -> convo.allHung.count { it is EpicNode } }
     val waits = projectWaiting(project)
     val newest = newestChangeOf(project)
-    Column(verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four)) {
-        if (place.isNotEmpty()) {
-            Text(place, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
+    Column(
+        modifier = Modifier.testTag("card-host:${project.key}"),
+        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
+    ) {
+        if (project.host.isNotEmpty()) {
+            HostLabel(name = project.host)
+        }
+        if (project.path.isNotEmpty()) {
+            Text(project.path, style = OrreryTokens.Type.small, color = OrreryTokens.Ink.three)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.sixteen)) {
             Text(
