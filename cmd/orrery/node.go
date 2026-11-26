@@ -18,9 +18,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostload"
+	"github.com/joshsymonds/orrery/internal/hostrelay"
 	"github.com/joshsymonds/orrery/internal/node"
 	"github.com/joshsymonds/orrery/internal/panehost"
 	"github.com/joshsymonds/orrery/internal/paneregistry"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -34,10 +36,16 @@ type nodeConfig struct {
 	server      tmuxctl.Server
 	controller  string
 	listen      string
+	relay       string
 	secretFile  string
 	holderScope string
 	roots       listFlag
-	seams       nodeSeams
+	// daemonSocket is the global --socket, beside which sessions.sock lies when serveSessions is set.
+	daemonSocket string
+	// serveSessions is whether the node binds the sessions.sock beside daemonSocket and forwards it to relay. runNode
+	// sets it. A node without it, as the tests that start one directly are, serves no sessions.sock.
+	serveSessions bool
+	seams         nodeSeams
 }
 
 // nodeSeams are the test seams of orrery node. Each zero field takes the production value.
@@ -53,18 +61,21 @@ type nodeSeams struct {
 }
 
 // runNode runs `orrery node`, which serves node.v1 to the controller its flags name, until SIGINT or SIGTERM. The tmux
-// server named by the global flags is the one its panes are of.
+// server named by the global flags is the one its panes are of. It also serves sessions.sock beside the daemon socket
+// the global --socket names, and forwards it to --relay.
 func runNode(ctx context.Context, opts globals, args []string, stderr io.Writer, getenv func(string) string) error {
 	cfg, err := parseNode(args)
 	if err != nil {
 		return err
 	}
 	cfg.server = opts.server
+	cfg.daemonSocket = opts.daemonSocket
+	cfg.serveSessions = true
 	return serveNode(ctx, cfg, stderr, getenv)
 }
 
 // parseNode reads the flags of orrery node. Each refusal is a usage error that names the flag or argument it refuses.
-// --relay is required, and its value is only checked to be given, since nothing in this verb reaches the relay yet.
+// --relay is required, and its value is the address the sessions.sock forwarder dials.
 func parseNode(args []string) (nodeConfig, error) {
 	flags := flag.NewFlagSet("orrery node", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -102,6 +113,7 @@ func parseNode(args []string) (nodeConfig, error) {
 	return nodeConfig{
 		controller:  *controller,
 		listen:      *listen,
+		relay:       *relay,
 		secretFile:  *secretFile,
 		holderScope: *holderScope,
 		roots:       roots,
@@ -109,8 +121,9 @@ func parseNode(args []string) (nodeConfig, error) {
 }
 
 // serveNode serves node.v1 as cfg describes. It reads the fleet secret first, so a secret file that is refused starts
-// nothing. It builds the agent, listens on cfg's address, and serves until SIGINT or SIGTERM. Its panes run alongside
-// the agent, and a failure of either ends both.
+// nothing. It builds the agent, binds the sessions.sock when cfg serves one, listens on cfg's address, and serves until
+// SIGINT or SIGTERM. The sessions.sock is bound before the address is listened on, so a listener that reports its
+// address has a sessions.sock beside it. Its panes run alongside the agent, and a failure of any of them ends all.
 func serveNode(ctx context.Context, cfg nodeConfig, stderr io.Writer, getenv func(string) string) error {
 	secret, err := node.ReadSecret(cfg.secretFile)
 	if err != nil {
@@ -123,11 +136,49 @@ func serveNode(ctx context.Context, cfg nodeConfig, stderr io.Writer, getenv fun
 	if err != nil {
 		return err
 	}
+	var sessions net.Listener
+	if cfg.serveSessions {
+		if sessions, err = listenSessions(cfg.daemonSocket, getenv); err != nil {
+			return err
+		}
+	}
 	ln, err := listenNode(ctx, cfg)
 	if err != nil {
-		return err
+		return errors.Join(err, closeSessions(sessions))
 	}
-	return serveAgent(ctx, agent, host, ln)
+	fwd := hostrelay.ForwardConfig{
+		Address: cfg.relay,
+		Dial:    (&net.Dialer{}).DialContext,
+		Secret:  secret,
+		Logger:  logger,
+	}
+	return serveAgent(ctx, agent, host, ln, sessions, fwd)
+}
+
+// listenSessions binds the sessions.sock beside the daemon socket that protocol.SocketPath resolves from daemonSocket
+// and getenv. The socket is mode 0600, and a stale socket file is replaced only when nothing answers on it, as
+// enginehost.Listen does for the daemon's sessions socket. It fails when no daemon socket is named.
+func listenSessions(daemonSocket string, getenv func(string) string) (net.Listener, error) {
+	socket, err := protocol.SocketPath(daemonSocket, getenv)
+	if err != nil {
+		return nil, fmt.Errorf("node: %w", err)
+	}
+	ln, err := enginehost.Listen(protocol.SessionSocketPath(socket))
+	if err != nil {
+		return nil, fmt.Errorf("node: sessions socket: %w", err)
+	}
+	return ln, nil
+}
+
+// closeSessions closes sessions, the listener that listenSessions bound, and does nothing when it bound none.
+func closeSessions(sessions net.Listener) error {
+	if sessions == nil {
+		return nil
+	}
+	if err := sessions.Close(); err != nil {
+		return fmt.Errorf("node: close the sessions socket: %w", err)
+	}
+	return nil
 }
 
 // listenNode binds cfg's listen address, through the listen seam when a test sets one. A failure names the address.
@@ -241,9 +292,12 @@ func nodePanes(cfg nodeConfig, claude string, logger *slog.Logger, getenv func(s
 	return host, nil
 }
 
-// serveAgent runs host's panes and serves agent on ln until ctx ends. A failure of the panes ends the agent too, and
-// the error of either is returned. The listener is closed on return, unless the agent has already closed it.
-func serveAgent(ctx context.Context, agent *node.Agent, host *panehost.Host, ln net.Listener) error {
+// serveAgent runs host's panes, forwards sessions to the relay as fwd describes, and serves agent on ln until ctx ends.
+// A failure of any of them ends the others too, and the error of each is returned. The listener is closed on return,
+// unless the agent has already closed it. Forward closes sessions.
+func serveAgent(
+	ctx context.Context, agent *node.Agent, host *panehost.Host, ln, sessions net.Listener, fwd hostrelay.ForwardConfig,
+) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	panesErr := make(chan error, 1)
@@ -254,12 +308,32 @@ func serveAgent(ctx context.Context, agent *node.Agent, host *panehost.Host, ln 
 		}
 		panesErr <- err
 	}()
+	forwardErr := make(chan error, 1)
+	go func() {
+		err := forwardSessions(ctx, sessions, fwd)
+		if err != nil {
+			cancel()
+		}
+		forwardErr <- err
+	}()
 	serveErr := agent.Serve(ctx, ln)
 	cancel()
 	if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		serveErr = errors.Join(serveErr, fmt.Errorf("node: close the listener: %w", err))
 	}
-	return errors.Join(serveErr, <-panesErr)
+	return errors.Join(serveErr, <-panesErr, <-forwardErr)
+}
+
+// forwardSessions forwards sessions to the relay as fwd describes until ctx ends. A node that binds no sessions.sock,
+// as a test that starts an agent directly does, has none to forward, so it returns nil at once.
+func forwardSessions(ctx context.Context, sessions net.Listener, fwd hostrelay.ForwardConfig) error {
+	if sessions == nil {
+		return nil
+	}
+	if err := hostrelay.Forward(ctx, sessions, fwd); err != nil {
+		return fmt.Errorf("node: forward the sessions socket: %w", err)
+	}
+	return nil
 }
 
 // nodeStateDir returns the absolute directory that the store file lies in, which is the state directory orreryd's
