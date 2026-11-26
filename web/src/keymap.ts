@@ -35,8 +35,10 @@ export function isRow(item: Item): item is Row {
 // KeyContext is what handleKey reads and calls: the state the keys read this render, the inputs and the pending g they
 // focus or read, and one callback or setter for each action a key takes. App builds it each render.
 export interface KeyContext {
-  // Whether the palette is open, the entry whose ⋯ menu is open if any, and whether help is open.
+  // Whether the palette is open, whether the Starter is open, the entry whose ⋯ menu is open if any, and whether help is
+  // open.
   pickerOpen: boolean;
+  starterOpen: boolean;
   openMenu: string | null;
   helpOpen: boolean;
   // Whether the inbox is collapsed to its rail, at 760px and wider, and whether a project's flyout is open beside it.
@@ -101,6 +103,9 @@ export interface KeyContext {
   // Shuts the open panel, or with none open reopens the thing it held last.
   togglePanel: () => void;
   setPickerOpen: Dispatch<StateUpdater<boolean>>;
+  // openStarter opens the Starter in its prompt state, as N does, and closeStarter shuts it.
+  openStarter: () => void;
+  closeStarter: () => void;
   setMenuKey: Dispatch<StateUpdater<string | null>>;
   // setFilter sets the search text, which opens the search field; null shuts it.
   setFilter: (text: string | null) => void;
@@ -117,6 +122,7 @@ export interface KeyContext {
 export function handleKey(event: KeyboardEvent, context: KeyContext): void {
   const {
     pickerOpen,
+    starterOpen,
     openMenu,
     helpOpen,
     collapsed,
@@ -160,6 +166,8 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
     toggleStrips,
     togglePanel,
     setPickerOpen,
+    openStarter,
+    closeStarter,
     setMenuKey,
     setFilter,
     setRowOpened,
@@ -178,11 +186,15 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
   if (event.ctrlKey || event.metaKey || event.altKey) {
     return;
   }
-  // While the palette is open it owns the keys: Escape closes it, and every other key is left to the palette's own
+  // While the palette or the Starter is open it owns the keys: Escape closes it, and every other key is left to its own
   // controls, so the list keeps its keys and a focused row or button keeps its native Enter.
-  if (pickerOpen) {
+  if (pickerOpen || starterOpen) {
     if (event.key === "Escape") {
-      setPickerOpen(false);
+      if (pickerOpen) {
+        setPickerOpen(false);
+      } else {
+        closeStarter();
+      }
       event.preventDefault();
     }
     return;
@@ -293,7 +305,7 @@ export function handleKey(event: KeyboardEvent, context: KeyContext): void {
       nextUnseen();
       break;
     case "N":
-      setPickerOpen(true);
+      openStarter();
       break;
     case "x":
       if (!rowCovered && cursorRow !== null) {

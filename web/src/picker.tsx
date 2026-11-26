@@ -1,17 +1,13 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { create } from "@bufbuild/protobuf";
 import * as actions from "./actions";
 import type { Clients } from "./actions";
-import { PickerRowSchema, type PickerRow } from "./gen/orrery/v1/orrery_pb";
+import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 import { listedTitle, TitleParts } from "./titleparts";
 
-// The one line a refused or failed Start leaves. It never shows the server's text.
-const startFailedText = "The session did not start.";
-
-// The kinds of row that name a folder. Choosing one opens the start form for its directory.
+// The kinds of row that name a folder. Choosing one hands its directory to the Starter.
 const folderKinds = ["pane", "fresh"];
 
 // kindWords is the word each kind of result leads with. A kind not listed here leads with no word.
@@ -61,34 +57,31 @@ function runFailureOf(error: unknown): string {
 // newHint is the note the field shows before anything is asked.
 const newHint = "Name a directory to start a session there, or say a few words about a session to find it.";
 
-// NewPanel is New session: a panel over the page, or a sheet on a narrow window. Enter in its field sends the words, as
-// typed, to Picker.Ask, and only while the field is not blank and no ask runs. The rows that come back are listed, each
-// with its kind's word, its title, drawn through TitleParts from the listed rows, a chip when it starts with the words,
-// and its note. The first row is current, and ↑ and ↓ in the field move the current row, wrapping at both ends. Enter
-// chooses the current row while the field holds the words last asked, and asks again once they change. Choosing a row
-// that is not a folder sends its token to Picker.Run and reports the pane the run answered to onRun. Choosing a folder
-// row opens StartForm in place of the list, and the session the form starts is reported to onStart. Escape closes it
-// through onClose. A dir given and not empty opens StartForm for that directory at once, and its Back shows the empty
-// search.
+// NewPanel is the finder, ⌘K's New session: a panel over the page, or a sheet on a narrow window. Enter in its field
+// sends the words, as typed, to Picker.Ask, and only while the field is not blank and no ask runs. The rows that come
+// back are listed, each with its kind's word, its title, drawn through TitleParts from the listed rows, a chip when it
+// starts with the words, and its note. The first row is current, and ↑ and ↓ in the field move the current row, wrapping at both
+// ends. Enter chooses the current row while the field holds the words last asked, and asks again once they change.
+// Choosing a row that is not a folder sends its token to Picker.Run and reports the pane the run answered to onRun.
+// Choosing a folder row hands its directory to onStartIn, which opens the Starter with that folder typed. Escape closes
+// it through onClose.
 export function NewPanel({
   clients,
   rows,
   sheet,
-  dir,
   onRun,
-  onStart,
+  onStartIn,
   onClose,
 }: {
   clients: Clients;
   rows: Row[];
   sheet: boolean;
-  dir?: string;
   onRun: (pane: string) => void;
-  onStart: (session: string) => void;
+  onStartIn: (dir: string) => void;
   onClose: () => void;
 }) {
   const [words, setWords] = useState("");
-  // The words the panel last sent to Picker.Ask, which a prompt row's start form starts with.
+  // The words the panel last sent to Picker.Ask, which Enter compares the field with.
   const [asked, setAsked] = useState("");
   const [asking, setAsking] = useState(false);
   // The rows the last Ask answered, or null before an answer. An Ask that runs has none.
@@ -96,10 +89,6 @@ export function NewPanel({
   // The index of the current row in found.
   const [current, setCurrent] = useState(0);
   const [askError, setAskError] = useState("");
-  // The folder row whose start form is open, if one is.
-  const [folder, setFolder] = useState<PickerRow | null>(() =>
-    dir ? create(PickerRowSchema, { kind: "fresh", dir }) : null,
-  );
   const [runError, setRunError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -107,9 +96,8 @@ export function NewPanel({
     inputRef.current?.focus();
   }, []);
 
-  // listed is the rows the list draws and the arrow keys and Enter act on: none while a folder's start form is open, or
-  // before an answer.
-  const listed: PickerRow[] = folder === null && found !== null ? found : [];
+  // listed is the rows the list draws and the arrow keys and Enter act on: none before an answer.
+  const listed: PickerRow[] = found ?? [];
 
   const ask = () => {
     if (asking || words.trim() === "") {
@@ -120,7 +108,6 @@ export function NewPanel({
     setRunError("");
     setFound(null);
     setCurrent(0);
-    setFolder(null);
     setAsked(words);
     void actions.ask(clients, words).then(
       (answer) => {
@@ -136,7 +123,7 @@ export function NewPanel({
 
   const choose = (row: PickerRow) => {
     if (folderKinds.includes(row.kind)) {
-      setFolder(row);
+      onStartIn(row.dir);
       return;
     }
     setRunError("");
@@ -204,18 +191,7 @@ export function NewPanel({
         {asking ? <span class="count">asking…</span> : <kbd>⏎</kbd>}
       </label>
       {note}
-      {folder !== null ? (
-        <StartForm
-          key={folder.token}
-          clients={clients}
-          folder={folder}
-          asked={asked}
-          sheet={sheet}
-          onBack={() => setFolder(null)}
-          onStarted={onStart}
-        />
-      ) : (
-        found !== null &&
+      {found !== null &&
         found.length > 0 && (
           <div class="rows">
             {found.map((row, index) => {
@@ -239,8 +215,7 @@ export function NewPanel({
               );
             })}
           </div>
-        )
-      )}
+        )}
     </>
   );
 
@@ -259,7 +234,7 @@ export function NewPanel({
         <div class="head">
           <h2 class="t-title">New session</h2>
           <span class="t-small">
-            <kbd>N</kbd> or <kbd>⌘K</kbd>
+            <kbd>⌘K</kbd>
           </span>
           <button type="button" aria-label="Close" title="Close  esc" onClick={onClose}>
             <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -269,103 +244,6 @@ export function NewPanel({
         </div>
         <div class="panel-body">{body}</div>
       </section>
-    </div>
-  );
-}
-
-// StartForm is the start form a folder row opens, in place of the results. It shows the row's folder read-only and a
-// message box, which a prompt row's box starts with the asked words and any other starts empty. Other results goes
-// back through onBack. Its start id is made once, when the form opens, so every Start it sends, a retry after a failure
-// or an edit included, names the same session. Start is disabled while the message is blank or a Start runs, and at the
-// desk ⌘⏎ or Ctrl+⏎ in the message box starts it too. Start sends the folder, the message and that id to Control.Start,
-// and onStarted receives the session it started. A refused or failed Start keeps the form and the message as typed and
-// shows the fixed line.
-function StartForm({
-  clients,
-  folder,
-  asked,
-  sheet,
-  onBack,
-  onStarted,
-}: {
-  clients: Clients;
-  folder: PickerRow;
-  asked: string;
-  sheet: boolean;
-  onBack: () => void;
-  onStarted: (session: string) => void;
-}) {
-  const [startId] = useState(() => actions.newStartId());
-  const [message, setMessage] = useState(folder.prompt ? asked : "");
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState("");
-  const blank = message.trim() === "";
-
-  const start = () => {
-    if (starting || blank) {
-      return;
-    }
-    setStarting(true);
-    setError("");
-    // The serving host is named by "", which Control.Start reads as the controller's.
-    void actions.start(clients, folder.dir, message, startId, "").then(
-      (session) => {
-        setStarting(false);
-        onStarted(session);
-      },
-      () => {
-        setStarting(false);
-        setError(startFailedText);
-      },
-    );
-  };
-
-  return (
-    <div class="picker-start">
-      <div class="form-row">
-        <span class="t-label">Directory</span>
-        <label class="field">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2 4h4l1.5 1.5H14v7H2z" />
-          </svg>
-          <input value={folder.dir} readOnly aria-label="Directory" />
-        </label>
-      </div>
-      <div class="form-row">
-        <span class="t-label">First message</span>
-        <textarea
-          class="field area"
-          value={message}
-          aria-label="message"
-          onInput={(event) => setMessage(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (!sheet && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              start();
-            }
-          }}
-        />
-      </div>
-      {error !== "" && (
-        <p class="inote error" role="alert">
-          {error}
-        </p>
-      )}
-      <div class="foot">
-        <button type="button" class="act" disabled={starting} onClick={onBack}>
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M10 3 5 8l5 5" />
-          </svg>
-          Other results
-        </button>
-        <span class="end">
-          {starting && <span class="inote">starting…</span>}
-          <button type="button" class="act primary" disabled={starting || blank} onClick={start}>
-            Start the session
-            {!sheet && <kbd>⌘⏎</kbd>}
-          </button>
-        </span>
-      </div>
     </div>
   );
 }

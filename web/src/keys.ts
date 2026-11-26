@@ -133,11 +133,11 @@ export const keyGroups: readonly KeyGroup[] = [
         text: "mark it seen and go to the next new row",
         acts: [{ chords: [{ key: "e" }], in: page }],
       },
+      { caps: ["N"], text: "start a session", acts: [{ chords: [{ key: "N" }], in: page }] },
       {
-        caps: ["N", "⌘K", "Ctrl+K"],
-        text: "new session, or find one",
+        caps: ["⌘K", "Ctrl+K"],
+        text: "find a session",
         acts: [
-          { chords: [{ key: "N" }], in: page },
           {
             chords: [
               { key: "k", meta: true },
