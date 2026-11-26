@@ -472,15 +472,25 @@ func (s *Steps) startHostName(ctx context.Context, start StepStart) (string, err
 		if s.placement == nil {
 			return start.Host, nil
 		}
-		return s.placement.Place(start.Host)
+		return s.place(start.Host)
 	}
 	if s.placement != nil && s.placement.Default() != "" {
-		return s.placement.Place("")
+		return s.place("")
 	}
 	if start.Arrived != "" {
 		return start.Arrived, nil
 	}
 	return s.host, nil
+}
+
+// place returns the name Placement places named on, wrapping its error with the placement. A named host that is unknown
+// or unreachable keeps its name at the end of the error.
+func (s *Steps) place(named string) (string, error) {
+	name, err := s.placement.Place(named)
+	if err != nil {
+		return "", fmt.Errorf("place host: %w", err)
+	}
+	return name, nil
 }
 
 // hostNamed returns the Host named name on the Steps' Hosts. A Steps with no Hosts, which a Steps built without
