@@ -311,7 +311,8 @@ type routingFixture struct {
 
 // newRoutingFixture starts the controller over a store of its own, with agents a and b listening on their loopback
 // addresses. Each agent is listed in the hosts file, and the controller reaches each one through a node.Client that
-// sends the fleet secret. The epic on host b and the epic on the controller are seeded before the controller starts.
+// sends the fleet secret. The epic on host b is seeded before the controller starts. The epic on the controller is seeded
+// by its own subtest, after the checks of b's work, so the controller's Local has no work of its own while b's runs.
 func newRoutingFixture(t *testing.T) *routingFixture {
 	t.Helper()
 	root, err := shortStateRoot()
@@ -380,7 +381,6 @@ func newRoutingFixture(t *testing.T) *routingFixture {
 	f.storePath = mustStorePath(t, getenv)
 	f.store = openPaneStore(t, f.storePath)
 	f.seedEpic(t, routingEpic, routingHostB, f.repo, f.base, true)
-	f.seedEpic(t, routingLocalEpic, routingController, f.localRepo, f.localBase, false)
 	stateDir, err := stateDirOf(getenv)
 	if err != nil {
 		t.Fatalf("state directory: %v", err)
@@ -412,6 +412,12 @@ func newRoutingFixture(t *testing.T) *routingFixture {
 			t.Errorf("stop sessions: %v", err)
 		}
 	})
+	// startSessions wraps the controller's Local and host b's RemoteHost by name, so each one's calls are recorded.
+	for _, name := range []string{routingController, routingHostB} {
+		if f.recorders[name] == nil {
+			t.Fatalf("startSessions reaches host %s through no recorder", name)
+		}
+	}
 	// startSessions gives the store's epic-ended hook to the reports, so the test sets its own once the host runs. The
 	// epic may have ended before the hook was set, so its phase is read once as well.
 	var endOnce sync.Once
@@ -858,13 +864,14 @@ func TestRemoteRouting(t *testing.T) {
 		if passed == 0 {
 			t.Errorf("no evidence run of the epic passed under a judge that b launched: %d runs", len(runs))
 		}
-		if calls := f.recorders[routingController].Calls(); routingTouches(calls, f.repo) {
-			t.Errorf("the controller's Local recorded calls for the epic on b: %v", calls)
+		// The epic on the controller is not seeded until its own subtest, so the controller's Local has no work of its own
+		// here: any call it recorded is work of the epic on b.
+		if calls := f.recorders[routingController].Calls(); len(calls) != 0 {
+			t.Errorf("the controller's Local recorded %d calls for the epic on b: %v", len(calls), calls)
 		}
 	})
 	t.Run("no-epic step from b runs on b", func(t *testing.T) {
 		ctx := t.Context()
-		before := len(f.recorders[routingController].Calls())
 		beforeB := len(f.recorders[routingHostB].Calls())
 		id, err := f.host.steps.Start(ctx, enginehost.StepStart{
 			ID: routingStepID, Agent: routingImplementer, Prompt: "READDONE the step with no epic",
@@ -878,9 +885,6 @@ func TestRemoteRouting(t *testing.T) {
 		if !routingGitCall(bCalls, f.repo, "rev-parse") {
 			t.Errorf("the no-epic step resolved no revision on b: %v", bCalls)
 		}
-		if calls := f.recorders[routingController].Calls()[before:]; routingTouches(calls, f.repo) {
-			t.Errorf("the controller's Local recorded calls for the no-epic step on b: %v", calls)
-		}
 		launched := f.log.await(ctx, func(events []routingEvent) bool {
 			return slices.ContainsFunc(events, func(e routingEvent) bool {
 				return e.kind == "launch" && e.host == routingHostB && e.session == id
@@ -889,12 +893,21 @@ func TestRemoteRouting(t *testing.T) {
 		if !launched {
 			t.Errorf("the no-epic step %s was not launched on b", id)
 		}
+		// Stop ends the step and returns once its loop has, so the step's calls, its worktree's removal included, are all
+		// recorded when it returns.
+		if err = f.host.steps.Stop(ctx, id); err != nil {
+			t.Fatalf("stop the no-epic step %s: %v", id, err)
+		}
+		if calls := f.recorders[routingController].Calls(); len(calls) != 0 {
+			t.Errorf("the controller's Local recorded %d calls for the no-epic step on b: %v", len(calls), calls)
+		}
 		if got := f.routingRows(t)[id]; got[0] != routingHostB {
 			t.Errorf("the no-epic step row %s stores host %q, want %q", id, got[0], routingHostB)
 		}
 	})
 	t.Run("epic on the controller runs its work on the controller's Local", func(t *testing.T) {
 		ctx := t.Context()
+		f.seedEpic(t, routingLocalEpic, routingController, f.localRepo, f.localBase, false)
 		added := f.log.await(ctx, func(events []routingEvent) bool {
 			return slices.ContainsFunc(events, func(e routingEvent) bool {
 				return e.kind == "git" && e.host == routingController && e.dir == f.localRepo &&
