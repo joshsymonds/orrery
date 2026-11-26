@@ -19,12 +19,19 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitExactlyOne
+import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry as HostEntryProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
@@ -43,8 +50,9 @@ import org.robolectric.annotation.GraphicsMode
 // R4 end to end, on invented hosts with one that does not answer: a pane flagged unreachable, a headless session on that
 // host, and a step on it. Each title row draws the unreachable mark, the grey dashed ring and the word, and never a
 // stopped glyph. A pane's dock on such a host is its one line, `unreachable: <host> does not answer`, with no box, queue
-// or control. A pane on a host that answers draws no mark and keeps its box. Checks read semantics only, and every screen
-// runs on the fixed clock NOW.
+// or control. A pane on a host that answers draws no mark and keeps its box. The inbox, served the same answers, draws the
+// pane, session and step rows with the grey ring and the word, and the epic's host with the mark. Checks read semantics
+// only, and every screen runs on the fixed clock NOW.
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -57,6 +65,15 @@ class HostsDroidUnreachableTest {
         const val PANE_CONVERSATION = "/orrery.v1.Panes/Conversation"
         const val PANE_SEEN = "/orrery.v1.Panes/MarkSeen"
         const val SESSION_STREAM = "/orrery.v1.Sessions/WatchConversation"
+        const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
+        const val SESSIONS_LIST = "/orrery.v1.Sessions/List"
+        const val EPICS_LIST = "/orrery.v1.Epics/List"
+        const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
+        const val DESIGNS_LIST = "/orrery.v1.Designs/List"
+        const val CONVO_ID = "synthetic-convo"
+        const val INBOX_EPIC_ID = "lighthouse/silent-epic"
+        const val SILENT_STEP_ID = "silent-step"
+        const val SERVING_STEP_ID = "serving-step"
         const val PANE_ID = "%7"
         const val SESSION_ID = "fedcba9876543210fedcba9876543210"
         const val STEP_LABEL = "synthetic step"
@@ -71,6 +88,12 @@ class HostsDroidUnreachableTest {
         // Invented hosts. The serving host answers, and the second does not.
         const val SERVING = "example-serving"
         const val SILENT = "example-silent"
+
+        // The inbox's rows, as the inbox keys them, on the pane, session, epic and step above.
+        const val INBOX_PANE_ROW = "convo:pane:$SILENT:$PANE_ID"
+        const val INBOX_SESSION_ROW = "convo:session:$SESSION_ID"
+        const val INBOX_EPIC_ROW = "hung:epic:$INBOX_EPIC_ID"
+        const val INBOX_STEP_ROW = "step:$SILENT_STEP_ID"
     }
 
     @get:Rule
@@ -290,6 +313,119 @@ class HostsDroidUnreachableTest {
             composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("done")
             assertEquals(1, countTag("composer"))
             assertEquals("the Esc quick key on a host that answers", 1, countText("Esc"))
+        }
+    }
+
+    /** The grey or state colour of each glyph named [word] under the node tagged [tag], on its colour key. */
+    private fun glyphColours(tag: String, word: String): List<Color> =
+        under(tag, hasContentDescription(word)).fetchSemanticsNodes().mapNotNull { it.config.getOrNull(GlyphColourKey) }
+
+    /** A pane on [host] that the inbox lists, flagged unreachable or not. */
+    private fun inboxPane(host: String, unreachable: Boolean): PaneProto =
+        PaneProto.newBuilder()
+            .setId(PANE_ID)
+            .setHost(host)
+            .setSession("example-session")
+            .setWindow(1)
+            .setPane(2)
+            .setCwd("/home/user/lighthouse")
+            .setCommand("claude")
+            .setClaudeSession("synthetic-claude")
+            .setOrreryId(CONVO_ID)
+            .setState("working")
+            .setLabel("Lamp dimmer")
+            .setChanged(NOW - 120)
+            .setSeen(0L)
+            .setUnreachable(unreachable)
+            .build()
+
+    /** A headless session on [host] the inbox lists, still working so the inbox keeps it in view. */
+    private fun inboxSession(host: String): HeadlessSession =
+        HeadlessSession.newBuilder()
+            .setId(SESSION_ID)
+            .setDir("/home/user/lighthouse")
+            .setLabel("Lamp dimmer")
+            .setState("working")
+            .setChanged(NOW - 120)
+            .setSeen(0L)
+            .setHost(host)
+            .build()
+
+    /** A running step on [host], as the epic lists it. */
+    private fun epicStep(id: String, host: String): EpicStep =
+        EpicStep.newBuilder()
+            .setId(id)
+            .setTask("synthetic-task")
+            .setAgent("synthetic-agent")
+            .setStatus("working")
+            .setStarted(NOW - 60)
+            .setDoing("Synthetic work.")
+            .setHost(host)
+            .build()
+
+    /** A live epic on [SILENT], with one running step on [SILENT] and one on [SERVING]. */
+    private fun inboxEpic(): Epic =
+        Epic.newBuilder()
+            .setId(INBOX_EPIC_ID)
+            .setRepository("lighthouse")
+            .setSlug("silent-epic")
+            .setChanged(NOW - 30)
+            .setLive(true)
+            .setSource("orreryd")
+            .setHost(SILENT)
+            .addRunningSteps(epicStep(SILENT_STEP_ID, SILENT))
+            .addRunningSteps(epicStep(SERVING_STEP_ID, SERVING))
+            .build()
+
+    /**
+     * The inbox's reads, served from the fake server: an unreachable pane, a headless session, a live epic and a step on
+     * [SILENT], and the host status that says [SILENT] does not answer. The lists the inbox reads with no rows answer empty.
+     */
+    private fun serveInbox(server: FakeOrreryServer) {
+        server.respond(HOST_STATUS, hostStatus())
+        server.respond(PANES_LIST, PanesListResponse.newBuilder().addPanes(inboxPane(SILENT, unreachable = true)).build())
+        server.respond(LIST_HEADLESS, ListHeadlessResponse.newBuilder().addSessions(inboxSession(SILENT)).build())
+        server.respond(SESSIONS_LIST, ListResponse.getDefaultInstance())
+        server.respond(EPICS_LIST, EpicsListResponse.newBuilder().addEpics(inboxEpic()).build())
+        server.respond(CONTRACTS_LIST, ContractsListResponse.getDefaultInstance())
+        server.respond(DESIGNS_LIST, DesignsListResponse.getDefaultInstance())
+    }
+
+    /** Mounts the inbox, as the home page draws it, on a client of [server]. */
+    private fun setInbox(server: FakeOrreryServer) {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme {
+                PaneListScreen(
+                    client = client,
+                    onOpenPane = {},
+                    onOpenPaneId = {},
+                    onStartedSession = {},
+                    onOpenSettings = {},
+                    now = { NOW },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun theInboxRowsOnAHostThatDoesNotAnswerDrawTheGreyRingAndTheWordNeverStopped() {
+        FakeOrreryServer().use { server ->
+            serveInbox(server)
+            setInbox(server)
+
+            composeRule.awaitExactlyOne(hasTestTag(INBOX_PANE_ROW))
+            // A pane, a session and a step each carry the unreachable state glyph in the grey ink, and never a stopped one.
+            listOf(INBOX_PANE_ROW, INBOX_SESSION_ROW, INBOX_STEP_ROW).forEach { row ->
+                assertEquals("$row glyph colour", listOf(OrreryTokens.Ink.three), glyphColours(row, UNREACHABLE))
+                under(row, hasContentDescription("stopped")).assertCountEquals(0)
+                under(row, hasText(UNREACHABLE)).assertCountEquals(1)
+            }
+            // An epic has no state glyph: its host, which does not answer, carries the grey dashed ring and the word.
+            assertEquals(listOf(OrreryTokens.Ink.three), ringColours(hasTestTag(INBOX_EPIC_ROW)))
+            under(INBOX_EPIC_ROW, hasTestTag(HOST_UNREACHABLE)).assertCountEquals(1)
+            under(INBOX_EPIC_ROW, hasContentDescription("stopped")).assertCountEquals(0)
+            under(INBOX_EPIC_ROW, hasText(UNREACHABLE)).assertCountEquals(1)
         }
     }
 }
