@@ -3,15 +3,16 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { create } from "@bufbuild/protobuf";
-import { render } from "preact";
+import { type JSX, render } from "preact";
 
-import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
-import { PaneStrip } from "./strip";
+import { HostEntrySchema, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
+import { HostsView } from "./hostsview";
+import { Meter } from "./meter";
 import { installTestDom, removeTestDom } from "./testdom";
 
-// Each test's name starts with MeterGrid. The strip's meters are checked by the values style.css declares for them, read
-// as text with comments cut, by the values tokens.css and tokens.json give the tokens they name, and by the markup
-// PaneStrip renders.
+// Each test's name starts with MeterGrid. The hosts view's meters are checked by the values style.css declares for them,
+// read as text with comments cut, by the values tokens.css and tokens.json give the tokens they name, and by the markup
+// HostsView and Meter render.
 
 interface Rule {
   selectors: string[];
@@ -97,13 +98,12 @@ function px(value: string): number {
   return Number.parseInt(value, 10);
 }
 
-// withMeters renders the strip for host into a fresh DOM, runs check on its container, and removes the DOM when check
-// ends.
-async function withMeters(host: HostStatusResponse, check: (container: HTMLElement) => void): Promise<void> {
+// withMeters renders element into a fresh DOM, runs check on its container, and removes the DOM when check ends.
+async function withMeters(element: JSX.Element, check: (container: HTMLElement) => void): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<PaneStrip host={host} />, container);
+    render(element, container);
     check(container);
   } finally {
     render(null, container);
@@ -111,31 +111,25 @@ async function withMeters(host: HostStatusResponse, check: (container: HTMLEleme
   }
 }
 
-test("MeterGrid: the strip's meters are one grid of equal columns, each at most meterCell wide", () => {
-  assert.equal(declaredValue(rules, ".pane-strip .meters", "display"), "grid");
+test("MeterGrid: the hosts view's meters are one grid of equal columns, each at most meterCell wide", () => {
+  assert.equal(declaredValue(rules, ".host-row .stats", "display"), "grid");
   assert.equal(
-    declaredValue(rules, ".pane-strip .meters", "grid-template-columns"),
+    declaredValue(rules, ".host-row .stats", "grid-template-columns"),
     "repeat(auto-fill, minmax(calc(var(--o-size-meter-bar-width) * 2), var(--o-layout-meter-cell)))",
     "every column is one minmax, capped at the meterCell token",
   );
   assert.equal(tokenValue("--o-layout-meter-cell"), "160px", "meterCell is 160px");
 });
 
-test("MeterGrid: a cell's declared minimum is twice the bar's width, 96px, and the cells wrap to further rows of the same columns", async () => {
+test("MeterGrid: a cell's declared minimum is twice the bar's width, 96px, and a host row's two meters are cells of one grid", async () => {
   assert.equal(px(tokenValue("--o-size-meter-bar-width")) * 2, 96, "two bar widths make the 96px minimum cell");
-  const host = create(HostStatusResponseSchema, {
+  const status = create(HostStatusResponseSchema, {
     host: "den",
-    stats: [
-      { label: "cpu", value: "12%", percent: 12, level: "ok" },
-      { label: "disk", value: "65%", percent: 65, level: "warn" },
-      { label: "mem", value: "7.1 GB", percent: 88, level: "crit" },
-      { label: "net", value: "↓1M", level: "ok" },
-      { label: "load", value: "0.4", percent: 40, level: "ok" },
-    ],
+    hosts: [create(HostEntrySchema, { name: "den", loadPercent: 12, memoryPercent: 65, reachable: true })],
   });
-  await withMeters(host, (container) => {
-    assert.equal(container.querySelectorAll(".pane-strip > .meters").length, 1, "one grid holds the strip's meters");
-    assert.equal(container.querySelectorAll(".meters > .meter").length, 5, "each stat is a cell of that one grid");
+  await withMeters(<HostsView status={status} />, (container) => {
+    assert.equal(container.querySelectorAll(".host-row > .stats").length, 1, "one grid holds the row's meters");
+    assert.equal(container.querySelectorAll(".stats > .meter").length, 2, "each meter is a cell of that one grid");
   });
 });
 
@@ -176,19 +170,18 @@ test("MeterGrid: a stat with no percent draws an empty bar line of the bar's hei
   assert.equal(declaredValue(rules, ".meter .bar", "height"), "var(--o-size-meter-bar-height)");
   assert.equal(tokenValue("--o-size-meter-bar-height"), "4px", "the bar's height token is 4px");
   assert.equal(declaredValue(rules, ".meter .bar", "background"), "var(--o-line-soft)", "the empty line is the track");
-  const host = create(HostStatusResponseSchema, {
-    host: "den",
-    stats: [
-      { label: "up", value: "3", level: "ok" },
-      { label: "cpu", value: "20%", percent: 20, level: "ok" },
-    ],
-  });
-  await withMeters(host, (container) => {
-    const bars = [...container.querySelectorAll<HTMLElement>(".meter .bar")];
-    assert.equal(bars.length, 2, "each stat draws a bar, filled or empty");
-    assert.equal(bars[0]?.children.length, 0, "the bar of a stat with no percent holds no fill");
-    assert.equal(bars[1]?.querySelector<HTMLElement>("i")?.style.width, "20%", "the bar of a stat with a percent is filled to it");
-  });
+  await withMeters(
+    <>
+      <Meter stat={{ label: "up", value: "3", level: "ok" }} series={1} />
+      <Meter stat={{ label: "cpu", value: "20%", percent: 20, level: "ok" }} series={2} />
+    </>,
+    (container) => {
+      const bars = [...container.querySelectorAll<HTMLElement>(".meter .bar")];
+      assert.equal(bars.length, 2, "each stat draws a bar, filled or empty");
+      assert.equal(bars[0]?.children.length, 0, "the bar of a stat with no percent holds no fill");
+      assert.equal(bars[1]?.querySelector<HTMLElement>("i")?.style.width, "20%", "the bar of a stat with a percent is filled to it");
+    },
+  );
 });
 
 test("MeterGrid: the phone's four-column strip is gone, so no phone rule sets the strip's columns or ellipsizes a meter", () => {

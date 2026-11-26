@@ -118,8 +118,8 @@ export function Head({
     { label: "Keys", shortcut: "?", run: menu.keys },
     ...(narrow ? [{ label: "Hide the header", run: onHide }] : []),
   ];
-  // The machine band is the strip's host and its meters, a row of its own under the title row, drawn with the open
-  // header only.
+  // The machine band is the strip's host, a row of its own under the title row, drawn with the open header only. The
+  // context stays in the title row.
   const band = showStrip && fold === "open" && host !== null ? <PaneStrip host={host} band /> : null;
   const dirName = lastPathElement(row.project);
   // The context is the conversation's, so it sits in the title row before Find and More, open or folded. The phone

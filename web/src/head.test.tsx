@@ -138,7 +138,7 @@ test("HeadTitle: the place crumb names its host for the phone layout", async () 
   const props = headProps({
     row: makeRow({ project: "/home/owner/code/tidepool" }),
     conversation: conversationOf("", 174000n, 200000n),
-    host: { host: "halyard", stats: [] },
+    host: { host: "halyard" },
     showStrip: true,
   });
   await withHead(<Head {...props} />, (container) => {
@@ -176,7 +176,7 @@ test("HeadBand: the context sits in the title row's line, named with its tokens,
   });
 });
 
-test("HeadBand: the machine row is its own band after the title row, holding the host and every meter", async () => {
+test("HeadBand: the machine row is its own band after the title row, holding the host alone and no meter", async () => {
   const props = headProps({ conversation: conversationOf("Ship it.", 86000n, 1000000n), host: loadedHost, showStrip: true });
   await withHead(<Head {...props} />, (container) => {
     const titleRow = container.querySelector(".convo-head > .title-row");
@@ -187,17 +187,9 @@ test("HeadBand: the machine row is its own band after the title row, holding the
     assert.equal(band?.nextElementSibling?.classList.contains("subject") ?? false, true, "the goal follows the band");
     assert.equal(band?.querySelector(".pane-strip-host")?.textContent ?? null, "vermission");
     assert.notEqual(band?.querySelector(".pane-strip-host svg.icon"), null, "the host is marked with the host icon");
-    assert.deepEqual(
-      Array.from(band?.querySelectorAll(".meter .name") ?? [], (name) => name.textContent),
-      ["net", "cpu", "ram", "disk io", "disk"],
-    );
-    assert.deepEqual(
-      Array.from(band?.querySelectorAll(".meter .value") ?? [], (value) => value.textContent),
-      ["↓551K ↑72K", "93% 25/32", "19G", "↓6K ↑2M", "50%"],
-    );
-    assert.equal(band?.querySelectorAll(".meter .bar").length, 5, "every meter draws a bar line");
-    assert.equal(band?.querySelectorAll(".meter .bar i").length, 3, "cpu, ram and disk fill their bars; net and disk io stay empty");
+    assert.equal(band?.querySelectorAll(".meter").length, 0, "the band draws no meter");
     assert.equal(band?.querySelector(".ctx"), null, "the context is not in the band");
+    assert.equal(container.querySelectorAll(".meter").length, 0, "the head draws no meter");
   });
 });
 

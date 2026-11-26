@@ -3890,17 +3890,16 @@ export function stepStrip(step: EpicStep): JSX.Element | null {
   );
 }
 
-// stripHost is the host a page's strip names. A pane or headless session row names the host it runs on: on another host
-// that host alone, with no stats, and on the serving host the serving status with its stats. A row with no host, such as
-// a Sessions.List row, and any other page name the serving host, and with no status there is no host part.
+// stripHost is the host a page's strip names. A pane or headless session row names the host it runs on, and a row with no
+// host, such as a Sessions.List row, and any other page name the serving host. With no status there is no host part.
 export function stripHost(row: Row | null, host: HostStatusResponse | null): StripHost | null {
   if (host === null) {
     return null;
   }
   if (row !== null && row.host !== "" && row.host !== host.host) {
-    return { host: row.host, stats: [], other: true };
+    return { host: row.host };
   }
-  return host;
+  return { host: host.host };
 }
 
 // failureReason is why a call failed, as a page's note says it: that the server did not answer, for a call that never
