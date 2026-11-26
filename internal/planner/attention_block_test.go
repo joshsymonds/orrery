@@ -15,7 +15,7 @@ type blockWant struct {
 	block, ref string
 }
 
-// releaseStopReason is the reason of the park a release stop tells, the text the tell's body starts with.
+// releaseStopReason is the reason of the park an owner's release stop tells, which is the tell's whole text.
 const releaseStopReason = "release step failed"
 
 // checkBlock fails the test unless the desk notice and the push of n open on want.
@@ -30,13 +30,13 @@ func checkBlock(t *testing.T, n route.Notice, want blockWant) {
 	}
 }
 
-// noticeEndingWith returns the notice of router whose desk body ends with last, and fails the test when none does. A
-// park's body ends with its reason line. The tells of an epic are routed ahead of its turn's notice, so the first
-// notice that ends with a park's reason is the notice of its tell.
+// noticeEndingWith returns the notice of router whose desk body is last or ends with it on its own line, and fails the test
+// when none does. A park's body ends with its reason line. A tell that carries no question is its whole text, so the notice
+// of an owner's release stop is the one whose body is its reason.
 func noticeEndingWith(t *testing.T, router *fakeAttentionRouter, last string) route.Notice {
 	t.Helper()
 	for _, n := range router.notices {
-		if strings.HasSuffix(shownOf(t, n).desk.Body, "\n"+last) {
+		if body := shownOf(t, n).desk.Body; body == last || strings.HasSuffix(body, "\n"+last) {
 			return n
 		}
 	}
@@ -167,7 +167,10 @@ func TestAttentionBlockQuestionTellOnARunningEpicOpensOnItsQuestion(t *testing.T
 	checkBlock(t, router.notices[0], blockWant{block: "question", ref: "Q1"})
 }
 
-func TestAttentionBlockReleaseStopTellOpensOnTheFailedReleaseStep(t *testing.T) {
+// TestAttentionBlockOwnerStopTellOnAFailedReleaseStepOpensOnTheReport checks that the tell of an owner's stop of a release
+// with a failed step opens on the stopped epic's report. The tell carries no question, so it does not open on the failed
+// step as a tell that carries a question does.
+func TestAttentionBlockOwnerStopTellOnAFailedReleaseStepOpensOnTheReport(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -176,10 +179,12 @@ func TestAttentionBlockReleaseStopTellOpensOnTheFailedReleaseStep(t *testing.T) 
 
 	attentionOver(s, router).pass(context.Background())
 
-	checkBlock(t, noticeEndingWith(t, router, "parked: "+releaseStopReason), blockWant{block: "release_step", ref: "2"})
+	checkBlock(t, noticeEndingWith(t, router, releaseStopReason), blockWant{block: "report"})
 }
 
-func TestAttentionBlockQuestionTellOnAStoppedEpicWithNoFailedStepOpensOnItsQuestion(t *testing.T) {
+// TestAttentionBlockOwnerStopTellOnAStoppedEpicWithNoFailedStepOpensOnTheReport checks that the tell of an owner's stop of a
+// release with no failed step opens on the stopped epic's report, since no park question is open for it.
+func TestAttentionBlockOwnerStopTellOnAStoppedEpicWithNoFailedStepOpensOnTheReport(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -188,7 +193,7 @@ func TestAttentionBlockQuestionTellOnAStoppedEpicWithNoFailedStepOpensOnItsQuest
 
 	attentionOver(s, router).pass(context.Background())
 
-	checkBlock(t, noticeEndingWith(t, router, "parked: "+releaseStopReason), blockWant{block: "question", ref: "Q1"})
+	checkBlock(t, noticeEndingWith(t, router, releaseStopReason), blockWant{block: "report"})
 }
 
 func TestAttentionBlockRestoreNoticeKeepsTheBlock(t *testing.T) {

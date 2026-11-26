@@ -241,7 +241,8 @@ const releaseOwnerStopReason = "owner stopped the release"
 // of the release as a release run of part stop at the attempt of the epic's release node run, which must be running in
 // phase releasing or parked in phase stopped, and returns the id of the first release step of its release node runs
 // that has no end, or "" when none does. Only the steps of each run's current attempt are read. An epic in phase
-// stopped also takes the park class release_owner_stop. Any other epic is a RefusalError.
+// stopped also takes the park class release_owner_stop, with its park reason as a tell, unless it holds that class
+// already. Any other epic is a RefusalError.
 func stopRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, at time.Time) (string, error) {
 	run, err := stoppableReleaseRun(ctx, queries, head)
 	if err != nil {
@@ -257,8 +258,8 @@ func stopRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epi
 	if err != nil {
 		return "", err
 	}
-	if head.Phase == PhaseStopped {
-		err = setPark(ctx, queries, head.ID, head.Parked, ParkClassReleaseOwnerStop)
+	if head.Phase == PhaseStopped && head.ParkClass != string(ParkClassReleaseOwnerStop) {
+		err = parkEpicAs(ctx, queries, head.ID, ParkClassReleaseOwnerStop, releaseParkSubject, head.Parked, at)
 		if err != nil {
 			return "", err
 		}

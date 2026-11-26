@@ -184,19 +184,14 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 }
 
 // releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
-// release_owner_stop when the owner stopped the release at attempt or a release reviewer refused its candidate at
-// attempt, and release_step otherwise.
+// release_owner_stop when the owner stopped the release at attempt, and release_step otherwise: a stop at a release step,
+// at the judge or at the candidate, and a release reviewer's refusal of the candidate, are the planner's to answer.
 func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
 		return "", err
 	}
 	if ownerStoppedAt(runs, attempt) {
-		return ParkClassReleaseOwnerStop, nil
-	}
-	if slices.ContainsFunc(runs, func(run ReleaseRun) bool {
-		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
-	}) {
 		return ParkClassReleaseOwnerStop, nil
 	}
 	return ParkClassReleaseStep, nil

@@ -4,13 +4,16 @@ package store
 // question and adds its tell: the epic's steerer is told of the question and answers it, and the owner is asked only once
 // the steerer escalates it, or when no steering session hears the epic (see SteererHolds). A planner class is answered
 // by the planner: the park opens no question, adds no tell, and adds a pending trigger that wakes the planner with the
-// park reason as its cause.
+// park reason as its cause. release_owner_stop is the owner's own stop of a release: it is held for the owner, so the
+// planner is not woken, but it opens no park question and adds no trigger, only its reason as a tell (see its comment).
 type ParkClass string
 
-// The question classes. Each is a catastrophe the planner does not answer: its park question goes to the epic's
-// steerer, which answers it or escalates it to the owner.
+// The owner's classes. Each is a catastrophe the planner does not answer. Each but release_owner_stop opens a park
+// question, which goes to the epic's steerer first, as a question class does.
 const (
-	// ParkClassReleaseOwnerStop is a release the owner stopped: the stop is recorded at the attempt it stopped at.
+	// ParkClassReleaseOwnerStop is a release the owner stopped: the stop is recorded at the attempt it stopped at. Its park
+	// opens no park question and adds no trigger: its reason is added as a tell, so the owner sees the stop it made, and the
+	// owner resumes the release with epic_release or replans it with epic_retry.
 	ParkClassReleaseOwnerStop ParkClass = "release_owner_stop"
 	// ParkClassBranch is an epic branch that exists, is gone, has moved or is checked out elsewhere.
 	ParkClassBranch ParkClass = "branch"
@@ -40,15 +43,16 @@ const (
 	ParkClassLoop ParkClass = "loop"
 	// ParkClassNotBuilt is a plan run that ended with Requirements unbuilt.
 	ParkClassNotBuilt ParkClass = "not_built"
-	// ParkClassReleaseStep is a release stop that is not release_owner_stop: at its candidate, at a release step, whatever
-	// its undo, or at its judge. The planner may resume it, except one its judge stopped with a verdict (judgeVerdictAt),
+	// ParkClassReleaseStep is a release stop the owner did not make: at its candidate, a refused review of it included, at
+	// a release step, or at its judge. The planner may resume it, except one its judge stopped with a verdict (judgeVerdictAt),
 	// which the planner asks the steerer about.
 	ParkClassReleaseStep ParkClass = "release_step"
 )
 
-// OpensQuestion reports whether a park of class c opens a park question rather than waking the planner: a question
-// class, or the empty class. The empty class is the class of a park stored before 00050_park_class.sql, which its
-// question answered, so it stays a question park.
+// OpensQuestion reports whether a park of class c is held for the owner rather than woken for the planner: a question
+// class, release_owner_stop, or the empty class. A question class and the empty class open a park question. A
+// release_owner_stop park is held as well, though it opens none (see ParkClassReleaseOwnerStop). The empty class is the
+// class of a park stored before 00050_park_class.sql, which its question answered, so it stays a question park.
 func (c ParkClass) OpensQuestion() bool {
 	switch c {
 	case "", ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,

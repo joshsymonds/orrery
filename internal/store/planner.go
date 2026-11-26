@@ -1123,8 +1123,9 @@ func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn in
 
 // setParked parks epic with reason, cut to TurnReasonMax bytes, as class of subject, in the caller's write. A question
 // class opens the park question of epic for it, which is final when the epic's phase is met_at_base, so a park of an epic the
-// owner ended declares no choice. A planner class is stored by parkPlanner. setParked returns the seq of the park question
-// it opens, and 0 when the planner is woken instead. An unknown epic is ErrNoEpic.
+// owner ended declares no choice. A release_owner_stop park is stored with no question. A planner class is stored by
+// parkPlanner. setParked returns the seq of the park question it opens, and 0 when the planner is woken or no question
+// opens. An unknown epic is ErrNoEpic.
 func setParked(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1141,6 +1142,9 @@ func setParked(
 	park := capTurnText(reason)
 	if !class.OpensQuestion() {
 		return parkPlanner(ctx, queries, epic, class, subject, park, at)
+	}
+	if class == ParkClassReleaseOwnerStop {
+		return 0, setPark(ctx, queries, epic, park, class)
 	}
 	return openPark(ctx, queries, epic, park, class, parkQuestion(park, head.Phase == phaseMetAtBase))
 }
@@ -1167,10 +1171,11 @@ func setPark(ctx context.Context, queries *sqlcgen.Queries, epic, park string, c
 }
 
 // parkEpicAs parks epic with reason as class of subject, in the caller's write. A question class opens the park question
-// and adds reason as a tell that carries it, and the epic's steerer is told of the question. A planner class opens no
-// question and adds no tell: it adds the pending trigger that wakes the planner, which carries reason as its cause. A
-// planner park that parkPlanner sends to the owner is stored as retry_bound instead: parkPlanner has opened its question
-// and added its tell, so no trigger is added.
+// and adds reason as a tell that carries it, and the epic's steerer is told of the question. A release_owner_stop park
+// opens no question and adds reason as a tell with no question, and no trigger. A planner class opens no question and adds
+// no tell: it adds the pending trigger that wakes the planner, which carries reason as its cause. A planner park that
+// parkPlanner sends to the owner is stored as retry_bound instead: parkPlanner has opened its question and added its
+// tell, so no trigger is added.
 func parkEpicAs(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1186,7 +1191,8 @@ func parkEpicAs(
 
 // parkEpicQuestion parks epic as parkEpicAs does, in the caller's write, and returns the seq of the park question it
 // opens: a question class's question, or the retry_bound question of a planner park parkPlanner sends to the owner. It
-// returns 0 when the park opens none, which wakes the planner instead.
+// returns 0 when the park opens none, which wakes the planner instead, or, for release_owner_stop, which the owner holds
+// with its tell and no trigger.
 func parkEpicQuestion(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1201,10 +1207,12 @@ func parkEpicQuestion(
 	if err != nil {
 		return 0, err
 	}
-	if class.OpensQuestion() {
+	switch {
+	case class == ParkClassReleaseOwnerStop:
+		return 0, insertTell(ctx, queries, epic, park, at)
+	case class.OpensQuestion():
 		return question, insertQuestionTell(ctx, queries, epic, park, question, at)
-	}
-	if question == 0 {
+	case question == 0:
 		return 0, insertParkTrigger(ctx, queries, epic, park, at)
 	}
 	return question, nil
