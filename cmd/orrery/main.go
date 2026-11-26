@@ -1,9 +1,9 @@
 // Command orrery is the orrery CLI. It owns the command line: the global flags before the subcommand, the exit codes,
-// and the dispatch of each subcommand. It handles serve, desk, mcp, epic, contract, run, gate, evidence, hold, step,
-// holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux server
-// the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their handlers
-// in internal/cli. routes imports a routes file through orreryd. release-step is orreryd's, not the owner's: it runs
-// internal/releasestep, which carries out a built-in release step under a holder.
+// and the dispatch of each subcommand. It handles serve, node, desk, mcp, epic, contract, run, gate, evidence, hold,
+// step, holder, help and tmux-conf itself, and the tmux commands open, debug, shell and tree, which act on the tmux
+// server the global flags name. hook runs internal/hook, and events, notices, session, list, seen and send run their
+// handlers in internal/cli. routes imports a routes file through orreryd. release-step is orreryd's, not the owner's:
+// it runs internal/releasestep, which carries out a built-in release step under a holder.
 package main
 
 import (
@@ -180,6 +180,10 @@ subcommands:
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
   gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
+  node --controller NAME --relay HOST:PORT --listen HOST:PORT --secret-file PATH [--root DIR]...
+        [--holder-scope PATH]
+                                                serve node.v1 on the tailnet ADDR to the controller NAME, for the
+                                                calls that carry the fleet secret in PATH, until SIGINT or SIGTERM
   release-step KIND -candidate SHA [FLAGS] [-- RUN...]
                                                 orreryd's: carry out the built-in release step KIND (push-main,
                                                 tag, pin-flake or update) at SHA in this worktree; exits 0 only
@@ -328,7 +332,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "contract", cronVerb:
 		return contractOrCron(ctx, opts, name, args, stdout, getenv)
-	case "run", "gate", "evidence", routesName, "gateway":
+	case "run", "gate", "evidence", routesName, "gateway", "node":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", stepName:
 		return runOwnerAction(ctx, opts, name, args, stdout, stderr, getenv)
@@ -466,8 +470,9 @@ func (c unreachableCrons) CronCall(
 }
 
 // orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members,
-// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway is not one of those; it
-// serves the Claude traffic gateway itself, and is dispatched here only to keep dispatch under its complexity limit.
+// routes imports a routes file, and evidence runs an item's evidence or reads it back. gateway and node are not among
+// those: gateway serves the Claude traffic gateway itself, and node serves node.v1 itself. Both are dispatched here
+// only to keep dispatch under its complexity limit.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -486,6 +491,8 @@ func orreryCommand(
 		return runRoutes(ctx, opts, args, stdout, getenv)
 	case "gateway":
 		return runGateway(ctx, args, stderr, getenv)
+	case "node":
+		return runNode(ctx, opts, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
