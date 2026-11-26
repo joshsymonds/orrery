@@ -26,7 +26,7 @@ const (
 var errUsage = errors.New("usage")
 
 // usageLine is the form of the command line, which a refused one is answered with.
-const usageLine = "usage: orrery release-step push-main|tag|pin-flake|update -candidate SHA [FLAGS] [-- RUN...]"
+const usageLine = "usage: orrery release-step push-main|tag|pin-flake|update|hosts -candidate SHA [FLAGS] [-- RUN...]"
 
 // gitHost is the git a step runs: hostexec.Host's Git, which hostexec.Local carries out on this machine.
 type gitHost interface {
@@ -46,6 +46,8 @@ type step struct {
 	home string
 	// tempDir is the directory a pin's temporary worktree is made under, or "" for the system's.
 	tempDir string
+	// getenv reads the environment a hosts step finds its hosts file in.
+	getenv func(string) string
 	// stdout takes the facts that show the postcondition, one short plain line each.
 	stdout io.Writer
 	// stderr takes failures and the output of the commands a step runs.
@@ -72,6 +74,7 @@ func Main(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		machine: osMachine{},
 		repo:    repo,
 		home:    home,
+		getenv:  os.Getenv,
 		stdout:  stdout,
 		stderr:  stderr,
 	}
@@ -146,13 +149,16 @@ func parseArgs(args []string) (invocation, error) {
 		flags.StringVar(&params.Branch, flagBranch, "", "the flake origin's branch to build")
 		flags.StringVar(&params.Flake, flagFlake, "", "the flake repository")
 		flags.Var(&units, flagUnit, "a systemd user unit that must run the candidate's build")
+	case KindHosts:
+		flags.StringVar(&params.Flake, flagFlake, "", "the flake repository the run argv runs in")
+		flags.Var(&units, flagUnit, "a systemd user unit on each host that must run the candidate's build")
 	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return invocation{}, fmt.Errorf("%w: %w", errUsage, err)
 	}
 	params.Units = units
 	rest := flags.Args()
-	if inv.kind == KindUpdate {
+	if inv.kind == KindUpdate || inv.kind == KindHosts {
 		params.Run = rest
 	} else if len(rest) > 0 {
 		return invocation{}, fmt.Errorf("%w: unexpected argument %q", errUsage, rest[0])
@@ -204,6 +210,11 @@ func (s *step) run(ctx context.Context, inv invocation) error {
 		return s.carry(ctx, &pinFlake{
 			s: s, candidate: candidate, branch: params.Branch, prefix: params.Prefix, flake: flake, input: params.Input,
 			url: params.URL,
+		})
+	}
+	if inv.kind == KindHosts {
+		return s.carry(ctx, &switchHosts{
+			s: s, candidate: candidate, flake: flake, units: params.Units, argv: params.Run,
 		})
 	}
 	return s.carry(ctx, &update{
