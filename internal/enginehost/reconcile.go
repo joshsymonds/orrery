@@ -64,6 +64,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(quietErr, fmt.Errorf("reconcile sessions: %w", err))
 	}
+	m.holdUnlisted(rows, unlisted)
 	text, textErr := m.store.EngineTextSessions(ctx)
 	firstErr := quietErr
 	if textErr != nil {
@@ -292,10 +293,11 @@ func (m *Manager) reconcileReachable(ctx context.Context, held placedHost) {
 	}
 }
 
-// reconcileSessionOnReach settles session id on held, as Reconcile does, under the lock of held's host (see hostLock). That
-// is the lock a resume of the session takes, so the pass and a resume never start the session's process together. holder
-// reports whether held lists a holder for id, and text holds the sessions with unfinished text. The rows the pass settles
-// are resumed or noticed once the lock is released, since a resume takes the lock.
+// reconcileSessionOnReach settles session id on held, as Reconcile does, under the lock of held's host (see hostLock).
+// That is the lock a resume of the session takes, so the pass and a resume never start the session's process together.
+// holder reports whether held lists a holder for id, and text holds the sessions with unfinished text. The rows the
+// pass settles are resumed or noticed once the lock is released, since a resume takes the lock. A step that Reconcile
+// held for its host, and whose holder did not come back, is ended once the lock is released (see exitLost).
 func (m *Manager) reconcileSessionOnReach(
 	ctx context.Context, held placedHost, id string, holder bool, text map[string]bool,
 ) {
@@ -303,9 +305,55 @@ func (m *Manager) reconcileSessionOnReach(
 	lock := m.hostLock(held.name)
 	lock.Lock()
 	m.settleOnReach(passCtx, queue, held, id, holder, text)
+	lost := m.releaseUnlisted(id)
 	lock.Unlock()
 	for _, row := range queue.rows {
 		m.resumeOrNotify(ctx, row)
+	}
+	if lost {
+		m.exitLost(id)
+	}
+}
+
+// stepHolderLost is the reason a held step is ended with when its holder did not come back once its host read
+// reachable.
+const stepHolderLost = "the step's holder did not come back when its host read reachable"
+
+// holdUnlisted holds the step rows of rows that a host in unlisted keeps, as Reconcile leaves them: each is held live
+// for its loop (see StepLive), since its holder may still run on that host. A row of another kind, and a row on a host
+// this controller runs no session on, is not held.
+func (m *Manager) holdUnlisted(rows []store.EngineRow, unlisted map[string]bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, row := range rows {
+		if row.Kind != store.KindStep {
+			continue
+		}
+		if place, err := m.hostOf(row); err == nil && unlisted[place.name] {
+			m.unlisted[row.ID] = true
+		}
+	}
+}
+
+// releaseUnlisted drops the hold that holdUnlisted put on the step id, once the pass for its host has settled it. It
+// reports whether the step was held and has no pump now, so its holder did not come back and the step is lost.
+func (m *Manager) releaseUnlisted(id string) bool {
+	m.mu.Lock()
+	held := m.unlisted[id]
+	delete(m.unlisted, id)
+	m.mu.Unlock()
+	return held && !m.pumping(id)
+}
+
+// exitLost tells the observer of the step id that its process ended on its own, with stepHolderLost, so the step's loop
+// ends it failed. It is called off the host's lock, since the loop may take that lock to act. A step with no observer
+// is left as it is.
+func (m *Manager) exitLost(id string) {
+	m.mu.Lock()
+	observer := m.stepObservers[id]
+	m.mu.Unlock()
+	if observer != nil {
+		observer.Exited(stepHolderLost)
 	}
 }
 
@@ -626,13 +674,14 @@ func (m *Manager) ExpectStep(id string, observer StepObserver) {
 	m.stepObservers[id] = observer
 }
 
-// StepLive reports whether this manager holds the step id for its loop: a live step session, or a drained one kept for its
-// next Continue (see retireLocked).
+// StepLive reports whether this manager holds the step id for its loop: a live step session, a drained one kept for its
+// next Continue (see retireLocked), or a step Reconcile held for a host it could not list (see holdUnlisted). The last
+// is held until its host reads reachable, when its holder is re-adopted, or the step is ended as lost.
 func (m *Manager) StepLive(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	live, ok := m.sessions[id]
-	return (ok && live.step) || m.kept[id] != nil
+	return (ok && live.step) || m.kept[id] != nil || m.unlisted[id]
 }
 
 // reconcileRow settles row in one write as a restart leaves it (see settleOps). The drain of its holder on host has
