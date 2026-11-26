@@ -79,6 +79,9 @@ class HostsDroidUnreachableTest {
     /** The controls a dock offers an input, a queue or a control with: none of them on a dock that says unreachable. */
     private val dockControls = listOf("composer", "dock-tray", "dock-interrupt", "dock-resume", "dock-more")
 
+    /** The labels of a pane's quick keys, which post keys to the pane, so are not offered on a host that does not answer. */
+    private val quickKeyLabels = listOf("Esc", "Ctrl-C", "Enter", "←", "↑", "↓", "→")
+
     /** Any node that carries text, so a dock's lines can be counted. */
     private val textNode = SemanticsMatcher("has text") { it.config.contains(SemanticsProperties.Text) }
 
@@ -94,6 +97,9 @@ class HostsDroidUnreachableTest {
 
     private fun countTag(tag: String): Int =
         composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true).fetchSemanticsNodes().size
+
+    private fun countText(text: String): Int =
+        composeRule.onAllNodes(hasText(text), useUnmergedTree = true).fetchSemanticsNodes().size
 
     private fun hostEntry(name: String, reachable: Boolean): HostEntryProto =
         HostEntryProto.newBuilder()
@@ -238,6 +244,7 @@ class HostsDroidUnreachableTest {
             composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $SILENT does not answer")
             under(DOCK, textNode).assertCountEquals(1)
             dockControls.forEach { tag -> assertEquals("no $tag on the dock", 0, countTag(tag)) }
+            quickKeyLabels.forEach { label -> assertEquals("no $label quick key", 0, countText(label)) }
         }
     }
 
@@ -282,6 +289,7 @@ class HostsDroidUnreachableTest {
             assertEquals(0, countTag(HOST_UNREACHABLE))
             composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("done")
             assertEquals(1, countTag("composer"))
+            assertEquals("the Esc quick key on a host that answers", 1, countText("Esc"))
         }
     }
 }

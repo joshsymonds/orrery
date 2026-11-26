@@ -584,13 +584,16 @@ fun PaneScreen(
                 onSend = { endRequests++ },
                 unreachableHost = paneHost.takeIf { unreachable },
             )
-            QuickKeys(
-                paneId,
-                client,
-                state = current?.state.orEmpty(),
-                changed = current?.changed ?: 0L,
-                draftPresent = draftPresent,
-            )
+            // A host that does not answer takes no keys, so its quick keys are not offered.
+            if (!unreachable) {
+                QuickKeys(
+                    paneId,
+                    client,
+                    state = current?.state.orEmpty(),
+                    changed = current?.changed ?: 0L,
+                    draftPresent = draftPresent,
+                )
+            }
         }
         usage.SheetIfOpen()
     }
