@@ -82,8 +82,8 @@ type Hub struct {
 	handler sync.WaitGroup
 }
 
-// subscriber is one accepted connection. lines is closed once closing is set, which happens under Hub.mu, so Post never
-// sends on a closed channel.
+// subscriber is one accepted connection, or one in-process subscription, which has no conn. lines is closed once
+// closing is set, which happens under Hub.mu, so Post never sends on a closed channel.
 type subscriber struct {
 	conn    net.Conn
 	lines   chan []byte
@@ -187,6 +187,48 @@ func (h *Hub) Close() {
 	<-ended
 }
 
+// Subscription is an in-process stream of the lines a socket stream gets. Subscribe opens one.
+type Subscription struct {
+	hub *Hub
+	sub *subscriber
+}
+
+// Subscribe opens a subscription to the lines the socket streams get: the hello line first, then each notice posted
+// while the subscription is open, each as the JSON line a socket stream writes. A subscription opened after Close has
+// no lines. A subscription that falls behind ends as a socket stream does.
+func (h *Hub) Subscribe() *Subscription {
+	sub := &subscriber{lines: make(chan []byte, queueLen)}
+	hello, err := encode(Line{Kind: KindHello, Host: h.host})
+	if err != nil {
+		h.logger.Error("encode desk hello", "error", err)
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err != nil || h.closed {
+		sub.closing = true
+		close(sub.lines)
+		return &Subscription{hub: h, sub: sub}
+	}
+	sub.lines <- hello
+	h.streams[sub] = struct{}{}
+	return &Subscription{hub: h, sub: sub}
+}
+
+// Lines returns the subscription's lines, each a JSON line with its newline. The channel closes when the subscription
+// ends: when Close is called, when the hub closes, or when the subscription falls behind.
+func (s *Subscription) Lines() <-chan []byte {
+	return s.sub.lines
+}
+
+// Close ends the subscription. Calling Close again does nothing.
+func (s *Subscription) Close() {
+	s.hub.mu.Lock()
+	defer s.hub.mu.Unlock()
+	s.hub.dropLocked(s.sub)
+	delete(s.hub.streams, s.sub)
+}
+
 // Input records the web input at input, unix seconds. The hub keeps the newest input it has been given.
 func (h *Hub) Input(input int64) {
 	h.mu.Lock()
@@ -282,16 +324,22 @@ func (h *Hub) dropLocked(sub *subscriber) {
 	close(sub.lines)
 }
 
-// stopReading makes s's pending and future reads fail, so its handler ends while its writer keeps flushing. Callers
-// hold h.mu.
+// stopReading makes s's pending and future reads fail, so its handler ends while its writer keeps flushing. A
+// subscription has no connection to read, so it is left alone. Callers hold h.mu.
 func (h *Hub) stopReading(sub *subscriber) {
+	if sub.conn == nil {
+		return
+	}
 	if err := sub.conn.SetReadDeadline(time.Now()); err != nil {
 		h.logger.Debug("stop reading desk stream", "error", err)
 	}
 }
 
-// closeConn closes s's connection, which fails a blocked write or read.
+// closeConn closes s's connection, which fails a blocked write or read. A subscription has no connection to close.
 func (h *Hub) closeConn(sub *subscriber) {
+	if sub.conn == nil {
+		return
+	}
 	h.closeConnRaw(sub.conn)
 }
 

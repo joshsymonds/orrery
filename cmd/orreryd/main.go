@@ -217,6 +217,10 @@ type options struct {
 	// and startSessions gives it to the manager as the name of the controller's own host. A test that calls
 	// startSessions directly leaves it "", which names no host.
 	orrery string
+	// fleet is the Fleet service's router and desk. serve sets it to the notice router and desk hub it builds, and
+	// startSessionSocket serves it on the relay and the session socket. A test that calls startSessions directly
+	// leaves it nil.
+	fleet *enginehost.Fleet
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -710,7 +714,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:     logger,
 	}, viewing), serveRelay(opts, home, logger, mirror))
 	router := hub.router
-	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
+	// The Fleet service records each host's seen panes on the router and streams the desk's lines.
+	opts.fleet = &enginehost.Fleet{Router: router, Desk: desk}
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
 	var callerWake atomic.Pointer[func()]
@@ -722,9 +727,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		DefaultServer: opts.defaultServer,
 		Home:          home,
 		Sessions:      opts.sessions,
-		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
-			router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
-		}, hub.viewer), callerWakeOnDone(&callerWake)},
+		Observers: []daemon.Observer{
+			func(transition daemon.Transition) { hub.observe(ctx, transition) },
+			autoseen.New(time.Now, logger, func(pane string, seen int64) {
+				router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
+			}, hub.viewer),
+			callerWakeOnDone(&callerWake),
+		},
 		Seen:      hookSeen(ctx, router, opts.orrery),
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
@@ -1245,6 +1254,8 @@ func (h *sessionHost) startSessionSocket(
 	getenv func(string) string,
 	logger *slog.Logger,
 ) error {
+	// The relay and the session socket serve the same cfg, so the Fleet service is served on both.
+	cfg.Fleet = opts.fleet
 	if err := h.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
 		h.shutdown()
 		return errors.Join(err, ln.Close())
