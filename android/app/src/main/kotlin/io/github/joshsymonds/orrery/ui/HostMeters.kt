@@ -76,7 +76,7 @@ fun MachineBand(host: String, stats: List<HostStat>?, otherHost: String?) {
             .padding(horizontal = OrreryTokens.Layout.pagePadPhone, vertical = OrreryTokens.Space.eight),
         verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
     ) {
-        HostLabel(otherHost ?: host)
+        HostLabel(otherHost ?: host, modifier = Modifier.testTag("machine-host"))
         if (otherHost != null) {
             Text(
                 text = "on another host: no meters",
@@ -89,24 +89,6 @@ fun MachineBand(host: String, stats: List<HostStat>?, otherHost: String?) {
                 HostMeters(stats)
             }
         }
-    }
-}
-
-/** The machine band's label: the host icon in the faint ink, then the host's name in bold. */
-@Composable
-private fun HostLabel(name: String) {
-    Row(
-        modifier = Modifier.testTag("machine-host").semantics(mergeDescendants = true) {},
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
-    ) {
-        BlockGlyph(BlockIcon.Host, OrreryTokens.Ink.four)
-        Text(
-            text = name,
-            color = OrreryTokens.Ink.two,
-            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-            maxLines = 1,
-        )
     }
 }
 

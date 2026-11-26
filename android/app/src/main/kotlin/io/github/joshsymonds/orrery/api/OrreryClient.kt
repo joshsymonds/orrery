@@ -133,6 +133,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsFreeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ProposeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage as QueuedMessageProto
@@ -268,6 +269,8 @@ data class Pane(
     val unbound: Boolean = false,
     /** The pane's @orrery_claude_session option, the Claude session bound to it; "" when unset. */
     val claudeSession: String = "",
+    /** True when the pane's host did not answer within its bound, so the pane is listed from its stored row alone. */
+    val unreachable: Boolean = false,
 )
 
 /** One tracked session's marks from Sessions.List: its [id], whether the owner archived it, and whether its conversation ended. */
@@ -459,7 +462,19 @@ data class SessionOlderPage(val items: List<ConversationItem>, val oldest: Long,
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
-data class HostStatus(val host: String, val stats: List<HostStat>)
+/** One host's status from the host status: its [name], its load and memory percents, and whether its agent answered. */
+data class HostEntry(val name: String, val loadPercent: Double, val memoryPercent: Double, val reachable: Boolean)
+
+/**
+ * The serving host's [host] and [stats], and its [hosts] status in serve's order: the controller first, then each host.
+ */
+data class HostStatus(val host: String, val stats: List<HostStat>, val hosts: List<HostEntry> = emptyList())
+
+/**
+ * Whether [host] is reachable by [hosts]: false only when an entry named [host] is not reachable. A host the list does
+ * not name, or an empty list, is reachable.
+ */
+fun reachableOf(hosts: List<HostEntry>, host: String): Boolean = hosts.none { it.name == host && !it.reachable }
 
 /** The grant that holds a pool member: its [project], its [command] (empty when the client sent none), and when it was granted. */
 data class Holder(val project: String, val command: List<String>, val since: Long, val stopping: Boolean)
@@ -553,6 +568,9 @@ data class PickRow(
     val prompt: Boolean,
 )
 
+/** One host and folder a headless session could start in: the orrery [host] name and the [dir] on it. */
+data class StartProposal(val host: String, val dir: String)
+
 /**
  * One check of a step in [round]. [stdout] and [stderr] are the redacted tails of a failed gate check, empty otherwise.
  * [detail] is the check's redacted detail, and [tailStdout] and [tailStderr] are its redacted tails, set for any check.
@@ -578,7 +596,7 @@ data class StepVerdictRow(val round: Int, val verdict: String, val reason: Strin
  * [readOnly] is whether the step is read-only, [role] is the role it plays, and
  * [summary] is its redacted summary. [gateName] is the gate its return is checked against, empty when it runs none,
  * and [verdicts] are its done-judge verdicts, in round order. [purpose] is what the step is for, empty when none
- * is stored.
+ * is stored. [host] is the orrery name of the host the step lives on, empty when none.
  */
 data class StepRow(
     val id: String,
@@ -603,6 +621,7 @@ data class StepRow(
     val gateName: String = "",
     val verdicts: List<StepVerdictRow> = emptyList(),
     val purpose: String = "",
+    val host: String = "",
 )
 
 /**
@@ -611,7 +630,8 @@ data class StepRow(
  * seconds, from its latest seen call; 0 when the owner has not seen it. [archived] is true while the owner has archived
  * the epic. [steering] is the id of the conversation that steers the epic, empty when none; [path] is the absolute
  * repository path. [paused] and [pauseSource] say whether, and why, the epic is paused. [parked] is why the epic is
- * parked, empty when it is not. [openQuestions] counts the questions still open.
+ * parked, empty when it is not. [openQuestions] counts the questions still open. [host] is the orrery name of the host
+ * the epic lives on, empty when none.
  */
 data class EpicRow(
     val id: String,
@@ -631,6 +651,7 @@ data class EpicRow(
     val pauseSource: String = "",
     val parked: String = "",
     val openQuestions: Int = 0,
+    val host: String = "",
 )
 
 /**
@@ -1399,6 +1420,14 @@ class OrreryClient(
                     level = stat.level,
                 )
             },
+            hosts = response.hostsList.map { entry ->
+                HostEntry(
+                    name = entry.name,
+                    loadPercent = entry.loadPercent,
+                    memoryPercent = entry.memoryPercent,
+                    reachable = entry.reachable,
+                )
+            },
         )
     }
 
@@ -1680,6 +1709,15 @@ class OrreryClient(
         }
     }
 
+    /** The host and folder proposals for [text] over the reachable hosts, in the order the server ranks them. */
+    fun propose(text: String): List<StartProposal> {
+        val request = ProposeRequest.newBuilder().setText(text).build()
+        val response = call(write = true) { picking.picker.propose(request, CLIENT_HEADERS) }
+        return response.proposalsList.map { proposal ->
+            StartProposal(host = proposal.host, dir = proposal.dir)
+        }
+    }
+
     fun run(token: String): String {
         val request = RunRequest.newBuilder().setToken(token).build()
         return call(write = true) { standard.picker.run(request, CLIENT_HEADERS) }.pane
@@ -1701,12 +1739,12 @@ class OrreryClient(
     }
 
     /**
-     * Starts a headless session in [dir] with [prompt] as its first message, under the client-chosen [id], and
-     * waits up to [composeReadTimeoutMillis] for the answer. Returns the id the server answers. Failures are as
-     * for [say].
+     * Starts a headless session in [dir] on [host], with [prompt] as its first message, under the client-chosen [id],
+     * and waits up to [composeReadTimeoutMillis] for the answer. [host] is an orrery host name, empty for the
+     * controller's own. Returns the id the server answers. Failures are as for [say].
      */
-    fun start(dir: String, prompt: String, id: String): String {
-        val request = StartRequest.newBuilder().setDir(dir).setPrompt(prompt).setId(id).build()
+    fun start(dir: String, prompt: String, id: String, host: String = ""): String {
+        val request = StartRequest.newBuilder().setDir(dir).setPrompt(prompt).setId(id).setHost(host).build()
         return call(write = true) { compose.control.start(request, CLIENT_HEADERS) }.id
     }
 
@@ -2024,6 +2062,7 @@ class OrreryClient(
             pauseSource = pauseSource,
             parked = parked,
             openQuestions = openQuestions,
+            host = host,
         )
 
     private fun ContractProto.toContractRow(): ContractRow =
@@ -2369,6 +2408,7 @@ class OrreryClient(
             gateName = gateName,
             verdicts = verdictsList.map { it.toStepVerdictRow() },
             purpose = purpose,
+            host = host,
         )
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
@@ -2580,13 +2620,14 @@ class OrreryClient(
             putOff = putOff,
             unbound = unbound,
             claudeSession = claudeSession,
+            unreachable = unreachable,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
     private fun HeadlessSessionProto.toHeadlessPane(): Pane =
         Pane(
             id = id,
-            host = "",
+            host = host,
             session = "",
             window = 0,
             pane = 0,
