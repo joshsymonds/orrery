@@ -9,7 +9,7 @@ import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { HostStatusResponseSchema, type HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
-import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until } from "./testwait";
 
 const now = 1000;
@@ -262,7 +262,7 @@ test("HostsWebStarter app: N and New open the Starter with the prompt first, and
   withApp(t.signal, async ({ container, server }) => {
     await press("N");
     const starter = starterOf(container);
-    assert.equal(document.activeElement, starterField(container, "Prompt"), "the prompt has focus");
+    assertSame(document.activeElement, starterField(container, "Prompt"), "the prompt has focus");
     assertNone(starter.querySelector('input[aria-label="Folder"]'), "no folder is drawn before a Propose");
     assertNone(starter.querySelector('select[aria-label="Host"]'), "no host is drawn before a Propose");
     assert.equal(starter.querySelector(".inote")?.textContent, "Press ⏎ and Orrery proposes where to run it.");

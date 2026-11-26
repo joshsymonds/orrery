@@ -2254,7 +2254,7 @@ test("FixtureTransport: page/new-form closes the finder and opens the Starter wi
     (root) => starterFolder(root) === "/home/owner/code/tidepool",
     (root) => {
       assertNoFailure(root);
-      assert.equal(newPanel(root), null, "the finder closes");
+      assertNone(newPanel(root), "the finder closes");
     },
   );
 });
