@@ -109,4 +109,7 @@ export const unnamed: Readonly<Record<string, UnnamedEntry>> = {
   // HostLabel's down state is the host beside the word unreachable, which round 6 draws within InboxRow's Unreachable state, so
   // HostLabel stands for it.
   "host-label/down": { replacement: "HostLabel", epic: "F2" },
+  // UnreachableDock draws the line a conversation on a host that does not answer has in place of its dock: its words, with no
+  // box, queue or control. Round 6 draws it in pane-host-unreachable, so that scenario stands for it.
+  "unreachable-dock/unreachable": { replacement: "pane-host-unreachable", epic: "F3" },
 };

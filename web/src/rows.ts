@@ -48,6 +48,9 @@ export interface Row {
   endedAt?: number;
   // Whether the pane is unbound (Pane.unbound). Absent reads as false, and always false for a session or headless row.
   unbound?: boolean;
+  // Whether the row's host does not answer: a pane's Pane.unreachable. Absent reads as false, and a session or headless
+  // row is marked by app.tsx from the host status, so it is never set here for one.
+  unreachable?: boolean;
 }
 
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
@@ -98,6 +101,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       ended: owner?.ended ?? false,
       endedAt: owner ? Number(owner.endedAt) : 0,
       unbound: pane.unbound,
+      unreachable: pane.unreachable,
     });
   }
   for (const session of sessions) {

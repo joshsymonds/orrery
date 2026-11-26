@@ -67,6 +67,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
       ended: false,
       endedAt: 0,
       unbound: false,
+      unreachable: false,
     },
   ]);
 });
@@ -162,6 +163,24 @@ test("a session row reads a label when one is set and treats non-numeric times a
   assert.equal(row?.changed, 7);
   assert.equal(row?.seen, 0);
   assert.equal(row?.unseen, true);
+});
+
+test("a pane row carries Pane.unreachable, and no session or headless row is marked unreachable by its list", () => {
+  const rows = rowsFrom(
+    [makePane({ id: "%30", host: "box", unreachable: true }), makePane({ id: "%31", host: "box" })],
+    [makeSession({ id: "sess-1", pane: "" })],
+    [makeHeadless({ id: "head-3", host: "box" })],
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.unreachable === true]),
+    [
+      ["pane:box:%30", true],
+      ["pane:box:%31", false],
+      ["session:sess-1", false],
+      ["session:head-3", false],
+    ],
+  );
 });
 
 test("a row carries serve's ended and endedAt from its session, and a pane's unbound, with false and zero when a pane has no owner", () => {

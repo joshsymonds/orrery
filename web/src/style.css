@@ -973,6 +973,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
 .statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
 .dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+/* A conversation on a host that does not answer has this line in place of its dock: grey ink, never stopped's tone. */
+.unreachable-dock .statebar[data-state="unreachable"] .word { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
 .statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statebar .what .name { color: var(--o-role-ref); }
 .statebar .clock { flex: none; color: var(--state); }
