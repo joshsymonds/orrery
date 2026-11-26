@@ -35,6 +35,8 @@ export interface InboxProps {
   onNew: () => void;
   unread: number;
   onNotices: () => void;
+  // onHosts is the head's Hosts control, which opens the hosts view. The head draws it only when given.
+  onHosts?: () => void;
   onKeys?: () => void;
   // onOpenProject is the press on a project's head, which opens the project's page.
   onOpenProject?: (key: string) => void;
@@ -50,8 +52,9 @@ export interface InboxProps {
   band?: ComponentChildren;
 }
 
-// Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search, the bell and New;
-// under it the two chips, each only when its count is not zero, the search field while search is open, and the body.
+// Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search, the Hosts control when
+// it is given, the bell and New; under it the two chips, each only when its count is not zero, the search field while
+// search is open, and the body.
 // The head's bell counts the unread notices in the new role, and opens the notice centre. The body is loading, the
 // error, "Nothing is running." when nothing is listed, "Nothing matches" when a search finds no project, or each project
 // as a card. Archived draws its title and count in place of the chips. The foot leads to Archived, or back.
@@ -77,6 +80,7 @@ export function Inbox({
   onNew,
   unread,
   onNotices,
+  onHosts,
   onKeys,
   onOpenProject,
   onCollapse,
@@ -102,6 +106,17 @@ export function Inbox({
           >
             <Icon name="search" />
           </button>
+          {onHosts !== undefined && (
+            <button
+              type="button"
+              class="btn quiet icon-only"
+              aria-label="Hosts"
+              title="Hosts"
+              onClick={() => onHosts()}
+            >
+              <Icon name="host" />
+            </button>
+          )}
           <button
             type="button"
             class="btn quiet icon-only badged"

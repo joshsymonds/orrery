@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 
 import type { ConversationContext, HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { Icon } from "./glyphs";
+import { Meter } from "./meter";
 import { context } from "./tokens/rules";
 
 // StripHost is the host a strip names: its name and the stats it draws. other marks a host this server cannot read: the
@@ -64,18 +65,6 @@ export function PaneStrip({
       )}
       {context !== undefined && <ContextMeter context={context} />}
     </div>
-  );
-}
-
-// Meter draws one host stat: its name, its bar, and its value, in the series the stat takes from its place among the
-// host's stats and at its level. The bar is filled to its percent; a stat with no percent draws an empty bar line.
-function Meter({ stat, series }: { stat: HostStat; series: number }): JSX.Element {
-  return (
-    <span class={`meter series-${series} level-${stat.level}`}>
-      <span class="name">{stat.label}</span>
-      <span class="bar">{stat.percent !== undefined && <i style={{ width: `${stat.percent}%` }} />}</span>
-      <span class="value">{stat.value}</span>
-    </span>
   );
 }
 

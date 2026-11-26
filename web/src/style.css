@@ -2094,6 +2094,15 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .sheet .phopt[aria-current="true"] { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .read.accounts-read { overflow-y: auto; }
 
+/* The hosts view, opened from the inbox head: one row a host, its label, then under it its load and memory meters and whether it
+   answers. A host that does not answer draws its glyph, its label marked down, and the word that it draws no numbers. */
+.read.hosts-read { overflow-y: auto; }
+.hosts { display: grid; gap: var(--o-space-4); min-width: 0; }
+.host-row { display: grid; grid-template-columns: var(--o-size-glyph) max-content minmax(0, 1fr) auto; align-items: center; column-gap: var(--o-space-12); padding: var(--o-space-8); border-radius: var(--o-radius-2); }
+.host-row .stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--o-space-12); min-width: 0; }
+.host-row .reach, .host-row .none { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.host-row[data-state="unreachable"] .host-label { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+
 /* The held card (D12, D14, D15): a card on the side's ground, set into the conversation, with a spine of the open colour down
    its left edge. Fold back sits at the card's left on that spine, in the same colour, and its head reads the mark, the kind
    and the title of the thing it holds. The body scrolls on its own. The phone's sheet (D5, D6, D15) is on the side's ground,

@@ -38,6 +38,7 @@ import { type HeldMove, type HeldThing, heldMove } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { HostLabel } from "./hostlabel";
+import { HostsView } from "./hostsview";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
 import { ageText, InboxRow, type RowMore } from "./inboxrow";
@@ -390,6 +391,9 @@ export function App({
   // Whether the accounts and routes page is open: the gear in the inbox foot opens it, and the address #/accounts names it.
   // It takes the conversation's place, and any navigation shuts it.
   const [accountsOpen, setAccountsOpen] = useState(false);
+  // Whether the hosts view is open: the inbox head's Hosts control opens it, and the address #/hosts names it. Like the
+  // accounts page it takes the conversation's place, and any navigation shuts it.
+  const [hostsOpen, setHostsOpen] = useState(false);
   // The row the palette answered, which the cursor moves to once the loaded rows hold it: the pane Picker.Run
   // answered, or the session Control.Start started.
   const [pending, setPending] = useState<PendingTarget | null>(null);
@@ -572,8 +576,9 @@ export function App({
       arm();
       renderAddress();
       setFlyout(null);
-      // An opening leaves the accounts page, so the conversation's place is the entry's again.
+      // An opening leaves the accounts page and the hosts view, so the conversation's place is the entry's again.
       setAccountsOpen(false);
+      setHostsOpen(false);
       action(...args);
     };
   // keyMoved wraps a cursor key's move: the first cursor key after an arm pushes and disarms, and the later ones
@@ -586,8 +591,9 @@ export function App({
       engaged.current = true;
       renderAddress();
       setFlyout(null);
-      // A cursor move leaves the accounts page too, as an opening does.
+      // A cursor move leaves the accounts page and the hosts view too, as an opening does.
       setAccountsOpen(false);
+      setHostsOpen(false);
       action(...args);
     };
   // adopt records an applied address. It reports nothing, and arms the next cursor key. Its render is the one whose
@@ -715,7 +721,8 @@ export function App({
   const middleRow = designShown ? designLiveRow : contractShown ? contractLiveRow : (cursorRow ?? steererRow);
   // The row the seen watch rests on: the cursor's row, or while a contract is open, the conversation the middle draws.
   // The accounts page covers the conversation, so the seen watch rests on no row while it is open.
-  const watchedRow = accountsOpen ? null : designShown ? designLiveRow : contractShown ? contractLiveRow : cursorRow;
+  const watchedRow =
+    accountsOpen || hostsOpen ? null : designShown ? designLiveRow : contractShown ? contractLiveRow : cursorRow;
   const middleKey = middleRow?.key ?? "";
   const readerKey = middleKey !== "" ? middleKey : cursorStepKey;
   // The middle conversation's session totals, the one read the title row's readout and the Usage panel both draw. The
@@ -778,6 +785,7 @@ export function App({
     !contractShown &&
     !designShown &&
     !accountsOpen &&
+    !hostsOpen &&
     listPanel !== null &&
     listPanel.key === cursorRowKey
       ? listPanel.panel
@@ -793,7 +801,9 @@ export function App({
           ? { kind: "contract", id: contract.id }
           : accountsOpen
             ? { kind: "accounts" }
-            : pageDrawn
+            : hostsOpen
+              ? { kind: "hosts" }
+              : pageDrawn
               ? shownEntry(cursorItem, shownPage, listShown)
               : null,
   };
@@ -1754,6 +1764,16 @@ export function App({
     setAccountsOpen(true);
   });
 
+  // openHosts opens the hosts view, from the inbox head's Hosts control. It takes the conversation's place as the accounts
+  // page does, so an open project page, contract or design card shuts, and so does the usage popover. It is a navigation.
+  const openHosts = navigated(() => {
+    setProjectKey(null);
+    setOpenedContract(null);
+    setOpenedDesign(null);
+    setUsageOpen(false);
+    setHostsOpen(true);
+  });
+
   // usageSpend is the seven days' spend the band's line and the usage popover's foot total, or null until a Spend read
   // lands.
   const usageSpend = usage.spend === null ? null : spendTotals(usage.spend, usage.registry);
@@ -1942,17 +1962,21 @@ export function App({
     }
     setOpenedContract(null);
     setOpenedDesign(null);
-    // The accounts page is drawn from no list, so its address is applied at once, and holds no pending entry.
+    // The accounts page and the hosts view are drawn from no list, so their addresses are applied at once, and hold no
+    // pending entry.
     const accountsAddress = address.entry?.kind === "accounts";
+    const hostsAddress = address.entry?.kind === "hosts";
     setAccountsOpen(accountsAddress);
-    pendingOpen.current = address.entry === null || accountsAddress ? null : { view: address.view, entry: address.entry };
+    setHostsOpen(hostsAddress);
+    pendingOpen.current =
+      address.entry === null || accountsAddress || hostsAddress ? null : { view: address.view, entry: address.entry };
     if (address.entry === null && !first && epicEntry !== null) {
       setEpicPage(closedEpicPage);
     }
     if (address.entry === null && !wide) {
       setRowOpened(false);
     }
-    if (address.entry === null || accountsAddress) {
+    if (address.entry === null || accountsAddress || hostsAddress) {
       adopt();
     }
   }, [addressForm]);
@@ -1999,8 +2023,9 @@ export function App({
         adopt();
         return;
       }
-    } else if (entry.kind !== "accounts") {
-      // The accounts page opens in the address effect, which applies its address at once, so no pending entry is one.
+    } else if (entry.kind !== "accounts" && entry.kind !== "hosts") {
+      // The accounts page and the hosts view open in the address effect, which applies their addresses at once, so no
+      // pending entry is one.
       const item = flat.find((candidate) => candidate.key === addressKey(entry));
       if (item !== undefined) {
         selectItem(item);
@@ -2275,6 +2300,8 @@ export function App({
   };
   // closeAccounts is the accounts page's Back under 760px: the inbox draws again, as a row's page's Back does.
   const closeAccounts = navigated(() => backToInbox());
+  // closeHosts is the hosts view's Back under 760px, which returns to the inbox as the accounts page's does.
+  const closeHosts = navigated(() => backToInbox());
 
   // replyBoxTarget is the row whose reply box is focused, when it is the cursor's or the pinned row's, with the row's
   // state at the press. A step's box and any other box are none.
@@ -2306,7 +2333,8 @@ export function App({
     !contractShown &&
     !designShown &&
     shownProject === null &&
-    !accountsOpen;
+    !accountsOpen &&
+    !hostsOpen;
   // The rail's tiles, and the lineage the tiles hang under them. The lineage marks open the design whose card is held, else
   // the contract whose panel is open, else the epic whose panel is open (panelOpen), and nothing while a project page is
   // shown or no panel is open.
@@ -2534,6 +2562,7 @@ export function App({
     !talking &&
     shownProject === null &&
     !accountsOpen &&
+    !hostsOpen &&
     openThing !== null &&
     middleRow !== null;
   // The list hides under 760px while the opened row's, step's, epic's, contract's or project's page draws alone, and
@@ -2543,6 +2572,7 @@ export function App({
     (noticesPage ||
       shownProject !== null ||
       accountsOpen ||
+      hostsOpen ||
       (rowOpened && (cursorRow !== null || cursorStep !== null)) ||
       panelOpen ||
       contractPageShown ||
@@ -2551,7 +2581,7 @@ export function App({
   // unless a page draws alone over it. A project page or the notice centre covers the cursor row unless the list is on
   // screen, and A, x and e do not act on a covered row.
   const listOnScreen = wide ? !collapsed : !listHides;
-  const rowCovered = (shownProject !== null || noticesOpen || accountsOpen) && !listOnScreen;
+  const rowCovered = (shownProject !== null || noticesOpen || accountsOpen || hostsOpen) && !listOnScreen;
 
   // The keys read this render's state and call this render's actions, so the document listener runs the latest context.
   const keyContext: KeyContext = {
@@ -3068,10 +3098,12 @@ export function App({
     !noticesPage &&
     (sheetHeld || (!epicPageShown && !(contractPageShown && !sheeted))) &&
     shownProject === null &&
-    !accountsOpen
+    !accountsOpen &&
+    !hostsOpen
       ? middleRow
       : null;
-  const readerStep = pageDrawn && !noticesPage && shownProject === null && !accountsOpen ? cursorStep : null;
+  const readerStep =
+    pageDrawn && !noticesPage && shownProject === null && !accountsOpen && !hostsOpen ? cursorStep : null;
   // stepPageStrip is the strip under the reader column's step title row, which the column asks for only while it shows a
   // step: the step's host.
   const stepPageStrip = () => (readerStep === null ? undefined : stepStrip(readerStep.step));
@@ -3431,6 +3463,7 @@ export function App({
             onNew={() => setPickerOpen(true)}
             unread={noticeLog.unread}
             onNotices={() => setNoticesOpen(true)}
+            onHosts={openHosts}
             onKeys={() => setHelpOpen(true)}
             onOpenProject={openProject}
             onCollapse={wide ? toggleInbox : undefined}
@@ -3446,6 +3479,12 @@ export function App({
             <AccountsPage clients={clients} narrow={!wide} onBack={closeAccounts} />
           </section>
         )}
+        {hostsOpen && !noticesPage && (
+          <section class="read hosts-read" aria-label="Hosts">
+            <TitleRow crumbs={[{ label: "Hosts" }]} onBack={wide ? undefined : closeHosts} />
+            <HostsView status={host} />
+          </section>
+        )}
         <Sheet open={sheeted} title={contractLiveRow?.label ?? ""} onClose={() => setTalking(false)}>
           {sessionAtDesk ? (
             <section class={`read ${pageClasses(epicPage.move)}`} aria-label="session" ref={pageRef}>
@@ -3459,6 +3498,7 @@ export function App({
           !noticesPage &&
           shownProject === null &&
           !accountsOpen &&
+          !hostsOpen &&
           epicEntry !== null &&
           !contractShown &&
           !designShown &&
@@ -4052,7 +4092,7 @@ function shownEntry(item: Item | null, epicPage: EpicPageState, list: ListPanelK
 }
 
 // addressKey is the key the list gives the row or step an address names, which the cursor is moved to.
-function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" | "accounts" }>): string {
+function addressKey(entry: Exclude<Entry, { kind: "epic" | "project" | "contract" | "accounts" | "hosts" }>): string {
   switch (entry.kind) {
     case "session":
       return `session:${entry.id}`;
