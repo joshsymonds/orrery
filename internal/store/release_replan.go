@@ -175,36 +175,35 @@ func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, a
 	})
 }
 
-// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, when the release integrator or
-// a release reviewer stopped it: the attempt of its parked release node run holds a round of the release integrator that
-// returned blocked, or a review that refused the candidate. It stores a replan release run of that round or review, as
-// the integrator's own replan stores one, turns the release node run running at the same attempt, answers each open park
-// question retry and ends the park as RetryEpic does. head stays stopped until the release kind's next decision sends
-// the release back to planning with the round's or the review's report (ReplanRelease), so a candidate that needs a
-// change of its own is planned again instead of resumed as it was. Any other stopped release is a RefusalError, and only
-// ReleaseEpic, or a planner's resume_release action that resumeReleaseByPlanner allows, resumes it.
-func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) error {
-	epic := head.ID
-	refusal := RefusalError(fmt.Sprintf(
-		"epic %s is stopped; retry ends a stopped release only when its release integrator or reviewer stopped it",
-		epic))
-	parked, err := parkedReleaseRun(ctx, queries, epic)
-	var refused RefusalError
-	if errors.As(err, &refused) {
-		return refusal
-	}
+// retryStoppedRelease ends the stop of head's release for a retry, in the caller's write, whatever stopped the release: the
+// release node run parked at the stop is replanned (replanStoppedRelease). head stays stopped until the release kind's next
+// decision sends the release back to planning with the stop's reason (ReplanRelease), so a candidate that needs a change of
+// its own is planned again instead of resumed as it was. An epic with no parked release run is a RefusalError. Only
+// ReleaseEpic, or a planner's resume_release action that resumeReleaseByPlanner allows, resumes a stopped release as it was.
+func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic, at time.Time) error {
+	parked, err := parkedReleaseRun(ctx, queries, head.ID)
 	if err != nil {
 		return err
 	}
+	return replanStoppedRelease(ctx, queries, head.ID, parked, at)
+}
+
+// replanStoppedRelease sends the stopped release of epic back to planning for the stop its parked release node run holds,
+// in the caller's write. It stores a replan release run of the run's attempt, from the release tip the stop came from
+// (stopStart), with the run's output as its reason, which is the reason the release stopped with. It turns the run running
+// at the same attempt, its outcome and output cleared, answers each open park question retry, and ends the park, as
+// RetryEpic does. The release kind's next decision sends the release back to planning with that reason (kinds.replanAction).
+func replanStoppedRelease(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, parked NodeRun, at time.Time,
+) error {
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
 		return err
 	}
-	stop, ok := replanOfStop(runs, parked.Attempt)
-	if !ok {
-		return refusal
-	}
-	if recordErr := recordReplan(ctx, queries, epic, stop); recordErr != nil {
+	if recordErr := recordRelease(ctx, queries, epic, ReleaseRun{
+		Part: ReleasePartReplan, Attempt: parked.Attempt, Step: replanStepName, Start: stopStart(runs, parked.Attempt),
+		Reason: parked.Output, At: at,
+	}); recordErr != nil {
 		return recordErr
 	}
 	if _, unparkErr := queries.UnparkEpicNodeRun(ctx, sqlcgen.UnparkEpicNodeRunParams{
@@ -218,26 +217,56 @@ func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sql
 	return endPark(ctx, queries, epic)
 }
 
-// replanOfStop returns the release run a retry replans the release stopped at attempt from, as runs hold it: the round of
-// the release integrator that returned blocked at attempt, else a review at attempt that refused the candidate, with the
-// candidate it refused as its start. It reports false when runs hold neither.
-func replanOfStop(runs []ReleaseRun, attempt int64) (ReleaseRun, bool) {
+// stopStart returns the release tip a stop at attempt came from, as the replan of the stop records it: the start of the
+// blocked round of the release integrator at attempt, else the candidate a release reviewer refused at attempt, which is its
+// start or, when it has none, its head. It returns "" when runs hold neither at attempt.
+func stopStart(runs []ReleaseRun, attempt int64) string {
 	blocked := slices.IndexFunc(runs, func(run ReleaseRun) bool {
 		return run.Part == ReleasePartIntegrator && run.Attempt == attempt && !run.Passed &&
 			run.End == integratorReturnedEnd
 	})
 	if blocked >= 0 {
-		return runs[blocked], true
+		return runs[blocked].Start
 	}
 	refused := slices.IndexFunc(runs, func(run ReleaseRun) bool {
 		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
 	})
 	if refused < 0 {
-		return ReleaseRun{}, false
+		return ""
 	}
-	review := runs[refused]
-	if review.Start == "" {
-		review.Start = review.Head
+	if runs[refused].Start != "" {
+		return runs[refused].Start
 	}
-	return review, true
+	return runs[refused].Head
+}
+
+// parkedStoppedRelease returns the parked release node run of head and true when head is in phase stopped and holds one.
+// It returns false, with no error, for an epic that is not stopped or holds no parked release run.
+func parkedStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (NodeRun, bool, error) {
+	if head.Phase != PhaseStopped {
+		return NodeRun{}, false, nil
+	}
+	parked, err := parkedReleaseRun(ctx, queries, head.ID)
+	var refusal RefusalError
+	if errors.As(err, &refusal) {
+		return NodeRun{}, false, nil
+	}
+	if err != nil {
+		return NodeRun{}, false, err
+	}
+	return parked, true, nil
+}
+
+// ownerStoppedRelease reports whether head is stopped at a release its owner stopped: the attempt of its parked release node
+// run holds the owner's stop (ownerStoppedAt). An epic with no parked release run is not.
+func ownerStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (bool, error) {
+	parked, stopped, err := parkedStoppedRelease(ctx, queries, head)
+	if err != nil || !stopped {
+		return false, err
+	}
+	runs, err := readReleaseRuns(ctx, queries, head.ID)
+	if err != nil {
+		return false, err
+	}
+	return ownerStoppedAt(runs, parked.Attempt), nil
 }

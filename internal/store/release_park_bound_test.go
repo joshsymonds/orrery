@@ -17,10 +17,8 @@ func releaseSteps() []EpicReleaseStep {
 	}
 }
 
-// releaseFailedRefusal is the refusal of a retry_epic action on claimEpic while its release is stopped at a failed step: a
-// retry ends a stopped release only when its release integrator or reviewer stopped it.
-const releaseFailedRefusal = "epic " + claimEpic + " is stopped; retry ends a stopped release only when its release " +
-	"integrator or reviewer stopped it"
+// missingTaskRefusal is the refusal of a send_back action on claimEpic that names a task the epic does not hold.
+const missingTaskRefusal = "task 9 of epic " + claimEpic + " does not exist"
 
 // releaseParkReason is the reason of the release stop of claimEpic at the blocked round of generation n.
 func releaseParkReason(n int64) string {
@@ -45,7 +43,7 @@ func integratorRoundStop(t *testing.T, s *Store, generation int64, reason string
 }
 
 // releaseStepStop stops the release of claimEpic at its publish step, which failed at attempt 1, with reason. That is a
-// release_step stop, since the step's undo is not none, and a retry_epic on it is refused.
+// release_step stop, and a retry_epic on it replans the release.
 func releaseStepStop(t *testing.T, s *Store, reason string) {
 	t.Helper()
 	ctx := context.Background()
@@ -133,7 +131,8 @@ func TestReplanRerunsStepsParkOutsideStreak(t *testing.T) {
 }
 
 // TestReplanRerunsStepsParkRefusalsNotBound checks that refused actions on a release_step park do not bound it: two
-// refused retry_epic actions leave the park the planner's, with the refusal of the last as its one pending trigger.
+// refused send_back actions, each naming a task the epic does not hold, leave the park the planner's, with the refusal of
+// the last as its one pending trigger.
 func TestReplanRerunsStepsParkRefusalsNotBound(t *testing.T) {
 	t.Parallel()
 	s := openEpicStore(t)
@@ -141,7 +140,7 @@ func TestReplanRerunsStepsParkRefusalsNotBound(t *testing.T) {
 	reason := "the publish step failed"
 	releaseStepStop(t, s, reason)
 	for range 2 {
-		answerPark(t, s, retryEpicAction("the publish step runs again"))
+		answerPark(t, s, EpicActionInput{Kind: ActionSendBack, Task: 9, Reason: "the publish step runs again"})
 	}
 
 	if epic := closeRow(t, s, claimEpic); epic.ParkClass != ParkClassReleaseStep || epic.Parked != reason {
@@ -151,7 +150,7 @@ func TestReplanRerunsStepsParkRefusalsNotBound(t *testing.T) {
 	if got := questionsOf(t, s); len(got) != 0 {
 		t.Errorf("questions after two refusals = %+v, want none: the planner answers a release stop", got)
 	}
-	want := []string{"planner retry epic refused: " + releaseFailedRefusal}
+	want := []string{"planner send back task 9 refused: " + missingTaskRefusal}
 	if got := pendingCauses(t, s); !reflect.DeepEqual(got, want) {
 		t.Errorf("pending triggers after two refusals = %v, want %v", got, want)
 	}

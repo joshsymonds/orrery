@@ -162,9 +162,9 @@ func (s *Store) StopEpic(ctx context.Context, epic string, maker Maker, at time.
 // ends a stall park also adds the pending trigger stall-retry:<latest stall seq>, which wakes the planner. The write
 // appends one retry action made by maker at at. An unknown epic is ErrNoEpic, an epic that is not parked is a
 // RefusalError, and an epic in phase met_at_base, which the owner ended, is a RefusalError that changes nothing. An epic
-// in phase stopped is retried only when its release integrator or a release reviewer stopped it, which sends its release
-// back to planning (retryStoppedRelease); any other stopped epic is a RefusalError that changes nothing, since retry does
-// not end its release park.
+// in phase stopped is retried by replanning its release, whatever stopped it, and whoever stopped it, which sends its
+// release back to planning (retryStoppedRelease). A stopped epic with no parked release run is a RefusalError that changes
+// nothing.
 func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := retryEpicIn(ctx, queries, epic, at); err != nil {
@@ -176,7 +176,8 @@ func (s *Store) RetryEpic(ctx context.Context, epic string, maker Maker, at time
 }
 
 // retryEpicIn ends the park of epic in the caller's write, as RetryEpic does. A retry that ends a stall park also adds
-// the pending trigger that wakes the planner (insertStallRetryTrigger), stamped at at.
+// the pending trigger that wakes the planner (insertStallRetryTrigger), stamped at at. A stopped epic's release is
+// replanned instead (retryStoppedRelease), whoever stopped it.
 func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string, at time.Time) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
@@ -186,7 +187,7 @@ func retryEpicIn(ctx context.Context, queries *sqlcgen.Queries, epic string, at 
 		return metAtBaseRefusal(epic, head.Parked)
 	}
 	if head.Phase == PhaseStopped {
-		return retryStoppedRelease(ctx, queries, head)
+		return retryStoppedRelease(ctx, queries, head, at)
 	}
 	if head.Parked == "" {
 		return RefusalError(fmt.Sprintf("epic %s is not parked", epic))
