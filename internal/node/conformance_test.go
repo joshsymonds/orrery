@@ -62,36 +62,90 @@ func conformanceCaseTable() []conformanceCase {
 	}
 }
 
-// localEnv returns the env of hostexec.NewLocal: a root and a state directory of its own, which the test removes.
+// localEnv returns the env of hostexec.NewLocal: a root and a state directory of its own, which the test removes. The
+// state directory is the gates directory of a state directory, as it is for remoteEnv.
 func localEnv(t *testing.T) conformanceEnv {
 	t.Helper()
 	return conformanceEnv{
 		host:     hostexec.NewLocal(),
 		root:     t.TempDir(),
-		state:    shortStateDir(t),
+		state:    gatesDir(t, shortStateDir(t)),
 		launched: new([]string),
 	}
 }
 
 // remoteEnv returns the env of a RemoteHost over an agent that serves on a loopback listener until the test ends. The
-// agent's allowed directories are the env's root and state directory, and the Client reaches the agent through the
-// fake WhoIs of the agent tests.
+// agent's allowed directories are the env's root and the agent's state directory, and the Client reaches the agent
+// through the fake WhoIs of the agent tests. The env's state directory is the gates directory under the agent's state
+// directory, as gates lie on a host, so a gate's holder is not one that the agent finds by its session. The Client's
+// clock fires each retry wait as soon as it is set, until the test ends.
 func remoteEnv(t *testing.T) conformanceEnv {
 	t.Helper()
 	addr, dirs := startV2Agent(t)
+	clock := newManualClock()
+	ctx, cancel := context.WithCancel(context.Background())
+	fired := make(chan struct{})
+	go func() {
+		defer close(fired)
+		fireRetries(ctx, clock)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-fired
+	})
 	client := NewClient(ClientConfig{
 		Name:    "remote",
 		Address: addr,
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
-		Clock:   newManualClock(),
+		Clock:   clock,
 		Secret:  testSecret,
 	})
-	return conformanceEnv{host: NewRemoteHost(client), root: dirs.root, state: dirs.state, launched: new([]string)}
+	return conformanceEnv{
+		host:     NewRemoteHost(client),
+		root:     dirs.root,
+		state:    gatesDir(t, dirs.state),
+		launched: new([]string),
+	}
+}
+
+// gatesDir makes the gates directory under the state directory state, and returns its path.
+func gatesDir(t *testing.T, state string) string {
+	t.Helper()
+	dir := filepath.Join(state, "gates")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	return dir
+}
+
+// fireRetries fires each retry wait that clock sets, at once, until ctx ends. A Client waits a retry interval between
+// the questions its end watch asks of a gate's holder, so firing it asks again at once, and no case waits on time.
+func fireRetries(ctx context.Context, clock *manualClock) {
+	for {
+		clock.mu.Lock()
+		var due []*manualTimer
+		clock.pending = slices.DeleteFunc(clock.pending, func(timer *manualTimer) bool {
+			if timer.d != testBound/retriesPerBound {
+				return false
+			}
+			due = append(due, timer)
+			return true
+		})
+		clock.mu.Unlock()
+		for _, timer := range due {
+			timer.fire()
+		}
+		select {
+		case <-clock.set:
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // TestRemoteHostConformance runs each case of the table against hostexec.NewLocal and against a RemoteHost, and each case
-// must pass under both. The held cases wait only on the child's own steps, through FIFOs, and never on a clock.
+// must pass under both. The held cases wait only on the child's own steps, through FIFOs, and never on a real clock.
 func TestRemoteHostConformance(t *testing.T) {
 	for _, c := range conformanceCaseTable() {
 		t.Run(c.name, func(t *testing.T) {

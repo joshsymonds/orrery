@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"path/filepath"
 	"time"
 
@@ -253,7 +254,76 @@ func (c *Client) attachGate(ctx context.Context, link *nodeLink) (*holder.Proces
 // gateLink returns the holder.Link of the gate holder that serves dir on the agent, launched under scope. Its end is the
 // agent's end op for the session, which the holder's directory name gives.
 func (c *Client) gateLink(dir, scope string) *nodeLink {
-	return &nodeLink{client: c, id: filepath.Base(dir), holderDir: dir, scope: scope, done: make(chan struct{})}
+	return &nodeLink{
+		client:    c,
+		id:        filepath.Base(dir),
+		holderDir: dir,
+		scope:     scope,
+		lost:      make(chan struct{}, 1),
+		done:      make(chan struct{}),
+	}
+}
+
+// watchGateEnd learns the end of a gate's holder, and then closes done. The agent's end op cannot name a gate's holder,
+// since it finds a holder by its session under the agent's own state directory, so the watch asks by the holder's
+// directory instead. Each time a connection to the holder closes, as the holder's end closes it, and after each retry
+// interval, it asks the agent whether the holder lives. Once the holder does not, it reads the exit record the holder
+// left, and closes done.
+func (l *nodeLink) watchGateEnd() {
+	client := l.client
+	for {
+		select {
+		case <-l.lost:
+		case <-client.cfg.Clock.After(client.cfg.Bound / retriesPerBound):
+		}
+		exit, ended, err := client.gateEnded(l.holderDir)
+		if err != nil {
+			client.cfg.Logger.Debug("node: gate end watch", "host", client.cfg.Name, "dir", l.holderDir, "err", err)
+			continue
+		}
+		if ended {
+			if exit != nil {
+				l.exit, l.found = *exit, true
+			}
+			close(l.done)
+			return
+		}
+	}
+}
+
+// gateEnded reports whether the gate holder of dir has ended on the remote machine, and the exit record it left once it
+// has, or nil when it left none.
+func (c *Client) gateEnded(dir string) (*hostexec.Exit, bool, error) {
+	ctx := context.Background()
+	alive, err := c.HolderAlive(ctx, dir)
+	if err != nil || alive {
+		return nil, false, err
+	}
+	resp, err := c.hostCall(ctx, Request{Version: Version, Op: OpExitRecord, HolderDir: dir})
+	if err != nil {
+		return nil, false, err
+	}
+	return resp.Exit, true, nil
+}
+
+// gateConn is a connection that a gate's link dialed to the holder. Its close sends on the link's lost, so the link's end
+// watch asks whether the holder has ended: a Process closes its connection when the holder's stream ends, and when the
+// connection fails.
+type gateConn struct {
+	net.Conn
+	lost chan<- struct{}
+}
+
+// Close closes the connection, and tells the end watch that a connection to the holder has closed.
+func (c *gateConn) Close() error {
+	select {
+	case c.lost <- struct{}{}:
+	default:
+	}
+	if err := c.Conn.Close(); err != nil {
+		return fmt.Errorf("node: close the gate holder's connection: %w", err)
+	}
+	return nil
 }
 
 // hostStop ends the gate holder that serves dir on the remote machine, and leaves dir in place.

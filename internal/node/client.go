@@ -415,6 +415,9 @@ type nodeLink struct {
 	// holder by its id.
 	holderDir string
 	scope     string
+	// lost receives each time a connection that Dial returned for a gate's holder closes, so the end watch of a gate's
+	// holder asks whether the holder has ended. It is nil for a session's link.
+	lost chan struct{}
 	// watch starts the end watch, on the first call of Done.
 	watch sync.Once
 	// done closes once the holder has ended, and exit and found are set before it closes.
@@ -444,6 +447,9 @@ func (l *nodeLink) Dial(parent context.Context) (net.Conn, error) {
 		client.closeConn(conn)
 		return nil, client.opErr(req, err)
 	}
+	if l.lost != nil {
+		return &gateConn{Conn: conn, lost: l.lost}, nil
+	}
 	return conn, nil
 }
 
@@ -456,9 +462,16 @@ func (l *nodeLink) attachRequest() Request {
 	return Request{Version: Version, Op: OpAttach, Session: l.id}
 }
 
-// Done returns the channel that closes once the holder has ended. The first call starts the end watch.
+// Done returns the channel that closes once the holder has ended. The first call starts the end watch: the gate end watch
+// for a gate's holder, and the end op's watch for a session's.
 func (l *nodeLink) Done() <-chan struct{} {
-	l.watch.Do(func() { go l.watchEnd() })
+	l.watch.Do(func() {
+		if l.holderDir != "" {
+			go l.watchGateEnd()
+			return
+		}
+		go l.watchEnd()
+	})
 	return l.done
 }
 
