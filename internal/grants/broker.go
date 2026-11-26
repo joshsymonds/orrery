@@ -86,6 +86,11 @@ const storeRetry = 5 * time.Second
 // the member's pool.
 const statusDeadline = 60 * time.Second
 
+// remoteAskBound bounds one ask of another host's processes. The node client retries an ask of a host it cannot
+// reach until the ask's context ends, so an unbounded ask would hold the broker's lock, or a watch, for as long as
+// the host is down. A bounded ask that fails keeps the grant it asks about.
+const remoteAskBound = 15 * time.Second
+
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
 // and every needed pool must be among them. ClientPID is the process the grant lasts with. Holder is the absolute
 // holder directory the grant also lasts with, stored with the grant, and empty when the grant names none. GrantID
@@ -337,7 +342,9 @@ func (b *Broker) lastsOf(ctx context.Context, host string, pid int, start int64,
 	if processes == nil {
 		return true
 	}
-	alive, err := processes.ProcessAlive(ctx, pid, start)
+	askCtx, cancelAsk := context.WithTimeout(ctx, remoteAskBound)
+	alive, err := processes.ProcessAlive(askCtx, pid, start)
+	cancelAsk()
 	if err != nil {
 		b.logger.WarnContext(ctx, "host did not answer for client; grant kept", "host", host, "client", pid, "err", err)
 		return true
@@ -345,7 +352,9 @@ func (b *Broker) lastsOf(ctx context.Context, host string, pid int, start int64,
 	if alive || holder == "" {
 		return alive
 	}
-	held, err := processes.HolderAlive(ctx, holder)
+	askCtx, cancelAsk = context.WithTimeout(ctx, remoteAskBound)
+	held, err := processes.HolderAlive(askCtx, holder)
+	cancelAsk()
 	if err != nil {
 		b.logger.WarnContext(ctx, "host did not answer for holder; grant kept",
 			"host", host, "holder", holder, "err", err)

@@ -69,8 +69,8 @@ func remoteHolderWatch(
 
 // pollWatch starts a watch that asks gone each time a remotePoll wait on afterFunc's clock ends. gone reports whether
 // the watched thing is gone, or an error when the host did not answer. exited closes once gone reports it gone, and
-// stop ends the watch without closing exited. A failed ask is logged, and the watch waits and asks again, so a host that
-// does not answer never closes exited.
+// stop ends the watch without closing exited. Each ask is bounded by remoteAskBound. A failed ask is logged, and the
+// watch waits and asks again, so a host that does not answer never closes exited.
 func pollWatch(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -91,7 +91,9 @@ func pollWatch(
 				return
 			case <-fired:
 			}
-			isGone, err := gone(ctx)
+			askCtx, cancelAsk := context.WithTimeout(ctx, remoteAskBound)
+			isGone, err := gone(askCtx)
+			cancelAsk()
 			if err != nil {
 				logger.WarnContext(ctx, "remote exit watch failed; trying again", "watch", what, "err", err)
 				continue
