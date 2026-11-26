@@ -23,7 +23,7 @@ const boundRefusals = 2
 
 // streakBound is how many planner parks in a row the planner may answer with no progress since the first of them
 // (noProgressStreak). The planner park after them goes to the owner, whatever its chain holds and however the planner
-// called the parks before it.
+// called the parks before it, unless it is a release_step park, which is outside the bound (boundless).
 const streakBound = 4
 
 // The states of a planner park row: a park the planner answers, a park stored at the bound of its chain that waits on
@@ -141,23 +141,39 @@ func countChain(ctx context.Context, queries *sqlcgen.Queries, epic string, chai
 	return count, nil
 }
 
+// boundless reports whether a planner park of class sits outside the park bound: a release_step park is the planner's
+// whatever its chain holds and whatever the no-progress streak is, so no chain bounds it and no streak counts it.
+func boundless(class string) bool {
+	return class == string(ParkClassReleaseStep)
+}
+
 // noProgressStreak returns how many of the epic's latest park rows in a row the planner answered with no progress since
 // the first of them. Walking back from the latest row, each row of a park the planner answers or is judging counts,
 // until a row of a park sent to the owner, which the owner has seen, or a row the epic has made progress since. The epic
 // has made progress since a park when a node run ended passed or a release step passed after the park was stored, or
-// its stored base is not the one the park recorded. head is the epic's head row. At most streakBound rows are read.
+// its stored base is not the one the park recorded. head is the epic's head row. A row of a park outside the bound
+// (boundless) is skipped: it neither counts toward the streak nor ends it. The walk stops once the streak reaches
+// streakBound.
 func noProgressStreak(ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic) (int, error) {
 	passed, err := queries.LatestEpicPass(ctx, epic)
 	if err != nil {
 		return 0, fmt.Errorf("read the latest pass of epic %s: %w", epic, err)
 	}
-	parks, err := queries.ListLatestEpicParks(ctx, sqlcgen.ListLatestEpicParksParams{Epic: epic, Count: streakBound})
+	highest, err := queries.MaxEpicParkSeq(ctx, epic)
+	if err != nil {
+		return 0, fmt.Errorf("read park count of epic %s: %w", epic, err)
+	}
+	parks, err := queries.ListLatestEpicParks(ctx, sqlcgen.ListLatestEpicParksParams{Epic: epic, Count: highest})
 	if err != nil {
 		return 0, fmt.Errorf("list the latest parks of epic %s: %w", epic, err)
 	}
 	streak := 0
 	for _, park := range parks {
-		if park.State == parkStateOwner || passed > park.Created || park.StoredBase != head.StoredBase {
+		if boundless(park.Class) {
+			continue
+		}
+		if streak >= streakBound || park.State == parkStateOwner || passed > park.Created ||
+			park.StoredBase != head.StoredBase {
 			break
 		}
 		streak++
@@ -165,12 +181,17 @@ func noProgressStreak(ctx context.Context, queries *sqlcgen.Queries, epic string
 	return streak, nil
 }
 
-// arrivingState returns the state a planner park of epic that joins chain is stored in, and the no-progress streak of
-// the parks before it (noProgressStreak). It is the owner's once that streak reaches streakBound, bound when chain is at
-// its bound, and the planner's otherwise. chain is 0 for a park that starts a chain. head is the epic's head row.
+// arrivingState returns the state a planner park of epic of class that joins chain is stored in, and the no-progress
+// streak of the parks before it (noProgressStreak). A park outside the bound (boundless) is the planner's whatever chain
+// it joins and whatever the streak is, and no streak is read for it. Any other park is the owner's once that streak
+// reaches streakBound, bound when chain is at its bound, and the planner's otherwise. chain is 0 for a park that starts a
+// chain. head is the epic's head row.
 func arrivingState(
-	ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic, chain int64,
+	ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic, class ParkClass, chain int64,
 ) (string, int, error) {
+	if boundless(string(class)) {
+		return parkStatePlanner, 0, nil
+	}
 	streak, err := noProgressStreak(ctx, queries, epic, head)
 	if err != nil {
 		return "", 0, err
@@ -196,7 +217,8 @@ func arrivingState(
 // starts one. Once the planner has answered streakBound parks in a row with no progress, the park is the owner's:
 // boundPark opens its retry_bound question with streakNote, and its seq is returned. Otherwise the park parks epic as
 // class and returns 0, so the caller wakes the planner. A park on a chain at its bound is stored waiting on the planner's
-// call, which park_recurs or park_new makes; any other park is the planner's to answer.
+// call, which park_recurs or park_new makes; any other park is the planner's to answer. A release_step park is outside
+// the bound, so it is always the planner's (boundless).
 func parkPlanner(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -214,7 +236,7 @@ func parkPlanner(
 	if err != nil {
 		return 0, err
 	}
-	state, streak, err := arrivingState(ctx, queries, epic, head, chain)
+	state, streak, err := arrivingState(ctx, queries, epic, head, class, chain)
 	if err != nil {
 		return 0, err
 	}
@@ -366,7 +388,8 @@ func actionPark(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 // boundHeldPark sends the planner park epic holds to the owner as retry_bound, in the caller's write, after a refusal,
 // and reports whether it did. It does so when the park waits on the planner's call, since an action refused before the
 // call leaves the park with no call, and when the chain of the park holds boundRefusals refused actions or more. A planner
-// park stored before 00051_park_bound.sql has no row, so it starts no chain and is never bound.
+// park stored before 00051_park_bound.sql has no row, so it starts no chain and is never bound. A release_step park is
+// outside the bound (boundless), however many refusals its chain holds, so its refusal only wakes the planner.
 func boundHeldPark(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic, at time.Time,
 ) (bool, error) {
@@ -374,7 +397,7 @@ func boundHeldPark(
 		return false, nil
 	}
 	held, found, err := latestEpicPark(ctx, queries, epic)
-	if err != nil || !found {
+	if err != nil || !found || boundless(held.Class) {
 		return false, err
 	}
 	if held.State != parkStateBound {
@@ -393,7 +416,8 @@ func boundHeldPark(
 }
 
 // heldBoundPark returns the row of the planner park epic holds when that park is at the bound of its chain and waits on
-// the planner's call, and whether epic holds such a park. head is the epic's head row.
+// the planner's call, and whether epic holds such a park. A release_step park is never at the bound, so it is never
+// returned, whatever state a row of it holds. head is the epic's head row.
 func heldBoundPark(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, head sqlcgen.Epic,
 ) (sqlcgen.EpicPark, bool, error) {
@@ -401,7 +425,7 @@ func heldBoundPark(
 		return sqlcgen.EpicPark{}, false, nil
 	}
 	held, found, err := latestEpicPark(ctx, queries, epic)
-	if err != nil || !found || held.State != parkStateBound {
+	if err != nil || !found || held.State != parkStateBound || boundless(held.Class) {
 		return sqlcgen.EpicPark{}, false, err
 	}
 	return held, true, nil
