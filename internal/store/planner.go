@@ -1262,9 +1262,7 @@ func insertParkTrigger(ctx context.Context, queries *sqlcgen.Queries, epic, reas
 	if err != nil {
 		return fmt.Errorf("count triggers of epic %s: %w", epic, err)
 	}
-	return insertNodeTrigger(ctx, queries, epic, NodeTrigger{
-		ID: fmt.Sprintf("%s%d", parkTriggerPrefix, stored+1), Cause: reason,
-	}, at)
+	return insertTriggerOnce(ctx, queries, epic, fmt.Sprintf("%s%d", parkTriggerPrefix, stored+1), reason, at)
 }
 
 // capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.

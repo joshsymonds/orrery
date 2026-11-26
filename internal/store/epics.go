@@ -302,13 +302,7 @@ func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) erro
 	if err = insertWorkflowNodes(ctx, queries, row); err != nil {
 		return fmt.Errorf("insert workflow nodes of epic %s: %w", row.ID, err)
 	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
-		Created: row.Created.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
-	}
-	return nil
+	return insertTrigger(ctx, queries, row.ID, createdTriggerID, createdTriggerCause, row.Created)
 }
 
 // The trigger a created epic starts with: id `created` for cause `epic created`.
@@ -965,7 +959,7 @@ func (s *Store) AnswerQuestion(
 
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
 // becomes answered with choice, a pending trigger `answer:<id>` is added unless the epic is in a final phase
-// (insertAnswerTrigger), and the decision is appended tied to the question. An answer to a park question for a red run
+// (insertTrigger), and the decision is appended tied to the question. An answer to a park question for a red run
 // judged holding at base carries out its choice, as answerMetAtBase gives. An answered park question that is not final
 // ends the park in the same write. An answer to a gaps question carries out its choice in the same write, after the
 // decision is appended, as answerGapsQuestion gives. An answer to a held question carries out its choice in the same
@@ -988,7 +982,8 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
 	}
-	if triggerErr := insertAnswerTrigger(ctx, queries, epic, id, question, at); triggerErr != nil {
+	triggerErr := insertTrigger(ctx, queries, epic, "answer:"+id, fmt.Sprintf("answer %s to Q%d", id, question), at)
+	if triggerErr != nil {
 		return EpicDecision{}, triggerErr
 	}
 	owed, err := ownerRecipient(ctx, queries, epic, maker)
@@ -1016,29 +1011,6 @@ func recordQuestionAnswer(
 		return EpicDecision{}, err
 	}
 	return decision, nil
-}
-
-// insertAnswerTrigger adds the pending trigger `answer:<id>`, with the cause `answer <id> to Q<question>`, to epic in the
-// caller's write, so the epic's next planner turn takes the answer. An epic in a final phase (FinalPhase) gets none: no
-// planner turn runs for it, and the final park question of an epic in met_at_base still takes an answer, whose trigger
-// no turn would claim.
-func insertAnswerTrigger(
-	ctx context.Context, queries *sqlcgen.Queries, epic, id string, question int64, at time.Time,
-) error {
-	head, err := epicHead(ctx, queries, epic)
-	if err != nil {
-		return err
-	}
-	if FinalPhase(head.Phase) {
-		return nil
-	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: "answer:" + id, Cause: fmt.Sprintf("answer %s to Q%d", id, question),
-		State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
-	}
-	return nil
 }
 
 // answerMetAtBase carries out choice, answered to the park question with seq question as decision seq, in the caller's

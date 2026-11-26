@@ -348,12 +348,7 @@ func (s *Store) KickEpic(ctx context.Context, epic, text string, maker Maker, at
 		if _, err = appendDecision(ctx, queries, epic, id, text, 0, maker, owed, at); err != nil {
 			return err
 		}
-		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-			Epic: epic, ID: id, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert trigger of kick %s on epic %s: %w", id, epic, err)
-		}
-		return nil
+		return insertTrigger(ctx, queries, epic, id, cause, at)
 	})
 }
 

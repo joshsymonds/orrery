@@ -127,7 +127,7 @@ func (s *Store) StartNodes(ctx context.Context, epic string, runs []NodeRun, tri
 		if trigger == nil {
 			return nil
 		}
-		return insertNodeTrigger(ctx, queries, epic, *trigger, at)
+		return insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at)
 	})
 }
 
@@ -163,23 +163,6 @@ func endNodeRuns(ctx context.Context, queries *sqlcgen.Queries, epic string, end
 		}); err != nil {
 			return fmt.Errorf("end node run %s of epic %s: %w", end.Path, epic, err)
 		}
-	}
-	return nil
-}
-
-// insertNodeTrigger adds trigger to epic pending, created at at, unless a trigger with its id is stored, in the caller's
-// write.
-func insertNodeTrigger(
-	ctx context.Context,
-	queries *sqlcgen.Queries,
-	epic string,
-	trigger NodeTrigger,
-	at time.Time,
-) error {
-	if err := queries.InsertEpicTriggerOnce(ctx, sqlcgen.InsertEpicTriggerOnceParams{
-		Epic: epic, ID: trigger.ID, Cause: trigger.Cause, State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger %s of epic %s: %w", trigger.ID, epic, err)
 	}
 	return nil
 }

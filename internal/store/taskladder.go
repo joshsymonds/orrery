@@ -400,12 +400,7 @@ func insertClimbTrigger(
 	if err != nil {
 		return err
 	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: free, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger %s of epic %s: %w", free, epic, err)
-	}
-	return nil
+	return insertTrigger(ctx, queries, epic, free, cause, at)
 }
 
 // freeTriggerID returns id when epic holds no trigger under it in any state, and otherwise the first of id-2, id-3 and so

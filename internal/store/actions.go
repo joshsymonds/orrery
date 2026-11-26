@@ -606,8 +606,8 @@ func openTaskSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 // park it answers, a decision holds the refusal and the planner's reason, and for amend_evidence the Requirement's item
 // and the item the action asked for, and then either the held planner park is sent to the owner as retry_bound, when it
 // waits on the planner's call or its chain holds boundRefusals refusals (boundHeldPark), or a pending trigger whose cause
-// names the action and the refusal is added. An epic in a final phase gets no trigger, since no planner turn runs for it
-// (checkClaimable): an action a planner close left behind it is refused with its decision and wakes no one.
+// names the action and the refusal is added. An epic in a final phase gets no trigger, as no epic there does
+// (insertTrigger): an action a planner close left behind it is refused with its decision and wakes no one.
 func refuseAction(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, refusal RefusalError, at time.Time,
 ) error {
@@ -649,17 +649,10 @@ func refuseLinkedAction(
 		return err
 	}
 	bound, err := boundHeldPark(ctx, queries, action.Epic, head, at)
-	if err != nil || bound || FinalPhase(head.Phase) {
+	if err != nil || bound {
 		return err
 	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: action.Epic, ID: id, Cause: fmt.Sprintf("planner %s refused: %s", summary, refusal),
-		State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert refusal trigger of action %d of turn %d of epic %s: %w",
-			action.Position, action.Turn, action.Epic, err)
-	}
-	return nil
+	return insertTrigger(ctx, queries, action.Epic, id, fmt.Sprintf("planner %s refused: %s", summary, refusal), at)
 }
 
 // setActionState stores state, refusal and park on action in the caller's write, when the action is still pending. An

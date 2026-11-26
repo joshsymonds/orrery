@@ -117,7 +117,7 @@ func (s *Store) EndBatch(ctx context.Context, epic string, end BatchEnd, trigger
 		if trigger == nil {
 			return nil
 		}
-		return insertNodeTrigger(ctx, queries, epic, *trigger, at)
+		return insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at)
 	})
 }
 
@@ -401,7 +401,7 @@ func (s *Store) ParkEpicWaking(ctx context.Context, epic, reason string, trigger
 		if _, err = setParked(ctx, queries, epic, ParkClassNotBuilt, "", capTurnText(reason), at); err != nil {
 			return err
 		}
-		return insertNodeTrigger(ctx, queries, epic, trigger, at)
+		return insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at)
 	})
 }
 
