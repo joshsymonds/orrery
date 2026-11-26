@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * EpicsReleaseRequest names the orreryd epic to release, and the undo-none release steps to run again.
+ * EpicsReleaseRequest names the orreryd epic to release.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.EpicsReleaseRequest}
@@ -20,7 +20,6 @@ public  final class EpicsReleaseRequest extends
     EpicsReleaseRequestOrBuilder {
   private EpicsReleaseRequest() {
     id_ = "";
-    undoNone_ = emptyIntList();
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -87,105 +86,6 @@ public  final class EpicsReleaseRequest extends
     checkByteStringIsUtf8(value);
     id_ = value.toStringUtf8();
 
-  }
-
-  public static final int UNDO_NONE_FIELD_NUMBER = 2;
-  private com.google.protobuf.Internal.IntList undoNone_;
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @return A list containing the undoNone.
-   */
-  @java.lang.Override
-  public java.util.List<java.lang.Integer>
-      getUndoNoneList() {
-    return undoNone_;
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @return The count of undoNone.
-   */
-  @java.lang.Override
-  public int getUndoNoneCount() {
-    return undoNone_.size();
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @param index The index of the element to return.
-   * @return The undoNone at the given index.
-   */
-  @java.lang.Override
-  public int getUndoNone(int index) {
-    return undoNone_.getInt(index);
-  }
-  private int undoNoneMemoizedSerializedSize = -1;
-  private void ensureUndoNoneIsMutable() {
-    com.google.protobuf.Internal.IntList tmp = undoNone_;
-    if (!tmp.isModifiable()) {
-      undoNone_ =
-          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
-     }
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @param index The index to set the value at.
-   * @param value The undoNone to set.
-   */
-  private void setUndoNone(
-      int index, int value) {
-    ensureUndoNoneIsMutable();
-    undoNone_.setInt(index, value);
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @param value The undoNone to add.
-   */
-  private void addUndoNone(int value) {
-    ensureUndoNoneIsMutable();
-    undoNone_.addInt(value);
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @param values The undoNone to add.
-   */
-  private void addAllUndoNone(
-      java.lang.Iterable<? extends java.lang.Integer> values) {
-    ensureUndoNoneIsMutable();
-    com.google.protobuf.AbstractMessageLite.addAll(
-        values, undoNone_);
-  }
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   */
-  private void clearUndoNone() {
-    undoNone_ = emptyIntList();
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsReleaseRequest parseFrom(
@@ -273,7 +173,7 @@ public  final class EpicsReleaseRequest extends
 
   /**
    * <pre>
-   * EpicsReleaseRequest names the orreryd epic to release, and the undo-none release steps to run again.
+   * EpicsReleaseRequest names the orreryd epic to release.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.EpicsReleaseRequest}
@@ -358,103 +258,6 @@ public  final class EpicsReleaseRequest extends
       return this;
     }
 
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @return A list containing the undoNone.
-     */
-    @java.lang.Override
-    public java.util.List<java.lang.Integer>
-        getUndoNoneList() {
-      return java.util.Collections.unmodifiableList(
-          instance.getUndoNoneList());
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @return The count of undoNone.
-     */
-    @java.lang.Override
-    public int getUndoNoneCount() {
-      return instance.getUndoNoneCount();
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @param index The index of the element to return.
-     * @return The undoNone at the given index.
-     */
-    @java.lang.Override
-    public int getUndoNone(int index) {
-      return instance.getUndoNone(index);
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @param value The undoNone to set.
-     * @return This builder for chaining.
-     */
-    public Builder setUndoNone(
-        int index, int value) {
-      copyOnWrite();
-      instance.setUndoNone(index, value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @param value The undoNone to add.
-     * @return This builder for chaining.
-     */
-    public Builder addUndoNone(int value) {
-      copyOnWrite();
-      instance.addUndoNone(value);
-      return this;
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @param values The undoNone to add.
-     * @return This builder for chaining.
-     */
-    public Builder addAllUndoNone(
-        java.lang.Iterable<? extends java.lang.Integer> values) {
-      copyOnWrite();
-      instance.addAllUndoNone(values);
-      return this;
-    }
-    /**
-     * <pre>
-     * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-     * </pre>
-     *
-     * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearUndoNone() {
-      copyOnWrite();
-      instance.clearUndoNone();
-      return this;
-    }
-
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsReleaseRequest)
   }
   @java.lang.Override
@@ -472,11 +275,9 @@ public  final class EpicsReleaseRequest extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "id_",
-            "undoNone_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0208\u0002\'" +
-              "";
+              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

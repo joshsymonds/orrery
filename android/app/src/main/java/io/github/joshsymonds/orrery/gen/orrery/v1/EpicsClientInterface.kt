@@ -73,8 +73,8 @@ public interface EpicsClientInterface {
   public suspend fun unarchive(request: EpicsUnarchiveRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsUnarchiveResponse>
 
   /**
-   *  Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
-   *  again the undo-none release steps the owner names.
+   *  Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step, or
+   *  releases an epic that ended with gaps.
    */
   public suspend fun release(request: EpicsReleaseRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsReleaseResponse>
 

@@ -29,33 +29,4 @@ public interface EpicsReleaseRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getIdBytes();
-
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @return A list containing the undoNone.
-   */
-  java.util.List<java.lang.Integer> getUndoNoneList();
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @return The count of undoNone.
-   */
-  int getUndoNoneCount();
-  /**
-   * <pre>
-   * The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-   * </pre>
-   *
-   * <code>repeated int32 undo_none = 2 [json_name = "undoNone"];</code>
-   * @param index The index of the element to return.
-   * @return The undoNone at the given index.
-   */
-  int getUndoNone(int index);
 }

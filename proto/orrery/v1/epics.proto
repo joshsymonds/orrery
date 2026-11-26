@@ -43,8 +43,8 @@ service Epics {
   // Unarchive clears the archive mark of the named list row, so the lists show it again.
   rpc Unarchive(EpicsUnarchiveRequest) returns (EpicsUnarchiveResponse);
 
-  // Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
-  // again the undo-none release steps the owner names.
+  // Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step, or
+  // releases an epic that ended with gaps.
   rpc Release(EpicsReleaseRequest) returns (EpicsReleaseResponse);
 
   // Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
@@ -692,13 +692,14 @@ message EpicsUnarchiveRequest {
 // EpicsUnarchiveResponse is the reply to an Unarchive. It has no fields.
 message EpicsUnarchiveResponse {}
 
-// EpicsReleaseRequest names the orreryd epic to release, and the undo-none release steps to run again.
+// EpicsReleaseRequest names the orreryd epic to release.
 message EpicsReleaseRequest {
   // The epic's id.
   string id = 1;
 
-  // The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-  repeated int32 undo_none = 2;
+  // Field 2 was undo_none, the undo-none release steps the owner named to run again, which no release names now.
+  reserved 2;
+  reserved "undo_none";
 }
 
 // EpicsReleaseResponse is the reply to a Release. It has no fields.
