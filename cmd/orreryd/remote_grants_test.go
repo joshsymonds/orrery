@@ -61,6 +61,12 @@ const (
 	remoteGrantSchema = `{"type":"object","properties":{"status":{"type":"string"},"commit":{"type":"string"}}}`
 	// remoteGrantFires bounds the timers a wait fires before it fails, so a broker that never frees a grant fails the test.
 	remoteGrantFires = 50
+	// remoteGrantRetries bounds the node client's retry waits a wait fires before it fails, so a gate-end watch that never
+	// reads its end fails the test rather than polls forever.
+	remoteGrantRetries = 10000
+	// remoteGrantRetry is the node client's retry wait, Bound/retriesPerBound of its default Bound. The gate-end watch waits
+	// it between asks of b, and it is the only wait of the client that fakeClock fires.
+	remoteGrantRetry = node.DefaultBound / 5
 )
 
 // remoteGrantTime is the time the Steps engine of this test reads as now, and the time its epic is created at. It is fixed,
@@ -99,24 +105,56 @@ func (remoteGrantRelayWhoIs) WhoIs(context.Context, string) (*apitype.WhoIsRespo
 	}, nil
 }
 
-// remoteGrantClock is the clock of the node client in this test. Its timers never fire, so no wait of the client is cut
-// short by a real timer: each call ends when the agent answers, or when its connection fails.
-type remoteGrantClock struct{}
-
-// After returns a channel that never receives.
-func (remoteGrantClock) After(time.Duration) <-chan time.Time {
-	return make(chan time.Time)
-}
-
-// fakeClock is the broker's AfterFunc clock in this test. Each timer the broker arms is handed to armed, and runs only
-// when the test fires it, so the test decides when each poll of b happens.
+// fakeClock is the clock of this test, for the broker's AfterFunc and for the node client of b. Each timer the broker arms
+// is handed to armed, and runs only when the test fires it, so the test decides when each poll of b happens.
+//
+// The node client's clock is its After. Its waits other than the retry wait never fire, so no wait of the client is cut
+// short by a time of the test's making: each call ends when the agent answers, or when its connection fails. The retry
+// wait, which a watch of a gate's end takes between its asks of b, is armed and kept until awaitValue fires it. A watch
+// that found a holder alive while the holder released its lock is then asked again, so the watch reads the end however
+// the holder orders its stream close and its lock release.
 type fakeClock struct {
 	armed chan *fakeTimer
+	// retried receives a value when a retry wait is armed, so a wait that is blocked on a signal notices it.
+	retried chan struct{}
+	mu      sync.Mutex
+	// pending are the retry waits armed since the last fireRetries.
+	pending []chan time.Time
 }
 
 // newFakeClock returns a fakeClock with room for the timers a test arms before it fires them.
 func newFakeClock() *fakeClock {
-	return &fakeClock{armed: make(chan *fakeTimer, 64)}
+	return &fakeClock{armed: make(chan *fakeTimer, 64), retried: make(chan struct{}, 1)}
+}
+
+// After returns a channel that receives once the test fires it, for the retry wait, and a channel that never receives for
+// any other wait.
+func (c *fakeClock) After(d time.Duration) <-chan time.Time {
+	if d != remoteGrantRetry {
+		return make(chan time.Time)
+	}
+	retry := make(chan time.Time, 1)
+	c.mu.Lock()
+	c.pending = append(c.pending, retry)
+	c.mu.Unlock()
+	select {
+	case c.retried <- struct{}{}:
+	default:
+	}
+	return retry
+}
+
+// fireRetries fires each retry wait armed since the last call, and returns how many it fired. Each channel has room for
+// its one value, so the fire never blocks.
+func (c *fakeClock) fireRetries() int {
+	c.mu.Lock()
+	pending := c.pending
+	c.pending = nil
+	c.mu.Unlock()
+	for _, retry := range pending {
+		retry <- time.Time{}
+	}
+	return len(pending)
 }
 
 // afterFunc arms a timer that runs f once the test fires it, and returns its stop, which ends the timer as time.Timer's
@@ -213,16 +251,17 @@ func newRemoteGrantRig(t *testing.T) remoteGrantRig {
 		t.Fatalf("new agent of b: %v", err)
 	}
 	serveRemoteGrantAgent(t, agent, ln)
+	clock := newFakeClock()
 	client := node.NewClient(node.ClientConfig{
 		Name:    remoteGrantAgent,
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
-		Clock:   remoteGrantClock{},
+		Clock:   clock,
 		Secret:  remoteGrantSecret,
 		Logger:  slog.New(slog.DiscardHandler),
 	})
 	return remoteGrantRig{
-		sh: sh, root: root, stateB: stateB, host: node.NewRemoteHost(client), client: client, clock: newFakeClock(),
+		sh: sh, root: root, stateB: stateB, host: node.NewRemoteHost(client), client: client, clock: clock,
 	}
 }
 
@@ -372,10 +411,10 @@ func startAcquire(t *testing.T, b *grants.Broker, req grants.Request) *acquireCa
 	return call
 }
 
-// fireUntil fires the timers b's watches arm, each as it is armed, until granted receives a value, and returns it. It
-// waits only for a timer to be armed, for the value, or for ended to close, which is what says the call that would send
-// the value has returned without one, so the test fails rather than waits. It fails too once remoteGrantFires timers have
-// fired without one.
+// fireUntil fires the timers b's watches arm, each as it is armed, and the retry waits of the node client, until granted
+// receives a value, and returns it. It waits only for a timer or a retry to be armed, for the value, or for ended to
+// close, which is what says the call that would send the value has returned without one, so the test fails rather than
+// waits. It fails too once remoteGrantFires timers have fired without one, or remoteGrantRetries retries have.
 func fireUntil[T any](t *testing.T, clock *fakeClock, granted <-chan T, ended <-chan struct{}) T {
 	t.Helper()
 	value, failure := awaitValue(clock, granted, ended)
@@ -386,10 +425,12 @@ func fireUntil[T any](t *testing.T, clock *fakeClock, granted <-chan T, ended <-
 }
 
 // awaitValue is the wait of fireUntil: it returns the value granted sends, or the reason the wait ends without one, which
-// is empty when it has a value.
+// is empty when it has a value. Each retry wait the node client arms fires as the wait sees it, so the client's watch
+// asks b again, and a watch that reads a holder alive while the holder releases its lock gets to read the end.
 func awaitValue[T any](clock *fakeClock, granted <-chan T, ended <-chan struct{}) (T, string) {
 	var zero T
-	for range remoteGrantFires {
+	fired, retried := 0, 0
+	for {
 		select {
 		case value := <-granted:
 			return value, ""
@@ -403,9 +444,17 @@ func awaitValue[T any](clock *fakeClock, granted <-chan T, ended <-chan struct{}
 			return zero, "the call ended without the value it was waiting for"
 		case timer := <-clock.armed:
 			timer.fire()
+			fired++
+			if fired == remoteGrantFires {
+				return zero, fmt.Sprintf("no grant after %d timers fired", remoteGrantFires)
+			}
+		case <-clock.retried:
+			retried += clock.fireRetries()
+			if retried >= remoteGrantRetries {
+				return zero, fmt.Sprintf("no grant after %d retries of the node client", remoteGrantRetries)
+			}
 		}
 	}
-	return zero, fmt.Sprintf("no grant after %d timers fired", remoteGrantFires)
 }
 
 // heldBy returns the id of the grant that holds a member of a pool in b's status, or "" when none does.
