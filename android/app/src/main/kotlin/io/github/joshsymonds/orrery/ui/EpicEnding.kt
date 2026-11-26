@@ -53,11 +53,8 @@ data class ReleaseLine(
     val runs: List<String>,
 )
 
-/**
- * The Release section: its count [words], its step [rows], its [then] line, and the [offer]ed step's position, 0 when
- * no step is offered.
- */
-data class ReleaseView(val words: String, val rows: List<ReleaseLine>, val then: String, val offer: Long)
+/** The Release section: its count [words], its step [rows], and its [then] line. */
+data class ReleaseView(val words: String, val rows: List<ReleaseLine>, val then: String)
 
 /**
  * The Report section: its outcome [sentence], its [why], its [shipped] and [notShipped] ids, the slug of the epic it
@@ -92,9 +89,6 @@ private val REVIEW_PHASES = setOf(
 
 // The phases Release is drawn in, without a release run or a step that has left waiting.
 private val RELEASE_PHASES = setOf("clean", "releasing", "stopped", "released", "done")
-
-/** Whether an undo text is none: trimmed, ignoring case, the store's rule. */
-fun isUndoNone(undo: String): Boolean = undo.trim().equals("none", ignoreCase = true)
 
 /** The Review section of an orreryd epic in a review phase, or null when the page does not reach it. */
 fun reviewOf(detail: EpicDetail): ReviewView? {
@@ -134,7 +128,6 @@ fun releaseOf(detail: EpicDetail): ReleaseView? {
         words = releaseWords(phase, steps),
         rows = steps.map { rowOf(it, detail.releases) },
         then = if (then.isEmpty()) "" else "Then: $then",
-        offer = offerOf(phase, steps),
     )
 }
 
@@ -264,16 +257,6 @@ private fun releaseWords(phase: String, steps: List<EpicReleaseProofRow>): Strin
         "stopped" -> "stopped at step ${firstUnpassed(steps)?.position ?: n.toLong()} of $n"
         else -> "${steps.count { it.state == "passed" }} of $n steps passed"
     }
-}
-
-// The one step Release from step N is offered for: the first unpassed step, when it failed with no undo in a stopped
-// epic. Zero when no step is offered.
-private fun offerOf(phase: String, steps: List<EpicReleaseProofRow>): Long {
-    val step = firstUnpassed(steps)
-    if (phase != "stopped" || step == null || step.state != "failed" || !isUndoNone(step.undo)) {
-        return 0L
-    }
-    return step.position
 }
 
 private fun sentenceOf(outcome: String): String = when (outcome) {

@@ -116,10 +116,9 @@ fun statePillOf(detail: EpicDetail, now: Long): Pill {
 
 /**
  * The blocker pill, first match: what asks the owner, in attention (an open question the owner is asked, the owner's
- * park, a step the owner held), then a park the steerer holds, quiet, then a stopped release whose failed step has no
- * undo or an ended-with-gaps epic, then a question the steerer holds with its time, quiet. The steerer's park comes
- * ahead of the ending because the park holds the stopped release, which the owner is not asked about until the steerer
- * escalates it.
+ * park, a step the owner held), then a park the steerer holds, quiet, then an ended-with-gaps epic, then a question the
+ * steerer holds with its time, quiet. The steerer's park comes ahead of the ending because the steerer holds the park
+ * until it escalates it.
  */
 fun blockerPillOf(detail: EpicDetail, now: Long): Pill? {
     val question = ownerQuestionOf(detail)
@@ -337,13 +336,9 @@ private fun releasingSentenceOf(detail: EpicDetail): String {
     return "Releasing: step ${running.position} of ${steps.size} is running."
 }
 
-// stoppedSentenceOf is the Now sentence of a stopped release: the step Release from step N is offered for, else the
-// first step that did not pass, else only that the release stopped.
+// stoppedSentenceOf is the Now sentence of a stopped release: the first step that did not pass, else only that the
+// release stopped. A stopped release waits on no one: the planner decides what it does next.
 private fun stoppedSentenceOf(detail: EpicDetail): String {
-    val offer = releaseOf(detail)?.offer ?: 0L
-    if (offer > 0L) {
-        return "The release stopped at step $offer, and that step has no undo. It waits on you."
-    }
     val steps = detail.releaseProof
     if (steps.isEmpty()) {
         return "The release stopped."
@@ -352,13 +347,9 @@ private fun stoppedSentenceOf(detail: EpicDetail): String {
     return "The release stopped at step $at."
 }
 
-// endingPillOf is the blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release
-// whose failed step has no undo, or an ended-with-gaps epic.
+// endingPillOf is the blocker pill of an orreryd epic that waits on the owner's release or close: an ended-with-gaps
+// epic.
 private fun endingPillOf(detail: EpicDetail): Pill? = when (detail.epic.outcome) {
-    "stopped" -> {
-        val offer = releaseOf(detail)?.offer ?: 0L
-        if (offer > 0L) Pill("step $offer failed and cannot be undone", WordTone.ATTENTION) else null
-    }
     "ended_with_gaps" -> Pill("release it anyway, or close it", WordTone.ATTENTION)
     else -> null
 }

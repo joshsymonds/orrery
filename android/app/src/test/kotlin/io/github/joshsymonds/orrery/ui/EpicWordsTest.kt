@@ -603,7 +603,7 @@ class EpicWordsTest {
             detail(
                 epic = epic(outcome = "stopped"),
                 releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "none")),
-            ) to "The release stopped at step 2, and that step has no undo. It waits on you.",
+            ) to "The release stopped at step 2.",
             detail(
                 epic = epic(outcome = "stopped"),
                 releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "git revert")),
@@ -623,12 +623,12 @@ class EpicWordsTest {
     }
 
     @Test
-    fun theBlockerPillNamesAStoppedStepWithNoUndoAndAnEndedWithGapsEpicsTwoWaysOn() {
+    fun theBlockerPillNamesNoStoppedReleaseAndAnEndedWithGapsEpicTwoWaysOn() {
         val cases = listOf(
             detail(
                 epic = epic(outcome = "stopped"),
                 releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "none")),
-            ) to Pill("step 2 failed and cannot be undone", WordTone.ATTENTION),
+            ) to null,
             detail(
                 epic = epic(outcome = "stopped"),
                 releaseProof = listOf(releaseStep(1L, "passed"), releaseStep(2L, "failed", undo = "git revert")),

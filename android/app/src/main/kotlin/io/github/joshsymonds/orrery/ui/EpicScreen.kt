@@ -152,7 +152,6 @@ fun EpicScreen(
         }
     }
     val scope = rememberCoroutineScope()
-    val releaseCall = remember(client, epicId) { OwnerCall() }
     val gapsCall = remember(client, epicId) { OwnerCall() }
     // Set once the epic's first load has drawn the list, so the Report is brought into view on that load only.
     val reportOpened = remember(client, epicId) { mutableStateOf(false) }
@@ -166,20 +165,6 @@ fun EpicScreen(
         scope.launch {
             notice = withContext(Dispatchers.IO) { noticeOf(verb, answer, call) }
             generation++
-        }
-    }
-
-    // release sends the Release from step N the owner confirmed, once, and never retries it: the answer is handed to the
-    // release call, which reads the epic again.
-    val release: (Long) -> Unit = { position ->
-        scope.launch {
-            val outcome = withContext(Dispatchers.IO) {
-                outcomeOf { client.releaseEpic(epicId, listOf(position.toInt())) }
-            }
-            releaseCall.answered(outcome) {
-                generation++
-                generation
-            }
         }
     }
 
@@ -206,9 +191,8 @@ fun EpicScreen(
         }
         load = loaded
         if (loaded !is EpicLoad.Failed) {
-            releaseCall.loaded(readAt)
             gapsCall.loaded(readAt)
-            keepUnoffered(loaded, releaseCall, gapsCall)
+            keepUnoffered(loaded, gapsCall)
         }
     }
 
@@ -313,11 +297,9 @@ fun EpicScreen(
                 onTalk = onTalk,
                 listedSteerer = listedSteerer,
                 actions = NowActions(answer = onAnswer, retry = retry, resume = resume, stop = stop),
-                releaseCall = releaseCall,
-                onRelease = release,
                 client = client,
                 gapsCall = gapsCall,
-                onReleaseAnyway = { sendGaps { client.releaseEpic(epicId, emptyList()) } },
+                onReleaseAnyway = { sendGaps { client.releaseEpic(epicId) } },
                 onClose = { kind, by -> sendGaps { client.closeEpic(epicId, kind, by) } },
                 reportOpened = reportOpened,
                 usage = usageRead.sessions,
@@ -343,13 +325,10 @@ fun EpicScreen(
     }
 }
 
-// keepUnoffered closes a confirm whose control the read no longer offers, sending nothing: the Release from step N confirm
-// unless the read offers the step it asks for, and the ended-with-gaps confirm unless the epic is still ended with gaps.
-// A control the read offers again is at rest.
-private fun keepUnoffered(load: EpicLoad, releaseCall: OwnerCall, gapsCall: OwnerCall) {
+// keepUnoffered closes the ended-with-gaps confirm, sending nothing, unless the epic is still ended with gaps. A control
+// the read offers again is at rest.
+private fun keepUnoffered(load: EpicLoad, gapsCall: OwnerCall) {
     val detail = (load as? EpicLoad.Loaded)?.detail
-    val offered = detail?.let { releaseOf(it)?.offer }
-    if (offered == null || releaseCall.asking != releaseAsk(offered)) releaseCall.keep()
     if (detail?.let { reportOf(it)?.gaps } != true) gapsCall.keep()
 }
 
@@ -454,8 +433,6 @@ private fun EpicBody(
     onTalk: (steering: String) -> Unit,
     listedSteerer: (steering: String) -> Pane?,
     actions: NowActions,
-    releaseCall: OwnerCall,
-    onRelease: (Long) -> Unit,
     client: OrreryClient,
     gapsCall: OwnerCall,
     onReleaseAnyway: () -> Unit,
@@ -550,7 +527,7 @@ private fun EpicBody(
         }
         if (release != null) {
             section("release") {
-                EpicReleaseSection(view = release, call = releaseCall, onRelease = onRelease)
+                EpicReleaseSection(view = release)
             }
         }
         if (report != null) {
