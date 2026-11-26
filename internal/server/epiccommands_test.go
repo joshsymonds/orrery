@@ -677,21 +677,6 @@ func TestEpicsReleaseForwardsOneRequestAndAnswersEmpty(t *testing.T) {
 	}
 }
 
-// TestEpicsReleaseForwardsOnlyTheID checks that the release forwards the epic's id alone, even when the request it
-// reads still carries undo_none positions: the engine takes no positions.
-func TestEpicsReleaseForwardsOnlyTheID(t *testing.T) {
-	t.Parallel()
-	fake := &epicCommandsFake{}
-	client := epicCommandServe(t, fake)
-	_, err := client.Release(t.Context(), connect.NewRequest(&orreryv1.EpicsReleaseRequest{
-		Id: syntheticEpicID, UndoNone: []int32{2, 2},
-	}))
-	if err != nil {
-		t.Fatalf("Release: %v", err)
-	}
-	assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{Id: syntheticEpicID})
-}
-
 func TestEpicsReleaseRefusalReachesCallerAfterOneCall(t *testing.T) {
 	t.Parallel()
 	const message = "release step 2 of epic " + syntheticEpicID + " is undo-none and failed; name it to run it again"

@@ -3099,13 +3099,11 @@ func (*EpicsUnarchiveResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{43}
 }
 
-// EpicsReleaseRequest names the orreryd epic to release, and the undo-none release steps to run again.
+// EpicsReleaseRequest names the orreryd epic to release.
 type EpicsReleaseRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epic's id.
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-	UndoNone      []int32 `protobuf:"varint,2,rep,packed,name=undo_none,json=undoNone,proto3" json:"undo_none,omitempty"`
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3145,13 +3143,6 @@ func (x *EpicsReleaseRequest) GetId() string {
 		return x.Id
 	}
 	return ""
-}
-
-func (x *EpicsReleaseRequest) GetUndoNone() []int32 {
-	if x != nil {
-		return x.UndoNone
-	}
-	return nil
 }
 
 // EpicsReleaseResponse is the reply to a Release. It has no fields.
@@ -6238,10 +6229,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x15EpicsUnarchiveRequest\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\x18\n" +
-	"\x16EpicsUnarchiveResponse\"B\n" +
+	"\x16EpicsUnarchiveResponse\"6\n" +
 	"\x13EpicsReleaseRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
-	"\tundo_none\x18\x02 \x03(\x05R\bundoNone\"\x16\n" +
+	"\x02id\x18\x01 \x01(\tR\x02idJ\x04\b\x02\x10\x03R\tundo_none\"\x16\n" +
 	"\x14EpicsReleaseResponse\"G\n" +
 	"\x11EpicsCloseRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +

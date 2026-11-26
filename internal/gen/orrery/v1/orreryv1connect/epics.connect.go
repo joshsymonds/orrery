@@ -108,8 +108,8 @@ type EpicsClient interface {
 	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
 	// Unarchive clears the archive mark of the named list row, so the lists show it again.
 	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
-	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
-	// again the undo-none release steps the owner names.
+	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step, or
+	// releases an epic that ended with gaps.
 	Release(context.Context, *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error)
 	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
 	// closer.
@@ -358,8 +358,8 @@ type EpicsHandler interface {
 	Archive(context.Context, *connect.Request[v1.EpicsArchiveRequest]) (*connect.Response[v1.EpicsArchiveResponse], error)
 	// Unarchive clears the archive mark of the named list row, so the lists show it again.
 	Unarchive(context.Context, *connect.Request[v1.EpicsUnarchiveRequest]) (*connect.Response[v1.EpicsUnarchiveResponse], error)
-	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step and runs
-	// again the undo-none release steps the owner names.
+	// Release releases the named orreryd epic, which resumes its stopped release at the first unfinished step, or
+	// releases an epic that ended with gaps.
 	Release(context.Context, *connect.Request[v1.EpicsReleaseRequest]) (*connect.Response[v1.EpicsReleaseResponse], error)
 	// Close closes the named orreryd epic as superseded, shipped by hand or abandoned, and records the owner as its
 	// closer.
