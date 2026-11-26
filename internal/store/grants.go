@@ -120,9 +120,16 @@ func (s *Store) Grants(ctx context.Context) ([]GrantRow, error) {
 			return nil, fmt.Errorf("decode command of grant %s: %w", grant.ID, decodeErr)
 		}
 		out = append(out, GrantRow{
-			ID: grant.ID, Project: grant.Project, Holder: grant.Holder, Host: grant.Host, ClientPID: int(grant.ClientPid),
-			ClientStart: grant.ClientStart, Pools: grant.Pools, Command: command, Members: byGrant[grant.ID],
-			Granted: time.Unix(grant.Granted, 0),
+			ID:          grant.ID,
+			Project:     grant.Project,
+			Holder:      grant.Holder,
+			Host:        grant.Host,
+			ClientPID:   int(grant.ClientPid),
+			ClientStart: grant.ClientStart,
+			Pools:       grant.Pools,
+			Command:     command,
+			Members:     byGrant[grant.ID],
+			Granted:     time.Unix(grant.Granted, 0),
 		})
 	}
 	return out, nil

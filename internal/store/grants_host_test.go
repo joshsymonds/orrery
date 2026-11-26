@@ -52,8 +52,11 @@ func TestGrantHost(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "orrery.db")
 
 		fixture := openStoreAtVersion(t, path, 121)
-		if _, err := fixture.ExecContext(ctx, `INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
-			VALUES ('old', '/proj/old', 4242, 987654, '{"build":["a"]}', '["make"]', 1700000000, '')`); err != nil {
+		if _, err := fixture.ExecContext(
+			ctx,
+			`INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
+			VALUES ('old', '/proj/old', 4242, 987654, '{"build":["a"]}', '["make"]', 1700000000, '')`,
+		); err != nil {
 			fixture.Close()
 			t.Fatalf("insert pre-migration grant: %v", err)
 		}
