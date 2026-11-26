@@ -148,10 +148,10 @@ internal class TreeData(
  * name calls [onOpenProject] with its key. A long press on a conversation or an epic opens its sheet, where the owner
  * marks it seen or archives it, and a landed change reads the tree again; a landed archive also shows the [ArchiveToast]
  * at the foot, whose Undo reads the tree again. An answer that moved rows shows its move notice in that same place, which
- * names the moved rows and their places, with Show and Undo. New opens the picker as a bottom sheet; a
- * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
- * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
- * read on start and every minute while started, and opens the notices through [onOpenNotices]. Under the head, the usage
+ * names the moved rows and their places, with Show and Undo. New opens the Starter as a bottom sheet, and a start it
+ * answers opens that session through [onStartedSession]. The Pools button opens the pools view through [onOpenPools].
+ * The bell counts the unread notices, read on start and every minute while started, and opens the notices through
+ * [onOpenNotices]. Under the head, the usage
  * band shows the accounts the usage reads hold, when they hold one; a tap on it opens the accounts sheet, whose Accounts
  * and routes calls [onOpenAccounts]. A Use on that sheet opens the confirm sheet, whose Move makes the moves; a move that
  * lands shows the move toast, whose Undo moves the contexts back.
@@ -284,10 +284,6 @@ fun PaneListScreen(
             if (picking) {
                 PickerPanel(
                     client = client,
-                    onOpened = { paneId ->
-                        picking = false
-                        onOpenPaneId(paneId)
-                    },
                     onStarted = { sessionId ->
                         picking = false
                         onStartedSession(sessionId)

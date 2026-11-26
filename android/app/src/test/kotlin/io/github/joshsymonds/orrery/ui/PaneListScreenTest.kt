@@ -20,15 +20,15 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.tapInboxAction
-import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
-import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ProposeResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartProposal
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
@@ -49,8 +49,9 @@ class PaneListScreenTest {
         const val BETA = "/home/user/beta"
         const val HOST = "example-host"
         const val PANES_LIST = "/orrery.v1.Panes/List"
-        const val PICKER_ASK = "/orrery.v1.Picker/Ask"
-        const val PICKER_RUN = "/orrery.v1.Picker/Run"
+        const val PICKER_PROPOSE = "/orrery.v1.Picker/Propose"
+        const val CONTROL_START = "/orrery.v1.Control/Start"
+        const val STARTED_ID = "fedcba9876543210fedcba9876543210"
         const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
         const val EPICS_LIST = "/orrery.v1.Epics/List"
         const val HOST_STATUS = "/orrery.v1.Host/Status"
@@ -65,6 +66,7 @@ class PaneListScreenTest {
 
     private var openedPane: Pane? = null
     private val openedPaneId = AtomicReference<String?>(null)
+    private val startedSession = AtomicReference<String?>(null)
     private var settingsOpened = 0
 
     private fun convoTag(paneId: String): String = "convo:pane:$HOST:$paneId"
@@ -116,17 +118,8 @@ class PaneListScreenTest {
         )
         .build()
 
-    private fun pickerRowsResponse(): AskResponse = AskResponse.newBuilder()
-        .addRows(
-            PickerRow.newBuilder()
-                .setToken("tok-beta")
-                .setKind("jump")
-                .setDir("/home/user/beta")
-                .setPane("%3")
-                .setLabel("beta-tests")
-                .setNote("")
-                .setPrompt(false),
-        )
+    private fun proposalResponse(): ProposeResponse = ProposeResponse.newBuilder()
+        .addProposals(StartProposal.newBuilder().setHost(HOST).setDir(BETA))
         .build()
 
     // %1 changed after it was last seen but its newest reply is older, so it is read: no dot.
@@ -150,7 +143,7 @@ class PaneListScreenTest {
                 client = client,
                 onOpenPane = { openedPane = it },
                 onOpenPaneId = { openedPaneId.set(it) },
-                onStartedSession = {},
+                onStartedSession = { startedSession.set(it) },
                 onOpenSettings = { settingsOpened++ },
                 now = { NOW },
             )
@@ -351,23 +344,23 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun newButtonOpensThePickerAndARunOpensItsPane() {
+    fun newButtonOpensTheStarterAndAStartOpensItsSession() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, panesBody())
-            server.respond(PICKER_ASK, pickerRowsResponse())
-            server.respond(PICKER_RUN, RunResponse.newBuilder().setPane("%9").build())
+            server.respond(PICKER_PROPOSE, proposalResponse())
+            server.respond(CONTROL_START, StartResponse.newBuilder().setId(STARTED_ID).build())
             setScreen(server)
             awaitRow("%1")
 
             composeRule.onNodeWithTag("picker-new").performClick()
             composeRule.onNodeWithTag("picker-text").performTextInput("beta")
             composeRule.onNodeWithTag("picker-text").performImeAction()
-            composeRule.awaitUntil { countNodes(hasTestTag("picker-row:0")) == 1 }
-            composeRule.onNodeWithTag("picker-row:0").performSemanticsAction(SemanticsActions.OnClick)
-            composeRule.awaitUntil { openedPaneId.get() != null }
+            composeRule.awaitUntil { countNodes(hasTestTag("picker-proposal:0")) == 1 }
+            composeRule.onNodeWithTag("start-submit").performSemanticsAction(SemanticsActions.OnClick)
+            composeRule.awaitUntil { startedSession.get() != null }
 
-            assertEquals("%9", openedPaneId.get())
-            assertNull(openedPane)
+            assertEquals(STARTED_ID, startedSession.get())
+            assertNull(openedPaneId.get())
             assertEquals(0, countNodes(hasTestTag("picker-text")))
         }
     }

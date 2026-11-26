@@ -3,6 +3,9 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
@@ -11,6 +14,8 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
@@ -27,11 +32,14 @@ import java.util.concurrent.atomic.AtomicReference
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class ProjectPagePickerTest {
     private companion object {
-        const val ASK_PATH = "/orrery.v1.Picker/Ask"
+        const val PROPOSE_PATH = "/orrery.v1.Picker/Propose"
+        const val HOST_STATUS_PATH = "/orrery.v1.Host/Status"
         const val START_PATH = "/orrery.v1.Control/Start"
         const val PROJECT_DIR = "/home/user/projects/synthetic-workspace/project-a"
         const val ANSWERED_ID = "fedcba9876543210fedcba9876543210"
-        const val HINT = "Name a directory to start a session there, or say a few words about a session to find it."
+        const val HINT = "Press ⏎ and Orrery proposes where to run it."
+        const val SERVING_HOST = "halyard"
+        const val OTHER_HOST = "sextant"
     }
 
     @get:Rule
@@ -39,14 +47,21 @@ class ProjectPagePickerTest {
 
     private val started = AtomicReference<String?>(null)
 
-    private fun setPanel(server: FakeOrreryServer, startIn: String? = null) {
+    /** The serving host halyard, and sextant, both reachable. */
+    private fun hostStatus(): HostStatusResponse = HostStatusResponse.newBuilder()
+        .setHost(SERVING_HOST)
+        .addHosts(HostEntry.newBuilder().setName(SERVING_HOST).setReachable(true))
+        .addHosts(HostEntry.newBuilder().setName(OTHER_HOST).setReachable(true))
+        .build()
+
+    private fun setPanel(server: FakeOrreryServer, startIn: String? = null, startHost: String? = null) {
         composeRule.setContent {
             PickerPanel(
                 client = OrreryClient(server.baseUrl),
-                onOpened = {},
                 onStarted = { started.set(it) },
                 onClose = {},
                 startIn = startIn,
+                startHost = startHost,
             )
         }
     }
@@ -57,32 +72,51 @@ class ProjectPagePickerTest {
 
     private fun countTagged(tag: String): Int = composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().size
 
+    private fun fieldText(tag: String): String =
+        composeRule.onNodeWithTag(tag).fetchSemanticsNode().config[SemanticsProperties.EditableText].text
+
+    /** Whether the host choice names [host], read in the unmerged tree, where the host's label is its own node. */
+    private fun hostIs(host: String): Boolean =
+        composeRule.onAllNodes(hasTestTag("picker-host") and hasAnyDescendant(hasText(host)), useUnmergedTree = true)
+            .fetchSemanticsNodes().isNotEmpty()
+
     private fun postsTo(server: FakeOrreryServer, path: String): List<RecordedRequest> =
         server.requests.filter { it.method == "POST" && it.rawPath == path }
 
     @Test
-    fun startInDrawsTheStartFormForThatDirectoryWithNoSearchResults() {
+    fun startInOpensTheStarterWithThatFolderTypedAndNoProposals() {
         FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS_PATH, hostStatus())
             setPanel(server, startIn = PROJECT_DIR)
 
-            composeRule.awaitUntil { countTagged("start-form") == 1 }
-            composeRule.onNodeWithTag("start-dir").assertTextEquals(PROJECT_DIR)
-            assertEquals("", composeRule.onNodeWithTag("start-message").fetchSemanticsNode()
-                .config[SemanticsProperties.EditableText].text)
-            assertEquals(0, countTagged("picker-row:0"))
-            assertEquals(0, countTagged("picker-none"))
-            assertEquals(emptyList<RecordedRequest>(), postsTo(server, ASK_PATH))
+            composeRule.awaitUntil { countTagged("start-dir") == 1 }
+            assertEquals(PROJECT_DIR, fieldText("start-dir"))
+            assertEquals("", fieldText("picker-text"))
+            assertEquals(0, countTagged("picker-proposal:0"))
+            assertEquals(0, countTagged("picker-hint"))
+            assertEquals(emptyList<RecordedRequest>(), postsTo(server, PROPOSE_PATH))
         }
     }
 
     @Test
-    fun startInStartSendsStartWithThatDirectoryAndTheTypedMessageThenReportsTheSession() {
+    fun startInTypesTheFolderOnTheServingHostWhenItsCallerGivesNoHost() {
         FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS_PATH, hostStatus())
+            setPanel(server, startIn = PROJECT_DIR)
+
+            composeRule.awaitUntil { hostIs(SERVING_HOST) }
+        }
+    }
+
+    @Test
+    fun startInStartSendsStartWithThatDirectoryAndTheTypedPromptThenReportsTheSession() {
+        FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS_PATH, hostStatus())
             server.respond(START_PATH, StartResponse.newBuilder().setId(ANSWERED_ID).build())
             setPanel(server, startIn = PROJECT_DIR)
-            composeRule.awaitUntil { countTagged("start-form") == 1 }
+            composeRule.awaitUntil { countTagged("picker-host") == 1 }
 
-            composeRule.onNodeWithTag("start-message").performTextInput("retry the webhook")
+            composeRule.onNodeWithTag("picker-text").performTextInput("retry the webhook")
             tap("start-submit")
             composeRule.awaitUntil { started.get() != null }
 
@@ -97,14 +131,30 @@ class ProjectPagePickerTest {
     }
 
     @Test
-    fun withoutStartInThePanelOpensOnTheEmptySearch() {
+    fun startInOnTheHostItsCallerGivesStartsThere() {
+        FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS_PATH, hostStatus())
+            server.respond(START_PATH, StartResponse.newBuilder().setId(ANSWERED_ID).build())
+            setPanel(server, startIn = PROJECT_DIR, startHost = OTHER_HOST)
+            composeRule.awaitUntil { hostIs(OTHER_HOST) }
+
+            composeRule.onNodeWithTag("picker-text").performTextInput("retry the webhook")
+            tap("start-submit")
+            composeRule.awaitUntil { started.get() != null }
+
+            assertEquals(OTHER_HOST, StartRequest.parseFrom(postsTo(server, START_PATH).single().body).host)
+        }
+    }
+
+    @Test
+    fun withoutStartInTheStarterOpensOnThePromptAlone() {
         FakeOrreryServer().use { server ->
             setPanel(server)
 
             composeRule.onNodeWithTag("picker-hint").assertTextEquals(HINT)
-            assertEquals(0, countTagged("start-form"))
-            assertEquals(0, countTagged("picker-row:0"))
-            assertEquals(emptyList<RecordedRequest>(), postsTo(server, ASK_PATH))
+            assertEquals(0, countTagged("start-dir"))
+            assertEquals(0, countTagged("picker-proposal:0"))
+            assertEquals(emptyList<RecordedRequest>(), postsTo(server, PROPOSE_PATH))
         }
     }
 }
