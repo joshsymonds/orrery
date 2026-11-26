@@ -56,6 +56,7 @@ internal fun Head(
         HeadTitleRow(
             dir = dir,
             title = title,
+            host = host,
             context = context,
             note = note,
             onBack = onBack,

@@ -363,7 +363,10 @@ class PhoneHeadPaneScreenTest {
             awaitNewestReply()
 
             composeRule.awaitExactlyOne(hasTestTag(OTHER_HOST_TAG))
-            composeRule.onNodeWithText(OTHER_HOST).assertIsDisplayed()
+            // The title row names the host too, so the machine band's own label is the node this asserts.
+            composeRule.onNode(hasTestTag(MACHINE_HOST_TAG) and hasAnyAncestor(hasTestTag(MACHINE_BAND_TAG)))
+                .assertTextEquals(OTHER_HOST)
+                .assertIsDisplayed()
             composeRule.onNodeWithText("on another host: no meters").assertIsDisplayed()
             composeRule.onAllNodesWithTag(METERS_TAG).assertCountEquals(0)
         }

@@ -77,6 +77,26 @@ private const val TAG = "EpicScreen"
 class EpicOpening(val section: String)
 
 /**
+ * The epic page's title row: back and the orrery crumb, then the epic's slug, state and blocker pills at [now] and its
+ * host labelled inline, once [detail] is read. While the epic loads, [detail] is null and the slug, pills and host are
+ * left out. An epic with no host of its own reads as [servingHost].
+ */
+@Composable
+internal fun EpicTitleRow(detail: EpicDetail?, now: Long, servingHost: String, onBack: () -> Unit) {
+    val statePill = detail?.let { statePillOf(it, now) }
+    val blockerPill = detail?.let { blockerPillOf(it, now) }
+    TitleRow(
+        crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
+        onBack = onBack,
+        state = statePill?.word.orEmpty(),
+        stateTone = statePill?.tone,
+        blocker = blockerPill?.word.orEmpty(),
+        blockerTone = blockerPill?.tone,
+        host = detail?.let { it.epic.host.ifEmpty { servingHost } }.orEmpty(),
+    )
+}
+
+/**
  * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. The
  * summary carries the contract and steered doors; the track, Now (its sentence, what asks, and its running steps), what
  * just happened, the tasks (chart then table), the requirements, the review, the release and the report follow, then the
@@ -110,6 +130,11 @@ fun EpicScreen(
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
     var notice by remember(client, epicId) { mutableStateOf("") }
+    // The serving host's name, which an epic with no host of its own reads as. Read once the title row is drawn.
+    var servingHost by remember(client) { mutableStateOf("") }
+    LaunchedEffect(client, titled) {
+        if (titled) fetchHost(client)?.let { servingHost = it.host }
+    }
     val scope = rememberCoroutineScope()
     val releaseCall = remember(client, epicId) { OwnerCall() }
     val gapsCall = remember(client, epicId) { OwnerCall() }
@@ -228,18 +253,9 @@ fun EpicScreen(
         }
     }
     val nowAt = now()
-    val statePill = detail?.let { statePillOf(it, nowAt) }
-    val blockerPill = detail?.let { blockerPillOf(it, nowAt) }
     Column(modifier = modifier.fillMaxSize()) {
         if (titled) {
-            TitleRow(
-                crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
-                onBack = onBack,
-                state = statePill?.word.orEmpty(),
-                stateTone = statePill?.tone,
-                blocker = blockerPill?.word.orEmpty(),
-                blockerTone = blockerPill?.tone,
-            )
+            EpicTitleRow(detail = detail, now = nowAt, servingHost = servingHost, onBack = onBack)
         }
         if (notice.isNotEmpty()) {
             Text(

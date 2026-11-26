@@ -198,6 +198,7 @@ class MainActivity : ComponentActivity() {
                                                     doing = it.doing,
                                                     epic = current.id,
                                                     task = it.task,
+                                                    host = it.host,
                                                 )
                                             },
                                             onOpenContract = {
@@ -238,6 +239,7 @@ class MainActivity : ComponentActivity() {
                                                     doing = it.doing,
                                                     epic = current.epicId,
                                                     task = it.task,
+                                                    host = it.host,
                                                 )
                                             },
                                         )
@@ -273,6 +275,7 @@ class MainActivity : ComponentActivity() {
                                                 doing = current.doing,
                                                 epic = current.epic,
                                                 task = current.task,
+                                                host = current.host,
                                             ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                             onOpenTask = { task, phase ->
@@ -508,6 +511,7 @@ class MainActivity : ComponentActivity() {
         doing = step.doing,
         epic = epic,
         task = step.task,
+        host = step.host,
     )
 
     /** The About set on [conversation], the screen a contract's row returned to, or null. */
@@ -589,6 +593,7 @@ class MainActivity : ComponentActivity() {
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
          * step's held state when it was opened, and [label] and [doing] name the step and say what it is doing in its
          * dock. [epic] and [task] are the step's epic and task, whose record the session's band and crumbs read.
+         * [host] is the step's host, which its title row names; empty reads as the serving host.
          */
         data class Step(
             val id: String,
@@ -598,6 +603,7 @@ class MainActivity : ComponentActivity() {
             val doing: String,
             val epic: String,
             val task: String,
+            val host: String,
         ) : Screen
     }
 }
