@@ -84,16 +84,23 @@ func createStoppedRelease(t *testing.T, s *Store, epic string) {
 // publish, which has none. epic starts its release while clean.
 func stopReleaseAfter(t *testing.T, s *Store, epic, reason string, runs ...ReleaseRun) {
 	t.Helper()
-	ctx := context.Background()
-	at := closeAt()
 	row := fullEpic(epic)
 	row.ReleaseSteps = []EpicReleaseStep{
 		{Step: "push tag", Target: "origin", Undo: "delete tag"},
 		{Step: "publish", Target: "registry", Undo: "none"},
 	}
-	run := NodeRun{Path: "release", ID: "id-" + epic, Node: "release", Kind: "release", Attempt: 1}
 	row.Phase = PhaseClean
 	createEpic(t, s, row)
+	stopReleaseOf(t, s, epic, reason, runs...)
+}
+
+// stopReleaseOf is stopReleaseAfter for an epic already stored in phase clean: it starts the release of epic, records runs
+// under attempt 1 of its release node run and stops it there with reason, as the release kind stops it.
+func stopReleaseOf(t *testing.T, s *Store, epic, reason string, runs ...ReleaseRun) {
+	t.Helper()
+	ctx := context.Background()
+	at := closeAt()
+	run := NodeRun{Path: "release", ID: "id-" + epic, Node: "release", Kind: "release", Attempt: 1}
 	if err := s.StartRelease(ctx, epic, at); err != nil {
 		t.Fatalf("StartRelease of epic %s: %v", epic, err)
 	}
@@ -570,17 +577,25 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 		refusal string
 	}{
 		{
-			name: "retry_epic on a stopped epic",
+			name: "retry_epic on a stopped epic whose retry already replanned its release",
 			epic: actionEpic,
 			setup: func(t *testing.T, s *Store) {
 				t.Helper()
 				createStoppedRelease(t, s, actionEpic)
+				if err := s.RetryEpic(
+					context.Background(),
+					actionEpic,
+					Maker{By: MakerOwner},
+					closeAt(),
+				); err != nil {
+					t.Fatalf("RetryEpic of epic %s: %v", actionEpic, err)
+				}
 			},
 			action: EpicActionInput{
 				Kind: ActionRetryEpic, Reason: "the release can go on",
 			},
 			summary: "retry epic",
-			refusal: "epic " + actionEpic + " is stopped; retry ends a stopped release only when its release integrator or reviewer stopped it",
+			refusal: "epic " + actionEpic + " has no parked release run",
 		},
 		{
 			name: "resume of a stopped epic whose owner stopped its release",

@@ -211,8 +211,8 @@ func TestReleaseGenerationArithmetic(t *testing.T) {
 }
 
 // TestRetryOfReleaseStoppedByIntegratorEndsTheStop: retry on a release its integrator stopped with a blocked round stores
-// a replan of the round, turns the release node run running at the same attempt, ends the park and leaves the epic
-// stopped for the release kind to replan.
+// a replan of the stop's attempt from the round's tip, with the reason the release stopped with, turns the release node run
+// running at the same attempt, ends the park and leaves the epic stopped for the release kind to replan.
 func TestRetryOfReleaseStoppedByIntegratorEndsTheStop(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -234,8 +234,9 @@ func TestRetryOfReleaseStoppedByIntegratorEndsTheStop(t *testing.T) {
 	}
 	replans := replansOf(t, s)
 	if len(replans) != 1 || replans[0].Attempt != 1 || replans[0].Start != replanTip ||
-		replans[0].Reason != replanReport {
-		t.Errorf("replans = %+v, want one at attempt 1 from %s with the round's report", replans, replanTip)
+		replans[0].Reason != resumeStopReason {
+		t.Errorf("replans = %+v, want one at attempt 1 from %s with the stop's reason %q",
+			replans, replanTip, resumeStopReason)
 	}
 }
 
@@ -244,8 +245,8 @@ const reviewRefusal = "the release reviewer refused the candidate: its migration
 
 // TestRetryOfReleaseStoppedByReviewerReplansIt: retry on a release a release reviewer stopped by refusing its candidate
 // ends the stop as it does for a blocked round of the integrator: the epic is unparked and stays stopped, the release
-// runs again at the same attempt with no output, and one replan of that attempt carries the refused candidate as its
-// start and the review's reason, so the release goes back to planning for a change to the candidate.
+// runs again at the same attempt with no output, and one replan of that attempt carries the refused candidate as its start
+// and the reason the release stopped with, so the release goes back to planning for a change to the candidate.
 func TestRetryOfReleaseStoppedByReviewerReplansIt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -270,41 +271,43 @@ func TestRetryOfReleaseStoppedByReviewerReplansIt(t *testing.T) {
 		t.Errorf("release runs = %+v, want the release running at attempt 1 with no output", flow.Runs)
 	}
 	replans := replansOf(t, s)
-	if len(replans) != 1 || replans[0].Attempt != 1 || replans[0].Start != "c1" || replans[0].Reason != reviewRefusal {
-		t.Errorf("replans = %+v, want one at attempt 1 from c1 with the review's reason", replans)
+	if len(replans) != 1 || replans[0].Attempt != 1 || replans[0].Start != "c1" ||
+		replans[0].Reason != resumeStopReason {
+		t.Errorf("replans = %+v, want one at attempt 1 from c1 with the stop's reason %q", replans, resumeStopReason)
 	}
 }
 
-// TestRetryOfOtherStoppedReleaseIsRefused: retry on a release stopped by anything but a blocked round of its integrator or
-// a refused review, a failed release step or a round that failed another way, is refused and changes nothing.
-func TestRetryOfOtherStoppedReleaseIsRefused(t *testing.T) {
+// TestRetryOfReleaseAlreadyRetriedIsRefused: a retry ends the stop of a release and leaves it stopped for the release kind to
+// replan, with its release node run running. A second retry finds no parked release run to replan, so it is refused, with
+// the store's refusal, and changes nothing: the replan of the first retry is the only one stored, and the epic keeps its
+// state.
+func TestRetryOfReleaseAlreadyRetriedIsRefused(t *testing.T) {
 	t.Parallel()
-	refused := blockedRound(1)
-	refused.End = "done"
-	cases := map[string]store.ReleaseRun{"failed step": releasedStep(1, false), "refused commit": refused}
-	for name, run := range cases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			ctx := context.Background()
-			s, _ := stoppedRelease(t, run)
-			err := s.RetryEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
-			want := "epic " + resumeEpic + " is stopped; retry ends a stopped release only when its release " +
-				"integrator or reviewer stopped it"
-			var refusal store.RefusalError
-			if !errors.As(err, &refusal) || err.Error() != want {
-				t.Fatalf("RetryEpic = %v, want refusal %q", err, want)
-			}
-			row, readErr := s.Epic(ctx, resumeEpic)
-			if readErr != nil {
-				t.Fatalf("Epic: %v", readErr)
-			}
-			if row.Parked != resumeStopReason || row.Phase != store.PhaseStopped {
-				t.Errorf("epic parked %q phase %q, want still stopped and parked", row.Parked, row.Phase)
-			}
-			if got := replansOf(t, s); len(got) != 0 {
-				t.Errorf("replans = %+v, want none", got)
-			}
-		})
+	ctx := context.Background()
+	s, _ := stoppedRelease(t, releasedStep(1, false))
+	if err := s.RetryEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0)); err != nil {
+		t.Fatalf("RetryEpic: %v", err)
+	}
+	before := replansOf(t, s)
+	if len(before) != 1 {
+		t.Fatalf("replans after the first retry = %+v, want one", before)
+	}
+
+	err := s.RetryEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, time.Unix(1700000000, 0))
+	want := "epic " + resumeEpic + " has no parked release run"
+	var refusal store.RefusalError
+	if !errors.As(err, &refusal) || err.Error() != want {
+		t.Fatalf("RetryEpic = %v, want refusal %q", err, want)
+	}
+	row, readErr := s.Epic(ctx, resumeEpic)
+	if readErr != nil {
+		t.Fatalf("Epic: %v", readErr)
+	}
+	if row.Parked != "" || row.Phase != store.PhaseStopped {
+		t.Errorf("epic parked %q phase %q, want unparked and still stopped", row.Parked, row.Phase)
+	}
+	if got := replansOf(t, s); !slices.EqualFunc(got, before, sameReleaseRun) {
+		t.Errorf("replans = %+v, want the first retry's %+v alone", got, before)
 	}
 }
 

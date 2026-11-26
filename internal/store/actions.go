@@ -141,9 +141,9 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 // stores the task's change-of-approach version from the action's deliverable and evidence item, as changeApproach does,
 // send_back reopens the task at implement on rung 1 with the reason as its failure, as sendBack does, rerun_review
 // records a rerun of the epic's review for the action's reviewer, as rerunReview does, reopen_design adds the design
-// task that revises the action's task, as reopenDesign does, split divides the action's task into its descendants, as
-// splitTask does, park_recurs sends the park its epic holds at the bound of its chain to the owner, as parkRecurs does,
-// and park_new moves that park to a chain of its own, as parkNew does.
+// task that revises the action's task, as reopenDesign does, which also replans a stopped release, split divides the
+// action's task into its descendants, as splitTask does, park_recurs sends the park its epic holds at the bound of its
+// chain to the owner, as parkRecurs does, and park_new moves that park to a chain of its own, as parkNew does.
 //
 // A close returns the step of the turn it ended and each step of the epic with no end. A fail_task and a send_back
 // return the open steps of the task they move. Every other action returns none.
@@ -195,9 +195,11 @@ func (s *Store) refuse(ctx context.Context, action PlannerAction, refusal Refusa
 // takeAction carries out action in the caller's write, as CarryOutAction describes, and returns the steps to stop. The
 // epic head is read before the control runs, so the park the action answers is the one the epic held when it was taken.
 // The action is marked taken in the same write, so an action that is not pending is errActionSettled. An action on a
-// closed epic is a RefusalError. So is a retry_node or retry_epic action on an epic whose park the owner holds: only the
-// owner retries such a park, so the park, its class and its question stay as they are. So is any action but a judgment on
-// an epic whose park waits on the planner's call (refuseUncalled).
+// closed epic is a RefusalError. So is a retry_epic, send_back or reopen_design action on an epic whose release its owner
+// stopped (refuseOwnerStop). So is a retry_node or retry_epic action on an epic whose park the owner holds: only the owner
+// retries such a park, so the park, its class and its question stay as they are. A stopped release is not such a park: its
+// retry_epic replans it, whatever the class of its park (retryStoppedRelease). So is any action but a judgment on an epic
+// whose park waits on the planner's call (refuseUncalled).
 func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) ([]string, error) {
 	head, err := epicHead(ctx, queries, action.Epic)
 	if err != nil {
@@ -214,7 +216,10 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 	if IsClosedPhase(head.Phase) {
 		return nil, RefusalError(fmt.Sprintf("epic %s is closed", action.Epic))
 	}
-	retries := action.Kind == ActionRetryNode || action.Kind == ActionRetryEpic
+	if refusal := refuseOwnerStop(ctx, queries, action, head); refusal != nil {
+		return nil, refusal
+	}
+	retries := action.Kind == ActionRetryNode || (action.Kind == ActionRetryEpic && head.Phase != PhaseStopped)
 	if retries && head.Parked != "" && ParkClass(head.ParkClass).OpensQuestion() {
 		return nil, RefusalError(fmt.Sprintf(
 			"epic %s holds a %s park, which its park question answers; the planner does not retry it",
@@ -246,10 +251,26 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 	return stop, nil
 }
 
+// refuseOwnerStop returns the RefusalError of a retry_epic, send_back or reopen_design action on an epic whose release its
+// owner stopped (ownerStoppedRelease): only the owner retries such a release, so the planner's action is refused and names
+// the owner. It returns nil for any other action, and for an epic whose release the owner did not stop.
+func refuseOwnerStop(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, head sqlcgen.Epic) error {
+	if !slices.Contains([]string{ActionRetryEpic, ActionSendBack, ActionReopenDesign}, action.Kind) {
+		return nil
+	}
+	owned, err := ownerStoppedRelease(ctx, queries, head)
+	if err != nil || !owned {
+		return err
+	}
+	return RefusalError(fmt.Sprintf("epic %s: its owner stopped the release; only the owner retries it", action.Epic))
+}
+
 // sendBack sends the task action names back to implement in the caller's write, as CarryOutAction describes. The task may
 // be open, done or ended as a gap, from any rung. A split task is a RefusalError. It is refused while an integrate run
 // that claims it or composes it has
-// not ended, running or parked, and on an epic in an ended phase, and writes nothing then. Otherwise the task is reopened: its status is open
+// not ended, running or parked, and on an epic in an ended phase other than stopped with a parked release run, and writes
+// nothing then. An epic in phase stopped with a parked release run is not refused as ended: its release is replanned in the
+// same write, as retryStoppedRelease does (replanStoppedRelease). Otherwise the task is reopened: its status is open
 // and its build is a fresh build on implement at attempt 1, built on the stored base, with the action's reason as its
 // failure (sentBackBuild). Its batch claim is cleared, so the next batch claims it once it is done again. The epic's
 // candidate is cleared too, unless the task's claiming batch passed with the task in it: then the stored base holds the
@@ -275,8 +296,9 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	if err != nil {
 		return nil, err
 	}
-	if EndedPhase(head.Phase) {
-		return nil, RefusalError(fmt.Sprintf("epic %s is %s, an ended phase", action.Epic, head.Phase))
+	release, stopped, err := sendBackRelease(ctx, queries, action, head)
+	if err != nil {
+		return nil, err
 	}
 	runs, err := readNodeRuns(ctx, queries, action.Epic)
 	if err != nil {
@@ -297,7 +319,28 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 			return nil, fmt.Errorf("clear candidate of epic %s: %w", action.Epic, err)
 		}
 	}
+	if stopped {
+		if replanErr := replanStoppedRelease(ctx, queries, action.Epic, release, at); replanErr != nil {
+			return nil, replanErr
+		}
+	}
 	return openTaskSteps(ctx, queries, action.Epic, action.Task)
+}
+
+// sendBackRelease returns the parked release run of head that a send_back of action replans, and true when head is in
+// phase stopped and holds one. An epic in an ended phase other than that stop is a RefusalError, and nothing is read or
+// written for it.
+func sendBackRelease(
+	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, head sqlcgen.Epic,
+) (NodeRun, bool, error) {
+	release, stopped, err := parkedStoppedRelease(ctx, queries, head)
+	if err != nil {
+		return NodeRun{}, false, err
+	}
+	if EndedPhase(head.Phase) && !stopped {
+		return NodeRun{}, false, RefusalError(fmt.Sprintf("epic %s is %s, an ended phase", action.Epic, head.Phase))
+	}
+	return release, stopped, nil
 }
 
 // reopenTask reopens the done task a send_back or a batch that left it out names, in the caller's write. Its status is
@@ -353,7 +396,7 @@ func carryOutAction(
 	case ActionRerunReview:
 		return nil, rerunReview(ctx, queries, action, at)
 	case ActionReopenDesign:
-		return nil, reopenDesign(ctx, queries, action)
+		return nil, reopenDesign(ctx, queries, action, at)
 	case ActionSplit:
 		return splitTask(ctx, queries, action, at)
 	case ActionParkRecurs:
@@ -372,8 +415,10 @@ const taskFailed = "failed"
 // action's turn. Its title is Revise T<n>: and the reopened task's title, its deliverable is the action's, and it copies
 // the files, gate, test changes and evidence item of the reopened task's current version. It has no depends_on. The
 // reopened task is not written, so it keeps its status and history. A task that does not exist, a task that is not a
-// design task, and a task that has failed, ended as a gap or been split are RefusalErrors, and write nothing.
-func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
+// design task, and a task that has failed, ended as a gap or been split are RefusalErrors, and write nothing. On an epic in
+// phase stopped that holds a parked release run, the release is replanned in the same write, as retryStoppedRelease does
+// (replanStoppedRelease).
+func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) error {
 	stored, err := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
 	if errors.Is(err, sql.ErrNoRows) {
 		return RefusalError(fmt.Sprintf("task %d of epic %s does not exist", action.Task, action.Epic))
@@ -423,7 +468,7 @@ func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerA
 	if err != nil {
 		return fmt.Errorf("test changes of task %d of epic %s: %w", seq, action.Epic, err)
 	}
-	return nil
+	return replanStoppedEpic(ctx, queries, action.Epic, at)
 }
 
 // changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, its
