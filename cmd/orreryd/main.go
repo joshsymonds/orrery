@@ -131,7 +131,8 @@ flags:
   --relay-listen ADDR
                     serve the relay that admits the hosts.toml agents on ADDR, host:port (default: none)
   --fleet-secret FILE
-                    file that holds the fleet secret the relay of --relay-listen admits calls by (default: none)
+                    file that holds the fleet secret the relay of --relay-listen admits calls by, and that the
+                    hosts.toml agents are called with (default: none)
   --gateway URL     probe each idle account's usage limits through the gateway at URL, an absolute http or
                     https URL (default: none, no limit probes)
 `
@@ -173,7 +174,7 @@ type options struct {
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	relayListen     string                  // the --relay-listen address, "" when unset
-	fleetSecret     string                  // the --fleet-secret file that holds the relay's fleet secret, "" when unset
+	fleetSecret     string                  // the --fleet-secret file that holds the fleet secret, "" when unset
 	gateway         string                  // the --gateway URL every limit probe is sent to, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
@@ -378,30 +379,36 @@ func hostName(seam string) (string, error) {
 	return host, nil
 }
 
-// controllerHost returns the controller's host name, which hostName gives, and its orrery name: the top-level name of the
-// hosts file that getenv locates when the file sets one, and the host name otherwise. A host name that is empty, or a
-// hosts file that does not load, is an error. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to
-// locate, so the controller is named by its host name, as it is without a hosts file.
-func controllerHost(opts options, getenv func(string) string) (string, string, error) {
+// controllerHost returns the controller's host name, which hostName gives, its orrery name, and the fleet secret that
+// the --fleet-secret file of opts holds, which the controller's clients of the hosts file's agents send. The orrery name
+// is the top-level name of the hosts file that getenv locates when the file sets one, and the host name otherwise. A
+// host name that is empty, a hosts file that does not load, and a hosts file that lists a host with no usable fleet
+// secret are errors. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to locate, so the controller is
+// named by its host name, as it is without a hosts file.
+func controllerHost(opts options, getenv func(string) string) (string, string, string, error) {
 	host, err := hostName(opts.host)
 	if err != nil {
-		return "", "", fmt.Errorf("host name: %w", err)
+		return "", "", "", fmt.Errorf("host name: %w", err)
 	}
 	if host == "" {
-		return "", "", errors.New("host name is empty")
+		return "", "", "", errors.New("host name is empty")
 	}
 	var file hosts.File
 	if _, pathErr := hosts.Path(getenv); pathErr == nil {
 		loaded, err := hosts.Load(getenv)
 		if err != nil {
-			return "", "", fmt.Errorf("load hosts: %w", err)
+			return "", "", "", fmt.Errorf("load hosts: %w", err)
 		}
 		file = loaded
 	}
-	if file.Name != "" {
-		return host, file.Name, nil
+	secret, err := fleetSecretOf(file, opts.fleetSecret)
+	if err != nil {
+		return "", "", "", err
 	}
-	return host, host, nil
+	if file.Name != "" {
+		return host, file.Name, secret, nil
+	}
+	return host, host, secret, nil
 }
 
 // nameUnhosted names the rows of st that have no host as name, once the store is open: the session rows, and the
@@ -499,7 +506,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	relayListen := flags.String("relay-listen", "", "address the relay of the hosts.toml agents listens on")
-	fleetSecret := flags.String("fleet-secret", "", "file that holds the fleet secret the relay admits calls by")
+	fleetSecret := flags.String("fleet-secret", "", "file that holds the fleet secret of the relay and hosts agents")
 	gateway := flags.String("gateway", "", "gateway URL every limit probe is sent to")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
@@ -654,7 +661,7 @@ func serveRelay(opts options, home string, logger *slog.Logger, mirror *daemon.M
 // serving and returns its error. Once the store is open, serve also follows each hosts.toml host's panes into it
 // (startHostFollows), and stops the follows before the store closes.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
-	host, orrery, err := controllerHost(opts, getenv)
+	host, orrery, fleetSecret, err := controllerHost(opts, getenv)
 	if err != nil {
 		return err
 	}
@@ -739,7 +746,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
-	stopFollows := startHostFollows(ctx, st, getenv, logger, hub)
+	stopFollows := startHostFollows(ctx, st, getenv, logger, hub, fleetSecret)
 	var sessions *sessionHost
 	if startErr == nil && opts.sessions {
 		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
@@ -1918,7 +1925,7 @@ func (h *sessionHost) newWakes(
 	getenv func(string) string,
 	logger *slog.Logger,
 ) {
-	opts.paneAgents = paneAgents(ctx, getenv, logger)
+	opts.paneAgents = paneAgents(ctx, getenv, logger, opts.fleetSecret)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)
 }
@@ -1998,11 +2005,19 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 }
 
 // paneAgents returns one node.Client for each host of the hosts file that getenv locates, by the host's name.
-// HostPaneWake wakes a pane on that host through its client. Each client dials as startHostFollows dials its host. A
-// hosts file that does not load is logged, and no agent is returned, since controllerHost has already refused the same
-// file.
-func paneAgents(ctx context.Context, getenv func(string) string, logger *slog.Logger) map[string]enginehost.PaneWaker {
+// HostPaneWake wakes a pane on that host through its client. Each client dials as startHostFollows dials its host, and
+// sends the fleet secret that the file at fleetSecretFile holds. A hosts file that does not load, or a fleet secret that
+// fleetSecretOf refuses, is logged, and no agent is returned. controllerHost and startHostFollows have already refused
+// the same file and flag.
+func paneAgents(
+	ctx context.Context, getenv func(string) string, logger *slog.Logger, fleetSecretFile string,
+) map[string]enginehost.PaneWaker {
 	file, err := loadHostsFile(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
+		return nil
+	}
+	secret, err := fleetSecretOf(file, fleetSecretFile)
 	if err != nil {
 		logger.ErrorContext(ctx, "caller events: waking remote panes without their agents", "error", err)
 		return nil
@@ -2011,7 +2026,7 @@ func paneAgents(ctx context.Context, getenv func(string) string, logger *slog.Lo
 	agents := make(map[string]enginehost.PaneWaker, len(file.Hosts))
 	for _, host := range file.Hosts {
 		agents[host.Name] = node.NewClient(node.ClientConfig{
-			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Logger: logger,
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger,
 		})
 	}
 	return agents
