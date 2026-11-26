@@ -182,6 +182,7 @@ func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error 
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
 	files := step.Files
 	if files == nil {
+		// Serves the controller's own work: a step started or continued on the Manager with no host reads through it.
 		files = m.files
 	}
 	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir, Files: files}

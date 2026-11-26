@@ -274,7 +274,7 @@ type Manager struct {
 	// files is the host a step's agent files are read through when its StepSession, or the continue that respawns it,
 	// names none. Steps always names the host its epic is stored on, so only a caller that starts or continues a step on
 	// the Manager directly with no host reads through it. It is the controller's own host, which serves the controller's
-	// own sessions.
+	// own work.
 	files hostexec.Files
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
