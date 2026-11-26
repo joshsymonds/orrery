@@ -77,8 +77,8 @@ type ServeConfig struct {
 	Accounts  *Accounts
 	// Fleet is the Fleet service's router and desk. A nil Fleet refuses every Fleet RPC as unavailable.
 	Fleet *Fleet
-	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
-	// create checks run on the Host that Hosts resolves it to.
+	// Host is the name of the controller's host: its create checks run on the Host that Hosts resolves it to, and with
+	// no Placement each epic the Epics service creates is stamped with it.
 	Host string
 	// CallerHost is the orrery name of the host whose panes a call on this listener comes from. ServeWith sets it as the
 	// Orrery-Host of each request, over any Orrery-Host the request sent, and sends no Orrery-Host when it is empty.
@@ -148,6 +148,7 @@ func NewHandler(cfg ServeConfig) http.Handler {
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
 		&epicService{
 			epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, hosts: cfg.Hosts, host: cfg.Host,
+			placement: cfg.Placement, roots: cfg.Roots,
 		}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(

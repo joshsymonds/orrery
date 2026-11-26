@@ -45,6 +45,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostrelay"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
@@ -1256,7 +1257,18 @@ func startSessions(
 	cfg := host.serveConfig(
 		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, placement,
 		serveOpts(opts, st, logger))
+	cfg.Roots = rootListers(clients)
 	return host.listenSessions(ctx, opts, st, cfg, getenv, logger)
+}
+
+// rootListers returns each client of a hosts.toml host by the host's name, as the roots its agent lists. A create placed
+// on that host lists the roots there, to ready its checkout under one.
+func rootListers(clients map[string]*node.Client) map[string]hostrepo.RootLister {
+	listers := make(map[string]hostrepo.RootLister, len(clients))
+	for name, client := range clients {
+		listers[name] = client
+	}
+	return listers
 }
 
 // listenSessions opens the session socket and serves cfg on it, as startSessionSocket does. A socket that does not open
