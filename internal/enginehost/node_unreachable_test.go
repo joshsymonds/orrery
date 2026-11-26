@@ -212,6 +212,7 @@ func newUnreachableRig(t *testing.T) unreachableRig {
 		WhoIs:      nodeWhoIs{own: ln.Addr().String()},
 		Holders:    local,
 		StateDir:   stateB,
+		Secret:     nodeSecret,
 	})
 	if err != nil {
 		t.Fatalf("new agent of b: %v", err)
@@ -226,6 +227,7 @@ func newUnreachableRig(t *testing.T) unreachableRig {
 		Dial:    dial.DialContext,
 		Bound:   unreachableBound,
 		Clock:   clock,
+		Secret:  nodeSecret,
 	})
 	client.Reach()
 	s, path := openStore(t)
@@ -295,7 +297,7 @@ func (r unreachableRig) stopStarted(t *testing.T) {
 	ids := slices.Clone(r.started.ids)
 	r.started.mu.Unlock()
 	client := node.NewClient(node.ClientConfig{
-		Name: "b", Address: r.agent, Dial: (&net.Dialer{}).DialContext, Clock: neverClock{},
+		Name: "b", Address: r.agent, Dial: (&net.Dialer{}).DialContext, Clock: neverClock{}, Secret: nodeSecret,
 	})
 	for _, id := range ids {
 		err := client.Stop(context.WithoutCancel(t.Context()), id)

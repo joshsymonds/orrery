@@ -256,10 +256,12 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	}
 }
 
-// exchange sends req on conn, and reads the Response line that answers it. A conn still unanswered when ctx ends is
-// closed, which ends the read. On success conn stays open for the caller, which may read what follows the Response line.
-// On failure exchange closes conn.
+// exchange sends req on conn, and reads the Response line that answers it. Every Request a Client sends goes through
+// exchange, so it is here that req carries the Client's fleet secret. A conn still unanswered when ctx ends is closed,
+// which ends the read. On success conn stays open for the caller, which may read what follows the Response line. On
+// failure exchange closes conn.
 func (c *Client) exchange(ctx context.Context, conn net.Conn, req Request) (Response, error) {
+	req.Secret = c.cfg.Secret
 	stop := context.AfterFunc(ctx, func() { c.closeConn(conn) })
 	resp, err := roundTrip(conn, req)
 	if stopped := stop(); err != nil || !stopped {

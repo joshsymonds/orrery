@@ -124,6 +124,7 @@ func startRoutingAgent(t *testing.T, tmux *tmuxctl.Client) *node.Client {
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: routingHost},
 		Holders:    routingHolders{},
 		Panes:      routingPanes{handler: handler},
+		Secret:     routingSecret,
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
@@ -142,6 +143,7 @@ func startRoutingAgent(t *testing.T, tmux *tmuxctl.Client) *node.Client {
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   quietClock{},
+		Secret:  routingSecret,
 	})
 }
 
@@ -591,7 +593,8 @@ func TestPaneRoutingUnreachableHost(t *testing.T) {
 		Dial: func(context.Context, string, string) (net.Conn, error) {
 			return nil, errors.New("synthetic dial failure")
 		},
-		Clock: quietClock{},
+		Clock:  quietClock{},
+		Secret: routingSecret,
 	})
 	client := routingClient(t, a, server.Config{Hosts: []*node.Client{down}})
 

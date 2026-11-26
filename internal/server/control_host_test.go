@@ -32,6 +32,7 @@ func startHostAgent(t *testing.T, root string) *node.Client {
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: routingHost},
 		Holders:    routingHolders{},
 		Roots:      []string{root},
+		Secret:     routingSecret,
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
@@ -50,8 +51,12 @@ func startHostAgent(t *testing.T, root string) *node.Client {
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   quietClock{},
+		Secret:  routingSecret,
 	})
 }
+
+// routingSecret is the fleet secret that the routing tests' agents admit, and that their clients send.
+const routingSecret = "fleet-secret-for-server-tests"
 
 // hostStartHandler returns the guarded handler of a Start test over the controller routingController. Its home is home,
 // its engine is engine, and its hosts.toml hosts are hosts.
@@ -222,7 +227,8 @@ func TestPublicHostsStartUnreachableHost(t *testing.T) {
 		Dial: func(context.Context, string, string) (net.Conn, error) {
 			return nil, errors.New("synthetic dial failure")
 		},
-		Clock: quietClock{},
+		Clock:  quietClock{},
+		Secret: routingSecret,
 	})
 	control := controlClient(t, hostStartHandler(t, t.TempDir(), newFakeOrreryd(t, fake), down))
 

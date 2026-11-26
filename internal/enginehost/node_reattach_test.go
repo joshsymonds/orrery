@@ -163,6 +163,7 @@ func newReattachRig(t *testing.T) reattachRig {
 		WhoIs:      nodeWhoIs{own: ln.Addr().String()},
 		Holders:    local,
 		StateDir:   stateB,
+		Secret:     nodeSecret,
 	})
 	if err != nil {
 		t.Fatalf("new agent of b: %v", err)
@@ -188,6 +189,7 @@ func (r reattachRig) client() *node.Client {
 		Address: r.addr,
 		Dial:    r.dial.DialContext,
 		Clock:   neverClock{},
+		Secret:  nodeSecret,
 	})
 }
 

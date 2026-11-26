@@ -138,7 +138,7 @@ func dialFrom(t *testing.T, from, addr string) net.Conn {
 // error.
 func startAgent(t *testing.T, ln net.Listener, whois WhoIs, holders holderhost.Host) {
 	t.Helper()
-	agent, err := NewAgent(AgentConfig{Controller: testController, WhoIs: whois, Holders: holders})
+	agent, err := NewAgent(AgentConfig{Controller: testController, WhoIs: whois, Holders: holders, Secret: testSecret})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,11 @@ func TestNodeAuthServesControllerUnderMyLogin(t *testing.T) {
 	host := &fakeHost{}
 	startAgent(t, ln, whois, host)
 
-	resp := exchange(t, dialFrom(t, controller, ln.Addr().String()), Request{Version: Version, Op: OpSessions})
+	resp := exchange(
+		t,
+		dialFrom(t, controller, ln.Addr().String()),
+		Request{Version: Version, Secret: testSecret, Op: OpSessions},
+	)
 	if !slices.Equal(resp.Sessions, []string{"s1"}) {
 		t.Fatalf("controller got sessions %v, want [s1]", resp.Sessions)
 	}
@@ -206,7 +210,11 @@ func TestNodeAuthServesControllerUnderMyLogin(t *testing.T) {
 		t.Fatalf("Host got %d calls for the controller's request, want 1", n)
 	}
 
-	resp = exchange(t, dialFrom(t, wrongVersion, ln.Addr().String()), Request{Version: "node.v0", Op: OpSessions})
+	resp = exchange(
+		t,
+		dialFrom(t, wrongVersion, ln.Addr().String()),
+		Request{Version: "node.v0", Secret: testSecret, Op: OpSessions},
+	)
 	if resp.Code != CodeFailed {
 		t.Fatalf("a request naming another version got code %q, want %q", resp.Code, CodeFailed)
 	}
@@ -246,7 +254,11 @@ func TestNodeAuthRefusesEveryOtherPeer(t *testing.T) {
 			host := &fakeHost{}
 			startAgent(t, ln, whois, host)
 
-			expectRefused(t, dialFrom(t, peer, ln.Addr().String()), Request{Version: Version, Op: OpSessions})
+			expectRefused(
+				t,
+				dialFrom(t, peer, ln.Addr().String()),
+				Request{Version: Version, Secret: testSecret, Op: OpSessions},
+			)
 			if n := host.calls.Load(); n != 0 {
 				t.Fatalf("Host got %d calls for a refused peer, want 0", n)
 			}
@@ -273,7 +285,11 @@ func TestNodeAuthHungWhoIsHoldsOnlyItsConnection(t *testing.T) {
 	dialFrom(t, hung, ln.Addr().String())
 	<-entered
 
-	resp := exchange(t, dialFrom(t, controller, ln.Addr().String()), Request{Version: Version, Op: OpSessions})
+	resp := exchange(
+		t,
+		dialFrom(t, controller, ln.Addr().String()),
+		Request{Version: Version, Secret: testSecret, Op: OpSessions},
+	)
 	if !slices.Equal(resp.Sessions, []string{"s1"}) {
 		t.Fatalf("controller got sessions %v while another peer's WhoIs hung, want [s1]", resp.Sessions)
 	}
@@ -303,7 +319,9 @@ func TestNodeAuthServeRefusesToStart(t *testing.T) {
 			ln := listenLoopback(t)
 			whois := fakeWhoIs{answers: map[string]whoIsAnswer{ln.Addr().String(): tc.answer}}
 			host := &fakeHost{}
-			agent, err := NewAgent(AgentConfig{Controller: testController, WhoIs: whois, Holders: host})
+			agent, err := NewAgent(
+				AgentConfig{Controller: testController, WhoIs: whois, Holders: host, Secret: testSecret},
+			)
 			if err != nil {
 				t.Fatal(err)
 			}

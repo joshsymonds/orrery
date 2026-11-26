@@ -19,7 +19,11 @@ func TestAgentWakePaneCallsWakePane(t *testing.T) {
 		},
 	})
 
-	resp := ask(t, addr, Request{Version: Version, Op: OpWakePane, Server: "work", Pane: "%4", Text: "continue"})
+	resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpWakePane, Server: "work", Pane: "%4", Text: "continue"},
+	)
 	if resp.Code != "" {
 		t.Fatalf("wake-pane: %+v", resp)
 	}

@@ -28,6 +28,9 @@ const nodeController = "controller"
 // nodeLogin is the login that the controller's node and the agent's node are both signed in as.
 const nodeLogin = "owner@example.com"
 
+// nodeSecret is the fleet secret that the agent of host b admits, and that the controller's clients of host b send.
+const nodeSecret = "fleet-secret-for-enginehost-tests"
+
 // nodePrompt is the prompt the Start test sends to b, which the fake claude on b must read.
 const nodePrompt = "prompt for the agent of b"
 
@@ -96,6 +99,7 @@ func newNodeRig(t *testing.T) nodeRig {
 		WhoIs:      nodeWhoIs{own: ln.Addr().String()},
 		Holders:    local,
 		StateDir:   stateB,
+		Secret:     nodeSecret,
 	})
 	if err != nil {
 		t.Fatalf("new agent of b: %v", err)
@@ -106,6 +110,7 @@ func newNodeRig(t *testing.T) nodeRig {
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   neverClock{},
+		Secret:  nodeSecret,
 	})
 	claude := filepath.Join(t.TempDir(), "no-claude")
 	if _, err := os.Stat(claude); !errors.Is(err, fs.ErrNotExist) {
