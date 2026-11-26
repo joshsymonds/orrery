@@ -49,10 +49,16 @@ type hostSessions struct {
 
 // Continue sends prompt to the session as its next message, through the run's host when the session names files.
 func (h hostSessions) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	var err error
 	if fc, ok := h.stepSessions.(fileContinuer); ok {
-		return fc.continueWithFiles(ctx, id, prompt, h.host)
+		err = fc.continueWithFiles(ctx, id, prompt, h.host)
+	} else {
+		err = h.stepSessions.Continue(ctx, id, prompt)
 	}
-	return h.stepSessions.Continue(ctx, id, prompt)
+	if err != nil {
+		return fmt.Errorf("continue step %s through its host: %w", id, err)
+	}
+	return nil
 }
 
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
