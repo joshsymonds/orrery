@@ -204,21 +204,23 @@ func releaseStepsOf(ctx context.Context, queries *sqlcgen.Queries, epic string) 
 	})
 }
 
-// unfinishedReleaseStep returns the lowest position among the n release steps that has no passed release run in runs, or
-// 0 when every step has passed.
+// unfinishedReleaseStep returns the lowest position among the n release steps that has no passed release run at an
+// attempt after the last replan in runs, or 0 when every step has passed.
 func unfinishedReleaseStep(runs []ReleaseRun, n int) int64 {
+	since := LastReplan(runs)
 	for position := int64(1); position <= int64(n); position++ {
-		if !releaseStepRun(runs, position, true) {
+		if !releaseStepRun(runs, position, true, since) {
 			return position
 		}
 	}
 	return 0
 }
 
-// releaseStepRun reports whether runs has a release run of the step at position whose Passed is passed.
-func releaseStepRun(runs []ReleaseRun, position int64, passed bool) bool {
+// releaseStepRun reports whether runs has a release run of the step at position whose Passed is passed and whose
+// attempt is above since.
+func releaseStepRun(runs []ReleaseRun, position int64, passed bool, since int64) bool {
 	for _, run := range runs {
-		if run.Part == ReleasePartStep && run.Position == position && run.Passed == passed {
+		if run.Part == ReleasePartStep && run.Position == position && run.Passed == passed && run.Attempt > since {
 			return true
 		}
 	}

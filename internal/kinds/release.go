@@ -186,7 +186,7 @@ func releaseRun(run store.NodeRun, rows Rows) Action {
 // first step starts from a candidate passed at an earlier attempt, the interpreter checks that origin's main is in it, and
 // a candidate that is not is not reused: it is prepared again at this attempt.
 func currentCandidate(run store.NodeRun, rows Rows) (string, bool) {
-	replanned := lastReplan(rows.Releases)
+	replanned := store.LastReplan(rows.Releases)
 	for _, candidate := range slices.Backward(rows.Releases) {
 		if candidate.Part != store.ReleasePartCandidate || !candidate.Passed || candidate.Attempt <= replanned {
 			continue
@@ -197,17 +197,6 @@ func currentCandidate(run store.NodeRun, rows Rows) (string, bool) {
 		return candidate.Head, true
 	}
 	return "", false
-}
-
-// lastReplan returns the highest attempt among runs' replan release runs, or -1 when there is none.
-func lastReplan(runs []store.ReleaseRun) int64 {
-	last := int64(-1)
-	for _, run := range runs {
-		if run.Part == store.ReleasePartReplan {
-			last = max(last, run.Attempt)
-		}
-	}
-	return last
 }
 
 // staleAt reports whether a verify run of attempt found origin's main not in the candidate head.
@@ -275,14 +264,16 @@ func prepareRelease(result ReleaseResult, rows Rows) Action {
 	return Action{Kind: ActStop, Output: result.Error}
 }
 
-// walkSteps decides a releasing epic whose candidate passed at candidate. Each release step in order passes at any
-// attempt or is decided by stepAction from the head of the last step before it, and the judge follows the last step.
+// walkSteps decides a releasing epic whose candidate passed at candidate. Each release step in order passes at an
+// attempt after the last replan or is decided by stepAction from the head of the last step before it, and the judge
+// follows the last step. A step passed before the last replan runs again, since the replan starts the steps over.
 func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 	start := candidate
+	since := store.LastReplan(rows.Releases)
 	for i, step := range rows.Epic.ReleaseSteps {
 		position := int64(i + 1)
 		passed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
-			return r.Part == store.ReleasePartStep && r.Position == position && r.Passed
+			return r.Part == store.ReleasePartStep && r.Position == position && r.Passed && r.Attempt > since
 		})
 		if !ok {
 			return stepAction(run, rows, position, step, start)

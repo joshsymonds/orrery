@@ -698,3 +698,43 @@ func TestReleasePostconditionsShown(t *testing.T) {
 		}
 	})
 }
+
+// TestReplanRerunsStepsJudgeReadsSinceReplan checks that the judge's prompt holds the evidence of the release steps
+// passed after the last replan and not of those passed before it, since a replan starts the steps over.
+func TestReplanRerunsStepsJudgeReadsSinceReplan(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{
+		{Step: "build the image", Target: "origin", Undo: "rollback"},
+		{Step: "push the tag", Target: "origin", Undo: "rollback"},
+	}
+	runs := []store.ReleaseRun{
+		{
+			Part: store.ReleasePartStep, Position: 1, Attempt: 0, Step: "build the image", Commits: []string{"aaa111"},
+			Evidence: "image built before the replan", Passed: true,
+		},
+		{
+			Part: store.ReleasePartStep, Position: 2, Attempt: 0, Step: "push the tag",
+			Evidence: "tag pushed before the replan", Passed: true,
+		},
+		{Part: store.ReleasePartReplan, Attempt: 0, Reason: "the candidate needs a change"},
+		{
+			Part: store.ReleasePartStep, Position: 1, Attempt: 1, Step: "build the image", Commits: []string{"bbb222"},
+			Evidence: "image built after the replan", Passed: true,
+		},
+		{
+			Part: store.ReleasePartStep, Position: 2, Attempt: 1, Step: "push the tag",
+			Evidence: "tag pushed after the replan", Passed: true,
+		},
+	}
+	prompt := releaseJudgePrompt("the image is tagged", steps, runs)
+	for _, want := range []string{"bbb222", "image built after the replan", "tag pushed after the replan"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("judge prompt = %q, want it to hold %q", prompt, want)
+		}
+	}
+	for _, unwanted := range []string{"aaa111", "image built before the replan", "tag pushed before the replan"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Errorf("judge prompt = %q, want it to hold no %q of a step passed before the replan", prompt, unwanted)
+		}
+	}
+}
