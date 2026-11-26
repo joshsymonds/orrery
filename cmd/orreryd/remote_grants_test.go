@@ -63,9 +63,11 @@ const (
 	remoteGrantFires = 50
 )
 
-// remoteGrantEpoch is the clock of the Steps engine in this test. The engine's deadline timers never fire, so no clock or
-// timer of the test runs.
-var remoteGrantEpoch = time.Unix(1_800_000_000, 0)
+// remoteGrantTime is the time the Steps engine of this test reads as now, and the time its epic is created at. It is fixed,
+// so no clock of the test runs, and the engine's deadline timers never fire.
+func remoteGrantTime() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 // remoteGrantWhoIs names each peer of the agent of b: the controller's node for every address but the agent's own, which
 // names b. Every peer is signed in as remoteGrantLogin, the login the agent admits.
@@ -376,25 +378,34 @@ func startAcquire(t *testing.T, b *grants.Broker, req grants.Request) *acquireCa
 // fired without one.
 func fireUntil[T any](t *testing.T, clock *fakeClock, granted <-chan T, ended <-chan struct{}) T {
 	t.Helper()
+	value, failure := awaitValue(clock, granted, ended)
+	if failure != "" {
+		t.Fatal(failure)
+	}
+	return value
+}
+
+// awaitValue is the wait of fireUntil: it returns the value granted sends, or the reason the wait ends without one, which
+// is empty when it has a value.
+func awaitValue[T any](clock *fakeClock, granted <-chan T, ended <-chan struct{}) (T, string) {
+	var zero T
 	for range remoteGrantFires {
 		select {
 		case value := <-granted:
-			return value
+			return value, ""
 		case <-ended:
 			// A value sent before the call ended is still there to take.
 			select {
 			case value := <-granted:
-				return value
+				return value, ""
 			default:
 			}
-			t.Fatal("the call ended without the value it was waiting for")
+			return zero, "the call ended without the value it was waiting for"
 		case timer := <-clock.armed:
 			timer.fire()
 		}
 	}
-	t.Fatalf("no grant after %d timers fired", remoteGrantFires)
-	var zero T
-	return zero
+	return zero, fmt.Sprintf("no grant after %d timers fired", remoteGrantFires)
 }
 
 // heldBy returns the id of the grant that holds a member of a pool in b's status, or "" when none does.
@@ -495,7 +506,7 @@ func (g *grantSignal) Acquire(ctx context.Context, req grants.Request, send func
 }
 
 // launchSignal is host b as the Steps engine in this test sees it: each Launch goes to b's host, and a launch that succeeds
-// is signalled on launched, so the test knows that a gate runs on b as a signal.
+// is signaled on launched, so the test knows that a gate runs on b as a signal.
 type launchSignal struct {
 	hostexec.Host
 	launched chan struct{}
@@ -515,7 +526,7 @@ func (h launchSignal) Launch(ctx context.Context, cfg hostexec.Launch) (hostexec
 
 // remoteGrantNow is the clock of the Steps engine in this test.
 func remoteGrantNow() time.Time {
-	return remoteGrantEpoch
+	return remoteGrantTime()
 }
 
 // remoteGrantNoTimer returns a deadline timer that never fires, and whose stop reports that it stopped it first.
@@ -617,7 +628,11 @@ func newGateStepFixture(t *testing.T, script string) gateStepFixture {
 	}
 	repo, linked := remoteGrantRepo(t, rig.root)
 	if err := st.CreateEpic(t.Context(), store.EpicRow{
-		ID: remoteGrantEpic, Repository: repo, Host: remoteGrantAgent, Created: remoteGrantEpoch, Changed: remoteGrantEpoch,
+		ID:         remoteGrantEpic,
+		Repository: repo,
+		Host:       remoteGrantAgent,
+		Created:    remoteGrantTime(),
+		Changed:    remoteGrantTime(),
 	}); err != nil {
 		t.Fatalf("create epic on b: %v", err)
 	}
