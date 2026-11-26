@@ -38,6 +38,7 @@ import { type HeldMove, type HeldThing, heldMove } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { HostLabel } from "./hostlabel";
+import { reachableHosts } from "./hostreach";
 import { HostsView } from "./hostsview";
 import { type HostReach, hostDown, reachOf } from "./hostreach";
 import { Inbox } from "./inbox";
@@ -80,6 +81,7 @@ import {
   stepCalls,
 } from "./readercolumn";
 import { Sheet } from "./sheet";
+import { Starter } from "./starter";
 import type { ContractBandLine } from "./subjectband";
 import { ListPanel, listHead, SidePanel } from "./sidepanel";
 import { conversationEnded, steerCallsOf, steererRowOf, steersLive } from "./steer";
@@ -210,6 +212,12 @@ type Held =
 interface PendingTarget {
   kind: Row["kind"];
   id: string;
+}
+
+// The place the Starter opens with: the folder and the host typed into it. Both are absent for the prompt alone.
+interface StarterPlace {
+  folder?: string;
+  host?: string;
 }
 
 // The toast's notice: the row an archive under 760px just archived, which Undo unarchives; the moves a list answer
@@ -379,14 +387,14 @@ export function App({
       query.removeEventListener("change", sync);
     };
   }, []);
-  // Whether the picker palette is open.
+  // Whether the picker palette is open, which ⌘K opens.
   const [pickerOpen, setPickerOpen] = useState(false);
-  // The directory the palette opens in: the project's, when New session here opened it, and none for N, ⌘K and the
-  // inbox's New. It is cleared once the palette is shut.
-  const [pickerDir, setPickerDir] = useState("");
+  // The Starter's place while it is open, or null while it is shut. N, the inbox's New, a folder row and New session
+  // here open it. The palette and the Starter are never open together: opening the palette shuts the Starter.
+  const [starter, setStarter] = useState<StarterPlace | null>(null);
   useEffect(() => {
-    if (!pickerOpen) {
-      setPickerDir("");
+    if (pickerOpen) {
+      setStarter(null);
     }
   }, [pickerOpen]);
   // The key of the project whose page is open, which a project's head or an address opens.
@@ -1880,10 +1888,11 @@ export function App({
     }
   });
 
-  // openPickerIn opens the palette on a project's directory, which New session here does.
-  const openPickerIn = (dir: string) => {
-    setPickerDir(dir);
-    setPickerOpen(true);
+  // openStarter opens the Starter with the folder and host given typed, or with neither for the prompt alone, as N and
+  // the inbox's New open it. The palette shuts, since the two are never open together.
+  const openStarter = (place: StarterPlace = {}) => {
+    setPickerOpen(false);
+    setStarter(place);
   };
 
   // selectKey moves the cursor to the entry drawn under key, as a press on that entry does. A press on an epic or a step
@@ -2650,6 +2659,9 @@ export function App({
     toggleStrips,
     togglePanel,
     setPickerOpen,
+    starterOpen: starter !== null,
+    openStarter: () => openStarter(),
+    closeStarter: () => setStarter(null),
     setMenuKey,
     setFilter: openSearchField,
     setRowOpened: navigated((opened: boolean | ((previous: boolean) => boolean)) => {
@@ -2701,7 +2713,7 @@ export function App({
         now={now}
         narrow={!wide}
         onOpen={openProjectItem}
-        onNewHere={openPickerIn}
+        onNewHere={(dir) => openStarter({ folder: dir, host: project.host })}
         onBack={navigated(backToInbox)}
       />
     );
@@ -3405,7 +3417,7 @@ export function App({
                     ) : undefined,
                   }
             }
-            onNew={() => setPickerOpen(true)}
+            onNew={() => openStarter()}
             onSearch={() => {
               expandInbox();
               openSearchField("");
@@ -3473,7 +3485,7 @@ export function App({
             archivedCount={archivedCount}
             onView={openView}
             onRetry={onRetry}
-            onNew={() => setPickerOpen(true)}
+            onNew={() => openStarter()}
             unread={noticeLog.unread}
             onNotices={() => setNoticesOpen(true)}
             onHosts={openHosts}
@@ -3615,16 +3627,26 @@ export function App({
           clients={clients}
           rows={rows}
           sheet={!wide}
-          dir={pickerDir}
           onRun={(pane) => {
             setPickerOpen(false);
             setPending({ kind: "pane", id: pane });
           }}
-          onStart={(session) => {
-            setPickerOpen(false);
+          onStartIn={(dir) => openStarter({ folder: dir, host: host?.host ?? "" })}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
+      {starter !== null && (
+        <Starter
+          clients={clients}
+          hosts={reachableHosts(host)}
+          folder={starter.folder}
+          host={starter.host}
+          sheet={!wide}
+          onStarted={(session) => {
+            setStarter(null);
             setPending({ kind: "session", id: session });
           }}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => setStarter(null)}
         />
       )}
       {helpOpen && <KeyList onClose={() => setHelpOpen(false)} />}

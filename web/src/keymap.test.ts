@@ -106,6 +106,32 @@ test("AppSplit: ⌘K opens the palette and prevents the default", () => {
   assert.equal(event.defaultPrevented, true);
 });
 
+test("AppSplit: N opens the Starter, and does nothing while the palette or the Starter is open", () => {
+  const shut = fakeContext();
+  handleKey(key("N"), shut.context);
+  assert.deepEqual(shut.calls, [["openStarter"]]);
+
+  for (const init of [{ pickerOpen: true }, { starterOpen: true }]) {
+    const open = fakeContext(init);
+    handleKey(key("N"), open.context);
+    assert.deepEqual(open.calls, [], `N with ${JSON.stringify(init)}`);
+  }
+});
+
+test("AppSplit: with the Starter open, Escape closes it and no other key acts", () => {
+  const fake = fakeContext({ starterOpen: true });
+  const escape = key("Escape");
+  handleKey(escape, fake.context);
+  assert.deepEqual(fake.calls, [["closeStarter"]]);
+  assert.equal(escape.defaultPrevented, true);
+
+  const other = fakeContext({ starterOpen: true });
+  const list = key("j");
+  handleKey(list, other.context);
+  assert.deepEqual(other.calls, [], "j behind the Starter moves nothing");
+  assert.equal(list.defaultPrevented, false);
+});
+
 test("AppSplit: a list key with the inbox collapsed expands it and moves nothing", () => {
   for (const name of ["j", "k", "ArrowDown", "ArrowUp", "g", "G", "/", "v"]) {
     const fake = fakeContext({ collapsed: true, index: 0, flat: three });

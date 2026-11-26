@@ -62,6 +62,7 @@ const answerEpicPath = "/orrery.v1.Epics/Answer";
 const startSessionPath = "/orrery.v1.Control/Start";
 const pickerAskPath = "/orrery.v1.Picker/Ask";
 const pickerRunPath = "/orrery.v1.Picker/Run";
+const proposePath = "/orrery.v1.Picker/Propose";
 const withdrawPath = "/orrery.v1.Control/Withdraw";
 const interruptPath = "/orrery.v1.Control/Interrupt";
 
@@ -5101,6 +5102,11 @@ function pickerShown(container: HTMLElement): boolean {
   return container.querySelector('[role="dialog"][aria-label="New session"]') !== null;
 }
 
+// starterShown is whether the Starter is open.
+function starterShown(container: HTMLElement): boolean {
+  return container.querySelector('[role="dialog"][aria-label="Start a session"]') !== null;
+}
+
 // pickerInput is the palette's text box, which is drawn only while the palette is open.
 function pickerInput(container: HTMLElement): HTMLInputElement {
   const input = container.querySelector<HTMLInputElement>('[role="dialog"][aria-label="New session"] input');
@@ -5135,25 +5141,17 @@ async function clickElement(element: Element): Promise<void> {
   });
 }
 
-test("PickerPalette: the New button, ⌘K, Ctrl+K and N open the palette, and ⌘K opens it from a text box", (t) =>
+test("PickerPalette: ⌘K and Ctrl+K open the palette, and ⌘K opens it from a text box", (t) =>
   withApp(t.signal, {}, async (container) => {
     assert.equal(pickerShown(container), false);
-    await clickElement(newButton(container));
-    assert.equal(pickerShown(container), true, "the New button opens the palette");
-    await pressIn(pickerInput(container), "Escape");
-    assert.equal(pickerShown(container), false, "Escape closes the palette");
-
     const meta = await press("k", { metaKey: true });
     assert.equal(pickerShown(container), true, "⌘K opens the palette");
     assert.equal(meta.defaultPrevented, true, "⌘K is not left to the browser");
     await pressIn(pickerInput(container), "Escape");
+    assert.equal(pickerShown(container), false, "Escape closes the palette");
 
     await press("k", { ctrlKey: true });
     assert.equal(pickerShown(container), true, "Ctrl+K opens the palette");
-    await pressIn(pickerInput(container), "Escape");
-
-    await press("N");
-    assert.equal(pickerShown(container), true, "N outside a text box opens the palette");
     await pressIn(pickerInput(container), "Escape");
 
     await act(() => composer(container).focus());
@@ -5166,11 +5164,13 @@ test("PickerPalette: N typed in the composer or the filter does not open the pal
     await press("/");
     await press("N");
     assert.equal(pickerShown(container), false, "N typed in the filter does not open the palette");
+    assert.equal(starterShown(container), false, "N typed in the filter does not open the Starter");
     assert.equal(filterInput(container).value, "");
 
     await act(() => composer(container).focus());
     await press("N");
     assert.equal(pickerShown(container), false, "N typed in the composer does not open the palette");
+    assert.equal(starterShown(container), false, "N typed in the composer does not open the Starter");
   }));
 
 test("PickerPalette: n still moves the cursor to the next unseen row", (t) =>
@@ -5190,8 +5190,8 @@ test("PickerPalette: the keys help lists ⌘K and N, each with what it opens", (
       [...help.querySelectorAll(".keyline")].find((line) =>
         [...(line.querySelector(".ks")?.children ?? [])].some((item) => item.textContent === cap),
       );
-    assert.match(lineFor("⌘K")?.children[1]?.textContent ?? "", /new session, or find one/);
-    assert.match(lineFor("N")?.children[1]?.textContent ?? "", /new session, or find one/);
+    assert.match(lineFor("⌘K")?.children[1]?.textContent ?? "", /find a session/);
+    assert.match(lineFor("N")?.children[1]?.textContent ?? "", /start a session/);
   }));
 
 test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arrives in a later render", (t) =>
@@ -5200,7 +5200,7 @@ test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arr
       { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
     ]);
     fake.replies.set(pickerRunPath, [{ pane: "%9" }]);
-    await clickElement(newButton(container));
+    await press("k", { metaKey: true });
     await typePicker(container, "deploy");
     await pressIn(pickerInput(container), "Enter");
     await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
@@ -5213,34 +5213,44 @@ test("PickerPalette: a pane Picker.Run answers takes the cursor once its row arr
     assert.equal(cursorKey(container), "pane:box:%9");
   }));
 
-test("PickerStartForm: a started session takes the cursor once its row arrives in a later render", (t) =>
-  withApp(t.signal, {}, async (container, fake) => {
-    fake.replies.set(pickerAskPath, [
-      {
-        rows: [
-          {
-            token: "tok-web",
-            kind: "fresh",
-            dir: "/work/web",
-            pane: "",
-            label: "web",
-            note: "start fresh",
-            prompt: false,
-          },
-        ],
-      },
-    ]);
+// boxHost is the serving host the Starter offers: box, reachable and the only host listed.
+const boxHost = create(HostStatusResponseSchema, { host: "box", hosts: [{ name: "box", reachable: true }] });
+
+// starterOf is the Starter's dialog, which is drawn while the Starter is open.
+function starterOf(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('[role="dialog"][aria-label="Start a session"]');
+}
+
+// starterField is the Starter's field with the label, which the Starter draws while it is open.
+function starterField(container: HTMLElement, label: string): HTMLInputElement {
+  const field = starterOf(container)?.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+  assert.ok(field, `the Starter has its ${label} field`);
+  return field;
+}
+
+// typeStarterPrompt types text into the Starter's prompt field.
+async function typeStarterPrompt(container: HTMLElement, text: string): Promise<void> {
+  const field = starterField(container, "Prompt");
+  await act(() => {
+    field.value = text;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+test("Starter: a started session takes the cursor once its row arrives in a later render", (t) =>
+  withApp(t.signal, { host: boxHost }, async (container, fake) => {
+    fake.replies.set(proposePath, [{ proposals: [{ host: "box", dir: "/work/web" }] }]);
     fake.replies.set(startSessionPath, [{ id: "sess-new" }]);
     await clickElement(newButton(container));
-    await typePicker(container, "web");
-    await pressIn(pickerInput(container), "Enter");
-    await untilTurn(t.signal, () => pickerRows(container).length === 1, "the answer's row is listed");
-    await clickElement(pickerRow(container, 0));
-    const message = container.querySelector<HTMLTextAreaElement>('[role="dialog"][aria-label="New session"] textarea');
-    assert.ok(message, "the start form has its first message box");
-    await typeInto(message, "build the web page");
-    await clickButton(container, '[role="dialog"][aria-label="New session"]', "Start the session⌘⏎");
-    await untilTurn(t.signal, () => !pickerShown(container), "the start closes the palette");
+    await typeStarterPrompt(container, "build the web page");
+    await pressIn(starterField(container, "Prompt"), "Enter");
+    await untilTurn(
+      t.signal,
+      () => starterOf(container)?.querySelectorAll(".starter-list .pick-row").length === 1,
+      "the proposal is listed",
+    );
+    await clickButton(container, '[role="dialog"][aria-label="Start a session"]', "Start the session⌘⏎");
+    await untilTurn(t.signal, () => starterOf(container) === null, "the start closes the Starter");
     assert.equal(cursorKey(container), "a", "the started session's row is not in the list yet");
 
     const started = row({
@@ -5270,7 +5280,7 @@ async function listDeployRow(signal: AbortSignal, container: HTMLElement, fake: 
   fake.replies.set(pickerAskPath, [
     { rows: [{ token: "tok-deploy", kind: "jump", pane: "%9", label: "deploy", note: "working" }] },
   ]);
-  await clickElement(newButton(container));
+  await press("k", { metaKey: true });
   await typePicker(container, "deploy");
   await pressIn(pickerInput(container), "Enter");
   await untilTurn(signal, () => pickerRows(container).length === 1, "the answer's row is listed");
@@ -5309,12 +5319,12 @@ test("NewPanel: at 760px and wider App opens the panel titled New session, with 
     t.signal,
     {},
     async (container) => {
-      await clickElement(newButton(container));
+      await press("k", { metaKey: true });
       const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
       assert.ok(dialog, "the New session dialog is drawn");
       assert.equal(dialog.className, "panel", "the dialog is a panel");
       assert.equal(dialog.querySelector("h2.t-title")?.textContent, "New session");
-      assert.equal(dialog.querySelector(".head .t-small")?.textContent, "N or ⌘K");
+      assert.equal(dialog.querySelector(".head .t-small")?.textContent, "⌘K");
     },
     1024,
   ));
@@ -5324,7 +5334,7 @@ test("NewPanel: under 760px App opens the sheet titled New session, with no pane
     t.signal,
     {},
     async (container) => {
-      await clickElement(newButton(container));
+      await press("k", { metaKey: true });
       const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="New session"]');
       assert.ok(dialog, "the New session dialog is drawn");
       assert.equal(dialog.className, "sheet", "the dialog is a sheet");
