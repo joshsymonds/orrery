@@ -10,8 +10,6 @@ type ParkClass string
 // The question classes. Each is a catastrophe the planner does not answer: its park question goes to the epic's
 // steerer, which answers it or escalates it to the owner.
 const (
-	// ParkClassReleaseUndoNone is a release that stopped at a release step with undo none that failed.
-	ParkClassReleaseUndoNone ParkClass = "release_undo_none"
 	// ParkClassReleaseOwnerStop is a release the owner stopped: the stop is recorded at the attempt it stopped at.
 	ParkClassReleaseOwnerStop ParkClass = "release_owner_stop"
 	// ParkClassBranch is an epic branch that exists, is gone, has moved or is checked out elsewhere.
@@ -42,9 +40,9 @@ const (
 	ParkClassLoop ParkClass = "loop"
 	// ParkClassNotBuilt is a plan run that ended with Requirements unbuilt.
 	ParkClassNotBuilt ParkClass = "not_built"
-	// ParkClassReleaseStep is a release stop that is neither release_undo_none nor release_owner_stop: at its candidate,
-	// at a release step that is not undo none, or at its judge. The planner may resume it, except one its judge stopped
-	// with a verdict (judgeVerdictAt), which the planner asks the steerer about.
+	// ParkClassReleaseStep is a release stop that is not release_owner_stop: at its candidate, at a release step, whatever
+	// its undo, or at its judge. The planner may resume it, except one its judge stopped with a verdict (judgeVerdictAt),
+	// which the planner asks the steerer about.
 	ParkClassReleaseStep ParkClass = "release_step"
 )
 
@@ -53,7 +51,7 @@ const (
 // question answered, so it stays a question park.
 func (c ParkClass) OpensQuestion() bool {
 	switch c {
-	case "", ParkClassReleaseUndoNone, ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
+	case "", ParkClassReleaseOwnerStop, ParkClassBranch, ParkClassRefMove,
 		ParkClassMetAtBase, ParkClassOrchestrator, ParkClassRetryBound, ParkClassStall:
 		return true
 	case ParkClassNode, ParkClassTask, ParkClassLoop, ParkClassNotBuilt, ParkClassReleaseStep:

@@ -11,19 +11,17 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a named
-// position the owner set, a verify run, which records that origin's main was not in a candidate and so the candidate
-// was prepared again, a round of the release integrator, which made and verified a merge of origin's commit, a replan,
-// which sends the release back to planning for a change to its candidate that a blocked round or a refusing review
-// asked for, a review, which records whether a release reviewer held the candidate before the first release step
-// started from it, a rereview, which records that a release reviewer reviews a candidate prepared again with the
-// change since the candidate it last reviewed, and a stop, which records that the owner stopped the release at an
-// attempt, so no further step of it starts.
+// The parts a release run records: the candidate the release starts from, a release step, the judge's verdict, a verify
+// run, which records that origin's main was not in a candidate and so the candidate was prepared again, a round of the
+// release integrator, which made and verified a merge of origin's commit, a replan, which sends the release back to
+// planning for a change to its candidate that a blocked round or a refusing review asked for, a review, which records
+// whether a release reviewer held the candidate before the first release step started from it, a rereview, which
+// records that a release reviewer reviews a candidate prepared again with the change since the candidate it last
+// reviewed, and a stop, which records that the owner stopped the release at an attempt, so no further step of it starts.
 const (
 	ReleasePartCandidate  = "candidate"
 	ReleasePartStep       = "release"
 	ReleasePartJudge      = "judge"
-	ReleasePartNamed      = "named"
 	ReleasePartVerify     = "verify"
 	ReleasePartIntegrator = "integrator"
 	ReleasePartReplan     = "replan"
@@ -187,7 +185,7 @@ func (s *Store) StopRelease(ctx context.Context, epic, path string, attempt int6
 
 // releaseStopClass returns the class of the park a release of epic stopped at attempt takes, from the store's rows. It is
 // release_owner_stop when the owner stopped the release at attempt or a release reviewer refused its candidate at
-// attempt, release_undo_none when the release step that failed at attempt has undo none, and release_step otherwise.
+// attempt, and release_step otherwise.
 func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string, attempt int64) (ParkClass, error) {
 	runs, err := readReleaseRuns(ctx, queries, epic)
 	if err != nil {
@@ -200,21 +198,6 @@ func releaseStopClass(ctx context.Context, queries *sqlcgen.Queries, epic string
 		return run.Part == ReleasePartReview && run.Attempt == attempt && !run.Passed
 	}) {
 		return ParkClassReleaseOwnerStop, nil
-	}
-	failed := slices.IndexFunc(runs, func(run ReleaseRun) bool {
-		return run.Part == ReleasePartStep && run.Attempt == attempt && !run.Passed
-	})
-	if failed < 0 {
-		return ParkClassReleaseStep, nil
-	}
-	steps, err := queries.ListEpicReleaseSteps(ctx, epic)
-	if err != nil {
-		return "", fmt.Errorf("list release steps of epic %s: %w", epic, err)
-	}
-	for _, step := range steps {
-		if step.Position == runs[failed].Position && isUndoNone(step.Undo) {
-			return ParkClassReleaseUndoNone, nil
-		}
 	}
 	return ParkClassReleaseStep, nil
 }

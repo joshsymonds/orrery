@@ -94,7 +94,7 @@ func TestReleaseRepreparesCandidateOriginMovedPastIt(t *testing.T) {
 	if containsCommit(t, w.repo, second, first) {
 		t.Fatalf("origin %s contains the candidate %s, want origin to have moved past it", second, first)
 	}
-	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	w.pass()
@@ -155,7 +155,7 @@ func TestReleaseRepreparesKeepsCandidateOriginMainIsIn(t *testing.T) {
 	candidate := startReleaseWithCandidate(t, w)
 	w.stopAtFirstStep()
 
-	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	w.pass()

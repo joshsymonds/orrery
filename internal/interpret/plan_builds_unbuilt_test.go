@@ -80,7 +80,7 @@ func TestPlanBuildsUnbuiltReplan(t *testing.T) {
 		requireNoBuildOfT1(t, w.s)
 
 		owner := store.Maker{By: store.MakerOwner}
-		if err := w.s.ReleaseEpic(t.Context(), runEpic, nil, owner, runClock()); err != nil {
+		if err := w.s.ReleaseEpic(t.Context(), runEpic, owner, runClock()); err != nil {
 			t.Fatalf("ReleaseEpic: %v", err)
 		}
 		w.pass()

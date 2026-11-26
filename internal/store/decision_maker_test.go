@@ -105,7 +105,7 @@ func TestDecisionMakerReleaseWithGapsByConversation(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	endClaimEpicWithGaps(t, s)
 
-	if err := s.ReleaseEpic(ctx, claimEpic, nil, Maker{By: MakerConversation, Session: "engine-7"},
+	if err := s.ReleaseEpic(ctx, claimEpic, Maker{By: MakerConversation, Session: "engine-7"},
 		claimedAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}

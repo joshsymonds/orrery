@@ -19,15 +19,6 @@ func releaseTestSteps() []store.EpicReleaseStep {
 	}
 }
 
-// releaseResumableSteps are the release steps of the resume test: the same steps as releaseTestSteps, except that the
-// second step has an undo, so a stopped release at it resumes without a named position.
-func releaseResumableSteps() []store.EpicReleaseStep {
-	return []store.EpicReleaseStep{
-		{Step: "push tag", Target: "origin", Undo: "delete tag"},
-		{Step: "publish", Target: "registry", Undo: "delete release"},
-	}
-}
-
 // releaseTestRepo is the repository of the stopped releases that never read a git repository. releaseTestBase is the
 // commit they are based at. Neither names anything on disk: the store keeps both as text.
 const (
@@ -92,7 +83,7 @@ func stoppedReleaseEpicWithSteps(t *testing.T, repo string, steps []store.EpicRe
 func TestEpicReleaseResumesStoppedReleaseAtFirstUnfinishedStep(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	st := stoppedReleaseEpicWithSteps(t, releaseTestRepo, releaseResumableSteps())
+	st := stoppedReleaseEpic(t, releaseTestRepo)
 	client := newEpicsClient(t, startEpicServer(t, st))
 
 	released, err := client.ReleaseEpic(ctx, connect.NewRequest(&v1.ReleaseEpicRequest{Id: epicServiceID}))
@@ -108,14 +99,8 @@ func TestEpicReleaseResumesStoppedReleaseAtFirstUnfinishedStep(t *testing.T) {
 	if got := getEpicOK(t, client); !proto.Equal(got, released.Msg.GetEpic()) {
 		t.Fatalf("GetEpic = %v, want the released epic %v", got, released.Msg.GetEpic())
 	}
-	runs := released.Msg.GetEpic().GetReleases()
-	if len(runs) != 2 {
+	if runs := released.Msg.GetEpic().GetReleases(); len(runs) != 2 {
 		t.Fatalf("releases = %d runs in the ReleaseEpic reply, want the 2 that stopped it", len(runs))
-	}
-	for _, run := range runs {
-		if run.GetPart() == store.ReleasePartNamed {
-			t.Fatalf("release %v is a named run, want none: no undo-none step was named", run)
-		}
 	}
 }
 
@@ -153,15 +138,19 @@ func TestEpicReleaseRefusesMalformedAndUnknownRequests(t *testing.T) {
 }
 
 // TestEpicReleaseStoreRefusalIsFailedPrecondition checks that a store refusal of ReleaseEpic comes back as
-// failed_precondition carrying the store's text. The store's own tests pin each refusal.
+// failed_precondition carrying the store's text. The store's own tests pin each refusal. The second call releases an
+// epic that the first call already resumed, so it is refused as not stopped.
 func TestEpicReleaseStoreRefusalIsFailedPrecondition(t *testing.T) {
 	t.Parallel()
 	st := stoppedReleaseEpic(t, releaseTestRepo)
 	client := newEpicsClient(t, startEpicServer(t, st))
 
-	_, err := client.ReleaseEpic(t.Context(), connect.NewRequest(&v1.ReleaseEpicRequest{Id: epicServiceID}))
-	wantConnectError(t, err, connect.CodeFailedPrecondition,
-		"release step 2 of epic "+epicServiceID+" is undo-none and failed; name it to run it again")
+	release := connect.NewRequest(&v1.ReleaseEpicRequest{Id: epicServiceID})
+	if _, err := client.ReleaseEpic(t.Context(), release); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
+	}
+	_, err := client.ReleaseEpic(t.Context(), release)
+	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" is not stopped")
 }
 
 func TestEpicGetShowsReleaseRuns(t *testing.T) {

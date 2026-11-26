@@ -5502,10 +5502,10 @@ func (q *Queries) InsertPaneSend(ctx context.Context, arg InsertPaneSendParams) 
 
 const insertPlannerAction = `-- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
-    epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
+    epic, turn, position, kind, node, task, close_kind, by_epic, reason, state, refusal, requirement, item,
     deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertPlannerActionParams struct {
@@ -5517,7 +5517,6 @@ type InsertPlannerActionParams struct {
 	Task        int64
 	CloseKind   string
 	ByEpic      string
-	UndoNone    string
 	Reason      string
 	Requirement string
 	Item        string
@@ -5538,7 +5537,6 @@ func (q *Queries) InsertPlannerAction(ctx context.Context, arg InsertPlannerActi
 		arg.Task,
 		arg.CloseKind,
 		arg.ByEpic,
-		arg.UndoNone,
 		arg.Reason,
 		arg.Requirement,
 		arg.Item,
@@ -7550,7 +7548,7 @@ func (q *Queries) ListEpicCallerSessions(ctx context.Context, epic string) ([]Li
 }
 
 const listEpicChainActions = `-- name: ListEpicChainActions :many
-SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.undo_none, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer, planner_actions.split_tasks FROM planner_actions
+SELECT planner_actions.epic, planner_actions.turn, planner_actions.position, planner_actions.kind, planner_actions.node, planner_actions.task, planner_actions.close_kind, planner_actions.by_epic, planner_actions.reason, planner_actions.state, planner_actions.refusal, planner_actions.park, planner_actions.requirement, planner_actions.item, planner_actions.deliverable, planner_actions.files, planner_actions.remove_files, planner_actions.reviewer, planner_actions.split_tasks FROM planner_actions
 JOIN epic_parks ON epic_parks.epic = planner_actions.epic AND epic_parks.seq = planner_actions.park
 WHERE planner_actions.epic = ?1 AND epic_parks.chain = ?2
   AND planner_actions.state IN ('taken', 'refused')
@@ -7580,7 +7578,6 @@ func (q *Queries) ListEpicChainActions(ctx context.Context, arg ListEpicChainAct
 			&i.Task,
 			&i.CloseKind,
 			&i.ByEpic,
-			&i.UndoNone,
 			&i.Reason,
 			&i.State,
 			&i.Refusal,
@@ -12101,7 +12098,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 }
 
 const listPendingPlannerActions = `-- name: ListPendingPlannerActions :many
-SELECT epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer, split_tasks FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
+SELECT epic, turn, position, kind, node, task, close_kind, by_epic, reason, state, refusal, park, requirement, item, deliverable, files, remove_files, reviewer, split_tasks FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position
 `
 
 func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerAction, error) {
@@ -12122,7 +12119,6 @@ func (q *Queries) ListPendingPlannerActions(ctx context.Context) ([]PlannerActio
 			&i.Task,
 			&i.CloseKind,
 			&i.ByEpic,
-			&i.UndoNone,
 			&i.Reason,
 			&i.State,
 			&i.Refusal,

@@ -1124,7 +1124,6 @@ type PlannerAction struct {
 	Task        int64
 	CloseKind   string
 	ByEpic      string
-	UndoNone    string
 	Reason      string
 	State       string
 	Refusal     string

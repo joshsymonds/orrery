@@ -267,7 +267,8 @@ func TestReleaseRunsStepsThroughRealOrreryd(t *testing.T) {
 }
 
 // TestReleaseStepNotDoneStopsRelease proves that a release step whose end is not done stops the release: the epic is
-// stopped and parked, and one tell names the step.
+// stopped and parked with a park reason that names the step, and no tell is added, since the planner answers a release
+// step's stop.
 func TestReleaseStepNotDoneStopsRelease(t *testing.T) {
 	t.Parallel()
 	r := newReleaseRig(t)
@@ -293,8 +294,8 @@ func TestReleaseStepNotDoneStopsRelease(t *testing.T) {
 	if !strings.Contains(epic.GetParked(), releaseStepFails) {
 		t.Fatalf("park reason %q does not name the step %q", epic.GetParked(), releaseStepFails)
 	}
-	if tells := epic.GetTells(); len(tells) != 1 || !strings.Contains(tells[0].GetText(), releaseStepFails) {
-		t.Fatalf("tells %+v, want one that names the step %q", tells, releaseStepFails)
+	if tells := epic.GetTells(); len(tells) != 0 {
+		t.Fatalf("tells %+v, want none: the planner answers a release step's stop", tells)
 	}
 	wantExit(t, daemon.stop(t), 0)
 }

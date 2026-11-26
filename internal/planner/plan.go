@@ -118,11 +118,11 @@ type Unresolvable struct {
 }
 
 // EngineAction is one action the planner asks the engine to carry out: its kind, the node, task, close, replacing epic,
-// Requirement, evidence item, deliverable, files and reviewer its kind uses, the undo-none positions it names, the
-// descendants a split names, and the planner's reason. check.go lists the fields each kind uses. The return carries the
-// fields a kind uses as args, a JSON object written as a string, so that the schema the model is held to stays one
-// small fixed shape however many kinds there are; Parse reads args into these fields. ArgsError is why args did not
-// read, and Unknown lists the keys of args that no kind uses; check.go refuses either.
+// Requirement, evidence item, deliverable, files and reviewer its kind uses, the descendants a split names, and the
+// planner's reason. check.go lists the fields each kind uses. The return carries the fields a kind uses as args, a JSON
+// object written as a string, so that the schema the model is held to stays one small fixed shape however many kinds
+// there are; Parse reads args into these fields. ArgsError is why args did not read, and Unknown lists the keys of args
+// that no kind uses; check.go refuses either.
 type EngineAction struct {
 	Kind        string        `json:"kind"`
 	Node        string        `json:"-"`
@@ -135,7 +135,6 @@ type EngineAction struct {
 	Files       []string      `json:"-"`
 	Remove      []string      `json:"-"`
 	Reviewer    string        `json:"-"`
-	UndoNone    []int64       `json:"-"`
 	Split       []Descendant  `json:"-"`
 	Reason      string        `json:"reason"`
 	ArgsError   string        `json:"-"`
@@ -169,14 +168,13 @@ const (
 	argFiles       = "files"
 	argRemove      = "remove"
 	argReviewer    = "reviewer"
-	argUndoNone    = "undo_none"
 	argTasks       = "tasks"
 )
 
 // readArgs fills action's fields from args, a JSON object written as a string. Blank args reads as no fields. args that is
 // not a JSON object, or holds a key whose value is not of its field's type, leaves the fields empty and sets ArgsError; an
 // item with a key an evidence item does not have is such a value, and so is a descendant of tasks with one. Keys
-// outside the twelve above are listed in Unknown.
+// outside the eleven above are listed in Unknown.
 func readArgs(action *EngineAction, args string) {
 	if strings.TrimSpace(args) == "" {
 		return
@@ -190,7 +188,7 @@ func readArgs(action *EngineAction, args string) {
 	fields := map[string]any{
 		argNode: &read.Node, argTask: &read.Task, argClose: &read.Close, argBy: &read.By,
 		argRequirement: &read.Requirement, argItem: &read.Item, argDeliverable: &read.Deliverable,
-		argFiles: &read.Files, argRemove: &read.Remove, argReviewer: &read.Reviewer, argUndoNone: &read.UndoNone,
+		argFiles: &read.Files, argRemove: &read.Remove, argReviewer: &read.Reviewer,
 	}
 	for key, value := range keys {
 		if key == argTasks {
@@ -215,8 +213,7 @@ func readArgs(action *EngineAction, args string) {
 		}
 	}
 	slices.Sort(action.Unknown)
-	action.Node, action.Task, action.Close, action.By, action.UndoNone =
-		read.Node, read.Task, read.Close, read.By, read.UndoNone
+	action.Node, action.Task, action.Close, action.By = read.Node, read.Task, read.Close, read.By
 	action.Requirement, action.Item, action.Deliverable = read.Requirement, read.Item, read.Deliverable
 	action.Files, action.Remove = read.Files, read.Remove
 	action.Reviewer, action.Split = read.Reviewer, read.Split

@@ -275,7 +275,7 @@ func TestReleaseMalformedResultStops(t *testing.T) {
 }
 
 // TestReleaseSteps checks the walk over the release steps in order: a passed step of any attempt moves on, a failed
-// step of this attempt stops, and a step with no row starts unless its undo is none and it failed before.
+// step of this attempt stops, and a step with no row starts, whatever its undo, once it has not failed at this attempt.
 func TestReleaseSteps(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{
@@ -288,7 +288,6 @@ func TestReleaseSteps(t *testing.T) {
 		Part: store.ReleasePartStep, Position: 1, Attempt: 1, Reason: "push rejected",
 	}
 	ownerStop := store.ReleaseRun{Part: store.ReleasePartStop, Attempt: 1, Reason: "owner stopped the release"}
-	undoNoneStop := "release step 1 (build the image) failed at an earlier attempt with undo none, so it runs again only when named"
 	cases := []decideCase{
 		{
 			"first step with no row starts from the candidate head",
@@ -409,48 +408,22 @@ func TestReleaseSteps(t *testing.T) {
 			Action{Kind: ActNone},
 		},
 		{
-			"undo none after an earlier failure stops",
+			"undo none after an earlier failure starts again",
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(undoNone...),
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
-			Action{Kind: ActStop, Output: undoNoneStop},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
 		{
-			"undo none in any case and spacing counts as none",
+			"undo none in any case and spacing after an earlier failure starts again",
 			releaseNode(2, "", ""),
 			Rows{
 				Epic:     releasingEpic(releaseStep("build the image", "  NONE ")),
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
-			Action{Kind: ActStop, Output: undoNoneStop},
-		},
-		{
-			"undo none after an earlier failure runs again when a named run exists at this attempt",
-			releaseNode(2, "", ""),
-			Rows{
-				Epic: releasingEpic(undoNone...),
-				Releases: []store.ReleaseRun{
-					candidate,
-					failedFirst,
-					{Part: store.ReleasePartNamed, Position: 1, Attempt: 2},
-				},
-			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 1")}, Items: []string{"release 1", "cand-1"}},
-		},
-		{
-			"undo none after an earlier failure still stops when the named run is at an earlier attempt",
-			releaseNode(2, "", ""),
-			Rows{
-				Epic: releasingEpic(undoNone...),
-				Releases: []store.ReleaseRun{
-					candidate,
-					failedFirst,
-					{Part: store.ReleasePartNamed, Position: 1, Attempt: 1},
-				},
-			},
-			Action{Kind: ActStop, Output: undoNoneStop},
 		},
 		{
 			"undo none with no earlier failure starts",
@@ -475,6 +448,23 @@ func TestReleaseSteps(t *testing.T) {
 				Releases: []store.ReleaseRun{candidate},
 				Steps:    []store.StepRow{{ID: attemptWorkID(2, "release 1"), End: "done"}},
 			},
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}
+
+// TestAnyStopReplansStepWithUndoNoneRunsAgain checks that a release step whose undo is none, which failed at attempt 0,
+// starts again at attempt 1, as a step whose undo is not none does: the release does not stop on its undo.
+func TestAnyStopReplansStepWithUndoNoneRunsAgain(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{releaseStep("build the image", "none")}
+	failedAtZero := store.ReleaseRun{Part: store.ReleasePartStep, Position: 1, Attempt: 0, Reason: "push rejected"}
+	cases := []decideCase{
+		{
+			"undo none step failed at attempt 0 starts at attempt 1",
+			releaseNode(1, "", ""),
+			Rows{Epic: releasingEpic(steps...), Releases: []store.ReleaseRun{candidateRun(1, "cand-1"), failedAtZero}},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
 		},
 	}

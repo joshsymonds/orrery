@@ -488,7 +488,6 @@ CREATE TABLE planner_actions (
     task INTEGER NOT NULL DEFAULT 0,
     close_kind TEXT NOT NULL DEFAULT '',
     by_epic TEXT NOT NULL DEFAULT '',
-    undo_none TEXT NOT NULL DEFAULT '[]',
     reason TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('pending', 'taken', 'refused')),
     refusal TEXT NOT NULL DEFAULT '', park INTEGER NOT NULL DEFAULT 0, requirement TEXT NOT NULL DEFAULT '', item TEXT NOT NULL DEFAULT '', deliverable TEXT NOT NULL DEFAULT '', files TEXT NOT NULL DEFAULT '[]', remove_files TEXT NOT NULL DEFAULT '[]', reviewer TEXT NOT NULL DEFAULT '', split_tasks TEXT NOT NULL DEFAULT '[]',
@@ -1258,6 +1257,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (122,121,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (123,122,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (124,124,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);

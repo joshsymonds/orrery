@@ -506,8 +506,6 @@ func actionKinds() []string {
 }
 
 // actionFields returns the fields kind uses, by the names the return gives them, and whether kind is one of actionKinds.
-// resume_release uses undo_none, so the shape check passes a named position on to the engine, which refuses it: only the
-// owner names an undo-none step.
 func actionFields(kind string) ([]string, bool) {
 	switch kind {
 	case store.ActionRetryNode:
@@ -517,7 +515,7 @@ func actionFields(kind string) ([]string, bool) {
 	case store.ActionFailTask:
 		return []string{argTask}, true
 	case store.ActionResumeRelease:
-		return []string{argUndoNone}, true
+		return nil, true
 	case store.ActionCloseEpic:
 		return []string{argClose, argBy}, true
 	case store.ActionAmendEvidence:
@@ -750,7 +748,6 @@ func checkUnusedFields(action EngineAction, used []string, refuse func(field, re
 		{argBy, action.By != ""},
 		{argRequirement, action.Requirement != ""},
 		{argItem, itemSet(action.Item)},
-		{argUndoNone, len(action.UndoNone) > 0},
 		{argDeliverable, action.Deliverable != ""},
 		{argFiles, len(action.Files) > 0},
 		{argRemove, len(action.Remove) > 0},

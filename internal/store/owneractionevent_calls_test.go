@@ -51,7 +51,7 @@ func ownerCallCases() []ownerCallCase {
 		{
 			name: "release", epic: claimEpic, setup: actionLogEndedWithGaps, action: ActionRelease,
 			call: func(s *Store, maker Maker) error {
-				return s.ReleaseEpic(ctx, claimEpic, nil, maker, actionLogAt())
+				return s.ReleaseEpic(ctx, claimEpic, maker, actionLogAt())
 			},
 		},
 		{

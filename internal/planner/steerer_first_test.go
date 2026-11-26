@@ -12,7 +12,7 @@ import (
 // first: each opens a park question.
 func steererFirstClasses() []store.ParkClass {
 	return []store.ParkClass{
-		store.ParkClassReleaseUndoNone, store.ParkClassReleaseOwnerStop, store.ParkClassBranch, store.ParkClassRefMove,
+		store.ParkClassReleaseOwnerStop, store.ParkClassBranch, store.ParkClassRefMove,
 		store.ParkClassMetAtBase, store.ParkClassOrchestrator, store.ParkClassRetryBound,
 	}
 }

@@ -159,7 +159,7 @@ func epicTableColumns() map[string][]string {
 		// files and remove_files, the files a change_approach action adds and removes, are 00077_gambit_ladder.sql.
 		// reviewer, the reviewer a rerun_review action names, is 00079_gap_reconcile.sql.
 		"planner_actions": {
-			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "undo_none", "reason", "state",
+			"epic", "turn", "position", "kind", "node", "task", "close_kind", "by_epic", "reason", "state",
 			"refusal", "park", "requirement", "item", "deliverable", "files", "remove_files", "reviewer",
 			// The tasks a split action's descendants are, from 00104_task_split_test_runs.sql.
 			"split_tasks",

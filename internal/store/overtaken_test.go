@@ -259,7 +259,7 @@ func TestAQuestionLeftOpenThroughGapsIsOvertakenWhenTheReleaseEnds(t *testing.T)
 	); err != nil {
 		t.Fatalf("EndEpicWithGaps: %v", err)
 	}
-	if err := s.ReleaseEpic(ctx, claimEpic, nil, Maker{By: MakerOwner}, completedAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, claimEpic, Maker{By: MakerOwner}, completedAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	if got := questionsOf(t, s)[0]; !reflect.DeepEqual(got, openStored(keepOld, 1, 1)) {

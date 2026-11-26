@@ -65,7 +65,7 @@ type EpicCommands interface {
 	RetryEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
 	RetryNode(ctx context.Context, epic, node string, maker store.Maker, at time.Time) error
 	KickEpic(ctx context.Context, epic, text string, maker store.Maker, at time.Time) error
-	ReleaseEpic(ctx context.Context, epic string, undoNone []int64, maker store.Maker, at time.Time) error
+	ReleaseEpic(ctx context.Context, epic string, maker store.Maker, at time.Time) error
 	CloseEpic(
 		ctx context.Context, epic, kind, by, closer string, maker store.Maker, at time.Time,
 	) (string, error)
@@ -901,7 +901,7 @@ func (s *epicService) ReleaseEpic(
 	if err != nil {
 		return nil, err
 	}
-	if err = s.epics.ReleaseEpic(ctx, id, nil, maker, time.Now()); err != nil {
+	if err = s.epics.ReleaseEpic(ctx, id, maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)
