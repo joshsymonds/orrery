@@ -41,10 +41,9 @@ func replansOf(t *testing.T, s *store.Store) []store.ReleaseRun {
 	return replans
 }
 
-// TestRecordIntegratorRoundStoresOneReplanPerTip: a blocked round that asks for a replan is stored with a replan of its
-// attempt that carries its tip and report; a round that does not ask stores none; and a later round that asks for a
-// replan from a tip a replan already named stores none, so the release stops on it.
-func TestRecordIntegratorRoundStoresOneReplanPerTip(t *testing.T) {
+// TestRecordIntegratorRoundStoresReplanWhenAsked: a blocked round that asks for a replan is stored with a replan of its
+// attempt that carries its tip and report, and a round that does not ask stores none.
+func TestRecordIntegratorRoundStoresReplanWhenAsked(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
@@ -65,13 +64,35 @@ func TestRecordIntegratorRoundStoresOneReplanPerTip(t *testing.T) {
 	if got := replansOf(t, s); !slices.EqualFunc(got, want, sameReleaseRun) {
 		t.Fatalf("replans = %+v, want %+v", got, want)
 	}
+}
+
+// TestAnyStopReplansAgainOnBlockedRoundAtSameStart: a blocked round that asks for a replan from a start an earlier replan
+// already named stores a replan of its own attempt, so the release replans again: no rule stops a repeat, and the planner
+// judges the change.
+func TestAnyStopReplansAgainOnBlockedRoundAtSameStart(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
+	if err := s.RecordIntegratorRound(ctx, resumeEpic, blockedRound(1), true, nil); err != nil {
+		t.Fatalf("RecordIntegratorRound at attempt 1: %v", err)
+	}
 	later := blockedRound(1)
 	later.Attempt = 2
 	if err := s.RecordIntegratorRound(ctx, resumeEpic, later, true, nil); err != nil {
-		t.Fatalf("RecordIntegratorRound at the same tip: %v", err)
+		t.Fatalf("RecordIntegratorRound at attempt 2 from the same start: %v", err)
+	}
+	want := []store.ReleaseRun{
+		{
+			Part: store.ReleasePartReplan, Attempt: 1, Step: "replan", Start: replanTip, Reason: replanReport,
+			At: releaseRunAt(),
+		},
+		{
+			Part: store.ReleasePartReplan, Attempt: 2, Step: "replan", Start: replanTip, Reason: replanReport,
+			At: releaseRunAt(),
+		},
 	}
 	if got := replansOf(t, s); !slices.EqualFunc(got, want, sameReleaseRun) {
-		t.Errorf("replans after a second round from tip %s = %+v, want only %+v", replanTip, got, want)
+		t.Errorf("replans = %+v, want one at each attempt from %s: %+v", got, replanTip, want)
 	}
 }
 

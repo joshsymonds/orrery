@@ -21,8 +21,8 @@ const integratorReturnedEnd = "returned"
 // RecordIntegratorRound stores round, a round of the release integrator, as a release run of epic in one write, as
 // RecordRelease does. When replan is set, the round was blocked on a change to the epic's own candidate, and the write
 // also stores a replan release run at the round's attempt, with the round's start as its start and the round's reason
-// as its reason, unless a replan release run of epic already names that start: a replan that left the release tip
-// where it was would only send the same merge back to the integrator, so the release stops on the round instead.
+// as its reason. That holds for a round blocked from a start an earlier replan already named too: no rule stops a
+// repeat, and the planner judges what the change is.
 //
 // reviews are what a passed round settles for the release reviewers of the candidate it made, stored in the same write
 // as RecordRelease stores each: a carried review, of part review, passed, with the end ReleaseCarriedEnd, for each
@@ -49,15 +49,6 @@ func (s *Store) RecordIntegratorRound(
 			}
 		}
 		if !replan {
-			return nil
-		}
-		runs, err := readReleaseRuns(ctx, queries, epic)
-		if err != nil {
-			return err
-		}
-		if slices.ContainsFunc(runs, func(run ReleaseRun) bool {
-			return run.Part == ReleasePartReplan && run.Start == round.Start
-		}) {
 			return nil
 		}
 		return recordReplan(ctx, queries, epic, round)

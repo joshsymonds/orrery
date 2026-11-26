@@ -268,8 +268,9 @@ func (w replanWorld) refuseReview() {
 // TestReleaseReviewerRefusalReplans: in a workflow with a plan that can make the change, a release reviewer that refused
 // the candidate with findings sends the release back to planning with its reason, and the first release step never
 // starts. The candidate is the clean merge of origin's main the release integrator made. The replan records the epic's
-// branch tip the candidate was made from, so once a replan leaves that branch where it was, the reviewer's refusal of
-// the candidate the integrator makes again stops the release.
+// branch tip the candidate was made from, and a refusal of the candidate the integrator makes again from that same tip
+// replans again, since no rule stops a repeat. A review that fails with no findings still stops the release with its
+// reason, after both replans.
 func TestReleaseReviewerRefusalReplans(t *testing.T) {
 	t.Parallel()
 	const refusal = "the release reviewer refused the candidate: " + releaseClaim
@@ -288,7 +289,24 @@ func TestReleaseReviewerRefusalReplans(t *testing.T) {
 	}
 	w.integrateClean(w.integratorID())
 	w.refuseReview()
-	w.requireReleaseStopped(refusal+"; the epic's branch has not moved since the last replan", 1)
+	if flow := w.flowOf(runEpic); flow.Epic.Phase != "correcting" || !slices.ContainsFunc(flow.Releases,
+		func(r store.ReleaseRun) bool {
+			return r.Part == store.ReleasePartReplan && r.Attempt == 1 && r.Head == w.tip && r.Reason == refusal
+		}) {
+		t.Fatalf(
+			"epic phase %q release runs = %+v, want correcting with a replan of attempt 1 holding %s and the refusal",
+			flow.Epic.Phase, flow.Releases, w.tip,
+		)
+	}
+
+	turn, _ = w.claimReplanTurn()
+	w.completeReplanTurn(turn, "complete")
+	w.integrateClean(w.integratorID())
+	w.endStep(w.reviewID(), "stopped", "", map[string]any{})
+	if logged := w.pass(); logged != "" {
+		t.Fatalf("pass logged: %s", logged)
+	}
+	w.requireReleaseStopped("review ended stopped", 2)
 	firstSteps := []string{store.NodeWorkID(again.ID, 0, "release 1"), store.NodeWorkID(again.ID, 1, "release 1")}
 	for _, call := range w.fakes.steps.calls {
 		if slices.Contains(firstSteps, call.ID) {
