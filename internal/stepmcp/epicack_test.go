@@ -183,10 +183,9 @@ func TestEpicByPartWritesReturnAnAcknowledgement(t *testing.T) {
 		epic := largeEpic()
 		p := newPeer(t, nil, &fakeEpics{releaseReply: &v1.ReleaseEpicResponse{Epic: epic}})
 
-		outcome := p.tool("epic_release", `{"id":"`+testEpicID+`","undoNone":[2,3]}`)
+		outcome := p.tool("epic_release", `{"id":"`+testEpicID+`"}`)
 
-		assertAcknowledgement(t, "epic_release", outcome,
-			head+"release started; undo-none steps 2, 3 run again", epic)
+		assertAcknowledgement(t, "epic_release", outcome, head+"release started", epic)
 	})
 	t.Run("epic_stop", func(t *testing.T) {
 		t.Parallel()

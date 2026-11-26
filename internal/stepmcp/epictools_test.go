@@ -1061,22 +1061,16 @@ func TestEpicRetryPassesTheNodeInOneCall(t *testing.T) {
 	}
 }
 
-// TestEpicReleasePassesTheIDAndPositionsInOneCall checks that epic_release sends one ReleaseEpic call carrying the id
-// and the undo-none positions it names, and an empty list when it names none.
-func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
+// TestEpicReleasePassesTheIDInOneCall checks that epic_release sends one ReleaseEpic call carrying the id.
+func TestEpicReleasePassesTheIDInOneCall(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name     string
-		args     string
-		undoNone []int32
-		want     string
+		name string
+		args string
+		want string
 	}{
 		{
-			name: "named positions", args: `{"id":"` + testEpicID + `","undoNone":[2,3]}`, undoNone: []int32{2, 3},
-			want: "epic " + testEpicID + ": phase accepted\nrelease started; undo-none steps 2, 3 run again",
-		},
-		{
-			name: "no positions", args: `{"id":"` + testEpicID + `"}`,
+			name: "id only", args: `{"id":"` + testEpicID + `"}`,
 			want: "epic " + testEpicID + ": phase accepted\nrelease started",
 		},
 	}
@@ -1099,9 +1093,8 @@ func TestEpicReleasePassesTheIDAndPositionsInOneCall(t *testing.T) {
 			if len(calls.releases) != 1 {
 				t.Fatalf("epic_release made %d ReleaseEpic calls, want 1", len(calls.releases))
 			}
-			if got := calls.releases[0]; got.GetId() != testEpicID || !slices.Equal(got.GetUndoNone(), tc.undoNone) {
-				t.Fatalf("ReleaseEpic request = id %q undo_none %v, want id %q undo_none %v",
-					got.GetId(), got.GetUndoNone(), testEpicID, tc.undoNone)
+			if got := calls.releases[0]; got.GetId() != testEpicID {
+				t.Fatalf("ReleaseEpic request = id %q, want id %q", got.GetId(), testEpicID)
 			}
 			if outcome.text != tc.want {
 				t.Fatalf("epic_release text = %q, want %q", outcome.text, tc.want)

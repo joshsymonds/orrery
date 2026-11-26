@@ -19,6 +19,15 @@ func releaseTestSteps() []store.EpicReleaseStep {
 	}
 }
 
+// releaseResumableSteps are the release steps of the resume test: the same steps as releaseTestSteps, except that the
+// second step has an undo, so a stopped release at it resumes without a named position.
+func releaseResumableSteps() []store.EpicReleaseStep {
+	return []store.EpicReleaseStep{
+		{Step: "push tag", Target: "origin", Undo: "delete tag"},
+		{Step: "publish", Target: "registry", Undo: "delete release"},
+	}
+}
+
 // releaseTestRepo is the repository of the stopped releases that never read a git repository. releaseTestBase is the
 // commit they are based at. Neither names anything on disk: the store keeps both as text.
 const (
@@ -26,9 +35,16 @@ const (
 	releaseTestBase = "0123456789abcdef0123456789abcdef01234567"
 )
 
-// stoppedReleaseEpic creates epicServiceID clean at repo, based at releaseTestBase, and starts its release. Its
-// release node run stops at publish, the second step, which failed after the first step passed.
+// stoppedReleaseEpic creates epicServiceID clean at repo, based at releaseTestBase, with the release steps of
+// releaseTestSteps, and starts its release. Its release node run stops at publish, the second step, which failed after
+// the first step passed.
 func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
+	t.Helper()
+	return stoppedReleaseEpicWithSteps(t, repo, releaseTestSteps())
+}
+
+// stoppedReleaseEpicWithSteps is stoppedReleaseEpic with the release steps given.
+func stoppedReleaseEpicWithSteps(t *testing.T, repo string, steps []store.EpicReleaseStep) *store.Store {
 	t.Helper()
 	ctx := t.Context()
 	st := epicTestStore(t)
@@ -40,7 +56,7 @@ func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 		Phase:        store.PhaseClean,
 		Created:      now,
 		Changed:      now,
-		ReleaseSteps: releaseTestSteps(),
+		ReleaseSteps: steps,
 	}
 	if err := st.CreateEpic(ctx, row); err != nil {
 		t.Fatalf("CreateEpic clean: %v", err)
@@ -73,15 +89,13 @@ func stoppedReleaseEpic(t *testing.T, repo string) *store.Store {
 	return st
 }
 
-func TestEpicReleaseResumesStoppedReleaseAtNamedUndoNone(t *testing.T) {
+func TestEpicReleaseResumesStoppedReleaseAtFirstUnfinishedStep(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	st := stoppedReleaseEpic(t, releaseTestRepo)
+	st := stoppedReleaseEpicWithSteps(t, releaseTestRepo, releaseResumableSteps())
 	client := newEpicsClient(t, startEpicServer(t, st))
 
-	released, err := client.ReleaseEpic(ctx, connect.NewRequest(&v1.ReleaseEpicRequest{
-		Id: epicServiceID, UndoNone: []int32{2},
-	}))
+	released, err := client.ReleaseEpic(ctx, connect.NewRequest(&v1.ReleaseEpicRequest{Id: epicServiceID}))
 	if err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
@@ -95,13 +109,13 @@ func TestEpicReleaseResumesStoppedReleaseAtNamedUndoNone(t *testing.T) {
 		t.Fatalf("GetEpic = %v, want the released epic %v", got, released.Msg.GetEpic())
 	}
 	runs := released.Msg.GetEpic().GetReleases()
-	if len(runs) != 3 {
-		t.Fatalf("releases = %d runs in the ReleaseEpic reply, want 3", len(runs))
+	if len(runs) != 2 {
+		t.Fatalf("releases = %d runs in the ReleaseEpic reply, want the 2 that stopped it", len(runs))
 	}
-	named := runs[2]
-	if named.GetPart() != store.ReleasePartNamed || named.GetPosition() != 2 || named.GetAttempt() != 2 ||
-		named.GetStep() != "publish" || named.GetReason() != "owner named it" {
-		t.Fatalf("last release = %v, want the named run of publish at position 2, attempt 2", named)
+	for _, run := range runs {
+		if run.GetPart() == store.ReleasePartNamed {
+			t.Fatalf("release %v is a named run, want none: no undo-none step was named", run)
+		}
 	}
 }
 
@@ -123,20 +137,8 @@ func TestEpicReleaseRefusesMalformedAndUnknownRequests(t *testing.T) {
 			message: "id: empty",
 		},
 		{
-			name:    "undo_none of zero",
-			request: &v1.ReleaseEpicRequest{Id: epicServiceID, UndoNone: []int32{0}},
-			code:    connect.CodeInvalidArgument,
-			message: "undo_none: position 0 is below 1",
-		},
-		{
-			name:    "undo_none of minus one",
-			request: &v1.ReleaseEpicRequest{Id: epicServiceID, UndoNone: []int32{2, -1}},
-			code:    connect.CodeInvalidArgument,
-			message: "undo_none: position -1 is below 1",
-		},
-		{
 			name:    "unknown epic",
-			request: &v1.ReleaseEpicRequest{Id: "synthetic-repo-0a1b2c3/no-such-epic", UndoNone: []int32{2}},
+			request: &v1.ReleaseEpicRequest{Id: "synthetic-repo-0a1b2c3/no-such-epic"},
 			code:    connect.CodeNotFound,
 			message: "id: no epic synthetic-repo-0a1b2c3/no-such-epic",
 		},

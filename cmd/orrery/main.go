@@ -135,10 +135,9 @@ subcommands:
                                                 or ended epic
   epic retry ID [NODE]                          end an epic's park, or rerun NODE's parked runs or its failed
                                                 latest integrate run
-  epic release ID [--undo-none N]...            resume a stopped release at its first unfinished step, or
+  epic release ID                               resume a stopped release at its first unfinished step, or
                                                 release an epic that ended with gaps on your word, logged as your
-                                                decision (no --undo-none); each N runs that undo-none release step
-                                                (1-based) again
+                                                decision
   epic close ID --as superseded|shipped|abandoned [--by EPIC]
                                                 close an epic as superseded by EPIC (required), shipped by hand
                                                 or abandoned; its open questions are answered by the close

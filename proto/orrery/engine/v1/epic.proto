@@ -35,9 +35,9 @@ service Epics {
   // FollowEpics returns, per label, how many answered questions had a recommendation and how many took it.
   rpc FollowEpics(FollowEpicsRequest) returns (FollowEpicsResponse);
 
-  // ReleaseEpic releases a stored epic. It resumes the stopped release at its first unfinished step, running again the
-  // undo-none release steps it names. An epic that ended with gaps is released on the owner's word, logged as the
-  // owner's decision, and names no undo-none step. It returns the stored epic.
+  // ReleaseEpic releases a stored epic. It resumes a stopped release at its first unfinished step, and starts a release
+  // that has not run. An epic that ended with gaps is released on the owner's word, logged as the owner's decision. It
+  // returns the stored epic.
   rpc ReleaseEpic(ReleaseEpicRequest) returns (ReleaseEpicResponse);
 
   // CloseEpic closes a stored epic as superseded, shipped by hand or abandoned. It ends the epic's running turn and stops
@@ -1561,14 +1561,13 @@ message EpicFollow {
   int64 followed = 3;
 }
 
-// ReleaseEpicRequest names the epic to release, and the undo-none release steps to run again when its stopped release
-// resumes.
+// ReleaseEpicRequest names the epic to release.
 message ReleaseEpicRequest {
+  reserved 2;
+  reserved "undo_none";
+
   // The epic's id.
   string id = 1;
-
-  // The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-  repeated int32 undo_none = 2;
 }
 
 // ReleaseEpicResponse carries the epic read back after its release resumed or started.

@@ -339,12 +339,6 @@ func epicVerbCases() []epicVerbCase {
 			tool:  "epic_release",
 			input: `{"id":"demo-0a1b2c3/epic-login"}`,
 		},
-		{
-			name:  "release names undo-none steps in order",
-			args:  []string{"release", epicTestID, "--undo-none", "2", "--undo-none", "3"},
-			tool:  "epic_release",
-			input: `{"id":"demo-0a1b2c3/epic-login","undoNone":[2,3]}`,
-		},
 	}
 }
 
@@ -509,7 +503,7 @@ func TestEpicAnswerWritesWarningToStderr(t *testing.T) {
 func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 	t.Parallel()
 	const answerForm = "answer EPIC --id ID [--question QN] [--choice C] [TEXT]"
-	const releaseForm = "release ID [--undo-none N]..."
+	const releaseForm = "release ID"
 	const getForm = "get ID [--part PART] [--task T<n>] [--question Q<n>] [--decision ID] [--turn N] [--offset N] " +
 		"[--limit N]"
 	cases := []struct {

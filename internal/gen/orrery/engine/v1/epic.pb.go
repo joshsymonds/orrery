@@ -6139,14 +6139,11 @@ func (x *EpicFollow) GetFollowed() int64 {
 	return 0
 }
 
-// ReleaseEpicRequest names the epic to release, and the undo-none release steps to run again when its stopped release
-// resumes.
+// ReleaseEpicRequest names the epic to release.
 type ReleaseEpicRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epic's id.
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The positions, from 1, of the undo-none release steps the owner names to run again. Empty names none.
-	UndoNone      []int32 `protobuf:"varint,2,rep,packed,name=undo_none,json=undoNone,proto3" json:"undo_none,omitempty"`
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6186,13 +6183,6 @@ func (x *ReleaseEpicRequest) GetId() string {
 		return x.Id
 	}
 	return ""
-}
-
-func (x *ReleaseEpicRequest) GetUndoNone() []int32 {
-	if x != nil {
-		return x.UndoNone
-	}
-	return nil
 }
 
 // ReleaseEpicResponse carries the epic read back after its release resumed or started.
@@ -8146,10 +8136,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"EpicFollow\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x1a\n" +
 	"\banswered\x18\x02 \x01(\x03R\banswered\x12\x1a\n" +
-	"\bfollowed\x18\x03 \x01(\x03R\bfollowed\"A\n" +
+	"\bfollowed\x18\x03 \x01(\x03R\bfollowed\"5\n" +
 	"\x12ReleaseEpicRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
-	"\tundo_none\x18\x02 \x03(\x05R\bundoNone\"G\n" +
+	"\x02id\x18\x01 \x01(\tR\x02idJ\x04\b\x02\x10\x03R\tundo_none\"G\n" +
 	"\x13ReleaseEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"F\n" +
 	"\x10CloseEpicRequest\x12\x0e\n" +
