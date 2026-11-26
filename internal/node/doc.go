@@ -1,11 +1,11 @@
 // Package node reaches a session's holder on another of the owner's machines through that machine's agent. The protocol
-// is node.v1, spoken over the tailnet. A controller dials an agent and sends one Request line, and the agent answers
+// is node.v2, spoken over the tailnet. A controller dials an agent and sends one Request line, and the agent answers
 // with one Response line. The attach op then turns the connection into a byte splice onto the session holder's socket,
 // which carries holder frames unchanged.
 //
 // The package has these parts:
 //   - Version is the protocol version a Request names, and the one an agent serves.
-//   - Agent and AgentConfig serve node.v1 on a machine that runs holders. NewAgent checks an AgentConfig, and Serve
+//   - Agent and AgentConfig serve node.v2 on a machine that runs holders. NewAgent checks an AgentConfig, and Serve
 //     admits a connection only when WhoIs names its peer and Authorize admits that peer.
 //   - Client and ClientConfig are a holderhost.Host for one remote machine. NewClient takes the machine's name and
 //     agent address, and each op waits for the agent's answer no longer than its bound.

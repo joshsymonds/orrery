@@ -38,6 +38,8 @@ type StepSession struct {
 	Schema   string
 	Ops      []store.EngineOp
 	Observer StepObserver
+	// Host is the orrery name of the host the step runs on, where empty means the controller.
+	Host string
 }
 
 // ErrBadAgent reports a StartStep whose agent is empty or is not 1 to 64 bytes of letters, digits and . _ - [ ] : that
