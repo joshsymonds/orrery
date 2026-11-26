@@ -17,8 +17,9 @@ import (
 
 // Research starts a scout step that answers the question about the repository at the revision, for the design, and
 // stores the step on the design. The design must be a stored design or a contract that reads as a design of one. The
-// step is started by the caller the request's headers name. A revision that is empty starts at HEAD, as Steps.Start
-// does.
+// step runs on the design's host, and is started by the caller the request's headers name. A revision that is empty
+// starts at HEAD, as Steps.Start does, on the controller; on another host it starts at the controller repository's HEAD
+// commit, which the host's checkout must hold.
 func (s *Service) Research(
 	ctx context.Context,
 	req *connect.Request[v1.ResearchRequest],
@@ -31,13 +32,25 @@ func (s *Service) Research(
 	if err := requireField("question", question); err != nil {
 		return nil, err
 	}
-	if err := s.requireDesign(ctx, design); err != nil {
+	record, err := s.readDesign(ctx, design)
+	if err != nil {
 		return nil, err
 	}
-	start, err := ScoutStart(s.cfg.Getenv, repository, revision, question)
+	host := s.stepHostOf(record)
+	if host != s.cfg.Controller && revision == "" {
+		if revision, err = s.headOf(ctx, repository); err != nil {
+			return nil, hostRefusal(host, err)
+		}
+	}
+	workspace, err := s.workspaceOn(ctx, host, repository, revision)
+	if err != nil {
+		return nil, err
+	}
+	start, err := ScoutStart(s.cfg.Getenv, workspace, revision, question)
 	if err != nil {
 		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
+	start.Host = host
 	start.Caller = callerOf(req.Header())
 	step, err := s.startStep(ctx, start, store.DesignStep{
 		Design: design, Kind: store.StepResearch, Subject: question, Repository: repository, Revision: revision,
@@ -60,7 +73,8 @@ func (s *Service) Research(
 
 // Reproduce runs the command through a test runner step at the revision of the repository, for the design, and stores
 // the step on the design, whose output the step's report carries once it returns. The design must be a stored design
-// or a contract that reads as a design of one. The step is started by the caller the request's headers name.
+// or a contract that reads as a design of one. The step runs on the design's host, and is started by the caller the
+// request's headers name.
 func (s *Service) Reproduce(
 	ctx context.Context,
 	req *connect.Request[v1.ReproduceRequest],
@@ -76,15 +90,22 @@ func (s *Service) Reproduce(
 	if err := requireField("command", command); err != nil {
 		return nil, err
 	}
-	if err := s.requireDesign(ctx, design); err != nil {
+	record, err := s.readDesign(ctx, design)
+	if err != nil {
+		return nil, err
+	}
+	host := s.stepHostOf(record)
+	workspace, err := s.workspaceOn(ctx, host, repository, revision)
+	if err != nil {
 		return nil, err
 	}
 	start, err := testrunner.Start(
-		s.cfg.Getenv, repository, "", testrunner.Request{Command: command, Revision: revision}, "", "",
+		s.cfg.Getenv, workspace, "", testrunner.Request{Command: command, Revision: revision}, "", "",
 	)
 	if err != nil {
 		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
+	start.Host = host
 	start.Caller = callerOf(req.Header())
 	step, err := s.startStep(ctx, start, store.DesignStep{
 		Design: design, Kind: store.StepReproduce, Subject: command, Repository: repository, Revision: revision,
@@ -124,19 +145,6 @@ func (s *Service) startStep(
 		return nil, internalError(err)
 	}
 	return step, nil
-}
-
-// requireDesign returns an error that the Stage RPC answers as not found when no stored design or contract that reads
-// as a design of one has the id, and an internal error when the store fails.
-func (s *Service) requireDesign(ctx context.Context, design string) error {
-	_, err := s.cfg.Store.Design(ctx, design)
-	if errors.Is(err, store.ErrNoDesign) {
-		return errors.Join(connect.NewError(connect.CodeNotFound, err))
-	}
-	if err != nil {
-		return internalError(err)
-	}
-	return nil
 }
 
 // requireField returns an error that the Stage RPC answers as an invalid argument when value is blank, naming field.

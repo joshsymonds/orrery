@@ -132,10 +132,16 @@ func (s *Service) startDiscovery(
 	if err != nil {
 		return nil, err
 	}
-	start, err := SteelmanStart(s.cfg.Getenv, repository, discoveryOpening+packet)
+	host := s.stepHostOf(record)
+	workspace, err := s.workspaceOn(ctx, host, repository, "")
+	if err != nil {
+		return nil, err
+	}
+	start, err := SteelmanStart(s.cfg.Getenv, workspace, discoveryOpening+packet)
 	if err != nil {
 		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
+	start.Host = host
 	start.Caller = callerOf(req.Header())
 	return s.answerPass(ctx, start, store.DesignStep{
 		Design: record.ID, Kind: store.StepDiscovery, Subject: record.ID, Repository: repository,
@@ -159,10 +165,16 @@ func (s *Service) startClosure(
 	if err != nil {
 		return nil, internalError(err)
 	}
-	start, err := SteelmanStart(s.cfg.Getenv, repository, closurePrompt(packet, frozenLedgerText(ledger), delta))
+	host := s.stepHostOf(record)
+	workspace, err := s.workspaceOn(ctx, host, repository, "")
+	if err != nil {
+		return nil, err
+	}
+	start, err := SteelmanStart(s.cfg.Getenv, workspace, closurePrompt(packet, frozenLedgerText(ledger), delta))
 	if err != nil {
 		return nil, errors.Join(connect.NewError(connect.CodeFailedPrecondition, err))
 	}
+	start.Host = host
 	start.Caller = callerOf(req.Header())
 	return s.answerPass(ctx, start, store.DesignStep{
 		Design: record.ID, Kind: store.StepClosure, Subject: record.ID, Repository: repository, Delta: delta,
