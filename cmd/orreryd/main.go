@@ -216,6 +216,9 @@ type options struct {
 	// and startSessions gives it to the manager as the name of the controller's own host. A test that calls
 	// startSessions directly leaves it "", which names no host.
 	orrery string
+	// fleet is the Fleet service's router and desk. serve sets it to the notice router and desk hub it builds, and
+	// startSessions serves it on the relay and the session socket. A test that calls startSessions directly leaves it nil.
+	fleet *enginehost.Fleet
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -703,6 +706,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:     logger,
 	}, viewing), serveRelay(opts, home, logger, mirror))
 	router := hub.router
+	// The Fleet service records each host's seen panes on the router and streams the desk's lines.
+	opts.fleet = &enginehost.Fleet{Router: router, Desk: desk}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
@@ -1220,7 +1225,8 @@ func startSessions(
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
 	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
+		commands, stepCommands, evidence, notices, crons, opts.fleet, hostName, opts.orrery, hosts,
+		serveOpts(opts, st, logger))
 	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
 		return nil, err
 	}
@@ -1332,14 +1338,15 @@ func adoptSessionState(
 }
 
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices and crons, with handlerOpts on each handler, hostName as the host each epic is stamped with, and callerHost
-// as the orrery name of the host whose panes the socket's calls come from.
+// notices, crons and fleet, with handlerOpts on each handler, hostName as the host each epic is stamped with, and
+// callerHost as the orrery name of the host whose panes the socket's calls come from.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
 	evidence enginehost.EvidenceCommands,
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
+	fleet *enginehost.Fleet,
 	hostName string,
 	callerHost string,
 	hosts hostexec.Hosts,
@@ -1360,6 +1367,7 @@ func (h *sessionHost) serveConfig(
 		Stage:      h.stage,
 		Accounts:   h.accounts,
 		PaneSends:  h.paneSends,
+		Fleet:      fleet,
 		Host:       hostName,
 		CallerHost: callerHost,
 		Hosts:      hosts,
