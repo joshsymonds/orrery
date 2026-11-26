@@ -41,7 +41,7 @@ const noMore: RowMore = { open: false, items: [], toggle: noop, close: noop };
 // handlers are the project page's presses, which do nothing here.
 const handlers = { onOpen: noop, onNewHere: noop, onBack: noop };
 
-// status is the serving host's status, with one stat, so a row on the serving host draws its meters.
+// status is the serving host's status, with one stat, which no strip draws: a strip names the host alone.
 const status: HostStatusResponse = create(HostStatusResponseSchema, {
   host: serving,
   stats: [{ label: "cpu", value: "12%", percent: 12, level: "ok" }],
@@ -249,7 +249,7 @@ test("HostsWebHostLabel: a headless session keeps the host it runs on, and its t
   const onServing = onlyRow(rowsFrom([], [], [headless("sess-2", serving, "/srv/app")]));
   await withDrawn(<PaneStrip host={stripHost(onServing, status)} band />, (container) => {
     assert.deepEqual(hostNames(container, ".pane-strip-host .host-label"), [serving], "the strip names the serving host");
-    assert.ok(container.querySelector(".meter") !== null, "a row on the serving host keeps its meters");
+    assertNone(container.querySelector(".meter"), "a row on the serving host draws no meters");
   });
 });
 

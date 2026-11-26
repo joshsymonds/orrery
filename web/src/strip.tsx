@@ -2,19 +2,11 @@ import type { JSX } from "preact";
 
 import type { ConversationContext, HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import { HostLabel } from "./hostlabel";
-import { Meter } from "./meter";
 import { context } from "./tokens/rules";
 
-// StripHost is the host a strip names: its name and the stats it draws. other marks a host this server cannot read: the
-// strip names it and draws no stats.
-export type StripHost = Pick<HostStatusResponse, "host" | "stats"> & { other?: boolean };
-
-// HostStat is one of a host's stats as Host.Status answers it.
-type HostStat = HostStatusResponse["stats"][number];
-
-// seriesCount is how many series colours a host's stats take in turn: the stat at index i takes series
-// (i mod seriesCount) + 1.
-const seriesCount = 5;
+// StripHost is the host a strip names. The strip draws the name alone: each host's load, memory and reach are drawn by
+// the hosts view.
+export type StripHost = Pick<HostStatusResponse, "host">;
 
 // contextBlocks are the blocks a context draws, numbered from one, each filled from its own percentPerBlock of the
 // window.
@@ -29,8 +21,8 @@ export interface ContextFigure {
   band: "ok" | "warn" | "crit";
 }
 
-// PaneStrip is a page's strip, drawn under its title row: the host's name as a HostLabel with each of its stats, and a
-// pane conversation's context. With no host it draws no host part, and a context with no tokens or no window draws no
+// PaneStrip is a page's strip, drawn under its title row: the host's name as a HostLabel, and a pane conversation's
+// context. It draws no meters. With no host it draws no host part, and a context with no tokens or no window draws no
 // context part. A strip with neither draws nothing. As a band, it is a conversation head's machine band, its own row under
 // the title row.
 export function PaneStrip({
@@ -46,20 +38,11 @@ export function PaneStrip({
   if (host === null && figure === null) {
     return null;
   }
-  const stats: readonly HostStat[] = host === null || host.other === true ? [] : host.stats;
   return (
     <div class={band ? "pane-strip machine-band" : "pane-strip"}>
       {host !== null && (
         <span class="pane-strip-host">
           <HostLabel name={host.host} />
-        </span>
-      )}
-      {host?.other === true && <span class="other">on another host: no meters</span>}
-      {stats.length > 0 && (
-        <span class="meters">
-          {stats.map((stat, index) => (
-            <Meter key={index} stat={stat} series={(index % seriesCount) + 1} />
-          ))}
         </span>
       )}
       {context !== undefined && <ContextMeter context={context} />}

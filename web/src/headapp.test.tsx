@@ -405,10 +405,10 @@ test("HeadTitle: the title row has no pill or state, and its crumbs are the dire
     assert.equal(container.querySelector(`${title} .pill`), null, "the title row draws no pill");
   }));
 
-test("HeadTitle: a pane on another host reads its host then 'on another host: no meters', and draws no stats", (t) =>
+test("HeadTitle: a pane on another host reads its host alone, and draws no stats and no line about meters", (t) =>
   withHead(t.signal, { rows: [row({ key: "x", label: "x", host: "laptop" })] }, ({ container }) => {
     assert.equal(textOf(container, 'section[aria-label="reader"] .pane-strip-host'), "laptop");
-    assert.equal(textOf(container, 'section[aria-label="reader"] .pane-strip .other'), "on another host: no meters");
+    assert.equal(container.querySelector('section[aria-label="reader"] .pane-strip .other'), null, "no line about meters");
     assert.equal(container.querySelectorAll('section[aria-label="reader"] .meter').length, 0);
   }));
 
