@@ -104,13 +104,9 @@ func retryChange(node string) string {
 	return "ended the park"
 }
 
-// releaseChange returns what epic_release started: the release, and the undo-none steps named to run again, if any.
-func releaseChange(undoNone []int32) string {
-	change := "release started"
-	if len(undoNone) > 0 {
-		change += "; undo-none steps " + joinList(undoNone) + " run again"
-	}
-	return change
+// releaseChange returns what epic_release started.
+func releaseChange() string {
+	return "release started"
 }
 
 // closeChange returns what epic_close closed the epic as, and the epic that replaces it, when it names one.

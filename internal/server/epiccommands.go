@@ -174,16 +174,14 @@ func (e epicsServer) Unarchive(
 }
 
 // Release forwards a release of the named epic to orreryd, which resumes its stopped release at the first unfinished
-// step and runs again the undo-none release steps the request names.
+// step, or releases an epic that ended with gaps.
 func (e epicsServer) Release(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsReleaseRequest],
 ) (*connect.Response[orreryv1.EpicsReleaseResponse], error) {
-	id, undoNone := req.Msg.GetId(), req.Msg.GetUndoNone()
+	id := req.Msg.GetId()
 	err := e.forwardCommand(ctx, func(ctx context.Context, commands enginev1connect.EpicsClient) error {
-		_, err := commands.ReleaseEpic(ctx, connect.NewRequest(&enginev1.ReleaseEpicRequest{
-			Id: id, UndoNone: undoNone,
-		}))
+		_, err := commands.ReleaseEpic(ctx, connect.NewRequest(&enginev1.ReleaseEpicRequest{Id: id}))
 		return wrapEngine("release", err)
 	})
 	if err != nil {

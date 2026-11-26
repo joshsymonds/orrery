@@ -588,11 +588,11 @@ func TestEpicsAnswerOptionsOtherWithTextIsRecordedByEngine(t *testing.T) {
 	}
 }
 
-// releaseCall returns a call that sends a release of syntheticEpicID naming the undo-none positions undoNone.
-func releaseCall(undoNone []int32) func(context.Context, orreryv1connect.EpicsClient) error {
+// releaseCall returns a call that sends a release of syntheticEpicID.
+func releaseCall() func(context.Context, orreryv1connect.EpicsClient) error {
 	return func(ctx context.Context, client orreryv1connect.EpicsClient) error {
 		_, err := client.Release(ctx, connect.NewRequest(&orreryv1.EpicsReleaseRequest{
-			Id: syntheticEpicID, UndoNone: undoNone,
+			Id: syntheticEpicID,
 		}))
 		return err
 	}
@@ -666,48 +666,39 @@ func TestEpicsReleaseForwardsOneRequestAndAnswersEmpty(t *testing.T) {
 	fake := &epicCommandsFake{}
 	client := epicCommandServe(t, fake)
 	reply, err := client.Release(t.Context(), connect.NewRequest(&orreryv1.EpicsReleaseRequest{
-		Id: syntheticEpicID, UndoNone: []int32{2},
+		Id: syntheticEpicID,
 	}))
 	if err != nil {
 		t.Fatalf("Release: %v", err)
 	}
-	assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{Id: syntheticEpicID, UndoNone: []int32{2}})
+	assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{Id: syntheticEpicID})
 	if !proto.Equal(reply.Msg, &orreryv1.EpicsReleaseResponse{}) {
 		t.Fatalf("Release = %v, want an empty response", reply.Msg)
 	}
 }
 
-func TestEpicsReleaseForwardsUndoNoneAsSent(t *testing.T) {
+// TestEpicsReleaseForwardsOnlyTheID checks that the release forwards the epic's id alone, even when the request it
+// reads still carries undo_none positions: the engine takes no positions.
+func TestEpicsReleaseForwardsOnlyTheID(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
-		name     string
-		undoNone []int32
-	}{
-		{name: "ended with gaps names none", undoNone: nil},
-		{name: "repeated position", undoNone: []int32{2, 2}},
+	fake := &epicCommandsFake{}
+	client := epicCommandServe(t, fake)
+	_, err := client.Release(t.Context(), connect.NewRequest(&orreryv1.EpicsReleaseRequest{
+		Id: syntheticEpicID, UndoNone: []int32{2, 2},
+	}))
+	if err != nil {
+		t.Fatalf("Release: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			fake := &epicCommandsFake{}
-			client := epicCommandServe(t, fake)
-			if err := releaseCall(tc.undoNone)(t.Context(), client); err != nil {
-				t.Fatalf("Release: %v", err)
-			}
-			assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{
-				Id: syntheticEpicID, UndoNone: tc.undoNone,
-			})
-		})
-	}
+	assertForwarded(t, fake.recorded(), &enginev1.ReleaseEpicRequest{Id: syntheticEpicID})
 }
 
 func TestEpicsReleaseRefusalReachesCallerAfterOneCall(t *testing.T) {
 	t.Parallel()
-	const message = "undo_none: position 2 is not an undo-none step"
+	const message = "release step 2 of epic " + syntheticEpicID + " is undo-none and failed; name it to run it again"
 	refused := connect.NewError(connect.CodeFailedPrecondition, errors.New(message))
 	fake := &epicCommandsFake{failures: []error{refused}}
 	client := epicCommandServe(t, fake)
-	err := releaseCall([]int32{2})(t.Context(), client)
+	err := releaseCall()(t.Context(), client)
 	assertConnectError(t, err, connect.CodeFailedPrecondition, message)
 	if n := len(fake.recorded()); n != 1 {
 		t.Fatalf("engine calls = %d, want one: a refusal is not retried", n)
@@ -716,14 +707,14 @@ func TestEpicsReleaseRefusalReachesCallerAfterOneCall(t *testing.T) {
 
 func TestEpicsReleaseRetryOnlyWhenNeverConnected(t *testing.T) {
 	t.Parallel()
-	want := &enginev1.ReleaseEpicRequest{Id: syntheticEpicID, UndoNone: []int32{2}}
-	assertRetriedOnlyWhenNeverConnected(t, releaseCall([]int32{2}), want)
+	want := &enginev1.ReleaseEpicRequest{Id: syntheticEpicID}
+	assertRetriedOnlyWhenNeverConnected(t, releaseCall(), want)
 }
 
 func TestEpicsReleaseNilClientAnswersUnavailable(t *testing.T) {
 	t.Parallel()
 	client := epicCommandServe(t, nil)
-	err := releaseCall([]int32{2})(t.Context(), client)
+	err := releaseCall()(t.Context(), client)
 	assertConnectError(t, err, connect.CodeUnavailable, epicCommandsUnavailable)
 }
 

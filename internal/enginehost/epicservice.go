@@ -883,10 +883,9 @@ func (s *epicService) KickEpic(
 	return connect.NewResponse(&v1.KickEpicResponse{Epic: message}), nil
 }
 
-// ReleaseEpic releases the epic. It resumes the stopped release at its first unfinished step, running again the
-// undo-none release steps undo_none names. An epic that ended with gaps is released on the owner's word instead, and
-// the store refuses a non-empty undo_none for it. It returns the epic read back. An empty id, and a position in
-// undo_none below 1, are refused before the store is asked.
+// ReleaseEpic releases the epic. It resumes a stopped release at its first unfinished step, and starts a release that
+// has not run. An epic that ended with gaps is released on the owner's word instead. It returns the epic read back. An
+// empty id is refused before the store is asked.
 func (s *epicService) ReleaseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.ReleaseEpicRequest],
@@ -898,20 +897,11 @@ func (s *epicService) ReleaseEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	undoNone := make([]int64, 0, len(req.Msg.GetUndoNone()))
-	for _, position := range req.Msg.GetUndoNone() {
-		if position < 1 {
-			return nil, refuseEpic(
-				connect.CodeInvalidArgument, fmt.Sprintf("undo_none: position %d is below 1", position),
-			)
-		}
-		undoNone = append(undoNone, int64(position))
-	}
 	maker, err := s.controlMaker(ctx, id, req.Header())
 	if err != nil {
 		return nil, err
 	}
-	if err = s.epics.ReleaseEpic(ctx, id, undoNone, maker, time.Now()); err != nil {
+	if err = s.epics.ReleaseEpic(ctx, id, nil, maker, time.Now()); err != nil {
 		return nil, epicControlError(id, err)
 	}
 	message, err := s.storedEpic(ctx, id)

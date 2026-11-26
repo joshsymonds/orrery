@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -23,7 +22,7 @@ const epicKickForm = "kick ID TEXT"
 const epicRetryForm = "retry ID [NODE]"
 
 // epicReleaseForm names the form of `orrery epic release`.
-const epicReleaseForm = "release ID [--undo-none N]..."
+const epicReleaseForm = "release ID"
 
 // epicCloseForm names the form of `orrery epic close`.
 const epicCloseForm = "close ID --as superseded|shipped|abandoned [--by EPIC]"
@@ -78,12 +77,6 @@ type epicRetryArgs struct {
 type epicKickArgs struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
-}
-
-// epicReleaseArgs is the arguments of epic_release. UndoNone is omitted when the form names no position.
-type epicReleaseArgs struct {
-	ID       string `json:"id"`
-	UndoNone []int  `json:"undoNone,omitempty"`
 }
 
 // epicCloseArgs is the arguments of epic_close. By is omitted when the form names none.
@@ -224,27 +217,13 @@ func epicRetry(ctx context.Context, epics enginev1connect.EpicsClient, rest []st
 	}
 }
 
-// epicRelease implements `release ID [--undo-none N]...`. Each N is a 1-based position of an undo-none release step to
-// run again; the positions are sent in the order given, and the service decides what they mean.
+// epicRelease implements `release ID`. The ID alone is sent as the arguments of epic_release, which resumes a stopped
+// release or releases an epic that ended with gaps; a flag or a further argument is a usage error.
 func epicRelease(ctx context.Context, epics enginev1connect.EpicsClient, rest []string, stdout io.Writer) error {
-	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
+	if len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
 		return epicForm(epicReleaseForm)
 	}
-	flags := flag.NewFlagSet("epic release", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	var undoNone []int
-	flags.Func("undo-none", "the 1-based position of an undo-none release step to run again", func(value string) error {
-		n, err := strconv.Atoi(value)
-		if err != nil || n < 1 {
-			return fmt.Errorf("--undo-none %q is not a positive integer", value)
-		}
-		undoNone = append(undoNone, n)
-		return nil
-	})
-	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 {
-		return epicFlagForm(epicReleaseForm, err)
-	}
-	return epicInvoke(ctx, epics, "epic_release", epicReleaseArgs{ID: rest[0], UndoNone: undoNone}, stdout)
+	return epicInvoke(ctx, epics, "epic_release", epicIDArgs{ID: rest[0]}, stdout)
 }
 
 // epicClose implements `close ID --as KIND [--by EPIC]`. KIND is superseded, shipped or abandoned, and superseded needs

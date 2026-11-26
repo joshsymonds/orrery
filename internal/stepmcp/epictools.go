@@ -72,11 +72,9 @@ type epicKickArgs struct {
 	Text string `json:"text" jsonschema:"the caller's words, which the planner reads at the epic's next plan run"`
 }
 
-// epicReleaseArgs is the arguments of epic_release, described for its input schema. UndoNone names the 1-based positions
-// of the undo-none release steps to run again; omitted, none runs again.
+// epicReleaseArgs is the arguments of epic_release, described for its input schema.
 type epicReleaseArgs struct {
-	ID       string `json:"id"`
-	UndoNone []int  `json:"undoNone,omitempty" jsonschema:"the 1-based positions of the undo-none release steps to run again; omit to name none"`
+	ID string `json:"id"`
 }
 
 // epicCloseArgs is the arguments of epic_close, described for its input schema. By names the epic that replaces the
@@ -273,10 +271,10 @@ func epicControlTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 		},
 		{
 			Name: "epic_release",
-			Description: "Release an epic by id. A stopped release resumes at its first unfinished step, and undoNone names the 1-based positions of undo-none release steps to run again. " +
-				"An epic that ended with gaps is released on the caller's word, logged as a decision made by the caller, so undoNone must be empty for it. " +
+			Description: "Release an epic by id. A stopped release resumes at its first unfinished step. " +
+				"An epic that ended with gaps is released on the caller's word, logged as a decision made by the caller. " +
 				"Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming " +
-				"what changed. Refused unless the release is stopped or the epic ended with gaps, and each position is undo-none.",
+				"what changed. Refused unless the release is stopped or the epic ended with gaps.",
 			InputSchema: in.release,
 			Handler:     epicReleaseHandler(epics),
 		},
@@ -590,7 +588,7 @@ func epicReleaseHandler(epics enginev1connect.EpicsClient) ToolHandler {
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		change := releaseChange(req.GetUndoNone())
+		change := releaseChange()
 		return epicAck(released.Msg.GetEpic(), req.GetId(), change), nil
 	}
 }
