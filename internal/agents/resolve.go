@@ -18,8 +18,8 @@ var ErrUnresolved = errors.New("agent name does not resolve")
 
 // Where is the environment of a step's claude process: its working directory Dir, its HOME, its CLAUDE_CONFIG_DIR
 // ("" when unset) and the managed settings root Managed ("" reads none). Each non-empty field must be absolute. Files
-// is the file system that the agent folders, settings and plugin files are read through; nil reads the controller's
-// local files.
+// is the host that the agent folders, settings and plugin files are read through: the host the step's epic is stored on.
+// It is required: Resolve refuses a Where that names none.
 type Where struct {
 	Dir, Home, ConfigDir, Managed string
 	Files                         hostexec.Files
@@ -35,11 +35,11 @@ const webFetch = "web-fetch"
 // agent resolves. Otherwise the agent folders of the project, the user and the managed root are searched, then the
 // agents of the enabled plugins. A name that none of them defines returns an error wrapping ErrUnresolved that names
 // the agent and each place checked. A file or settings file that cannot be read or parsed returns its own error. The
-// reads are made through where.Files under ctx.
+// reads are made through where.Files under ctx, and a where with no Files is refused.
 func Resolve(ctx context.Context, name string, where Where) error {
 	files := where.Files
 	if files == nil {
-		files = hostexec.NewLocal()
+		return errors.New("agents: where names no files to read agents through")
 	}
 	places, err := locate(ctx, files, where)
 	if err != nil {

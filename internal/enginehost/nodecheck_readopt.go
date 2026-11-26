@@ -136,7 +136,7 @@ func (n *NodeChecks) readoptRequest(
 	if err := captureEnsureWorktree(ctx, host, repo, check.Revision, worktree); err != nil {
 		return grants.Request{}, err
 	}
-	return n.request(ctx, worktree, check)
+	return n.request(ctx, host, worktree, check)
 }
 
 // readoptLost ends check, whose gate cannot be readopted because of cause, as lost at a restart. Nothing reads its

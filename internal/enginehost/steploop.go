@@ -244,16 +244,15 @@ type stepRun struct {
 	once      sync.Once
 }
 
-// newStepRun returns a stepRun built from cfg that is not running. Call run to start it.
+// newStepRun returns a stepRun built from cfg that is not running. Call run to start it. cfg's host is required and has no
+// default: it is the host the step's git, worktrees and gates run on, the host its epic is stored on. Every caller passes
+// the host its row or epic names, so a run is never built to run on this machine by default.
 func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.now == nil {
 		cfg.now = time.Now
 	}
 	if cfg.publish == nil {
 		cfg.publish = func(context.Context, string) {}
-	}
-	if cfg.host == nil {
-		cfg.host = hostexec.NewLocal()
 	}
 	if cfg.countLines == nil {
 		host := cfg.host

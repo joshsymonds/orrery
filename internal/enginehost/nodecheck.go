@@ -209,7 +209,7 @@ func (n *NodeChecks) run(
 	if err := addStepWorktree(ctx, host, repo, worktree, check.Revision); err != nil {
 		return n.notStarted(ctx, host, repo, worktree, check.ID, err)
 	}
-	req, err := n.request(ctx, worktree, check)
+	req, err := n.request(ctx, host, worktree, check)
 	if err != nil {
 		return n.notStarted(ctx, host, repo, worktree, check.ID, err)
 	}
@@ -266,8 +266,10 @@ func (n *NodeChecks) notStarted(
 }
 
 // request returns the grant request check queues in worktree: the pools its needs name, or one member of the default gate
-// pool when it names none.
-func (n *NodeChecks) request(ctx context.Context, worktree string, check store.NodeCheck) (grants.Request, error) {
+// pool when it names none. Its pools are read through host, the host the check's epic is stored on.
+func (n *NodeChecks) request(
+	ctx context.Context, host hostexec.Host, worktree string, check store.NodeCheck,
+) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
 	if len(check.Needs) > 0 {
 		needs = make([]grants.Need, 0, len(check.Needs))
@@ -276,7 +278,7 @@ func (n *NodeChecks) request(ctx context.Context, worktree string, check store.N
 		}
 	}
 	return stepGrant(
-		ctx, hostexec.NewLocal(), worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
+		ctx, host, worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
 	)
 }
 

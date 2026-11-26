@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -160,6 +161,7 @@ func newStepLoopFixture(t *testing.T, continueErr error) *stepLoopFixture {
 	fixture.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: fixture.sessions, store: s,
 		writer: writer, logger: slog.New(slog.DiscardHandler), cleanup: cleanup, stateDir: gateShortStateDir(t),
+		host: hostexec.NewLocal(),
 	})
 	return fixture
 }

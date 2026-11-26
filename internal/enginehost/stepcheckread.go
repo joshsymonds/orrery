@@ -48,13 +48,14 @@ type hostNamer interface {
 	hostNamed(name string) (hostexec.Host, error)
 }
 
-// rowHostOf returns the Host row runs on. steps resolves the name when it is a hostNamer; any other StepCommands resolves
-// every name to the local host, as a Steps built without Hosts does.
+// rowHostOf returns the Host row runs on, which steps resolves from the row's host name. A StepCommands that resolves no
+// host names is refused with an error, since no Host is known for the row.
 func rowHostOf(steps StepCommands, row store.StepRow) (hostexec.Host, error) {
-	if named, ok := steps.(hostNamer); ok {
-		return named.hostNamed(row.Host)
+	named, ok := steps.(hostNamer)
+	if !ok {
+		return nil, fmt.Errorf("read host of step %s: no hosts resolve %q", row.ID, row.Host)
 	}
-	return hostexec.NewLocal(), nil
+	return named.hostNamed(row.Host)
 }
 
 // readStepCheck returns the check of row that req names, with the slice of its output that req bounds. logs names the kept

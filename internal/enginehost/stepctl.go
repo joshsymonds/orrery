@@ -38,25 +38,34 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 		return nil
 	}
 	if run == nil {
-		run = s.rowRun(row)
+		run, err = s.rowRun(row)
+		if err != nil {
+			return err
+		}
 	}
 	run.limitReleased = row.LoopLimited
 	run.finish(context.WithoutCancel(ctx), stepStoppedEnd, "", "")
 	return nil
 }
 
-// rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its cleanup removes the
-// row's worktree on the row's host when the row has one.
-func (s *Steps) rowRun(row store.StepRow) *stepRun {
+// rowRun returns a stepRun for an open step row with no loop, so Stop can end it through finish. Its host is the host the
+// row names, and its cleanup removes the row's worktree on that host when the row has one. It returns an error when the
+// row's host is not one Steps resolves.
+func (s *Steps) rowRun(row store.StepRow) (*stepRun, error) {
+	host, err := s.rowHost(row)
+	if err != nil {
+		return nil, err
+	}
 	cfg := stepRunConfig{
 		id: row.ID, sessions: s.sessions, writer: s.writer, logger: s.logger, publish: s.publish, wake: s.stored,
+		host: host,
 	}
 	if row.Worktree != "" {
 		cfg.cleanup = func(ctx context.Context) error {
 			return s.removeRowWorktree(ctx, row)
 		}
 	}
-	return newStepRun(cfg)
+	return newStepRun(cfg), nil
 }
 
 // rowHost returns the Host the step row names, which is the host its git and worktrees run on. A name Hosts resolves to

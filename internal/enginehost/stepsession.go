@@ -42,7 +42,8 @@ type StepSession struct {
 	Observer StepObserver
 	// Host is the orrery name of the host the step runs on, where empty means the controller.
 	Host string
-	// Files is the file system of the step's host. A nil Files reads this machine's files.
+	// Files is the host the step's agent folders, settings and plugin files are read through, the host its epic runs on.
+	// Nil reads them through the manager's own controller host (see Manager.files).
 	Files hostexec.Files
 }
 
@@ -179,9 +180,11 @@ func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error 
 	}
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
-	where := agents.Where{
-		Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir, Files: step.Files,
+	files := step.Files
+	if files == nil {
+		files = m.files
 	}
+	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir, Files: files}
 	if err = agents.Resolve(ctx, step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}

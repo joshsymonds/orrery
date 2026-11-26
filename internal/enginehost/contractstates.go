@@ -332,6 +332,7 @@ func (s *contractService) originMain(ctx context.Context, repository string) (st
 // FetchOriginMain fetches origin's main into refs/remotes/origin/main of repository on this machine's Host, as
 // fetchOriginMain does, and returns the full commit that ref names.
 func FetchOriginMain(ctx context.Context, repository string) (string, error) {
+	// This serves the controller's own work: the contract stage fetches origin on this machine, not on an epic's host.
 	return fetchOriginMain(ctx, hostexec.NewLocal(), repository)
 }
 

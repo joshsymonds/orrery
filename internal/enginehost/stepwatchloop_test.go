@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/waittest"
 )
@@ -130,7 +131,7 @@ func newWatchLoopFixture(t *testing.T, caller haikuCaller, sessions *stepLoopSes
 	f.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, store: s, writer: writer,
 		logger: slog.New(slog.DiscardHandler), now: f.clock.now, modelLimit: modelLimit, haiku: caller,
-		newTimer: f.timers.newTimer,
+		newTimer: f.timers.newTimer, host: hostexec.NewLocal(),
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)

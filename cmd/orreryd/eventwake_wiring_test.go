@@ -238,7 +238,9 @@ func awaitMarked(t *testing.T, st *store.Store, passed <-chan struct{}, event, s
 // loop, so the stop ends it, stores the end and reports it to the Steps' stored wake, which the test relies on.
 func stopStepUnder(t *testing.T, st *store.Store, host *sessionHost, caller store.EpicCaller) {
 	t.Helper()
-	add := store.StepAdd{ID: eventWakeStep, Agent: "implementer", Prompt: "do it", Caller: caller}
+	add := store.StepAdd{
+		ID: eventWakeStep, Agent: "implementer", Prompt: "do it", Caller: caller, Host: callerEventHost,
+	}
 	if err := st.ApplyEngine(t.Context(), []store.EngineOp{add}, time.Unix(attentionWiringStamp, 0)); err != nil {
 		t.Fatalf("store step %s: %v", eventWakeStep, err)
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/telemetry"
@@ -270,6 +271,10 @@ type Manager struct {
 	local    *holderhost.Local
 	hostName string
 	hosts    map[string]holderhost.Host
+	// files is the host a step's agent files are read through when its StepSession names none. It is the controller's own
+	// host, which serves the controller's own work: StartStep runs every step session on the controller, and Steps.Start
+	// always names the host its epic runs on.
+	files hostexec.Files
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -376,6 +381,7 @@ func NewManager(cfg Config) *Manager {
 		}),
 		hostName:      cfg.HostName,
 		hosts:         cfg.Hosts,
+		files:         hostexec.NewLocal(), // serves the controller's own work: sessions it starts directly read agents here
 		holderVersion: cfg.HolderVersion,
 		writer:        cfg.Writer,
 		now:           cfg.Now,
