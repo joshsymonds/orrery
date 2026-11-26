@@ -64,26 +64,6 @@ func judgedRelease() store.ReleaseRun {
 	}
 }
 
-// namedPublish is the named release run that naming the publish step at attempt 2 stores.
-func namedPublish() store.ReleaseRun {
-	return store.ReleaseRun{
-		Part:     store.ReleasePartNamed,
-		Position: 2,
-		Attempt:  2,
-		Step:     "publish",
-		Reason:   "owner named it",
-		At:       resumeAt(),
-	}
-}
-
-// namedPublishDecision is the owner decision that naming the publish step at attempt 2 records.
-func namedPublishDecision() store.EpicDecision {
-	return store.EpicDecision{
-		Seq: 1, ID: "release-undo-none-2-2", Text: "owner named undo-none release step 2, publish, to run it again",
-		Time: resumeAt(),
-	}
-}
-
 // stoppedRelease returns a store with resumeEpic stopped by its release. resumeEpic is clean, starts its release,
 // starts its release node run at attempt 1, records runs under it, and is stopped at that run with resumeStopReason.
 func stoppedRelease(t *testing.T, runs ...store.ReleaseRun) (*store.Store, *sql.DB) {
@@ -119,15 +99,6 @@ func stoppedReleaseOf(t *testing.T, row store.EpicRow, runs ...store.ReleaseRun)
 func stoppedAtPublish(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	return stoppedRelease(t, releasedStep(1, true), releasedStep(2, false))
-}
-
-// stoppedAtPublishNone is stoppedAtPublish with the publish step's undo written " None ", which is undo-none as the
-// release kind reads it.
-func stoppedAtPublishNone(t *testing.T) (*store.Store, *sql.DB) {
-	t.Helper()
-	row := resumeEpicIn(resumeEpic, store.PhaseClean)
-	row.ReleaseSteps[1].Undo = " None "
-	return stoppedReleaseOf(t, row, releasedStep(1, true), releasedStep(2, false))
 }
 
 // releaseRowsOf returns the rows of each table a release control writes, as text, so a test can check that a refused
@@ -173,11 +144,11 @@ func requireDecisions(t *testing.T, s *store.Store, epic string, want []store.Ep
 	}
 }
 
-// requireRefusedResume fails unless ReleaseEpic of epic naming undo is refused with want and writes nothing.
-func requireRefusedResume(t *testing.T, s *store.Store, raw *sql.DB, epic string, undo []int64, want string) {
+// requireRefusedResume fails unless ReleaseEpic of epic is refused with want and writes nothing.
+func requireRefusedResume(t *testing.T, s *store.Store, raw *sql.DB, epic, want string) {
 	t.Helper()
 	before := releaseRowsOf(t, raw)
-	requireRefusalError(t, s.ReleaseEpic(context.Background(), epic, undo, store.Maker{}, resumeAt()), want)
+	requireRefusalError(t, s.ReleaseEpic(context.Background(), epic, store.Maker{}, resumeAt()), want)
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused ReleaseEpic of %s = %s, want %s", epic, got, before)
 	}
@@ -190,8 +161,6 @@ func TestReleaseEpicRefusesWhatItMustNotResume(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(t *testing.T) (*store.Store, *sql.DB)
-		epic  string
-		undo  []int64
 		want  string
 	}{
 		{
@@ -200,7 +169,6 @@ func TestReleaseEpicRefusesWhatItMustNotResume(t *testing.T) {
 				t.Helper()
 				return openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseClean))
 			},
-			epic: resumeEpic,
 			want: "epic " + resumeEpic + " is not stopped",
 		},
 		{
@@ -209,51 +177,14 @@ func TestReleaseEpicRefusesWhatItMustNotResume(t *testing.T) {
 				t.Helper()
 				return openReleaseStore(t, resumeEpicIn(resumeEpic, store.PhaseStopped))
 			},
-			epic: resumeEpic,
 			want: "epic " + resumeEpic + " has no parked release run",
-		},
-		{
-			name: "an ended_with_gaps epic names an undo-none step",
-			setup: func(t *testing.T) (*store.Store, *sql.DB) {
-				t.Helper()
-				return openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
-			},
-			epic: resumeEpic,
-			undo: []int64{2},
-			want: "epic " + resumeEpic + " has not started a release; name no undo-none step",
-		},
-		{
-			name:  "a named step has an undo",
-			setup: stoppedAtPublish,
-			epic:  resumeEpic,
-			undo:  []int64{1},
-			want:  "position 1 of epic " + resumeEpic + " is not an undo-none release step",
-		},
-		{
-			name:  "a named position is past the steps",
-			setup: stoppedAtPublish,
-			epic:  resumeEpic,
-			undo:  []int64{3},
-			want:  "position 3 of epic " + resumeEpic + " is not an undo-none release step",
-		},
-		{
-			name:  "a failed undo-none step is not named",
-			setup: stoppedAtPublish,
-			epic:  resumeEpic,
-			want:  "release step 2 of epic " + resumeEpic + " is undo-none and failed; name it to run it again",
-		},
-		{
-			name:  "a failed step whose undo is written None is not named",
-			setup: stoppedAtPublishNone,
-			epic:  resumeEpic,
-			want:  "release step 2 of epic " + resumeEpic + " is undo-none and failed; name it to run it again",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			s, raw := c.setup(t)
-			requireRefusedResume(t, s, raw, c.epic, c.undo, c.want)
+			requireRefusedResume(t, s, raw, resumeEpic, c.want)
 		})
 	}
 }
@@ -263,7 +194,7 @@ func TestReleaseEpicRefusesAnUnknownEpic(t *testing.T) {
 	t.Parallel()
 	s, raw := stoppedAtPublish(t)
 	before := releaseRowsOf(t, raw)
-	err := s.ReleaseEpic(context.Background(), "orrery-7e8f9a0/no-such-epic", nil, store.Maker{}, resumeAt())
+	err := s.ReleaseEpic(context.Background(), "orrery-7e8f9a0/no-such-epic", store.Maker{}, resumeAt())
 	if !errors.Is(err, store.ErrNoEpic) {
 		t.Errorf("ReleaseEpic of an unknown epic: err = %v, want ErrNoEpic", err)
 	}
@@ -272,19 +203,15 @@ func TestReleaseEpicRefusesAnUnknownEpic(t *testing.T) {
 	}
 }
 
-// TestReleaseEpicResumesAtTheFirstUnfinishedStep checks that a stopped release resumes at its first unfinished step:
-// its release node run moves to its next attempt, the epic is unparked, one tell says where the release resumed, and
-// an undo-none step runs again only when the call names it, which stores a named run and an owner decision for it.
+// TestReleaseEpicResumesAtTheFirstUnfinishedStep checks that a stopped release resumes at its first unfinished step,
+// whatever that step's undo says: its release node run moves to its next attempt, the epic is unparked, one tell says
+// where the release resumed, and no owner decision is recorded.
 func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		name          string
-		runs          []store.ReleaseRun
-		undo          []int64
-		stop          []string
-		tell          string
-		wantNamed     []store.ReleaseRun
-		wantDecisions []store.EpicDecision
+		name string
+		runs []store.ReleaseRun
+		tell string
 	}{
 		{
 			name: "a failed step that has an undo runs without a name",
@@ -297,27 +224,14 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			tell: "release resumed at step 2, publish",
 		},
 		{
+			name: "a failed undo-none step runs again without a name",
+			runs: []store.ReleaseRun{releasedStep(1, true), releasedStep(2, false)},
+			tell: "release resumed at step 2, publish",
+		},
+		{
 			name: "every step passed resumes at the judge",
 			runs: []store.ReleaseRun{releasedStep(1, true), releasedStep(2, true), judgedRelease()},
 			tell: "release resumed at the judge",
-		},
-		{
-			name:          "a named undo-none step that failed runs again",
-			runs:          []store.ReleaseRun{releasedStep(1, true), releasedStep(2, false)},
-			undo:          []int64{2},
-			stop:          []string{resumeStopReason},
-			tell:          "release resumed at step 2, publish",
-			wantNamed:     []store.ReleaseRun{namedPublish()},
-			wantDecisions: []store.EpicDecision{namedPublishDecision()},
-		},
-		{
-			name:          "a name repeated in the call is one named run and one decision",
-			runs:          []store.ReleaseRun{releasedStep(1, true), releasedStep(2, false)},
-			undo:          []int64{2, 2},
-			stop:          []string{resumeStopReason},
-			tell:          "release resumed at step 2, publish",
-			wantNamed:     []store.ReleaseRun{namedPublish()},
-			wantDecisions: []store.EpicDecision{namedPublishDecision()},
 		},
 	}
 	for _, c := range cases {
@@ -325,7 +239,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			s, raw := stoppedRelease(t, c.runs...)
-			if err := s.ReleaseEpic(ctx, resumeEpic, c.undo, store.Maker{}, resumeAt()); err != nil {
+			if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
 				t.Fatalf("ReleaseEpic: %v", err)
 			}
 			requireNodeRuns(t, s, resumeEpic, []store.NodeRun{{
@@ -335,11 +249,11 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			if got := parkedOf(t, raw, resumeEpic); got != "" {
 				t.Errorf("parked reason of epic %s after ReleaseEpic = %q, want none", resumeEpic, got)
 			}
-			if want := append(slices.Clone(c.stop), c.tell); !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+			if want := []string{c.tell}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
 				t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
 			}
-			requireReleaseRuns(t, s, resumeEpic, inReadOrder(slices.Concat(c.runs, c.wantNamed)))
-			requireDecisions(t, s, resumeEpic, c.wantDecisions)
+			requireReleaseRuns(t, s, resumeEpic, inReadOrder(c.runs))
+			requireDecisions(t, s, resumeEpic, nil)
 			requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 		})
 	}
@@ -353,7 +267,7 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 	ctx := context.Background()
 	s, raw := openReleaseStore(t, resumeEpicIn(resumeEpic, "ended_with_gaps"))
 	tells := tellsOf(t, raw, resumeEpic)
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{By: store.MakerOwner}, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{By: store.MakerOwner}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic of an ended_with_gaps epic: %v", err)
 	}
 	requirePhase(t, s, resumeEpic, store.PhaseClean)
@@ -364,7 +278,7 @@ func TestReleaseEpicReleasesAnEndedWithGapsEpic(t *testing.T) {
 	if got := tellsOf(t, raw, resumeEpic); !reflect.DeepEqual(got, tells) {
 		t.Errorf("tells of epic %s after ReleaseEpic = %q, want %q", resumeEpic, got, tells)
 	}
-	requireRefusedResume(t, s, raw, resumeEpic, nil, "epic "+resumeEpic+" is not stopped")
+	requireRefusedResume(t, s, raw, resumeEpic, "epic "+resumeEpic+" is not stopped")
 	if err := s.StartRelease(ctx, resumeEpic, resumeAt()); err != nil {
 		t.Fatalf("StartRelease of %s: %v", resumeEpic, err)
 	}
@@ -383,7 +297,7 @@ func TestReleaseEpicResumesWhileAnotherEpicOfItsRepositoryReleases(t *testing.T)
 	if err := s.StartRelease(ctx, resumeOther, resumeAt()); err != nil {
 		t.Fatalf("StartRelease of %s: %v", resumeOther, err)
 	}
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic of %s: %v", resumeEpic, err)
 	}
 	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
@@ -406,22 +320,9 @@ func TestRetryNodeRefusesTheReleaseNode(t *testing.T) {
 	if got := releaseRowsOf(t, raw); got != before {
 		t.Errorf("rows after refused RetryNode of %s = %s, want %s", resumeEpic, got, before)
 	}
-	if err := s.ReleaseEpic(ctx, resumeEpic, nil, store.Maker{}, resumeAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
 		t.Errorf("ReleaseEpic after refused RetryNode: %v", err)
 	}
-}
-
-// TestReleaseEpicNamesAnUndoNoneStepWrittenNone checks that a failed step whose undo is written " None " can be named,
-// as the release kind reads that undo as none: the call stores the named run for the next attempt.
-func TestReleaseEpicNamesAnUndoNoneStepWrittenNone(t *testing.T) {
-	t.Parallel()
-	s, _ := stoppedAtPublishNone(t)
-	if err := s.ReleaseEpic(context.Background(), resumeEpic, []int64{2}, store.Maker{}, resumeAt()); err != nil {
-		t.Fatalf("ReleaseEpic naming step 2: %v", err)
-	}
-	requireReleaseRuns(t, s, resumeEpic, inReadOrder([]store.ReleaseRun{
-		releasedStep(1, true), releasedStep(2, false), namedPublish(),
-	}))
 }
 
 // TestStopEpicReleaseStopsTheReleaseAndReturnsTheOpenStep checks that StopEpic of a releasing epic with no running turn

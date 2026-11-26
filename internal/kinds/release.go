@@ -294,8 +294,8 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
 // attempt, and records a step whose work has ended (releaseWork). Otherwise it waits while that work runs, or starts it
-// when it has none, unless the owner stopped the release at this attempt, is paused, the step's undo is none after an
-// earlier failure, or the first step's candidate is not yet held by the release reviewers (releaseReviewGate).
+// when it has none, unless the owner stopped the release at this attempt, is paused, or the first step's candidate is
+// not yet held by the release reviewers (releaseReviewGate).
 func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep, start string) Action {
 	failed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
@@ -322,15 +322,6 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 	}
 	if rows.Epic.Paused {
 		return Action{Kind: ActNone}
-	}
-	if undoNoneStopped(run, rows, position, step) {
-		return Action{
-			Kind: ActStop,
-			Output: fmt.Sprintf(
-				"release step %d (%s) failed at an earlier attempt with undo none, so it runs again only when named",
-				position, step.Step,
-			),
-		}
 	}
 	if position == 1 {
 		if act, held := releaseReviewGate(run, rows, start); !held {
@@ -442,21 +433,6 @@ func ReleaseRefusalClaims(row store.StepRow) []string {
 		claims = append(claims, finding["claim"])
 	}
 	return claims
-}
-
-// undoNoneStopped reports whether step at position has undo none, failed at an earlier attempt, and has no run named at
-// this attempt, so that it must not run again.
-func undoNoneStopped(run store.NodeRun, rows Rows, position int64, step store.EpicReleaseStep) bool {
-	if !strings.EqualFold(strings.TrimSpace(step.Undo), "none") {
-		return false
-	}
-	_, failed := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
-		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt < run.Attempt
-	})
-	_, named := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
-		return r.Part == store.ReleasePartNamed && r.Position == position && r.Attempt == run.Attempt
-	})
-	return failed && !named
 }
 
 // judgeAction decides the judge after the last release step, from the candidate. A release whose every step names a kind

@@ -347,7 +347,7 @@ func TestReleaseReviewerRunsAgainOnRetry(t *testing.T) {
 	w.pass()
 	w.stopAtFirstStep()
 
-	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, nil, store.Maker{}, runClock()); err != nil {
+	if err := w.s.ReleaseEpic(w.t.Context(), runEpic, store.Maker{}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	w.pass()

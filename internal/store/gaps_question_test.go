@@ -229,7 +229,7 @@ func TestEpicReleaseAnswersOpenGapQuestion(t *testing.T) {
 	createEpic(t, s, fullEpic(claimEpic))
 	endClaimEpicWithGaps(t, s)
 
-	if err := s.ReleaseEpic(ctx, claimEpic, nil, Maker{}, claimedAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, claimEpic, Maker{}, claimedAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	open, err := s.OpenQuestions(ctx, claimEpic)

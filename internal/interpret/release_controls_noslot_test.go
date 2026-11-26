@@ -115,8 +115,8 @@ func TestReleaseControlsNoSlot(t *testing.T) {
 		t.Errorf("epic phase = %q after the refused resume, want stopped", phase)
 	}
 
-	// The owner's release resumes the stopped release at its next attempt, naming the undo-none step that failed.
-	if err = w.s.ReleaseEpic(ctx, runEpic, []int64{1}, store.Maker{By: store.MakerOwner}, runClock()); err != nil {
+	// The owner's release resumes the stopped release at its next attempt, at the step that failed.
+	if err = w.s.ReleaseEpic(ctx, runEpic, store.Maker{By: store.MakerOwner}, runClock()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseReleasing {

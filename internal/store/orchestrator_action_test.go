@@ -343,8 +343,7 @@ func TestOrchestratorActionFailTaskClimbsTheOpenTask(t *testing.T) {
 }
 
 // TestOrchestratorActionResumeReleaseResumesAStoppedRelease checks that a resume_release action resumes a release
-// stopped at a failed step that can be undone, with no undo-none step named, and records it as a decision that holds
-// its reason.
+// stopped at a failed step, and records it as a decision that holds its reason.
 func TestOrchestratorActionResumeReleaseResumesAStoppedRelease(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -363,6 +362,76 @@ func TestOrchestratorActionResumeReleaseResumesAStoppedRelease(t *testing.T) {
 	if got, want := decisionNamed(t, s, actionEpic, "action-1-1").Text,
 		"planner resume release: the push tag can be undone and run again"; got != want {
 		t.Errorf("decision of resume_release = %q, want %q", got, want)
+	}
+}
+
+// TestAnyStopReplansResumeIgnoresUndo checks that a release stopped at a failed step whose undo is none resumes at that
+// step through ReleaseEpic and through a planner's resume_release, with no refusal and no name, and that the step's
+// release node run starts its next attempt.
+func TestAnyStopReplansResumeIgnoresUndo(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		resume func(t *testing.T, s *Store)
+	}{
+		{
+			name: "ReleaseEpic",
+			resume: func(t *testing.T, s *Store) {
+				t.Helper()
+				err := s.ReleaseEpic(context.Background(), actionEpic, Maker{By: MakerOwner}, closeAt())
+				if err != nil {
+					t.Fatalf("ReleaseEpic of epic %s: %v", actionEpic, err)
+				}
+			},
+		},
+		{
+			name: "resume_release",
+			resume: func(t *testing.T, s *Store) {
+				t.Helper()
+				action := storeActions(t, s, actionEpic, EpicActionInput{
+					Kind: ActionResumeRelease, Reason: "the publish step can run again",
+				})[0]
+				if _, err := s.CarryOutAction(context.Background(), action, closeAt()); err != nil {
+					t.Fatalf("CarryOutAction of resume_release: %v", err)
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			s := openEpicStore(t)
+			stopReleaseAfter(t, s, actionEpic, "publish rejected",
+				ReleaseRun{
+					Part: ReleasePartStep, Position: 1, Attempt: 1, Step: "push tag", Evidence: "run-push-tag",
+					Passed: true, At: closeAt(),
+				},
+				ReleaseRun{
+					Part: ReleasePartStep, Position: 2, Attempt: 1, Step: "publish", Evidence: "run-publish",
+					Reason: "rejected", At: closeAt(),
+				},
+			)
+			if park := closeRow(t, s, actionEpic).ParkClass; park != ParkClassReleaseStep {
+				t.Fatalf("park class of epic %s = %q, want %q", actionEpic, park, ParkClassReleaseStep)
+			}
+
+			c.resume(t, s)
+			if phase := closeRow(t, s, actionEpic).Phase; phase != PhaseReleasing {
+				t.Fatalf("phase of epic %s after the resume = %q, want %q", actionEpic, phase, PhaseReleasing)
+			}
+			runs, err := s.NodeRuns(ctx, actionEpic)
+			if err != nil {
+				t.Fatalf("NodeRuns of epic %s: %v", actionEpic, err)
+			}
+			want := []NodeRun{{
+				Path: "release", ID: "id-" + actionEpic, Node: "release", Kind: "release", State: NodeRunning,
+				Attempt: 2, Started: closeAt(),
+			}}
+			if !reflect.DeepEqual(runs, want) {
+				t.Errorf("NodeRuns of epic %s = %+v, want %+v", actionEpic, runs, want)
+			}
+		})
 	}
 }
 
@@ -512,19 +581,6 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 			},
 			summary: "retry epic",
 			refusal: "epic " + actionEpic + " is stopped; retry ends a stopped release only when its release integrator or reviewer stopped it",
-		},
-		{
-			name: "resume that names an undo-none step",
-			epic: actionEpic,
-			setup: func(t *testing.T, s *Store) {
-				t.Helper()
-				createStoppedRelease(t, s, actionEpic)
-			},
-			action: EpicActionInput{
-				Kind: ActionResumeRelease, UndoNone: []int64{2}, Reason: "the publish step must run again",
-			},
-			summary: "resume release",
-			refusal: "epic " + actionEpic + ": a planner resume names no undo-none step; only the owner names one",
 		},
 		{
 			name: "resume of a stopped epic whose owner stopped its release",

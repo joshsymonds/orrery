@@ -26,25 +26,6 @@ func startRelease(t *testing.T, s *Store, steps []EpicReleaseStep) {
 	}
 }
 
-// releaseUndoNoneStops stops the release of claimEpic at its second release step, which has undo none and failed.
-func releaseUndoNoneStops(t *testing.T, s *Store, park string) {
-	t.Helper()
-	ctx := context.Background()
-	startRelease(t, s, []EpicReleaseStep{
-		{Step: "push tag", Target: "origin", Undo: "delete tag"},
-		{Step: "publish", Target: "registry", Undo: "none"},
-	})
-	if err := s.RecordRelease(ctx, claimEpic, ReleaseRun{
-		Part: ReleasePartStep, Position: 2, Attempt: 1, Step: "publish", Evidence: "run-publish",
-		Reason: "rejected", At: claimedAt(),
-	}); err != nil {
-		t.Fatalf("RecordRelease: %v", err)
-	}
-	if err := s.StopRelease(ctx, claimEpic, "release", 1, park, claimedAt()); err != nil {
-		t.Fatalf("StopRelease: %v", err)
-	}
-}
-
 // releaseOwnerStops stops the release of claimEpic as an owner stop leaves it. ClaimTurn then claims no turn for the
 // epic, so the park wakes no planner turn.
 func releaseOwnerStops(t *testing.T, s *Store, park string) {
@@ -117,10 +98,6 @@ func TestCatastropheParkOpensItsParkQuestionAndTellsIt(t *testing.T) {
 		drive     func(t *testing.T, s *Store, park string)
 		turnEnded bool
 	}{
-		{
-			name: "release_undo_none", class: ParkClassReleaseUndoNone,
-			park: "publish failed and its undo is none", drive: releaseUndoNoneStops,
-		},
 		{
 			name: "release_owner_stop", class: ParkClassReleaseOwnerStop,
 			park: "the owner stopped the release", drive: releaseOwnerStops,

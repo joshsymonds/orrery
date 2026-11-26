@@ -1741,10 +1741,10 @@ SELECT epic, at FROM epic_seen;
 
 -- name: InsertPlannerAction :exec
 INSERT INTO planner_actions (
-    epic, turn, position, kind, node, task, close_kind, by_epic, undo_none, reason, state, refusal, requirement, item,
+    epic, turn, position, kind, node, task, close_kind, by_epic, reason, state, refusal, requirement, item,
     deliverable, files, remove_files, reviewer, split_tasks
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '', ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListPendingPlannerActions :many
 SELECT * FROM planner_actions WHERE state = 'pending' ORDER BY epic, turn, position;

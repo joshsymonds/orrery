@@ -473,7 +473,7 @@ func TestPhaseAtFollowsEachPhaseWrite(t *testing.T) {
 	}
 	requirePhaseAt(t, s, "stopped", 1700002800)
 
-	if err := s.ReleaseEpic(ctx, integrateEpic, nil, Maker{}, time.Unix(1700002900, 0)); err != nil {
+	if err := s.ReleaseEpic(ctx, integrateEpic, Maker{}, time.Unix(1700002900, 0)); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	requirePhaseAt(t, s, "releasing", 1700002900)

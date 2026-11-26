@@ -178,14 +178,14 @@ func actionLogCases() []actionLogCase {
 		{
 			name: "release accepted", epic: claimEpic, kind: ActionRelease, setup: actionLogEndedWithGaps,
 			call: func(s *Store) error {
-				return s.ReleaseEpic(context.Background(), claimEpic, nil, owner, actionLogAt())
+				return s.ReleaseEpic(context.Background(), claimEpic, owner, actionLogAt())
 			},
 		},
 		{
 			name: "release refused", epic: claimEpic, refusal: "epic " + claimEpic + " is not stopped",
 			setup: actionLogCreate,
 			call: func(s *Store) error {
-				return s.ReleaseEpic(context.Background(), claimEpic, nil, owner, actionLogAt())
+				return s.ReleaseEpic(context.Background(), claimEpic, owner, actionLogAt())
 			},
 		},
 	}
@@ -315,7 +315,7 @@ func TestEpicActionLogEndedWithGapsReleaseKeepsItsDecision(t *testing.T) {
 	s := openEpicStore(t)
 	actionLogEndedWithGaps(t, s)
 
-	if err := s.ReleaseEpic(ctx, claimEpic, nil, Maker{By: MakerOwner}, actionLogAt()); err != nil {
+	if err := s.ReleaseEpic(ctx, claimEpic, Maker{By: MakerOwner}, actionLogAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
 	decisions := closeRow(t, s, claimEpic).Decisions

@@ -156,8 +156,8 @@ func isGapsQuestion(question sqlcgen.EpicQuestion) bool {
 }
 
 // answerGapsQuestion carries out choice, which maker answered to question with text as decision id, in the caller's
-// write, when question is a gaps question. release releases epic as releaseEndedWithGaps does, with no undo-none, its
-// decision made by maker.
+// write, when question is a gaps question. release releases epic as releaseEndedWithGaps does, its decision made by
+// maker.
 // correct adds the text as a correction for the planner and returns epic to correcting. close closes epic as abandoned,
 // as CloseEpic does. Any other question, and other, changes nothing here.
 func answerGapsQuestion(
@@ -174,7 +174,7 @@ func answerGapsQuestion(
 	}
 	switch choice {
 	case ChoiceRelease:
-		return releaseEndedWithGaps(ctx, queries, epic, nil, maker, at)
+		return releaseEndedWithGaps(ctx, queries, epic, maker, at)
 	case ChoiceCorrect:
 		return correctGaps(ctx, queries, epic, id, text, maker, at)
 	case ChoiceClose:

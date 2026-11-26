@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -53,8 +52,8 @@ const (
 var errActionSettled = errors.New("action is not pending")
 
 // EpicActionInput is one action of a planner return: its kind, the node, task, close kind, replacing epic, Requirement,
-// evidence item, deliverable and reviewer it names where its kind uses them, the undo-none positions it names, the
-// descendants a split names, and the planner's reason.
+// evidence item, deliverable and reviewer it names where its kind uses them, the descendants a split names, and the
+// planner's reason.
 type EpicActionInput struct {
 	Kind        string
 	Node        string
@@ -67,7 +66,6 @@ type EpicActionInput struct {
 	Files       []string
 	Remove      []string
 	Reviewer    string
-	UndoNone    []int64
 	Split       []SplitTask
 	Reason      string
 }
@@ -105,11 +103,6 @@ func (s *Store) PendingActions(ctx context.Context) ([]PlannerAction, error) {
 
 // plannerActionOf returns the action a stored row holds.
 func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
-	var undo []int64
-	if err := json.Unmarshal([]byte(row.UndoNone), &undo); err != nil {
-		return PlannerAction{}, fmt.Errorf("undo-none positions of action %d of turn %d of epic %s: %w",
-			row.Position, row.Turn, row.Epic, err)
-	}
 	item, err := decodeItem(row.Item)
 	if err != nil {
 		return PlannerAction{}, fmt.Errorf("item of action %d of turn %d of epic %s: %w",
@@ -135,8 +128,7 @@ func plannerActionOf(row sqlcgen.PlannerAction) (PlannerAction, error) {
 		EpicActionInput: EpicActionInput{
 			Kind: row.Kind, Node: row.Node, Task: row.Task, Close: row.CloseKind, By: row.ByEpic,
 			Requirement: row.Requirement, Item: item, Deliverable: row.Deliverable, Files: files, Remove: remove,
-			Reviewer: row.Reviewer,
-			UndoNone: undo, Split: split, Reason: row.Reason,
+			Reviewer: row.Reviewer, Split: split, Reason: row.Reason,
 		},
 	}, nil
 }
@@ -351,7 +343,7 @@ func carryOutAction(
 	case ActionFailTask:
 		return failPlannedTask(ctx, queries, action, at)
 	case ActionResumeRelease:
-		return nil, resumeReleaseByPlanner(ctx, queries, action.Epic, action.UndoNone, at)
+		return nil, resumeReleaseByPlanner(ctx, queries, action.Epic, at)
 	case ActionCloseEpic:
 		return closePlannedEpic(ctx, queries, action, at)
 	case ActionChangeApproach:
@@ -706,14 +698,6 @@ func insertActions(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, actions []EpicActionInput,
 ) error {
 	return insertInOrder(actions, func(position int64, action EpicActionInput) error {
-		undo := action.UndoNone
-		if undo == nil {
-			undo = []int64{}
-		}
-		encoded, err := json.Marshal(undo)
-		if err != nil {
-			return fmt.Errorf("undo-none positions of action %d of turn %d of epic %s: %w", position, turn, epic, err)
-		}
 		item, err := encodeItem(action.Item)
 		if err != nil {
 			return fmt.Errorf("item of action %d of turn %d of epic %s: %w", position, turn, epic, err)
@@ -732,7 +716,7 @@ func insertActions(
 		}
 		return queries.InsertPlannerAction(ctx, sqlcgen.InsertPlannerActionParams{
 			Epic: epic, Turn: turn, Position: position, Kind: action.Kind, Node: action.Node, Task: action.Task,
-			CloseKind: action.Close, ByEpic: action.By, UndoNone: string(encoded), Reason: action.Reason,
+			CloseKind: action.Close, ByEpic: action.By, Reason: action.Reason,
 			Requirement: action.Requirement, Item: item, Deliverable: action.Deliverable, Files: files,
 			RemoveFiles: remove, Reviewer: action.Reviewer, SplitTasks: split,
 		})

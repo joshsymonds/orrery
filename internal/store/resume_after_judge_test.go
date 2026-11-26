@@ -167,7 +167,7 @@ func TestSteererResumesAReleaseItsJudgeStoppedAfterThePlannersRefusal(t *testing
 	}
 	requireRefusedAction(t, s, action, "resume release", judgeStopRefusal)
 
-	if err := s.ReleaseEpic(ctx, actionEpic, nil, Maker{By: MakerConversation, Session: "engine-7"},
+	if err := s.ReleaseEpic(ctx, actionEpic, Maker{By: MakerConversation, Session: "engine-7"},
 		closeAt()); err != nil {
 		t.Fatalf("ReleaseEpic by the steering conversation: %v", err)
 	}

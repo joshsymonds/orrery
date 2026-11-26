@@ -762,7 +762,7 @@ func planOf(ret Return) store.EpicPlan {
 		actions = append(actions, store.EpicActionInput{
 			Kind: action.Kind, Node: action.Node, Task: action.Task, Close: action.Close, By: action.By,
 			Requirement: action.Requirement, Item: action.Item, Deliverable: action.Deliverable,
-			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer, UndoNone: action.UndoNone,
+			Files: action.Files, Remove: action.Remove, Reviewer: action.Reviewer,
 			Split: splitTasksOf(action.Split), Reason: action.Reason,
 		})
 	}

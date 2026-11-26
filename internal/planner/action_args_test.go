@@ -36,11 +36,7 @@ func TestActionArgsAreReadIntoTheActionsFields(t *testing.T) {
 		{store.ActionFailTask, `{"task":3}`, EngineAction{Kind: store.ActionFailTask, Task: 3}},
 		{store.ActionCloseEpic, `{"close":"superseded","by":"repo/other"}`,
 			EngineAction{Kind: store.ActionCloseEpic, Close: "superseded", By: "repo/other"}},
-		{
-			store.ActionResumeRelease,
-			`{"undo_none":[2]}`,
-			EngineAction{Kind: store.ActionResumeRelease, UndoNone: []int64{2}},
-		},
+		{store.ActionResumeRelease, ``, EngineAction{Kind: store.ActionResumeRelease}},
 		{store.ActionRetryEpic, ``, EngineAction{Kind: store.ActionRetryEpic}},
 		{store.ActionRetryEpic, `{}`, EngineAction{Kind: store.ActionRetryEpic}},
 	}
@@ -52,8 +48,7 @@ func TestActionArgsAreReadIntoTheActionsFields(t *testing.T) {
 		got := ret.Actions[0]
 		got.Reason = ""
 		if got.Kind != tc.want.Kind || got.Node != tc.want.Node || got.Task != tc.want.Task ||
-			got.Close != tc.want.Close || got.By != tc.want.By || !slices.Equal(got.UndoNone, tc.want.UndoNone) ||
-			got.ArgsError != "" || len(got.Unknown) != 0 {
+			got.Close != tc.want.Close || got.By != tc.want.By || got.ArgsError != "" || len(got.Unknown) != 0 {
 			t.Errorf("Parse(%s %s) action = %+v, want %+v", tc.kind, tc.args, got, tc.want)
 		}
 	}
@@ -68,6 +63,10 @@ func TestActionArgsThatDoNotReadAreRefusedByCheck(t *testing.T) {
 		{store.ActionFailTask, `{"task":"three"}`, `actions[0] "fail_task" args: `},
 		{store.ActionRetryNode, `{"node":"n","nodes":"x"}`, `actions[0] "retry_node" args: no kind uses the key nodes`},
 		{store.ActionRetryNode, `{"task":2,"node":"n"}`, `actions[0] "retry_node" task: ` + reasonUnused},
+		{
+			store.ActionResumeRelease, `{"undo_none":[2]}`,
+			`actions[0] "resume_release" args: no kind uses the key undo_none`,
+		},
 	}
 	for _, tc := range cases {
 		ret, err := Parse(actionPlan(tc.kind, tc.args))
