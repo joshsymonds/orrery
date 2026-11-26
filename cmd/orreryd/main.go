@@ -246,6 +246,9 @@ type options struct {
 	// each hosts.toml host's RemoteHost, by the host's name, in place of the host itself (see wrapHost). Production leaves
 	// it nil.
 	hostWrap func(name string, host hostexec.Host) hostexec.Host
+	// nodeClock is a test seam: the clock that each node client of a hosts.toml host times its waits on, in place of
+	// holder.SystemClock (see hostClients). Production leaves it nil.
+	nodeClock holder.Clock
 	// probeNow is a test seam: the clock the limit prober reads in place of time.Now. Production leaves it nil.
 	probeNow func() time.Time
 	// probeExec is a test seam: the Exec the limit prober runs each probe with in place of running claude. Production
