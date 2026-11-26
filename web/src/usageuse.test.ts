@@ -120,6 +120,16 @@ test("UsageUse: moveContexts makes no call for a context on its own login, or fo
   assert.equal(fake.accounts.get("beta"), "max-3", "a context changed in latest is left as it stands");
 });
 
+test("UsageUse: moveContexts moves a context off its own login with one call when latest names no account", async () => {
+  const unnamed = { alpha: "", delta: "" };
+  const fake = fakeRoutes(unnamed);
+  const movePlan: Move[] = [{ context: "alpha", from: "" }];
+  const result = await moveContexts(fake.routes, movePlan, "pro-1", registryOf(unnamed));
+  assert.deepEqual(fake.calls, [{ context: "alpha", account: "pro-1" }]);
+  assert.deepEqual(result, { kind: "done", moved: movePlan });
+  assert.deepEqual(Object.fromEntries(fake.accounts), { alpha: "pro-1", delta: "" });
+});
+
 test("UsageUse: moveContexts stops at the first failed call, and Routes.Get says which planned contexts moved", async () => {
   const fake = fakeRoutes(before);
   fake.behave("applies", "refuses");

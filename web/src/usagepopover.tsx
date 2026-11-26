@@ -6,7 +6,8 @@
 // amount, and the subscription traffic priced at list. A null spend, which is what a page holds before a Spend read lands,
 // draws no foot.
 // When use is given, a row offers Use where some context names another account, and "in use" where every context that
-// names an account names this one. Use asks in its row which contexts move and to which account; Move makes the moves
+// names an account names this one. When no context names an account, every row offers Use, which moves the default
+// context off its own login. Use asks in its row which contexts move and to which account; Move makes the moves
 // through moveContexts. A move that did not finish says in its row what moved and what did not, or that it could not tell.
 // A move that set every context calls onDone, and every move calls onRead, so the page reads the routes again.
 // Under 760px, narrow, the popover is a sheet rather than a box beside the band: its table opens as a Sheet, and Use
@@ -94,6 +95,12 @@ function nameOf(accounts: readonly Account[], id: string): string {
   return accounts.find((account) => account.id === id)?.name ?? id;
 }
 
+// sourceName is what the words call where a context moves from: the name of the account with id, or "its own login" when
+// id is "", a context that names no account.
+function sourceName(accounts: readonly Account[], id: string): string {
+  return id === "" ? "its own login" : nameOf(accounts, id);
+}
+
 // listText joins names in words: "a", "a and b", "a, b and c".
 function listText(names: readonly string[]): string {
   if (names.length < 2) {
@@ -113,21 +120,21 @@ function sentence(text: string): string {
 function askWords(plan: readonly Move[], account: string, accounts: readonly Account[]): string {
   const sources = new Set(plan.map((move) => move.from));
   const named = plan.map((move) =>
-    sources.size > 1 ? `${move.context} from ${nameOf(accounts, move.from)}` : move.context,
+    sources.size > 1 ? `${move.context} from ${sourceName(accounts, move.from)}` : move.context,
   );
   return `Move ${listText(named)} to ${nameOf(accounts, account)}? Their sessions send their next request from it.`;
 }
 
 // sheetAskWords is what a Use sheet says under its title: the contexts that move, each with its source when they come from
-// more than one account, else the one account they all come from; then that their sessions send their next request from
-// the account.
+// more than one account, else the one source they all come from; then that their sessions send their next request from
+// the account. One context moves, and more move.
 function sheetAskWords(plan: readonly Move[], account: string, accounts: readonly Account[]): string {
   const sources = new Set(plan.map((move) => move.from));
   const named = plan.map((move) =>
-    sources.size > 1 ? `${move.context} from ${nameOf(accounts, move.from)}` : move.context,
+    sources.size > 1 ? `${move.context} from ${sourceName(accounts, move.from)}` : move.context,
   );
-  const from = sources.size === 1 ? ` from ${nameOf(accounts, plan[0].from)}` : "";
-  const moving = sentence(`${listText(named)} move${from}`);
+  const from = sources.size === 1 ? ` from ${sourceName(accounts, plan[0].from)}` : "";
+  const moving = sentence(`${listText(named)} ${plan.length === 1 ? "moves" : "move"}${from}`);
   return `${moving} Their sessions send their next request from ${nameOf(accounts, account)}.`;
 }
 
@@ -156,7 +163,7 @@ export function endWords(
     return `${verbs.landed} ${listText(result.moved.map((move) => move.context))}.${notLanded} ${reason}`;
   }
   const stays = result.notMoved.map(
-    (move) => `${move.context} still uses ${nameOf(accounts, undo ? target : move.from)}`,
+    (move) => `${move.context} still uses ${undo ? nameOf(accounts, target) : sourceName(accounts, move.from)}`,
   );
   return `${verbs.notLanded}: ${reason} ${sentence(stays.join("; "))}`;
 }

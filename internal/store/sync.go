@@ -334,8 +334,8 @@ func withEpicEvent(ctx context.Context) context.Context {
 	return context.WithValue(ctx, epicEventKey{}, true)
 }
 
-// housekeepHook names a housekeeping hook: the one of OnEpicStored, OnEpicEnded, OnFirstPrompt or OnTurnEnded a write
-// calls for a mark's id.
+// housekeepHook names a housekeeping hook: the one of OnEpicStored, OnEpicEnded, OnFirstPrompt, OnTurnEnded or
+// OnAccountAdded a write calls for a mark's id.
 type housekeepHook int
 
 const (
@@ -343,6 +343,7 @@ const (
 	hookEpicEnded
 	hookFirstPrompt
 	hookTurnEnded
+	hookAccountAdded
 )
 
 // housekeepMark is a housekeeping hook and the id it is called with, once the write that marked it commits.

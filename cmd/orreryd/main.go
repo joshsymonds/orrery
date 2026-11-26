@@ -254,6 +254,9 @@ type options struct {
 	// probeExec is a test seam: the Exec the limit prober runs each probe with in place of running claude. Production
 	// leaves it nil.
 	probeExec func(ctx context.Context, cmd *exec.Cmd) error
+	// probeTimer is a test seam: the timer the limit prober arms between its passes in place of time.NewTimer.
+	// Production leaves it nil.
+	probeTimer func(time.Duration) (<-chan time.Time, func() bool)
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -2174,10 +2177,12 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 }
 
 // startProbes probes the idle accounts of st through the gateway opts.gateway names until stop. Its readings are the
-// ledger beside st's store file, which getenv locates. It clocks on opts.probeNow, or time.Now when that is nil, and
-// runs claude through opts.probeExec, or the default when that is nil. It passes at start and then as its timer fires
-// (enginehost.LimitProber.Run). It starts nothing when opts.gateway is empty, and returns an error when the store path
-// does not resolve, which starts nothing.
+// ledger beside st's store file, which getenv locates. It clocks on opts.probeNow, or time.Now when that is nil, arms
+// opts.probeTimer, or the default when that is nil, and runs claude through opts.probeExec, or the default when that is
+// nil. It passes at start, then as its timer fires and at once each time st adds an account, through st's OnAccountAdded
+// hook (enginehost.LimitProber.Run and Wake), so an account added through the Accounts service is probed without
+// waiting for the timer. It starts nothing when opts.gateway is empty, and returns an error when the store path does
+// not resolve, which starts nothing.
 func (h *sessionHost) startProbes(
 	ctx context.Context,
 	st *store.Store,
@@ -2203,9 +2208,11 @@ func (h *sessionHost) startProbes(
 		Claude:   opts.claude,
 		Environ:  os.Environ(),
 		Now:      now,
+		NewTimer: opts.probeTimer,
 		Exec:     opts.probeExec,
 		Logger:   logger,
 	})
+	st.OnAccountAdded(func(string) { prober.Wake() })
 	var probesCtx context.Context
 	probesCtx, h.stopProbes = context.WithCancel(ctx)
 	go func() {

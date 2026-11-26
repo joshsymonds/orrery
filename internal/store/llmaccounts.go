@@ -48,14 +48,16 @@ func AccountFingerprint(token string) string {
 }
 
 // AddAccount stores account with the fingerprint of its token, and returns the stored account without the token. It
-// returns an error, and stores nothing, when an account already has account's id.
+// returns an error, and stores nothing, when an account already has account's id. Once the add commits it calls the
+// OnAccountAdded hook with the account's id.
 func (s *Store) AddAccount(ctx context.Context, account NewAccount) (Account, error) {
 	stored := Account{
 		ID: account.ID, Name: account.Name, Provider: account.Provider, Plan: account.Plan,
 		Fingerprint: AccountFingerprint(account.Token), Created: account.Created,
 	}
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		insertErr := queries.InsertLLMAccount(ctx, sqlcgen.InsertLLMAccountParams{
+		statement := withHousekeepMark(ctx, hookAccountAdded, stored.ID)
+		insertErr := queries.InsertLLMAccount(statement, sqlcgen.InsertLLMAccountParams{
 			ID: stored.ID, Name: stored.Name, Provider: stored.Provider, Plan: stored.Plan,
 			Token: account.Token, Fingerprint: stored.Fingerprint, Created: stored.Created,
 		})

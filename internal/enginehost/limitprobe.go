@@ -100,6 +100,9 @@ type LimitProberConfig struct {
 // probe, by model and account, so a probe that fails, or exits without writing a reading, still waits its window.
 type LimitProber struct {
 	cfg LimitProberConfig
+	// wake holds the one wake Run has not yet taken. Wake sends on it without blocking, and Run passes at once when it
+	// takes it.
+	wake chan struct{}
 	// mu guards attempts, which Pass reads and writes.
 	mu sync.Mutex
 	// attempts holds the clock reading at which each account was last probed, by model and then by account.
@@ -127,7 +130,18 @@ func NewLimitProber(cfg LimitProberConfig) *LimitProber {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &LimitProber{cfg: cfg, attempts: make(map[string]map[string]time.Time)}
+	return &LimitProber{cfg: cfg, wake: make(chan struct{}, 1), attempts: make(map[string]map[string]time.Time)}
+}
+
+// Wake asks Run for a pass at once, as orreryd does when the store adds an account, so a new account is probed without
+// waiting for the timer. It never blocks and is safe from any goroutine: a wake sent while another is still pending is
+// the same wake, since the pass it brings reads every account. A wake never probes an account sooner than its window
+// allows, because a pass probes only the probes its attempts and readings leave due.
+func (p *LimitProber) Wake() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Pass probes each account whose probe is due and returns the earliest moment any account's probe next becomes due. A
@@ -316,9 +330,9 @@ func limitProbeEnv(environ []string, gateway, account string) []string {
 	)
 }
 
-// Run passes at start, then again each time its timer fires, until ctx ends. After each pass it arms a timer for the
-// later of the moment the pass returned and one minute after the pass, and it stops that timer when it fires and when
-// ctx ends.
+// Run passes at start, then again each time its timer fires or a Wake comes, until ctx ends. After each pass it arms a
+// timer for the later of the moment the pass returned and one minute after the pass, and it stops that timer when it
+// fires, when a Wake comes, and when ctx ends. A Wake passes at once, whatever the timer's moment.
 func (p *LimitProber) Run(ctx context.Context) {
 	next := p.Pass(ctx)
 	for {
@@ -333,6 +347,8 @@ func (p *LimitProber) Run(ctx context.Context) {
 			stop()
 			return
 		case <-fire:
+			stop()
+		case <-p.wake:
 			stop()
 		}
 		next = p.Pass(ctx)

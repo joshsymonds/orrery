@@ -31,6 +31,9 @@ import java.io.IOException
 /** The line a move or an Undo that landed nothing says. */
 internal const val NOTHING_MOVED = "Nothing moved: the contexts no longer use the accounts they were on."
 
+/** What the confirm sheet calls the login of a context that names no account, which it moves from. */
+private const val OWN_LOGIN = "its own login"
+
 /** The reason a call that did not answer gives. */
 private const val NO_ANSWER = "The server did not answer."
 
@@ -65,19 +68,29 @@ internal sealed interface MoveResult {
 private class Call(val context: MovingContext, val to: String)
 
 /**
- * Moves the contexts of [plan] to the account [target], in plan order, with one SetContextAccount for each. A context whose
- * account in [latest] is empty, or no longer its planned account, is skipped. The moves stop at the first call that does not
- * land, and the routes are then read to say what moved. Makes blocking calls, so it runs off the main thread.
+ * Moves the contexts of [plan] to the account [target], in plan order, with one SetContextAccount for each. A context that
+ * [latest] no longer holds where the plan found it is skipped (see [standsAsPlanned]). The moves stop at the first call
+ * that does not land, and the routes are then read to say what moved. Makes blocking calls, so it runs off the main
+ * thread.
  */
 internal fun moveContexts(
     client: OrreryClient,
     plan: List<MovingContext>,
     target: String,
     latest: LlmRoutes,
-): MoveResult = runCalls(client, plan.map { Call(it, target) }) { call ->
-        val account = accountOf(latest, call.context.context)
-        account.isEmpty() || account != call.context.from
-    }
+): MoveResult = runCalls(client, plan.map { Call(it, target) }) { call -> !standsAsPlanned(latest, call.context) }
+
+/**
+ * Whether [move]'s context still stands in [latest] where its plan found it. A move off an account stands while the
+ * context still has that account. A move off the context's own login, which Use plans only when no context names an
+ * account, stands while the context is still on its own login and no context in [latest] names an account. A context
+ * [latest] does not hold stands nowhere.
+ */
+private fun standsAsPlanned(latest: LlmRoutes, move: MovingContext): Boolean {
+    val found = latest.contexts.firstOrNull { it.id == move.context } ?: return false
+    if (found.account != move.from) return false
+    return move.from.isNotEmpty() || latest.contexts.all { it.account.isEmpty() }
+}
 
 /**
  * Sets each of [moved] back to the account it was on, in order, with the same stop and report as [moveContexts]. Makes
@@ -146,11 +159,12 @@ internal fun unfinishedWordsOf(result: MoveResult, undo: Boolean): String = when
 /**
  * What the confirm sheet says the contexts of [contexts] do: one sentence for each account they move from, naming its
  * contexts with the account's name from [names], as "personal and sandbox move from max-1." A source with one context
- * takes "moves".
+ * takes "moves", and contexts on their own login move "from its own login".
  */
 internal fun movingWordsOf(contexts: List<MovingContext>, names: Map<String, String>): String =
     contexts.groupBy { it.from }.entries.joinToString(" ") { (from, sources) ->
-        "${namesOf(sources)} ${if (sources.size == 1) "moves" else "move"} from ${names[from] ?: from}."
+        val source = if (from.isEmpty()) OWN_LOGIN else names[from] ?: from
+        "${namesOf(sources)} ${if (sources.size == 1) "moves" else "move"} from $source."
     }
 
 /** The names of [contexts] in a sentence: "a", "a and b", "a, b and c". [contexts] is never empty. */

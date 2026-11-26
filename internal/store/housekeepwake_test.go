@@ -50,6 +50,50 @@ func TestHousekeepWakeEpicStored(t *testing.T) {
 	wantWakes(t, seen)
 }
 
+// TestHousekeepWakeAccountAdded adds an LLM account, which calls the hook once with its id. An add that fails because
+// the id is stored calls nothing, a rename and a removal call nothing, and a nil hook is cleared.
+func TestHousekeepWakeAccountAdded(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+	seen := &wakes{}
+	s.OnAccountAdded(seen.record)
+	add := func(id string) error {
+		_, err := s.AddAccount(ctx, NewAccount{
+			ID:       id,
+			Name:     "Synthetic " + id,
+			Provider: "anthropic",
+			Token:    "synthetic-token-" + id,
+			Created:  1_700_000_100,
+		})
+		return err
+	}
+
+	if err := add("acct-a"); err != nil {
+		t.Fatalf("AddAccount acct-a: %v", err)
+	}
+	wantWakes(t, seen, "acct-a")
+
+	if err := add("acct-a"); err == nil {
+		t.Fatal("AddAccount of a stored id succeeded, want an error")
+	}
+	wantWakes(t, seen)
+
+	if _, err := s.RenameAccount(ctx, "acct-a", "Renamed"); err != nil {
+		t.Fatalf("RenameAccount acct-a: %v", err)
+	}
+	if err := s.RemoveAccount(ctx, "acct-a"); err != nil {
+		t.Fatalf("RemoveAccount acct-a: %v", err)
+	}
+	wantWakes(t, seen)
+
+	s.OnAccountAdded(nil)
+	if err := add("acct-b"); err != nil {
+		t.Fatalf("AddAccount acct-b: %v", err)
+	}
+	wantWakes(t, seen)
+}
+
 // TestHousekeepWakeEpicEnded sets an epic to each phase ListUnreportedEpics reports, which calls the hook with its id,
 // and to reviewing, which calls nothing.
 func TestHousekeepWakeEpicEnded(t *testing.T) {

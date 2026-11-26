@@ -45,10 +45,11 @@ const accounts: Account[] = ["max-1", "max-2", "max-3"].map((id) =>
   create(AccountSchema, { id, name: id, provider: "claude", plan: "Claude Max" }),
 );
 
-// registryOf is the route registry holding each context with the account given for it, in the order given. The seat each
-// context names is invented.
+// registryOf is the route registry holding each context with the account given for it, in the order given, with the first
+// as its default context. The seat each context names is invented.
 function registryOf(contexts: Readonly<Record<string, string>>): RouteRegistry {
   return create(RouteRegistrySchema, {
+    defaultContext: Object.keys(contexts)[0] ?? "",
     contexts: Object.entries(contexts).map(([id, account]) =>
       create(RouteContextSchema, { id, account, defaultSeat: "example-seat" }),
     ),
@@ -230,11 +231,53 @@ test("UsageUse: a row every account-naming context names reads in use, and offer
   });
 });
 
-test("UsageUse: no row offers Use or reads in use when no context names an account", async (t: TestContext) => {
+test("UsageUse: every row offers Use, and none reads in use, when no context names an account", async (t: TestContext) => {
   await withPopover(t, { personal: "", work: "" }, async ({ container }) => {
     assert.equal(container.querySelectorAll(".up-row").length, accounts.length, "the popover does not draw a row for each account");
-    assertNone(container.querySelector(".up-use"), "a row offers Use with no context naming an account");
+    for (const account of accounts) {
+      one(rowOf(container, account.id), ".up-use");
+    }
     assertNone(container.querySelector(".up-inuse"), "a row reads in use with no context naming an account");
+  });
+});
+
+test("UsageUse: with no context naming an account, Use asks to move the default context, and Move makes its one call", async (t: TestContext) => {
+  await withPopover(t, { personal: "", work: "" }, async ({ container, fake, dones, settle }) => {
+    await ask(container, "max-2");
+    assert.equal(
+      one(rowOf(container, "max-2"), ".up-q").textContent,
+      "Move personal to max-2? Their sessions send their next request from it.",
+      "the question does not name the default context",
+    );
+    await move(container);
+    await settle(() => dones.length === 1, "the move's done report");
+    assert.deepEqual(
+      setCalls(fake),
+      [{ context: "personal", account: "max-2" }],
+      "Move did not make one SetContextAccount, for the default context",
+    );
+    assert.deepEqual(dones, [{ contexts: ["personal"], account: "max-2" }], "the done report names the wrong moves");
+  });
+});
+
+test("UsageUse: with no context naming an account, Undo puts the moved default context back on its own login", async (t: TestContext) => {
+  await withApp(t, { personal: "", work: "" }, async ({ fake, container, settle }) => {
+    await press(one(container, ".uband"));
+    await ask(container, "max-3");
+    await move(container);
+    await settle(() => container.querySelector(".toast") !== null, "the done toast");
+    assert.equal(one(container, ".toast .grow").textContent, "Moved personal to max-3.", "the toast does not name the move");
+    await press(buttonIn(one(container, ".toast"), "Undo"));
+    await settle(() => setCalls(fake).length === 2, "the call Undo makes");
+    assertNone(container.querySelector(".toast"), "Undo left the toast drawn");
+    assert.deepEqual(
+      setCalls(fake),
+      [
+        { context: "personal", account: "max-3" },
+        { context: "personal", account: "" },
+      ],
+      "Undo did not put the default context back on its own login",
+    );
   });
 });
 

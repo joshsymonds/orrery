@@ -40,11 +40,16 @@ function accountIn(registry: RouteRegistry, id: string): string | undefined {
   return registry.contexts.find((context) => context.id === id)?.account;
 }
 
-// stillOn is whether the context of move still holds the account move names: it has an account, and it is move's from.
-// A context on its own login, which has no account, or one changed since the plan was made, is not moved.
+// stillOn is whether the context of move still stands where the plan found it. A move off an account stands while the
+// context still has that account. A move off the context's own login, which Use plans only when no context names an
+// account, stands while the context is still on its own login and still no context in latest names an account. A
+// context changed since the plan was made is not moved.
 function stillOn(latest: RouteRegistry, move: Move): boolean {
   const account = accountIn(latest, move.context);
-  return account !== undefined && account !== "" && account === move.from;
+  if (account === undefined || account !== move.from) {
+    return false;
+  }
+  return move.from !== "" || latest.contexts.every((context) => context.account === "");
 }
 
 // run makes the call of each step that is not skipped, in order, and stops at the first that does not answer. Without a
@@ -91,8 +96,8 @@ async function run(routes: RoutesClient, steps: readonly Step[]): Promise<MoveRe
 }
 
 // moveContexts sets each planned context to the account target, in plan order, with one SetContextAccount per context. It
-// makes no call for a context that latest shows on its own login, or with an account other than its from. It stops at the
-// first call that fails.
+// makes no call for a context that latest shows with an account other than its from, or on its own login while some
+// context in latest names an account. It stops at the first call that fails.
 export async function moveContexts(
   routes: RoutesClient,
   plan: readonly Move[],

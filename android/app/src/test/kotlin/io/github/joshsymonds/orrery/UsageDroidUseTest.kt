@@ -80,6 +80,12 @@ private val STARTING = mapOf("personal" to MAX_1, "tiltyard" to PRO_1, "sandbox"
  */
 private val ALL_ON_MAX_1 = mapOf("personal" to MAX_1, "tiltyard" to MAX_1, "sandbox" to MAX_1, "work" to "")
 
+/**
+ * No context names an account: all four use the session's own login. Every account offers Use, and Use moves personal, the
+ * default context, alone.
+ */
+private val NONE_NAMED = mapOf("personal" to "", "tiltyard" to "", "sandbox" to "", "work" to "")
+
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
 class UsageDroidUseTest {
@@ -258,6 +264,33 @@ class UsageDroidUseTest {
         assertEquals(1, countOf(inCard("max-1", "in use")))
         assertEquals(0, countOf(hasTestTag(usageUseTag("max-1"))))
         assertEquals(1, countOf(hasTestTag(usageUseTag("max-2"))))
+    }
+
+    @Test
+    fun theUsageDroidUseMovesTheDefaultContextWithOneCallWhenNoContextNamesAnAccount() {
+        arrangeInbox(contexts = NONE_NAMED)
+        composeRule.onNodeWithTag(USAGE_BAND_TAG).performClick()
+        awaitNode(hasTestTag(usageCardTag("max-3")))
+        for (name in listOf("max-1", "pro-1", "max-2", "max-3")) {
+            assertEquals(1, countOf(hasTestTag(usageUseTag(name))))
+        }
+        assertEquals(0, countOf(hasText("in use")))
+
+        composeRule.onNodeWithTag(usageUseTag("max-2")).performClick()
+        awaitNode(hasTestTag(USAGE_CONFIRM_TAG))
+        assertEquals(1, countOf(hasText("Move to max-2?")))
+        assertEquals(1, countOf(hasText("personal moves from its own login.")))
+        assertEquals(1, countOf(hasText("Their sessions send their next request from max-2.")))
+
+        tapMove()
+        awaitNode(hasTestTag(MOVE_TOAST_TAG))
+        assertEquals(listOf("personal" to MAX_2), setCalls())
+        assertEquals(1, countOf(hasTestTag(MOVE_TOAST_LINE_TAG) and hasText("Moved personal to max-2.")))
+
+        composeRule.onNodeWithTag(MOVE_TOAST_UNDO_TAG).performClick()
+        composeRule.awaitUntil("the undo call is sent") { setCalls().size == 2 }
+        assertEquals("personal" to "", setCalls().last())
+        composeRule.awaitNone(hasTestTag(MOVE_TOAST_TAG))
     }
 
     @Test

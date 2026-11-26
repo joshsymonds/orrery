@@ -146,11 +146,19 @@ class UsageModelTest {
     }
 
     @Test
-    fun useOfferIsNullWhenNoContextNamesAnAccount() {
-        val contexts = listOf(context("own", ""), context("other", ""))
+    fun useOfferIsUseOnEveryAccountAndMovesTheDefaultContextWhenNoContextNamesAnAccount() {
+        val contexts = listOf(context("other", ""), context("own", ""))
         val rows = usageRows(listOf(account("max-1"), account("pro-1")), routes(contexts), emptyList(), now)
-        assertTrue(rows.all { it.useOffer == null })
-        assertTrue(rows.all { it.movingContexts.isEmpty() })
+        assertTrue(rows.all { it.useOffer == UseOffer.USE })
+        assertTrue(rows.all { it.movingContexts == listOf(MovingContext("own", "")) })
+    }
+
+    @Test
+    fun useOfferIsNullWhenNoContextNamesAnAccountAndTheRoutesHoldNoDefaultContext() {
+        val unheld = LlmRoutes(defaultContext = "gone", seats = emptyList(), contexts = listOf(context("other", "")))
+        val rows = usageRows(listOf(account("max-1")), unheld, emptyList(), now)
+        assertNull(rows.single().useOffer)
+        assertEquals(emptyList<MovingContext>(), rows.single().movingContexts)
     }
 
     @Test

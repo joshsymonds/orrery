@@ -316,9 +316,19 @@ test("UsageModel: useOffer offers use when some context names another account", 
   assert.equal(useOffer("idle", shared), "use");
 });
 
-test("UsageModel: useOffer is null when no context names an account", () => {
+test("UsageModel: useOffer offers use to every account when no context names one, and is null with no default context to move", () => {
+  const unnamed = create(RouteRegistrySchema, { defaultContext: "main", contexts: [context("main", ""), context("review", "")] });
+  assert.equal(useOffer("work", unnamed), "use");
+  assert.equal(useOffer("other", unnamed), "use");
   assert.equal(useOffer("work", registry([context("main", "")])), null);
   assert.equal(useOffer("work", undefined), null);
+});
+
+test("UsageModel: movingContexts is the default context alone, off its own login, when no context names an account", () => {
+  const unnamed = create(RouteRegistrySchema, { defaultContext: "review", contexts: [context("main", ""), context("review", "")] });
+  assert.deepEqual(movingContexts(unnamed, "work"), [{ context: "review", from: "" }]);
+  assert.deepEqual(movingContexts(registry([context("main", "")]), "work"), []);
+  assert.deepEqual(movingContexts(undefined, "work"), []);
 });
 
 test("UsageModel: movingContexts lists each context on another login in registry order, and skips those on the target or on none", () => {

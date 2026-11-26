@@ -41,10 +41,13 @@ enum class UsageLevel { OK, WARN, CRIT }
  */
 data class UsageWindow(val claim: String, val percent: Int?, val level: UsageLevel?, val resetAt: Long?)
 
-/** What a row offers for Use: [IN_USE] when every context naming an account names it, [USE] when some names another. */
+/**
+ * What a row offers for Use: [IN_USE] when every context naming an account names it, [USE] when some names another, or
+ * when no context names an account at all.
+ */
 enum class UseOffer { IN_USE, USE }
 
-/** A context Use would move: its [context] id, and the account it uses now, [from]. */
+/** A context Use would move: its [context] id, and the account it uses now, [from], empty when it is on its own login. */
 data class MovingContext(val context: String, val from: String)
 
 /** A row's last column: when a limited account lifts, how old a stale read is, or when the 7d window resets. */
@@ -101,7 +104,7 @@ fun usageRows(
     now: Long,
 ): List<UsageRow> =
     accounts.map { account ->
-        usageRow(account, routes.contexts, readings.filter { it.account == account.id }, now)
+        usageRow(account, routes, readings.filter { it.account == account.id }, now)
     }
 
 /**
@@ -118,10 +121,11 @@ fun spendTotals(spend: List<SeatSpendRow>, routes: LlmRoutes): SpendTotals =
 
 private fun usageRow(
     account: LlmAccount,
-    contexts: List<LlmContext>,
+    routes: LlmRoutes,
     readings: List<UsageReadingRow>,
     now: Long,
 ): UsageRow {
+    val contexts = routes.contexts
     val current = readings.filter { it.claim in WINDOW_CLAIMS && isCurrent(it, now) }
     val drawn = WINDOW_CLAIMS.map { claim -> current.firstOrNull { it.claim == claim } }
     val drawnReadings = drawn.filterNotNull()
@@ -149,8 +153,8 @@ private fun usageRow(
         stale = staleAge != null,
         last = last,
         none = drawnReadings.isEmpty(),
-        useOffer = useOfferOf(account.id, contexts),
-        movingContexts = movingContextsOf(account.id, contexts),
+        useOffer = useOfferOf(account.id, routes),
+        movingContexts = movingContextsOf(account.id, routes),
     )
 }
 
@@ -177,19 +181,40 @@ private fun levelOf(percent: Int): UsageLevel = when {
 private fun namesAccount(context: LlmContext, account: String): Boolean =
     context.account.isNotEmpty() && context.account == account
 
-/** Use is offered when some context names an account; it reads "in use" when every such context names [account]. */
-private fun useOfferOf(account: String, contexts: List<LlmContext>): UseOffer? {
-    val named = contexts.filter { it.account.isNotEmpty() }
+/**
+ * The id of the default context of [routes], Routes.Get's default_context, or null when [routes] hold no context of that
+ * id.
+ */
+private fun defaultContextOf(routes: LlmRoutes): String? =
+    routes.defaultContext.takeIf { id -> routes.contexts.any { it.id == id } }
+
+/**
+ * What Use offers [account]: "in use" when every context naming an account names [account], and Use when some names
+ * another. When no context names an account, every account is offered Use, which moves the default context; the offer is
+ * null then only when [routes] hold no default context to move.
+ */
+private fun useOfferOf(account: String, routes: LlmRoutes): UseOffer? {
+    val named = routes.contexts.filter { it.account.isNotEmpty() }
     return when {
-        named.isEmpty() -> null
+        named.isEmpty() -> defaultContextOf(routes)?.let { UseOffer.USE }
         named.all { it.account == account } -> UseOffer.IN_USE
         else -> UseOffer.USE
     }
 }
 
-/** The contexts Use on [account] would move: those on another account, in registry order. */
-private fun movingContextsOf(account: String, contexts: List<LlmContext>): List<MovingContext> =
-    contexts.filter { it.account.isNotEmpty() && it.account != account }.map { MovingContext(it.id, it.account) }
+/**
+ * The contexts Use on [account] would move. When some context names an account, they are those on another account, in
+ * registry order. When no context names an account, it is the default context alone, off its own login, or none when
+ * [routes] hold no default context.
+ */
+private fun movingContextsOf(account: String, routes: LlmRoutes): List<MovingContext> {
+    if (routes.contexts.all { it.account.isEmpty() }) {
+        return listOfNotNull(defaultContextOf(routes)?.let { MovingContext(it, "") })
+    }
+    return routes.contexts
+        .filter { it.account.isNotEmpty() && it.account != account }
+        .map { MovingContext(it.id, it.account) }
+}
 
 /** Whether the seat [seat] is subscription spend: its auth mode is forward, or its billing is subscription. */
 private fun isSubscription(seat: String, seats: List<LlmSeat>): Boolean {

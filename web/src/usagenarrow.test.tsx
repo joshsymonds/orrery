@@ -45,10 +45,11 @@ const accounts: Account[] = ["max-1", "max-2", "max-3"].map((id) =>
   create(AccountSchema, { id, name: id, provider: "claude", plan: "Claude Max" }),
 );
 
-// registryOf is the route registry holding each context with the account given for it, in the order given. The seat each
-// context names is invented.
+// registryOf is the route registry holding each context with the account given for it, in the order given, with the first
+// as its default context. The seat each context names is invented.
 function registryOf(contexts: Readonly<Record<string, string>>): RouteRegistry {
   return create(RouteRegistrySchema, {
+    defaultContext: Object.keys(contexts)[0] ?? "",
     contexts: Object.entries(contexts).map(([id, account]) =>
       create(RouteContextSchema, { id, account, defaultSeat: "example-seat" }),
     ),
@@ -262,5 +263,26 @@ test("UsageNarrow: the Use Sheet names each moving context's source when they co
       "personal from max-1 and tiltyard from max-2 move. Their sessions send their next request from max-3.",
       "the Use Sheet does not name each moving context with its source",
     );
+  });
+});
+
+test("UsageNarrow: with no context naming an account, the Use Sheet moves the default context off its own login with one call", async (t: TestContext) => {
+  await withNarrowApp(t, { personal: "", work: "" }, async ({ container, fake, settle }) => {
+    await press(one(container, ".uband"));
+    await press(buttonIn(rowOf(container, "max-2"), "Use"));
+    const ask = sheetTitled(container, "Move to max-2?");
+    assert.equal(
+      one(ask, ".sure").textContent,
+      "personal moves from its own login. Their sessions send their next request from max-2.",
+      "the Use Sheet does not name the default context moving off its own login",
+    );
+    await press(buttonIn(ask, "Move to max-2"));
+    await settle(() => container.querySelector(".toast") !== null, "the done toast");
+    assert.deepEqual(
+      setCalls(fake),
+      [{ context: "personal", account: "max-2" }],
+      "Move did not make one SetContextAccount, for the default context",
+    );
+    assert.equal(one(container, ".toast .grow").textContent, "Moved personal to max-2.", "the done toast does not name the move");
   });
 });

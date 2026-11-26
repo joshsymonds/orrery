@@ -179,25 +179,41 @@ export function dollarsText(nano: bigint): string {
 }
 
 // UseOffer is what Use offers an account: "in use" when every context that names an account names this one, and "use"
-// when some context names another account.
+// when some context names another account, or when no context names an account at all.
 export type UseOffer = "in use" | "use";
 
-// useOffer is the offer for an account, or null when no context names an account.
+// defaultContextOf is the id of the registry's default context, Routes.Get's default_context, or null when the registry
+// holds no context of that id.
+function defaultContextOf(registry: RouteRegistry | undefined): string | null {
+  const id = registry?.defaultContext ?? "";
+  return contextsOf(registry).some((context) => context.id === id) ? id : null;
+}
+
+// useOffer is the offer for an account. When no context names an account, every account is offered Use, which moves the
+// default context to it; the offer is null then only when the registry holds no default context to move.
 export function useOffer(accountId: string, registry: RouteRegistry | undefined): UseOffer | null {
   const named = contextsOf(registry).filter((context) => context.account !== "");
-  if (named.length === 0) return null;
+  if (named.length === 0) return defaultContextOf(registry) === null ? null : "use";
   return named.every((context) => context.account === accountId) ? "in use" : "use";
 }
 
-// MovingContext is a context that Use would move off its own login, and the account it is on now.
+// MovingContext is a context that Use would move to another account, and the account it is on now, which is "" when it
+// is on its own login.
 export interface MovingContext {
   context: string;
   from: string;
 }
 
-// movingContexts are the contexts that name an account other than target, in registry order.
+// movingContexts are the contexts Use on target moves. When some context names an account, they are the contexts that
+// name an account other than target, in registry order. When no context names an account, it is the default context
+// alone, off its own login, or none when the registry holds no default context.
 export function movingContexts(registry: RouteRegistry | undefined, target: string): MovingContext[] {
-  return contextsOf(registry)
+  const contexts = contextsOf(registry);
+  if (contexts.every((context) => context.account === "")) {
+    const fallback = defaultContextOf(registry);
+    return fallback === null ? [] : [{ context: fallback, from: "" }];
+  }
+  return contexts
     .filter((context) => context.account !== "" && context.account !== target)
     .map((context) => ({ context: context.id, from: context.account }));
 }
