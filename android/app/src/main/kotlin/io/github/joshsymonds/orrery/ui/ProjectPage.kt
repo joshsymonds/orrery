@@ -50,7 +50,7 @@ fun ProjectPageScreen(
     state: PaneListState,
     onOpenPane: (Pane) -> Unit,
     onOpenEpic: (String) -> Unit,
-    onNewHere: (String) -> Unit,
+    onNewHere: (host: String, dir: String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenContract: (id: String, conversation: Pane?) -> Unit = { _, _ -> },
@@ -119,7 +119,7 @@ private fun ColumnScope.ProjectBody(
     state: PaneListState,
     now: Long,
     onOpen: (String) -> Unit,
-    onNewHere: (String) -> Unit,
+    onNewHere: (host: String, dir: String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -152,7 +152,10 @@ private fun ColumnScope.ProjectBody(
                 .fillMaxWidth()
                 .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
         ) {
-            TextButton(onClick = { onNewHere(project.dir) }, modifier = Modifier.testTag("project-new-here")) {
+            TextButton(
+                onClick = { onNewHere(project.host, project.dir) },
+                modifier = Modifier.testTag("project-new-here"),
+            ) {
                 Text("New session here")
             }
         }

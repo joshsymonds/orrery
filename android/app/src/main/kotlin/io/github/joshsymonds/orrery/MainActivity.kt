@@ -129,6 +129,8 @@ class MainActivity : ComponentActivity() {
                     }
                     // The directory a project page's New session here opens the picker on, null while it is closed.
                     var pickerDir by remember { mutableStateOf<String?>(null) }
+                    // The host that directory is on, which the picker opens on; null reads as the serving host.
+                    var pickerHost by remember { mutableStateOf<String?>(null) }
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -171,7 +173,10 @@ class MainActivity : ComponentActivity() {
                                             state = paneListState,
                                             onOpenPane = { screen = paneScreen(it, back = current) },
                                             onOpenEpic = { screen = Screen.Epic(it, back = current) },
-                                            onNewHere = { pickerDir = it },
+                                            onNewHere = { host, dir ->
+                                                pickerHost = host
+                                                pickerDir = dir
+                                            },
                                             onBack = { screen = Screen.Panes },
                                             onOpenContract = { id, conversation ->
                                                 screen = Screen.Contract(
@@ -416,10 +421,15 @@ class MainActivity : ComponentActivity() {
                                 client = client,
                                 onStarted = { sessionId ->
                                     pickerDir = null
+                                    pickerHost = null
                                     screen = Screen.Session(sessionId)
                                 },
-                                onClose = { pickerDir = null },
+                                onClose = {
+                                    pickerDir = null
+                                    pickerHost = null
+                                },
                                 startIn = dir,
+                                startHost = pickerHost,
                             )
                         }
                         // A solid band over the status bar's inset, drawn last so nothing that
