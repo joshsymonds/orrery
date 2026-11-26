@@ -653,3 +653,16 @@ export function Dock(props: {
     </div>
   );
 }
+
+// UnreachableDock is what a conversation on a host that does not answer draws in place of its dock: its line says the host
+// does not answer. It is the whole dock, with no box, queue, control or quick key, so it makes no send, queue or interrupt
+// call, and the transcript above it stays as stored.
+export function UnreachableDock({ host }: { host: string }): JSX.Element {
+  return (
+    <div class="dock unreachable-dock">
+      <div class="statebar" data-state="unreachable">
+        <span class="word">{dockLines.unreachable(host)}</span>
+      </div>
+    </div>
+  );
+}

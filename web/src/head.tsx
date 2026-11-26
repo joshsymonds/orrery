@@ -5,6 +5,7 @@ import type { AskLine, Badge } from "./asks";
 import { CompactHead } from "./compacthead";
 import type { Conversation } from "./conversation";
 import type { Fold } from "./headfold";
+import { HostLabel } from "./hostlabel";
 import type { Row } from "./rows";
 import { ContextMeter, contextFigure, PaneStrip, type StripHost } from "./strip";
 import { type ContractBandLine, SubjectBand } from "./subjectband";
@@ -120,7 +121,16 @@ export function Head({
   ];
   // The machine band is the strip's host and its meters, a row of its own under the title row, drawn with the open
   // header only.
-  const band = showStrip && fold === "open" && host !== null ? <PaneStrip host={host} band /> : null;
+  // A row whose host does not answer draws its host down in its band, with no meters: nothing the host did is known now, so
+  // the meters are not drawn for it, whether or not they are shown.
+  const unreachable = row.unreachable === true;
+  const band = unreachable
+    ? fold === "open"
+      ? <div class="pane-strip machine-band"><span class="pane-strip-host"><HostLabel name={row.host} down /></span></div>
+      : null
+    : showStrip && fold === "open" && host !== null
+      ? <PaneStrip host={host} band />
+      : null;
   const dirName = lastPathElement(row.project);
   // The context is the conversation's, so it sits in the title row before Find and More, open or folded. The phone
   // layout draws it bare.
@@ -132,6 +142,8 @@ export function Head({
         crumbs={[...(dirName === "" ? [] : [{ label: dirName, place: true, host: host?.host }]), { label: title }]}
         onBack={onBack}
         note={note}
+        state={unreachable ? "unreachable" : undefined}
+        glyph={unreachable ? "unreachable" : undefined}
       >
         {workLinks !== undefined && (
           <WorkLink items={workLinks.items} narrow={narrow} lit={sheetKey} onOpen={workLinks.onOpen} />

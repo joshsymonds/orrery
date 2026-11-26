@@ -11,7 +11,7 @@ import { type AskTarget, conversationAsk } from "./askmodel";
 import { askingWords, askLines, headBadges, ownAsks, steeredEpics } from "./asks";
 import { type AskState, askKey, observe, press, settle } from "./askstate";
 import { epicCallsOf } from "./card";
-import type { DockHandle } from "./dock";
+import { type DockHandle, UnreachableDock } from "./dock";
 import { ContractBody, type ContractDesign } from "./contract";
 import { ContractRecord } from "./contractrecord";
 import { bandText, contractSlug, leftOf, type RowAbout, readKey, statePill } from "./contracts";
@@ -39,6 +39,7 @@ import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
 import { HostLabel } from "./hostlabel";
 import { HostsView } from "./hostsview";
+import { type HostReach, hostDown, reachOf } from "./hostreach";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
 import { ageText, InboxRow, type RowMore } from "./inboxrow";
@@ -275,7 +276,7 @@ const noDesigns: readonly Design[] = [];
 const noNotices: InAppNotice[] = [];
 
 export function App({
-  rows,
+  rows: listedRows,
   answered = true,
   listFailed = false,
   onRetry,
@@ -317,6 +318,8 @@ export function App({
   // usage is the usage the page holds: the band under the inbox head draws it once it has answered with an account.
   usage?: UsageData;
 }) {
+  // rows are the listed rows, with each headless session on a host that does not answer marked unreachable.
+  const rows = useMemo(() => markUnreachable(listedRows, reachOf(host)), [listedRows, host]);
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   // The search text while the search field is open, and null while it is shut.
@@ -1452,6 +1455,10 @@ export function App({
   // leaves it, as Escape does.
   const escapeRow = async (target: EscapeTarget, box: HTMLElement | null): Promise<void> => {
     const { row, state } = target;
+    // A row whose host does not answer takes nothing back and interrupts nothing: it has no input to take back from.
+    if (row.unreachable === true) {
+      return;
+    }
     const interrupting = state === stateWorking;
     const marked = interrupting && row.kind === "session";
     const failures: string[] = [];
@@ -2882,6 +2889,12 @@ export function App({
     return epic === undefined ? null : steeredBar(epic, epic.steering, endedLead(epic.slug));
   };
 
+  // unreachableDockOf is the line a row whose host does not answer draws in place of its dock, and null for a row that
+  // answers. The line is the whole dock, so no send, queue or interrupt is offered for the row.
+  const unreachableDockOf = (row: Row) => (row.unreachable === true ? <UnreachableDock host={row.host} /> : null);
+  // dockStandInOf is what stands in place of the cursor's kept row's dock: the unreachable line, else the ended bar.
+  const dockStandInOf = (row: Row) => unreachableDockOf(row) ?? endedBarOf(row);
+
   // unsteeredBar is the ended bar of an epic entry whose steerer has no listed row, when the epic is live: its lead
   // names the epic's steering, unsteered when it has none, else its conversation ended. An ended epic has none.
   const unsteeredBar = (detail: EpicsGetResponse | undefined) => {
@@ -3316,7 +3329,7 @@ export function App({
       retractSending={retractSending}
       open={open}
       onToggleOpen={toggleOpen}
-      ask={askCalls}
+      ask={readerRow?.unreachable === true ? undefined : askCalls}
       onInterrupt={(row) =>
         void escapeRow({ row, column: "cursor", state: headState(row, cursorConversation) }, null)
       }
@@ -3324,7 +3337,7 @@ export function App({
       step={readerStep}
       steps={visitedSteps}
       stepInputs={stepInputs}
-      ended={endedBarOf}
+      ended={dockStandInOf}
       activity={<ActivityLines lines={activityLines} now={now} open={listShown} onOpen={openActivity} />}
       held={columnHolds ? deskCards : undefined}
       holds={heldThing !== null}
@@ -3551,6 +3564,7 @@ export function App({
             onInterrupt={(row) =>
               void escapeRow({ row, column: "pinned", state: headState(row, pinnedConversation) }, null)
             }
+            ended={unreachableDockOf}
           />,
         )}
         {epicEntry !== null && panelOpen && !wide && !noticesPage && !sheetHeld && (
@@ -3887,6 +3901,14 @@ export function stepStrip(step: EpicStep): JSX.Element | null {
     <div class="pane-strip">
       <HostLabel name={step.host} />
     </div>
+  );
+}
+
+// markUnreachable marks each headless session on a host that does not answer, as Host.Status lists it, unreachable: its
+// conversation says so and takes no input. Every other row is given as it is.
+function markUnreachable(rows: Row[], reach: HostReach): Row[] {
+  return rows.map((row) =>
+    row.archiveKind === "headless" && hostDown(reach, row.host) ? { ...row, unreachable: true } : row,
   );
 }
 
