@@ -349,9 +349,15 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		publish: s.publish,
 		wake:    s.stored,
 	}
+	// The Steps' own host is the controller, whose name the manager stores under its own HostName, which need not equal
+	// the Steps' name. Such a step passes no host, so the manager runs it on the controller's Local.
+	sessionHost := hostName
+	if hostName == s.host {
+		sessionHost = ""
+	}
 	step := StepSession{
 		ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Agents: start.Agents,
-		Schema: start.Schema, Host: hostName, Files: host,
+		Schema: start.Schema, Host: sessionHost, Files: host,
 	}
 	if start.ReadOnly {
 		if err = s.addReadOnlyStep(ctx, host, start, id, commit, &add, &cfg); err != nil {
