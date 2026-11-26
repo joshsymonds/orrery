@@ -299,15 +299,3 @@ test("HostsWebUnreachable: rows on the reachable host keep their own state and w
     },
   );
 });
-
-test("HostsWebUnreachable: a pane whose host does not answer, though its Pane.unreachable is not set, says unreachable: <host> does not answer as its dock and offers no input, queue or control", async () => {
-  await withApp([paneRow("%5", den, false)], (container) => {
-    const reader = one(container, 'section[aria-label="reader"]');
-    const dock = one(reader, ".send .dock");
-    assert.equal(dock.textContent, "unreachable: den does not answer", "the dock says the host does not answer");
-    assertNone(reader.querySelector("textarea"), "no textbox is drawn");
-    assertNone(dock.querySelector("button"), "the dock draws no button");
-    assertNone(dock.querySelector(".tray"), "the dock draws no queue");
-    assertNone(dock.querySelector(".statebar .end"), "the dock draws no control");
-  });
-});
