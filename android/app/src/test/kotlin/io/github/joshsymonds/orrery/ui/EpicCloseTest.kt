@@ -270,7 +270,7 @@ class EpicCloseTest {
     }
 
     @Test
-    fun releaseItAnywayConfirmSendsOneReleaseWithNoUndoAndNothingMoreWhileItSends() {
+    fun releaseItAnywayConfirmSendsOneIdOnlyReleaseAndNothingMoreWhileItSends() {
         val landing = CountDownLatch(1)
         try {
             FakeOrreryServer().use { server ->
@@ -297,8 +297,7 @@ class EpicCloseTest {
 
                 assertEquals(1, releaseRequests(server).size)
                 val sent = EpicsReleaseRequest.parseFrom(releaseRequests(server).single().body)
-                assertEquals(EPIC_ID, sent.id)
-                assertEquals(emptyList<Int>(), sent.undoNoneList)
+                assertEquals(EpicsReleaseRequest.newBuilder().setId(EPIC_ID).build(), sent)
                 assertEquals(2, getCount(server))
             }
         } finally {

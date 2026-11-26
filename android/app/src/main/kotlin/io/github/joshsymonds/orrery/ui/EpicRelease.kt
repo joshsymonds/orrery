@@ -5,10 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,18 +17,12 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /** Semantics key: the tone of a release step's state cell, on its text node. */
 val ReleaseToneKey = SemanticsPropertyKey<ReleaseTone>("ReleaseTone")
 
-// The tag of the Release from step N control, and the stem of the name it asks under.
-private const val RELEASE_FROM = "release-from"
-
-/** The name the Release from step [position] control asks under in its owner call: the step it names. */
-internal fun releaseAsk(position: Long): String = "$RELEASE_FROM:$position"
-
 /**
  * The Release section: its heading with its count words, one row per release step with the reason, evidence and runs
- * under it, the control of the offered step, then the Then line.
+ * under it, then the Then line.
  */
 @Composable
-internal fun EpicReleaseSection(view: ReleaseView, call: OwnerCall, onRelease: (Long) -> Unit) {
+internal fun EpicReleaseSection(view: ReleaseView) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = OrreryTokens.Space.sixteen),
         verticalAlignment = Alignment.CenterVertically,
@@ -45,7 +36,7 @@ internal fun EpicReleaseSection(view: ReleaseView, call: OwnerCall, onRelease: (
         )
     }
     view.rows.forEach { line ->
-        ReleaseStepRow(line = line, offered = line.position == view.offer, call = call, onRelease = onRelease)
+        ReleaseStepRow(line = line)
     }
     if (view.then.isNotEmpty()) {
         Text(
@@ -58,7 +49,7 @@ internal fun EpicReleaseSection(view: ReleaseView, call: OwnerCall, onRelease: (
 }
 
 @Composable
-private fun ReleaseStepRow(line: ReleaseLine, offered: Boolean, call: OwnerCall, onRelease: (Long) -> Unit) {
+private fun ReleaseStepRow(line: ReleaseLine) {
     val position = line.position
     Column(
         modifier = Modifier
@@ -105,71 +96,6 @@ private fun ReleaseStepRow(line: ReleaseLine, offered: Boolean, call: OwnerCall,
                 color = OrreryTokens.Ink.three,
                 modifier = Modifier.testTag("release-run:$position:$index"),
             )
-        }
-        if (offered) {
-            ReleaseFromControl(line = line, call = call, onRelease = onRelease)
-        }
-    }
-}
-
-/**
- * The Release from step N control, its call line under it, and the confirm sheet while the owner is asked. Only the
- * confirm sends, once, through [onRelease].
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReleaseFromControl(line: ReleaseLine, call: OwnerCall, onRelease: (Long) -> Unit) {
-    val position = line.position
-    TextButton(
-        onClick = { call.ask(releaseAsk(position)) },
-        enabled = !call.disabled,
-        modifier = Modifier.testTag(RELEASE_FROM),
-    ) {
-        Text("Release from step $position")
-    }
-    if (call.line.isNotEmpty()) {
-        Text(
-            call.line,
-            style = OrreryTokens.Type.small,
-            color = if (call.refused) OrreryTokens.Role.bad else OrreryTokens.Ink.three,
-            modifier = Modifier
-                .padding(horizontal = OrreryTokens.Space.sixteen)
-                .testTag("release-call-line"),
-        )
-    }
-    if (call.asking == releaseAsk(position)) {
-        ModalBottomSheet(onDismissRequest = { call.keep() }) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = OrreryTokens.Space.sixteen, vertical = OrreryTokens.Space.eight),
-            ) {
-                Text(
-                    "Release from step $position?",
-                    style = OrreryTokens.Type.small,
-                    modifier = Modifier.testTag("release-from-title"),
-                )
-                Text(
-                    "Step $position, ${line.step}, cannot be undone.",
-                    style = OrreryTokens.Type.small,
-                    color = OrreryTokens.Ink.three,
-                    modifier = Modifier.testTag("release-from-line"),
-                )
-                TextButton(
-                    onClick = { call.keep() },
-                    modifier = Modifier.fillMaxWidth().testTag("release-from-keep"),
-                ) {
-                    Text("Keep it stopped")
-                }
-                TextButton(
-                    onClick = {
-                        if (call.send()) onRelease(position)
-                    },
-                    modifier = Modifier.fillMaxWidth().testTag("release-from-confirm"),
-                ) {
-                    Text("Release from step $position", color = OrreryTokens.Role.bad)
-                }
-            }
         }
     }
 }

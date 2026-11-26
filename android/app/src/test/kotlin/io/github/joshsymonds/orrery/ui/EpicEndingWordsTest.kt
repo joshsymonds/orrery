@@ -185,15 +185,6 @@ class EpicEndingWordsTest {
     }
 
     @Test
-    fun isUndoNoneIsNoneTrimmedAndIgnoringCase() {
-        assertTrue(isUndoNone("none"))
-        assertTrue(isUndoNone("  NONE "))
-        assertFalse(isUndoNone("none once someone has fetched the tag"))
-        assertFalse(isUndoNone("rollback"))
-        assertFalse(isUndoNone(""))
-    }
-
-    @Test
     fun aReleaseEpicReachesReleaseWithItsRowsAndThen() {
         val view = releaseOf(
             detail(
@@ -220,7 +211,6 @@ class EpicEndingWordsTest {
                     ),
                 ),
                 then = "Then: Roll it out.",
-                offer = 0L,
             ),
             view,
         )
@@ -362,92 +352,6 @@ class EpicEndingWordsTest {
             ),
             view?.rows?.map { it.runs },
         )
-    }
-
-    @Test
-    fun theOfferIsTheFirstUnpassedFailedStepWithNoUndoWhileStopped() {
-        assertEquals(
-            2L,
-            releaseOf(
-                detail(
-                    outcome = "stopped",
-                    releaseProof = listOf(proof(1L, "passed"), proof(2L, "failed", undo = " None ")),
-                ),
-            )?.offer,
-        )
-    }
-
-    @Test
-    fun aFailedStepWithAnUndoIsNotOffered() {
-        assertEquals(
-            0L,
-            releaseOf(detail(outcome = "stopped", releaseProof = listOf(proof(1L, "failed", undo = "rollback"))))
-                ?.offer,
-        )
-    }
-
-    @Test
-    fun aFailedStepWhoseUndoIsNoneOnceFetchedIsNotOffered() {
-        assertEquals(
-            0L,
-            releaseOf(
-                detail(
-                    outcome = "stopped",
-                    releaseProof = listOf(proof(1L, "failed", undo = "none once someone has fetched the tag")),
-                ),
-            )?.offer,
-        )
-    }
-
-    @Test
-    fun noStepIsOfferedWhenAnEarlierUnpassedStepHasAnUndo() {
-        assertEquals(
-            0L,
-            releaseOf(
-                detail(
-                    outcome = "stopped",
-                    releaseProof = listOf(proof(1L, "failed", undo = "rollback"), proof(2L, "failed", undo = "none")),
-                ),
-            )?.offer,
-        )
-    }
-
-    @Test
-    fun aWaitingStepIsNotOfferedEvenWithNoUndo() {
-        assertEquals(
-            0L,
-            releaseOf(
-                detail(
-                    outcome = "stopped",
-                    releaseProof = listOf(proof(1L, "passed"), proof(2L, "waiting", undo = "none")),
-                ),
-            )?.offer,
-        )
-    }
-
-    @Test
-    fun onlyTheFirstUnpassedStepIsOfferedWhileStopped() {
-        assertEquals(
-            2L,
-            releaseOf(
-                detail(
-                    outcome = "stopped",
-                    releaseProof = listOf(
-                        proof(1L, "passed"),
-                        proof(2L, "failed", undo = "none"),
-                        proof(3L, "failed", undo = "none"),
-                    ),
-                ),
-            )?.offer,
-        )
-    }
-
-    @Test
-    fun noStepIsOfferedOutsideStoppedEvenWithAFailedNoneStep() {
-        for (phase in listOf("releasing", "released", "done")) {
-            val view = releaseOf(detail(outcome = phase, releaseProof = listOf(proof(1L, "failed", undo = "none"))))
-            assertEquals(0L, view?.offer)
-        }
     }
 
     @Test

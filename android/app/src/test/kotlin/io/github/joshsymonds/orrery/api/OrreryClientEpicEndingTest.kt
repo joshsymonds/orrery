@@ -170,31 +170,13 @@ class OrreryClientEpicEndingTest {
     }
 
     @Test
-    fun releasePostsTheEpicIdAndTheUndoNoneNamedAndLands() {
+    fun releasePostsTheEpicIdOnlyAndLands() {
         FakeOrreryServer().use { server ->
             server.respond(EPICS_RELEASE, EpicsReleaseResponse.getDefaultInstance())
 
             assertEquals(
                 StepCallResult.Landed,
-                OrreryClient(server.baseUrl).releaseEpic("example-repo/example-epic", listOf(2)),
-            )
-
-            val request = server.requests.single()
-            assertConnectRequest(EPICS_RELEASE, request)
-            val body = EpicsReleaseRequest.parseFrom(request.body)
-            assertEquals("example-repo/example-epic", body.id)
-            assertEquals(listOf(2), body.undoNoneList)
-        }
-    }
-
-    @Test
-    fun releaseWithNoUndoNoneNamedPostsAnEmptyList() {
-        FakeOrreryServer().use { server ->
-            server.respond(EPICS_RELEASE, EpicsReleaseResponse.getDefaultInstance())
-
-            assertEquals(
-                StepCallResult.Landed,
-                OrreryClient(server.baseUrl).releaseEpic("example-repo/example-epic", emptyList()),
+                OrreryClient(server.baseUrl).releaseEpic("example-repo/example-epic"),
             )
 
             val request = server.requests.single()
@@ -237,7 +219,7 @@ class OrreryClientEpicEndingTest {
 
             assertEquals(
                 StepCallResult.Refused("example release refusal"),
-                client.releaseEpic("example-repo/example-epic", listOf(2)),
+                client.releaseEpic("example-repo/example-epic"),
             )
             assertEquals(
                 StepCallResult.Refused("example close refusal"),
@@ -249,7 +231,7 @@ class OrreryClientEpicEndingTest {
     @Test
     fun droppedReleaseIsNoAnswerAndSentOnce() {
         assertDroppedWriteIsNoAnswerAndSentOnce(EPICS_RELEASE) {
-            it.releaseEpic("example-repo/example-epic", listOf(2))
+            it.releaseEpic("example-repo/example-epic")
         }
     }
 

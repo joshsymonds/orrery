@@ -1885,12 +1885,11 @@ class OrreryClient(
     }
 
     /**
-     * Releases the orreryd epic [id], running its release steps. [undoNone] names the positions, from 1, of its
-     * undo-none release steps to run again; empty names none. A refused release answers [StepCallResult.Refused], and
+     * Releases the orreryd epic [id], running its release steps. A refused release answers [StepCallResult.Refused], and
      * any other failure throws.
      */
-    fun releaseEpic(id: String, undoNone: List<Int>): StepCallResult {
-        val request = EpicsReleaseRequest.newBuilder().setId(id).addAllUndoNone(undoNone).build()
+    fun releaseEpic(id: String): StepCallResult {
+        val request = EpicsReleaseRequest.newBuilder().setId(id).build()
         return stepCall { call(write = true) { standard.epics.release(request, CLIENT_HEADERS) } }
     }
 
