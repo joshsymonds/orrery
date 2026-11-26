@@ -302,6 +302,7 @@ func (c *Client) link(id string) *nodeLink {
 
 // roundTrip writes req as the one line a controller sends, and reads the one line that answers it.
 func roundTrip(conn net.Conn, req Request) (Response, error) {
+	//nolint:gosec // G117: the Secret is marshaled on purpose, to the agent that checks it over the tailnet.
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Response{}, fmt.Errorf("send %s: %w", req.Op, err)
 	}

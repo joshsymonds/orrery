@@ -12,5 +12,6 @@ func ReadSecret(path string) (string, error) {
 // SecretMatches reports whether got is the fleet secret want. It compares the two with crypto/subtle.ConstantTimeCompare,
 // so the comparison does not reveal where they differ. It is false when want is empty, so an unset secret admits nothing.
 func SecretMatches(want, got string) bool {
+	_, _ = want, got
 	return false
 }

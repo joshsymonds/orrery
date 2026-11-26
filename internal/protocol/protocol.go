@@ -166,6 +166,8 @@ const HeaderHost = "Orrery-Host"
 
 // HeaderSecret carries the fleet secret that a host's forwarder sets on each session-service call it relays to the
 // controller. The relay admits a call only when the secret it carries matches the relay's own.
+//
+//nolint:gosec // G101 matches the name, but the value is the name of an HTTP header, which holds no credential.
 const HeaderSecret = "Orrery-Fleet-Secret"
 
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
