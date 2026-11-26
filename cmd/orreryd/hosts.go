@@ -95,12 +95,13 @@ func loadHostsFile(getenv func(string) string) (hosts.File, error) {
 
 // hostClients returns one node.Client for each host of the hosts file that getenv locates, by the host's name. Each
 // client dials its host's agent as startHostFollows dials it, and sends the fleet secret that the file at fleetSecretFile
-// holds. startSessions routes each host's work through its client, and the caller-event delivery wakes panes through the
-// same clients (see paneWaiters and holderHosts). A hosts file that does not load, or a fleet secret that fleetSecretOf
+// holds. Each client times its waits on clock, which node.NewClient takes as holder.SystemClock{} when clock is nil.
+// startSessions routes each host's work through its client, and the caller-event delivery wakes panes through the same
+// clients (see paneWaiters and holderHosts). A hosts file that does not load, or a fleet secret that fleetSecretOf
 // refuses, is logged, and no client is returned. controllerHost and startHostFollows have already refused the same file
 // and flag.
 func hostClients(
-	ctx context.Context, getenv func(string) string, logger *slog.Logger, fleetSecretFile string,
+	ctx context.Context, getenv func(string) string, logger *slog.Logger, fleetSecretFile string, clock holder.Clock,
 ) map[string]*node.Client {
 	file, err := loadHostsFile(getenv)
 	if err != nil {
@@ -117,6 +118,7 @@ func hostClients(
 	for _, host := range file.Hosts {
 		clients[host.Name] = node.NewClient(node.ClientConfig{
 			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger,
+			Clock: clock,
 		})
 	}
 	return clients
@@ -129,7 +131,7 @@ func hostClients(
 func routedHosts(
 	ctx context.Context, opts options, hostName string, getenv func(string) string, logger *slog.Logger,
 ) (hostexec.Map, map[string]*node.Client) {
-	clients := hostClients(ctx, getenv, logger, opts.fleetSecret)
+	clients := hostClients(ctx, getenv, logger, opts.fleetSecret, opts.nodeClock)
 	routed := hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}
 	for name, client := range clients {
 		routed[name] = opts.wrapHost(name, node.NewRemoteHost(client))

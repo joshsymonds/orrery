@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -71,23 +72,12 @@ func (l *restartLog) count(host string, unreachable bool) int {
 	return countReaches(l.reaches, host, unreachable)
 }
 
-// await returns once at least n changes of host's reach to unreachable, or back, have been logged, and reports false
-// when ctx ends first.
-func (l *restartLog) await(ctx context.Context, host string, unreachable bool, n int) bool {
-	for {
-		l.mu.Lock()
-		got := countReaches(l.reaches, host, unreachable)
-		changed := l.changed
-		l.mu.Unlock()
-		if got >= n {
-			return true
-		}
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			return false
-		}
-	}
+// check reports whether at least n changes of host's reach to unreachable, or back, have been logged, and returns the
+// channel that closes at the next change.
+func (l *restartLog) check(host string, unreachable bool, n int) (bool, <-chan struct{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return countReaches(l.reaches, host, unreachable) >= n, l.changed
 }
 
 // countReaches returns how many of reaches are changes of host's reach to unreachable, or back.
@@ -147,6 +137,92 @@ func (h restartLogHandler) WithGroup(string) slog.Handler {
 	return h
 }
 
+// restartFires bounds the waits that one fireWaits fires before it fails, so a signal that never arrives fails the
+// test.
+const restartFires = 100000
+
+// restartClock is the clock of the controller's node clients in these tests. Each wait a client arms on it is recorded
+// as it is armed, and fires only when fireWaits fires it, so no wait of a client passes on the real clock. A client
+// arms two kinds of wait: the ping tick and the retry waits, which are shorter than node.DefaultBound, and the ping
+// expiry and the bound of each request, which are node.DefaultBound. fireWaits fires a Bound wait only when it is told
+// to expire, so a request to a live agent is not cut short.
+type restartClock struct {
+	mu      sync.Mutex
+	pending []*restartWait
+	// signal holds one value while a wait is armed and not yet seen by a fireWaits.
+	signal chan struct{}
+}
+
+// restartWait is one wait a restartClock arms. Its fire channel receives once, when the wait is fired.
+type restartWait struct {
+	d    time.Duration
+	fire chan time.Time
+}
+
+// newRestartClock returns a restartClock with no waits armed.
+func newRestartClock() *restartClock {
+	return &restartClock{signal: make(chan struct{}, 1)}
+}
+
+// After records a wait of d, and returns the channel that receives once the wait is fired.
+func (c *restartClock) After(d time.Duration) <-chan time.Time {
+	w := &restartWait{d: d, fire: make(chan time.Time, 1)}
+	c.mu.Lock()
+	c.pending = append(c.pending, w)
+	c.mu.Unlock()
+	select {
+	case c.signal <- struct{}{}:
+	default:
+	}
+	return w.fire
+}
+
+// fireOne fires the first pending wait that expire lets pass, and reports whether it fired one. A wait of
+// node.DefaultBound passes only when expire is set.
+func (c *restartClock) fireOne(expire bool) bool {
+	c.mu.Lock()
+	i := slices.IndexFunc(c.pending, func(w *restartWait) bool { return expire || w.d < node.DefaultBound })
+	if i < 0 {
+		c.mu.Unlock()
+		return false
+	}
+	w := c.pending[i]
+	c.pending = slices.Delete(c.pending, i, i+1)
+	c.mu.Unlock()
+	w.fire <- time.Time{}
+	return true
+}
+
+// fireWaits fires the waits of clock, each as it is armed, until done reports that the signal the test awaits has
+// arrived. done returns whether it has, and the channel that closes at the signal's next change, which wakes the loop.
+// A Bound wait fires only when expire is set (see restartClock). It returns false when ctx ends first, and fails the
+// test once restartFires waits have fired without the signal.
+func fireWaits(
+	ctx context.Context, t *testing.T, clock *restartClock, expire bool, done func() (bool, <-chan struct{}),
+) bool {
+	t.Helper()
+	fired := 0
+	for {
+		arrived, changed := done()
+		if arrived {
+			return true
+		}
+		if clock.fireOne(expire) {
+			fired++
+			if fired == restartFires {
+				t.Fatalf("the signal did not arrive after %d waits fired", restartFires)
+			}
+			continue
+		}
+		select {
+		case <-changed:
+		case <-clock.signal:
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 // restartHolders is agent b's holder host: its Local, which launches each session under a holder of its own, and which
 // records each launch in log. A launch is not released here, so the fake claude waits for the test.
 type restartHolders struct {
@@ -182,6 +258,7 @@ type restartFixture struct {
 	base      string
 	store     *store.Store
 	host      *sessionHost
+	clock     *restartClock
 	// agentCancel and agentServed stop the agent that serves b now, and receive the error its Serve returned. Both
 	// are nil while no agent serves.
 	agentCancel context.CancelFunc
@@ -317,20 +394,66 @@ func (f *restartFixture) startController(t *testing.T) {
 		t.Fatalf("parseFlags: %v", err)
 	}
 	opts.orrery = routingController
+	// The controller's node clients time their waits on a clock of this controller's own, so the waits of a stopped
+	// controller stay unfired.
+	f.clock = newRestartClock()
+	opts.nodeClock = f.clock
 	logger := slog.New(restartLogHandler{log: f.reaches})
-	host, err := startSessions(t.Context(), opts, routingController, st, &recordingRouter{}, nil, logger, f.getenv)
+	var host *sessionHost
+	f.fireWhile(t.Context(), t, func() {
+		host, err = startSessions(t.Context(), opts, routingController, st, &recordingRouter{}, nil, logger, f.getenv)
+	})
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}
 	f.host = host
 }
 
+// agentDown reports whether no agent serves b now. Only then does a Bound wait fire: a request to a live agent is not
+// cut short, and a request to a down agent fails whether its Bound passes or not.
+func (f *restartFixture) agentDown() bool {
+	return f.agentCancel == nil
+}
+
+// fireWhile runs call, and fires the waits of the current controller's clock until call returns. Its waits fire as
+// fireWaits fires them, with a Bound wait firing while agentDown holds. It fails the test when ctx ends first.
+func (f *restartFixture) fireWhile(ctx context.Context, t *testing.T, call func()) {
+	t.Helper()
+	returned := make(chan struct{})
+	go func() {
+		defer close(returned)
+		call()
+	}()
+	ok := fireWaits(ctx, t, f.clock, f.agentDown(), func() (bool, <-chan struct{}) {
+		select {
+		case <-returned:
+			return true, returned
+		default:
+			return false, returned
+		}
+	})
+	if !ok {
+		t.Fatalf("the test's context ended before the call returned")
+	}
+}
+
+// awaitReach fires the waits of the current controller's clients until at least n changes of host's reach to
+// unreachable, or back, are logged, and reports false when the test's context ends first.
+func (f *restartFixture) awaitReach(t *testing.T, host string, unreachable bool, n int) bool {
+	t.Helper()
+	return fireWaits(t.Context(), t, f.clock, f.agentDown(), func() (bool, <-chan struct{}) {
+		return f.reaches.check(host, unreachable, n)
+	})
+}
+
 // restartController stops the controller and starts it again over the same store and state directory, as a restart
 // does.
 func (f *restartFixture) restartController(t *testing.T) {
 	t.Helper()
-	if err := f.host.stop(); err != nil {
-		t.Fatalf("stop controller: %v", err)
+	var stopErr error
+	f.fireWhile(t.Context(), t, func() { stopErr = f.host.stop() })
+	if stopErr != nil {
+		t.Fatalf("stop controller: %v", stopErr)
 	}
 	f.host = nil
 	if err := f.store.Close(); err != nil {
@@ -345,8 +468,10 @@ func (f *restartFixture) restartController(t *testing.T) {
 func (f *restartFixture) cleanup(t *testing.T) {
 	t.Helper()
 	if f.host != nil {
-		if err := f.host.stop(); err != nil {
-			t.Errorf("stop controller: %v", err)
+		var stopErr error
+		f.fireWhile(context.Background(), t, func() { stopErr = f.host.stop() })
+		if stopErr != nil {
+			t.Errorf("stop controller: %v", stopErr)
 		}
 	}
 	if f.store != nil {
@@ -402,21 +527,22 @@ func (s restartState) same(o restartState) bool {
 }
 
 // awaitStepEnds returns the rows of the steps that the subscription sub reports ended, by id, once n of them have
-// ended, and fails the test when the test's context ends first. The subscription reports each end once.
-func awaitStepEnds(t *testing.T, sub *enginehost.StepSubscription, n int) map[string]store.StepRow {
+// ended, and fails the test when the test's context ends first. The subscription reports each end once. While it waits,
+// it fires the waits of the current controller's clock, so a link that re-dials its holder retries until the agent
+// answers.
+func (f *restartFixture) awaitStepEnds(t *testing.T, sub *enginehost.StepSubscription, n int) map[string]store.StepRow {
 	t.Helper()
 	ended := map[string]store.StepRow{}
-	for len(ended) < n {
-		select {
-		case <-sub.Ready():
-		case <-t.Context().Done():
-			t.Fatalf("%d of %d steps ended before the test did", len(ended), n)
-		}
+	fireWaits(t.Context(), t, f.clock, f.agentDown(), func() (bool, <-chan struct{}) {
 		for _, row := range sub.Take() {
 			if row.End != "" {
 				ended[row.ID] = row
 			}
 		}
+		return len(ended) >= n, sub.Ready()
+	})
+	if len(ended) < n {
+		t.Fatalf("%d of %d steps ended before the test did", len(ended), n)
 	}
 	return ended
 }
@@ -494,7 +620,7 @@ func TestRemoteRestart(t *testing.T) {
 		if err := f.stopAgent(); err != nil {
 			t.Fatalf("stop agent %s: %v", routingHostB, err)
 		}
-		if !f.reaches.await(t.Context(), routingHostB, true, reached+1) {
+		if !f.awaitReach(t, routingHostB, true, reached+1) {
 			t.Fatalf("the controller never read %s unreachable", routingHostB)
 		}
 		// The holder of the second step is cleared while b does not answer. The holder is under b's state directory,
@@ -505,7 +631,7 @@ func TestRemoteRestart(t *testing.T) {
 		}
 		f.restartController(t)
 		// The restarted controller reads b unreachable too, which the test waits for before it reads the steps.
-		if !f.reaches.await(t.Context(), routingHostB, true, reached+2) {
+		if !f.awaitReach(t, routingHostB, true, reached+2) {
 			t.Fatalf("the restarted controller never read %s unreachable", routingHostB)
 		}
 		for _, id := range steps {
@@ -522,7 +648,7 @@ func TestRemoteRestart(t *testing.T) {
 	t.Run("b answering resumes the step with its holder, and fails the step whose holder is gone", func(t *testing.T) {
 		reachable := f.reaches.count(routingHostB, false)
 		f.startAgent(t)
-		if !f.reaches.await(t.Context(), routingHostB, false, reachable+1) {
+		if !f.awaitReach(t, routingHostB, false, reachable+1) {
 			t.Fatalf("the controller never read %s reachable again", routingHostB)
 		}
 		sub, err := f.host.steps.Subscribe(t.Context(), steps)
@@ -537,7 +663,7 @@ func TestRemoteRestart(t *testing.T) {
 		if err = os.WriteFile(filepath.Join(state.step.Worktree, fakeClaudeRelease), nil, 0o600); err != nil {
 			t.Fatalf("release the fake claude of step %s: %v", restartStepID, err)
 		}
-		ended := awaitStepEnds(t, sub, len(steps))
+		ended := f.awaitStepEnds(t, sub, len(steps))
 		end := ended[restartStepID]
 		if end.End != "done" || end.Result == "" {
 			t.Errorf("step %s ended %q with %q, want done with its return stored", restartStepID, end.End, end.Result)
