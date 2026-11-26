@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -758,27 +756,40 @@ func routingLocalSites() []routingSite {
 	}
 }
 
-// routingNewLocalLines returns the lines that the NewLocal grep prints, each as its file and its text.
+// routingNewLocalLines returns each line of the non-test Go source under internal/enginehost, internal/build,
+// internal/agents and cmd/orreryd that calls hostexec.NewLocal(), as its file, slash-separated from the repository root,
+// and its text, in path order. It reads the tree itself rather than asking git, so it runs where the source has no
+// repository, such as a nix build's sandbox.
 func routingNewLocalLines(t *testing.T) (file []string, text []string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "git", "grep", "-n", "hostexec.NewLocal()", "--",
-		"internal/enginehost", "internal/build", "internal/agents", "cmd/orreryd", ":!*_test.go")
-	cmd.Dir = filepath.Join("..", "..")
-	out, err := cmd.Output()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return nil, nil
-	}
-	if err != nil {
-		t.Fatalf("git grep NewLocal: %v", err)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		parts := strings.SplitN(line, ":", 3)
-		if len(parts) != 3 {
-			t.Fatalf("git grep line %q has no file, line and text", line)
+	root := filepath.Join("..", "..")
+	for _, dir := range []string{"internal/enginehost", "internal/build", "internal/agents", "cmd/orreryd"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			for _, line := range strings.Split(string(body), "\n") {
+				if strings.Contains(line, "hostexec.NewLocal()") {
+					file = append(file, filepath.ToSlash(rel))
+					text = append(text, line)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for NewLocal: %v", dir, err)
 		}
-		file = append(file, parts[0])
-		text = append(text, parts[2])
 	}
 	return file, text
 }
