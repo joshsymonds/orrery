@@ -318,8 +318,10 @@ export function App({
   // usage is the usage the page holds: the band under the inbox head draws it once it has answered with an account.
   usage?: UsageData;
 }) {
-  // rows are the listed rows, with each headless session on a host that does not answer marked unreachable.
-  const rows = useMemo(() => markUnreachable(listedRows, reachOf(host)), [listedRows, host]);
+  // reach is each listed host's reach, as Host.Status gives it. rows are the listed rows, with each row on a host that does
+  // not answer marked unreachable.
+  const reach = useMemo(() => reachOf(host), [host]);
+  const rows = useMemo(() => markUnreachable(listedRows, reach), [listedRows, reach]);
   const [view, setView] = useState<View>("inbox");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   // The search text while the search field is open, and null while it is shut.
@@ -636,6 +638,7 @@ export function App({
       contracts,
       designs,
       host: host?.host ?? "",
+      reach,
       view: shown,
     });
   const tree = treeOf(view);
@@ -3004,6 +3007,7 @@ export function App({
         loadArtifact={loadArtifact}
         commands={epicCommands(clients, entry.id, setEpicCommandLine, () => rereadEpic(entry.id))}
         numberKeys={!epicPage.closed}
+        reach={reach}
         commandError={epicCommandLine}
         onOpenContract={openContract}
         onOpenSession={openSession}
@@ -3068,6 +3072,7 @@ export function App({
             now={now}
             cursor={row.key === cursorRowKey}
             moving={markedRows.has(row.key)}
+            reach={reach}
             more={rowMore(row)}
             onOpen={() => {
               selectItem(row);
@@ -3484,6 +3489,7 @@ export function App({
             moving={markedLines}
             notes={notes}
             band={usageBand}
+            reach={reach}
           />
         </div>
         {shownProject !== null && !noticesPage && projectSection(shownProject)}
@@ -3904,12 +3910,10 @@ export function stepStrip(step: EpicStep): JSX.Element | null {
   );
 }
 
-// markUnreachable marks each headless session on a host that does not answer, as Host.Status lists it, unreachable: its
-// conversation says so and takes no input. Every other row is given as it is.
+// markUnreachable marks each row on a host that does not answer, as Host.Status lists it, unreachable: its conversation says
+// so and takes no input. Every other row is given as it is.
 function markUnreachable(rows: Row[], reach: HostReach): Row[] {
-  return rows.map((row) =>
-    row.archiveKind === "headless" && hostDown(reach, row.host) ? { ...row, unreachable: true } : row,
-  );
+  return rows.map((row) => (hostDown(reach, row.host) ? { ...row, unreachable: true } : row));
 }
 
 // stripHost is the host a page's strip names. A pane or headless session row names the host it runs on, and a row with no

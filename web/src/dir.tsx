@@ -7,8 +7,8 @@ import type { Project } from "./tree";
 // DirProps are a project's card: the project; whether it is folded; the waiting count a folded head says; whether the
 // ended line is open; the presses; the conversations that hang under the head, which the caller draws; the ended
 // conversations, which the caller draws and the card shows only while the ended line is open; whether the ended line's
-// button is marked as moving, when a move landed behind it; and, when given, the press that opens the project's page from
-// its head.
+// button is marked as moving, when a move landed behind it; whether the project's host does not answer; and, when given,
+// the press that opens the project's page from its head.
 export interface DirProps {
   project: Project;
   folded: boolean;
@@ -18,15 +18,17 @@ export interface DirProps {
   onEnded: () => void;
   onOpen?: (key: string) => void;
   moving?: boolean;
+  down?: boolean;
   children: ComponentChildren;
   ended: ComponentChildren;
 }
 
 // Dir draws a project's card. Its head is the fold button, the folder icon, the project's name and path, and the host the
-// project's rows run on, drawn once as a heading label (none for a card with no host). With onOpen, the folder, the name
-// and the path are one button that opens the project. Folded, the head also says how many things wait on you (only when
-// the count is not zero) and how many conversations it holds, and nothing else is drawn. Open, the conversations hang from
-// a line under the head, then the ended line, which opens to the ended conversations.
+// project's rows run on, drawn once as a heading label (none for a card with no host), with the word unreachable beside it
+// when the host does not answer. With onOpen, the folder, the name and the path are one button that opens the project.
+// Folded, the head also says how many things wait on you (only when the count is not zero) and how many conversations it
+// holds, and nothing else is drawn. Open, the conversations hang from a line under the head, then the ended line, which
+// opens to the ended conversations.
 export function Dir({
   project,
   folded,
@@ -36,6 +38,7 @@ export function Dir({
   onEnded,
   onOpen,
   moving = false,
+  down = false,
   children,
   ended,
 }: DirProps): JSX.Element {
@@ -70,7 +73,7 @@ export function Dir({
         </button>
       )}
       <span class="end">
-        <HostLabel name={project.host} heading />
+        <HostLabel name={project.host} heading down={down} />
         {folded && waiting > 0 && <span class="is-attention">{waiting} waiting</span>}
         {folded && <span>{conversationCount(project)}</span>}
       </span>

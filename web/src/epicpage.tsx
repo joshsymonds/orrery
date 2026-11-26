@@ -9,6 +9,7 @@ import type { UsageEpicTotalsResponse } from "./gen/orrery/v1/usage_pb";
 import { Icon } from "./glyphs";
 import { JustHappened } from "./happenings";
 import { HostLabel } from "./hostlabel";
+import { type HostReach } from "./hostreach";
 import { NowSection } from "./nowsection";
 import type { CallOutcome } from "./ownercall";
 import { Orrery } from "./orrery";
@@ -135,6 +136,8 @@ export function EpicPage(props: {
   loadArtifact: LoadArtifact;
   commands: EpicCommands;
   numberKeys: boolean;
+  // reach is each listed host's reach, which the Now section reads for its steps' hosts; absent reads every host as reachable.
+  reach?: HostReach;
   commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: SessionTarget) => void;
@@ -158,6 +161,7 @@ export function EpicPage(props: {
     loadArtifact,
     commands,
     numberKeys,
+    reach,
     commandError,
     onOpenContract,
     onOpenSession,
@@ -320,6 +324,7 @@ export function EpicPage(props: {
         now={now}
         narrow={narrow}
         numberKeys={numberKeys}
+        reach={reach}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}
         onStop={() => commands.stop()}
