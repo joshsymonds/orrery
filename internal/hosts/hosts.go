@@ -60,8 +60,10 @@ func Path(getenv func(string) string) (string, error) {
 // without hosts reads as it did before hosts.toml existed. Any other file is refused, with an error that names the
 // file and the offending entry, when it does not parse, has a key that File does not declare, or breaks a rule: the
 // top-level name, when set, and each host's name must be lowercase letters, digits and hyphens; host names are unique
-// and none equals the top-level name; and each address is host:port with a non-empty host and a port from 1 to 65535.
-// Hosts are returned in file order.
+// and none equals the top-level name; each address is host:port with a non-empty host and a port from 1 to 65535; and
+// the default, when set, is lowercase letters, digits and hyphens and, when the top-level name is set, equals that name
+// or a listed host's name. With no top-level name the default may name any host, since Load cannot know the
+// controller's host name. Hosts are returned in file order.
 func Load(getenv func(string) string) (File, error) {
 	path, err := Path(getenv)
 	if err != nil {
@@ -115,7 +117,28 @@ func validate(path string, meta toml.MetaData, file File) error {
 			return fmt.Errorf("hosts file %s: host %q: %w", path, host.Name, err)
 		}
 	}
-	return nil
+	return checkDefault(path, file)
+}
+
+// checkDefault refuses a default that is not lowercase letters, digits and hyphens, or that names neither the
+// top-level name nor a listed host when the top-level name is set. An empty default is the controller and is not
+// checked.
+func checkDefault(path string, file File) error {
+	if file.Default == "" {
+		return nil
+	}
+	if !validName(file.Default) {
+		return fmt.Errorf("hosts file %s: default %q is not lowercase letters, digits and hyphens", path, file.Default)
+	}
+	if file.Name == "" || file.Default == file.Name {
+		return nil
+	}
+	for _, host := range file.Hosts {
+		if host.Name == file.Default {
+			return nil
+		}
+	}
+	return fmt.Errorf("hosts file %s: default %q names neither the name %q nor a listed host", path, file.Default, file.Name)
 }
 
 // validName reports whether name is non-empty and made only of lowercase letters, digits and hyphens.
