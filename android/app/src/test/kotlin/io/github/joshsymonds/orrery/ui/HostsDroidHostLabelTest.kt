@@ -202,6 +202,13 @@ class HostsDroidHostLabelTest {
     /** A card's heading: the host and folder its key carries. */
     private fun headTag(host: String, dir: String): String = "card-host:$host|$dir"
 
+    /** A card's body: the project it draws, which holds the conversations and epics placed under it. */
+    private fun cardTag(host: String, dir: String): String = "project:$host|$dir"
+
+    /** How many nodes tagged [tag] sit under the card tagged [card]: one when the row is drawn in that card. */
+    private fun placedUnder(tag: String, card: String): Int =
+        countNodes(hasTestTag(tag) and hasAnyAncestor(hasTestTag(card)))
+
     private fun convoTag(key: String): String = "convo:$key"
 
     private fun hungTag(key: String): String = "hung:$key"
@@ -235,6 +242,14 @@ class HostsDroidHostLabelTest {
             assertEquals(1, namedUnder(headTag(SERVING, ALPHA), SERVING))
             assertEquals(1, namedUnder(headTag(REMOTE, ALPHA), REMOTE))
             assertEquals(1, namedUnder(headTag(SERVING, BETA), SERVING))
+
+            // Each session row sits under the card of its own host: a pane's, and a headless session's, which keeps its host
+            // and is not on the serving host's card for the same folder. An empty host reads as the serving one.
+            assertEquals(1, placedUnder(convoTag("pane:$SERVING:%1"), cardTag(SERVING, ALPHA)))
+            assertEquals(1, placedUnder(convoTag("pane:$REMOTE:%2"), cardTag(REMOTE, ALPHA)))
+            assertEquals(1, placedUnder(convoTag("session:$REMOTE_HEADLESS"), cardTag(REMOTE, ALPHA)))
+            assertEquals(0, placedUnder(convoTag("session:$REMOTE_HEADLESS"), cardTag(SERVING, ALPHA)))
+            assertEquals(1, placedUnder(convoTag("session:$EMPTY_HEADLESS"), cardTag(SERVING, ALPHA)))
 
             // A session row under a card names no host of its own: a pane's, and a headless session's on either host.
             assertEquals(0, namedUnder(convoTag("pane:$SERVING:%1"), SERVING))
