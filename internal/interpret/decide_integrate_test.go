@@ -78,6 +78,38 @@ func captureRun(run store.NodeRun, id string) store.EvidenceRun {
 	}
 }
 
+// recaptureGreen is the id of the green run of orreryd's recapture of R1 at the stored base s1, and recapturedR1 the
+// reason a plan parks with once that run was judged fails.
+const (
+	recaptureGreen = "recapture-green-1"
+	recapturedR1   = "epic not built: R1 is not green at the stored base s1: its capture exited 1 and was judged " +
+		"fails: TestR1 fails"
+)
+
+// recaptureOfR1 returns orreryd's recapture of R1 at the stored base s1 in state, its green run recaptureGreen, as
+// store.RecaptureEvidence starts one: an amendment to the item R1 holds.
+func recaptureOfR1(state string) store.EvidenceAmendment {
+	item := itemRequirement("R1").Item
+	return store.EvidenceAmendment{
+		Seq: 1, Requirement: "R1", Amender: store.AmenderOrreryd, Prior: item, Item: item, Base: "main",
+		State: state, StoredBase: "s1", GreenRun: recaptureGreen,
+	}
+}
+
+// recaptureFailed returns the green run of the recapture of R1 at s1, which exited 1 and was judged fails.
+func recaptureFailed() store.EvidenceRun {
+	return store.EvidenceRun{
+		ID: recaptureGreen, Item: "R1", Revision: "s1", Phase: evidence.PhaseGreen, State: "ended", Exit: 1,
+		Verdict: evidence.VerdictFails, JudgeReason: "TestR1 fails",
+	}
+}
+
+// recapturing returns rows with the epic holding amendments, as orreryd's recaptures of its items.
+func recapturing(rows kinds.Rows, amendments ...store.EvidenceAmendment) kinds.Rows {
+	rows.Epic.Amendments = amendments
+	return rows
+}
+
 // withEvidence returns rows with requirements and the evidence runs.
 func withEvidence(rows kinds.Rows, requirements []store.EpicRequirement, runs ...store.EvidenceRun) kinds.Rows {
 	rows.Epic.Requirements = requirements
@@ -226,7 +258,6 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 	red := ended(startOf("red", "red", "evidence", 0), "passed")
 	reg := integrateKinds(scripted{})
 	one := []store.EpicRequirement{itemRequirement("R1")}
-	unbuiltR1 := "epic not built: R1 is not green at the stored base s1"
 	// complete returns the rows of a plan that completes after turn 1, with stored base s1, the Requirements, the
 	// evidence runs and the node runs given after the red run.
 	complete := func(
@@ -248,29 +279,58 @@ func TestDecideBatchPlanEnds(t *testing.T) {
 			want: []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "plan", Outcome: "complete"}}, Built: true}},
 		},
 		{
-			name: "complete plan holding integrate parks the epic with the Requirement that is not green",
+			name: "complete plan holding integrate first recaptures the Requirement that is not green",
 			flow: flow,
 			rows: complete(one, []store.EvidenceRun{redRun(red, "R1", evidence.VerdictFails, true)},
 				ended(batchRun("s1"), "passed"),
 			),
+			reg:  reg,
+			want: []Action{{Kind: ActRecapture, Items: []string{"R1"}}},
+		},
+		{
+			name: "complete plan keeps running while its recapture is capturing",
+			flow: flow,
+			rows: recapturing(complete(one, []store.EvidenceRun{redRun(red, "R1", evidence.VerdictFails, true)},
+				ended(batchRun("s1"), "passed"),
+			), recaptureOfR1(store.AmendmentCapturing)),
+			reg:  reg,
+			want: []Action{{Kind: ActRun, Path: "plan", NodeKind: "plan"}},
+		},
+		{
+			name: "complete plan ends built once its recapture passed at the stored base",
+			flow: flow,
+			rows: recapturing(complete(one, []store.EvidenceRun{
+				redRun(red, "R1", evidence.VerdictFails, true),
+				{
+					ID: recaptureGreen, Item: "R1", Revision: "s1", Phase: evidence.PhaseGreen, State: "ended",
+					Verdict: evidence.VerdictHolds, Passed: true,
+				},
+			}, ended(batchRun("s1"), "passed")), recaptureOfR1(store.AmendmentApplied)),
+			reg:  reg,
+			want: []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "plan", Outcome: "complete"}}, Built: true}},
+		},
+		{
+			name: "complete plan parks the epic with the Requirement its recapture did not make green",
+			flow: flow,
+			rows: recapturing(complete(one, []store.EvidenceRun{
+				redRun(red, "R1", evidence.VerdictFails, true), recaptureFailed(),
+			}, ended(batchRun("s1"), "passed")), recaptureOfR1(store.AmendmentApplied)),
 			reg: reg,
 			want: []Action{{
-				Kind: ActParkEpic, Reason: unbuiltR1, Trigger: unbuiltTrigger(unbuiltR1),
+				Kind: ActParkEpic, Reason: recapturedR1, Trigger: unbuiltTrigger(recapturedR1),
 			}},
 		},
 		{
 			name: "unbuilt Requirements are joined in contract order",
 			flow: flow,
-			rows: complete([]store.EpicRequirement{itemRequirement("R1"), {ID: "R2"}}, nil,
-				ended(batchRun("s1"), "passed"),
-			),
+			rows: recapturing(complete([]store.EpicRequirement{itemRequirement("R1"), {ID: "R2"}},
+				[]store.EvidenceRun{recaptureFailed()}, ended(batchRun("s1"), "passed"),
+			), recaptureOfR1(store.AmendmentApplied)),
 			reg: reg,
 			want: []Action{{
-				Kind:   ActParkEpic,
-				Reason: "epic not built: R1 is not green at the stored base s1; R2 names no evidence item",
-				Trigger: unbuiltTrigger(
-					"epic not built: R1 is not green at the stored base s1; R2 names no evidence item",
-				),
+				Kind:    ActParkEpic,
+				Reason:  recapturedR1 + "; R2 names no evidence item",
+				Trigger: unbuiltTrigger(recapturedR1 + "; R2 names no evidence item"),
 			}},
 		},
 		{

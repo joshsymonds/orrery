@@ -48,7 +48,8 @@ const (
 // (batchVerification), runs the gates it chose, captures at the candidate each Requirement a task of the batch claims
 // or contributes to (batchRequirements) and each the choice adds, reproduces each test item's red at the epic's base
 // and has the item's judge rule on each reproduction that passed there (reproJudges), and then ends red or advances the
-// epic to the candidate. A Requirement the batch did not capture keeps the green it had at the stored base (GreenAt).
+// epic to the candidate. A Requirement the batch did not capture keeps the green it had at the base the batch composed
+// on (GreenAt).
 type Integrate struct{}
 
 // integrateResult is the Result an integrate run records when it claims its batch: the tasks compose made into commits
@@ -114,7 +115,7 @@ func (Integrate) Decide(node Node, rows Rows) Action {
 	if act, settled = reproJudges(run, rows); !settled {
 		return act
 	}
-	return settle(run, captureCauses(rows, captured), requirementLines(rows, captured), leftOut)
+	return settle(run, captureCauses(run, rows, captured), requirementLines(run, rows, captured), leftOut)
 }
 
 // conflictRounds decides the task integrator rounds of each task the batch left out for a merge conflict, in the order
@@ -267,7 +268,7 @@ func roundRun(run store.NodeRun, seq, round int64) store.NodeRun {
 // previous is what that failure was, with the gate's exit, its triage's line and output tails, or each capture's
 // verdict, as the next round of the task integrator reads it. A gate is triaged before it fails, under checked's id
 // (gateCheck). A capture fails as an integrate run's does (captureCauses): it was not captured or not judged, or its
-// Requirement was green at the stored base and its capture does not pass at the commit.
+// Requirement was green at the base the batch composed on and its capture does not pass at the commit.
 func mergedChecks(
 	checked store.NodeRun, rows Rows, chosen Verification, requirements []store.EpicRequirement,
 ) (string, string, Action, bool) {
@@ -283,12 +284,12 @@ func mergedChecks(
 	if !settled {
 		return "", "", act, false
 	}
-	causes := captureCauses(rows, captured)
+	causes := captureCauses(checked, rows, captured)
 	if len(causes) == 0 {
 		return "", "", Action{}, true
 	}
 	failure := fmt.Sprintf("%s at %s", strings.Join(causes, "; "), checked.Revision)
-	return failure, captureFailures(checked.Revision, rows, captured), Action{}, true
+	return failure, captureFailures(checked, rows, captured), Action{}, true
 }
 
 // gateFailure returns what gate, the first Done gate that did not pass at revision, the commit of a round of the task
@@ -319,12 +320,15 @@ func gateFailure(revision string, gate failedGate, triages []store.GateTriage) s
 	return strings.Join(lines, "\n")
 }
 
-// captureFailures returns one line for each capture at revision, the commit of a round of the task integrator, that
-// captureCauses finds failing: one that was not captured, with why, one that was not judged, and one whose Requirement
-// was green at the stored base and whose capture does not pass, with its exit, its verdict and its judge's reason. A
-// carried capture writes no line, and neither does a Requirement the round's verification did not capture.
-func captureFailures(revision string, rows Rows, captured map[string]store.EvidenceRun) string {
-	green := GreenAt(rows, rows.Epic.StoredBase)
+// captureFailures returns one line for each capture at the revision of checked, the commit of a round of the task
+// integrator, that captureCauses finds failing: one that was not captured, with why, one that was not judged, and one
+// whose Requirement was green at the base the batch composed on and whose capture does not pass, with its exit, its
+// verdict and its judge's reason. A carried capture writes no line, and neither does a Requirement the round's
+// verification did not capture.
+func captureFailures(checked store.NodeRun, rows Rows, captured map[string]store.EvidenceRun) string {
+	revision := checked.Revision
+	base := composedBase(checked, rows)
+	green := GreenAt(rows, base)
 	var lines []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture, ok := captured[requirement.ID]
@@ -340,8 +344,8 @@ func captureFailures(revision string, rows Rows, captured map[string]store.Evide
 				requirement.ID, revision))
 		case green[requirement.ID] && !capture.Passed:
 			lines = append(lines, fmt.Sprintf(
-				"%s was green at the stored base %s, and its capture on commit %s exited %d and was judged %s: %s",
-				requirement.ID, rows.Epic.StoredBase, revision, capture.Exit, capture.Verdict, capture.JudgeReason))
+				"%s was green at %s, and its capture on commit %s exited %d and was judged %s: %s",
+				requirement.ID, baseText(rows, base), revision, capture.Exit, capture.Verdict, capture.JudgeReason))
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -481,16 +485,22 @@ func checkPassed(check store.NodeCheck) bool {
 }
 
 // batchRequirements returns the Requirements that name an evidence item, in contract order, that a task the integrate
-// run composed claims or contributes to: the Requirements its batch changed. Those are captured at its candidate
-// whatever its verification chooses, which may add others (chosenRequirements); every other keeps the green it had at
-// the stored base. A result whose composed tasks do not decode returns every
-// Requirement that names an item, since a batch nothing is known of could have changed any of them.
+// run composed claims or contributes to, or that a task of a failed batch its base holds does (failedBelow): the
+// Requirements its candidate changed since the stored base. Those are captured at its candidate whatever its
+// verification chooses, which may add others (chosenRequirements); every other keeps the green it had at the base the
+// batch composed on. A result whose composed tasks do not decode, or whose base failedBelow cannot account for, returns
+// every Requirement that names an item, since a change nothing is known of could have changed any of them.
 func batchRequirements(run store.NodeRun, rows Rows) []store.EpicRequirement {
 	items := itemRequirements(rows.Epic.Requirements)
 	seqs, err := composedSeqs(run.Result)
 	if err != nil {
 		return items
 	}
+	below, known := failedBelow(run, rows)
+	if !known {
+		return items
+	}
+	seqs = append(seqs, below...)
 	touched := make(map[string]bool)
 	for _, task := range rows.Epic.Tasks {
 		if !slices.Contains(seqs, task.Seq) {
@@ -501,6 +511,87 @@ func batchRequirements(run store.NodeRun, rows Rows) []store.EpicRequirement {
 		}
 	}
 	return slices.DeleteFunc(items, func(requirement store.EpicRequirement) bool { return !touched[requirement.ID] })
+}
+
+// failedBelow returns the tasks that the failed batches between the stored base and the base run composed on composed,
+// and whether that base is accounted for. A batch that fails does not move the stored base, yet the next batch composes
+// on its candidate (the epic's batch base), so the work of its tasks reaches the next candidate with no batch of its own
+// to vouch for it there. The walk starts at the base run's result names and steps from each failed integrate or legacy
+// sync run at that revision to the base its result names, collecting the tasks it composed, until it reaches the stored
+// base or a revision where a run of either kind ended passed. A result that names no base composed on the stored base.
+// A revision with no such run, such as the merge that joins a candidate to a stored base that moved, is not accounted
+// for, and neither is a failed run whose composed tasks do not decode.
+func failedBelow(run store.NodeRun, rows Rows) ([]int64, bool) {
+	var seqs []int64
+	seen := make(map[string]bool)
+	for revision := composedBase(run, rows); revision != rows.Epic.StoredBase; {
+		passed, failed := batchesAt(rows, revision)
+		if passed {
+			return seqs, true
+		}
+		if seen[revision] || len(failed) == 0 {
+			return nil, false
+		}
+		seen[revision] = true
+		next := rows.Epic.StoredBase
+		for _, below := range failed {
+			composed, err := composedSeqs(below.Result)
+			if err != nil {
+				return nil, false
+			}
+			seqs = append(seqs, composed...)
+			if base := resultBase(below); base != "" && base != below.Revision {
+				next = base
+			}
+		}
+		revision = next
+	}
+	return seqs, true
+}
+
+// batchesAt reports whether an integrate or legacy sync run ended passed at revision, and returns the runs of either
+// kind that ended failed there.
+func batchesAt(rows Rows, revision string) (bool, []store.NodeRun) {
+	var failed []store.NodeRun
+	for _, run := range rows.Runs {
+		switch {
+		case !integrated(run) || run.Revision != revision:
+		case run.Outcome == outcomePassed:
+			return true, nil
+		case failedRun(run):
+			failed = append(failed, run)
+		}
+	}
+	return false, failed
+}
+
+// composedBase returns the base the integrate run composed its batch on, as its result names it, or the stored base
+// when its result names none.
+func composedBase(run store.NodeRun, rows Rows) string {
+	if base := resultBase(run); base != "" {
+		return base
+	}
+	return rows.Epic.StoredBase
+}
+
+// resultBase returns the base an integrate run's result names, or "" when it names none or does not decode.
+func resultBase(run store.NodeRun) string {
+	var result struct {
+		Base string `json:"base"`
+	}
+	if json.Unmarshal([]byte(run.Result), &result) != nil {
+		return ""
+	}
+	return result.Base
+}
+
+// baseText names base for a line about a batch: "the stored base <base>" when it is the epic's stored base, and "the
+// batch base <base>" when the batch composed on the candidate of a failed batch instead.
+func baseText(rows Rows, base string) string {
+	if base == rows.Epic.StoredBase {
+		return "the stored base " + base
+	}
+	return "the batch base " + base
 }
 
 // captures decides the captures of requirements, each of which names an evidence item. A capture with no run starts, and
@@ -596,12 +687,13 @@ func reproCheck(checks []store.NodeCheck, run store.NodeRun, id string) (store.N
 }
 
 // captureCauses returns a line for each capture that did not run or was not judged, and for each Requirement that was
-// green at the stored base and whose capture was judged and does not pass now. A capture with no verdict is a cause only
-// as one that failed: it shows nothing about whether its Requirement still holds, so it is no regression. A regression
-// also names the capture's exit, verdict and the judge's reason when the capture has a reason. A carried capture is no
-// cause (see carried), and neither is a Requirement captured holds no capture of.
-func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
-	green := GreenAt(rows, rows.Epic.StoredBase)
+// green at the base run composed its batch on and whose capture was judged and does not pass now. A capture with no
+// verdict is a cause only as one that failed: it shows nothing about whether its Requirement still holds, so it is no
+// regression. A regression also names the capture's exit, verdict and the judge's reason when the capture has a reason.
+// A carried capture is no cause (see carried), and neither is a Requirement captured holds no capture of.
+func captureCauses(run store.NodeRun, rows Rows, captured map[string]store.EvidenceRun) []string {
+	base := composedBase(run, rows)
+	green := GreenAt(rows, base)
 	var causes []string
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture, ok := captured[requirement.ID]
@@ -613,8 +705,7 @@ func captureCauses(rows Rows, captured map[string]store.EvidenceRun) []string {
 		}
 		if green[requirement.ID] && capture.Verdict != "" && !capture.Passed {
 			causes = append(causes, fmt.Sprintf(
-				"%s regressed from green at the stored base %s%s",
-				requirement.ID, rows.Epic.StoredBase, judged(capture),
+				"%s regressed from green at %s%s", requirement.ID, baseText(rows, base), judged(capture),
 			))
 		}
 	}
@@ -632,27 +723,29 @@ func judged(capture store.EvidenceRun) string {
 }
 
 // requirementLines returns a line for each Requirement in contract order: green when its capture passed, green with a
-// note when its capture is carried (see carried), green with a note when it was not captured and is green at the stored
-// base, and not yet green otherwise, with what the judge found of its capture when it has one (see judged).
-func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string {
-	green := GreenAt(rows, rows.Epic.StoredBase)
+// note when its capture is carried (see carried), green with a note when it was not captured and is green at the base
+// run composed its batch on, and not yet green otherwise, with what the judge found of its capture when it has one (see
+// judged).
+func requirementLines(run store.NodeRun, rows Rows, captured map[string]store.EvidenceRun) []string {
+	base := composedBase(run, rows)
+	green := GreenAt(rows, base)
 	lines := make([]string, 0, len(rows.Epic.Requirements))
 	for _, requirement := range rows.Epic.Requirements {
 		capture, ok := captured[requirement.ID]
 		switch {
 		case !ok && green[requirement.ID]:
 			lines = append(lines, fmt.Sprintf(
-				"%s green at the stored base %s; no task of this batch changes it, so it was not captured again",
-				requirement.ID, rows.Epic.StoredBase,
+				"%s green at %s; no task of this batch changes it, so it was not captured again",
+				requirement.ID, baseText(rows, base),
 			))
 		case capture.Passed:
 			lines = append(lines, requirement.ID+" green")
 		case carried(capture, green[requirement.ID]):
 			lines = append(lines, fmt.Sprintf(
-				"%s green: the judge gave no verdict on its exit-0 capture (%s), so its verdict at the stored base %s carries",
+				"%s green: the judge gave no verdict on its exit-0 capture (%s), so its verdict at %s carries",
 				requirement.ID,
 				capture.JudgeReason,
-				rows.Epic.StoredBase,
+				baseText(rows, base),
 			))
 		default:
 			lines = append(lines, requirement.ID+" not yet green"+judged(capture))
@@ -662,7 +755,8 @@ func requirementLines(rows Rows, captured map[string]store.EvidenceRun) []string
 }
 
 // carried reports whether a capture carries its Requirement's earlier verdict: the capture is judgeless, and the
-// Requirement was green at the stored base. A carried capture passes its node, with a note (requirementLines).
+// Requirement was green at the base its batch composed on. A carried capture passes its node, with a note
+// (requirementLines).
 func carried(capture store.EvidenceRun, green bool) bool {
 	return green && judgeless(capture)
 }
@@ -695,13 +789,17 @@ func integrated(run store.NodeRun) bool {
 	return run.Kind == kindIntegrate || run.Kind == kindLegacySync
 }
 
-// GreenAt returns the Requirements whose capture passed in an integrate or legacy sync run that ended passed at
-// revision, at the run's attempt. A rerun stands for the capture it reran. A passed run also holds a judgeless capture,
-// which only the carry lets it hold, so that capture counts as green too (see judgeless). A Requirement such a run did
-// not capture, since no task of its batch touched it, is green when it is green at the base the run composed its batch
-// on. A Requirement whose evidence amendment ran its green run at revision is green there too when that run passed (see
-// amendedGreen). A passed run's Done gates are not read: a gate its verification choice skipped did not run there, and
-// the green a run holds is its captures' and its base's, never its gates'.
+// GreenAt returns the Requirements whose capture passed in an integrate or legacy sync run that ended at revision,
+// passed or failed, at the run's attempt. A capture's verdict is its own: a run that failed for another Requirement's
+// capture, or for a Done gate, still ran this one, and its judge ruled on it there. A rerun stands for the capture it
+// reran. A passed run also holds a judgeless capture, which only the carry lets it hold, so that capture counts as green
+// too (see judgeless); a failed run's judgeless capture counts only when it was carried, its Requirement being green at
+// the run's base. A Requirement a passed run did not capture, since no task of its batch touched it, is green when it
+// is green at the base the run composed its batch on, and so is one a failed run did not capture that no task of its
+// batch touched (batchRequirements); a touched one it did not capture shows nothing there. A Requirement whose evidence
+// amendment ran its green run at revision is green there too when that run passed (see amendedGreen). A run's Done
+// gates are not read: a gate its verification choice skipped did not run there, and the green a run holds is its
+// captures' and its base's, never its gates'.
 func GreenAt(rows Rows, revision string) map[string]bool {
 	return greenAt(rows, revision, make(map[string]map[string]bool))
 }
@@ -715,7 +813,7 @@ func greenAt(rows Rows, revision string, known map[string]map[string]bool) map[s
 	green := make(map[string]bool)
 	known[revision] = green
 	for _, run := range rows.Runs {
-		if integrated(run) && run.Outcome == outcomePassed && run.Revision == revision {
+		if integrated(run) && (run.Outcome == outcomePassed || failedRun(run)) && run.Revision == revision {
 			runGreen(rows, run, known, green)
 		}
 	}
@@ -727,37 +825,51 @@ func greenAt(rows Rows, revision string, known map[string]map[string]bool) map[s
 	return green
 }
 
-// runGreen adds to green the Requirements that run, an integrate or legacy sync run that ended passed, holds green: each
-// whose capture passed or is judgeless, and each it did not capture that is green at its base (baseGreen).
+// runGreen adds to green the Requirements that run, an integrate or legacy sync run that ended, holds green (see
+// GreenAt): each whose capture passed, each whose capture is judgeless in a passed run or carried in a failed one, and
+// each it did not capture that is green at its base (baseGreen), unless the run failed and its batch touched it.
 func runGreen(rows Rows, run store.NodeRun, known map[string]map[string]bool, green map[string]bool) {
-	var base map[string]bool
+	passed := run.Outcome == outcomePassed
+	var base, touched map[string]bool
+	baseOf := func() map[string]bool {
+		if base == nil {
+			base = baseGreen(rows, run, known)
+		}
+		return base
+	}
+	if !passed {
+		touched = make(map[string]bool)
+		for _, requirement := range batchRequirements(run, rows) {
+			touched[requirement.ID] = true
+		}
+	}
 	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
 		capture, _, outcome := evidenceChain(run, rows.Evidence, captureWork(requirement.ID), true)
 		if outcome != chainNone {
-			if capture.Passed || judgeless(capture) {
+			if capture.Passed || (judgeless(capture) && (passed || baseOf()[requirement.ID])) {
 				green[requirement.ID] = true
 			}
 			continue
 		}
-		if base == nil {
-			base = baseGreen(rows, run, known)
-		}
-		if base[requirement.ID] {
+		if !touched[requirement.ID] && baseOf()[requirement.ID] {
 			green[requirement.ID] = true
 		}
 	}
 }
 
+// failedRun reports whether run ended failed, as an integrate run whose captures or Done gates did not all pass does.
+func failedRun(run store.NodeRun) bool {
+	return run.Outcome == outcomeFailed && run.State == store.NodeEnded
+}
+
 // baseGreen returns the Requirements green at the base an integrate run composed its batch on, as its result names it.
 // A run whose result names no base, or names its own revision, has none.
 func baseGreen(rows Rows, run store.NodeRun, known map[string]map[string]bool) map[string]bool {
-	var result struct {
-		Base string `json:"base"`
-	}
-	if json.Unmarshal([]byte(run.Result), &result) != nil || result.Base == "" || result.Base == run.Revision {
+	base := resultBase(run)
+	if base == "" || base == run.Revision {
 		return map[string]bool{}
 	}
-	return greenAt(rows, result.Base, known)
+	return greenAt(rows, base, known)
 }
 
 // amendment returns the latest evidence amendment of Requirement id that is capturing or applied, and whether there is
@@ -815,6 +927,38 @@ func Unbuilt(rows Rows) []string {
 		))
 	}
 	return lines
+}
+
+// Recapture returns, in contract order, the Requirements whose items the epic captures once more at its stored base
+// before its plan parks it as not built. Those are the ones Unbuilt names as not green at the stored base that no
+// recapture has captured there yet: a Requirement that names an item, is not held by a gap, was not dropped as met at
+// the base, and has no recapture at the stored base (store.Recaptured) that is capturing or applied. A plan keeps
+// running while a recapture is capturing, as it does for any amendment under way (amending), so the plan that ends
+// reads each recapture applied. It returns none while the stored base is the epic's base, where no batch has passed
+// and a recapture would capture nothing (the next integrate captures there).
+func Recapture(rows Rows) []string {
+	stored := rows.Epic.StoredBase
+	if stored == "" || stored == rows.Epic.Base {
+		return nil
+	}
+	green := GreenAt(rows, stored)
+	var ids []string
+	for _, requirement := range itemRequirements(rows.Epic.Requirements) {
+		skip := green[requirement.ID] || gapHeld(rows.Epic.Tasks, requirement.ID) || droppedAsMet(requirement)
+		if skip || recapturedAt(rows, requirement.ID, stored) {
+			continue
+		}
+		ids = append(ids, requirement.ID)
+	}
+	return ids
+}
+
+// recapturedAt reports whether a recapture of Requirement id at revision is capturing or applied.
+func recapturedAt(rows Rows, id, revision string) bool {
+	return slices.ContainsFunc(rows.Epic.Amendments, func(amended store.EvidenceAmendment) bool {
+		live := amended.State == store.AmendmentCapturing || amended.State == store.AmendmentApplied
+		return amended.Requirement == id && store.Recaptured(amended) && amended.StoredBase == revision && live
+	})
 }
 
 // failedAt returns the judged capture of Requirement id at revision that did not pass: the green run of its evidence
