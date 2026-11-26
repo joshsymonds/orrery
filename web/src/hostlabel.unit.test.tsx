@@ -8,7 +8,7 @@ import { HostEntrySchema, HostStatusResponseSchema, type HostStatusResponse } fr
 import { StateGlyph } from "./glyphs";
 import { HostLabel } from "./hostlabel";
 import { hostDown, reachableHosts, reachOf } from "./hostreach";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, assertSame, installTestDom, removeTestDom } from "./testdom";
 
 // Each test's name carries the token HostLabel seam: the seam draws on its own, outside any page.
 
@@ -47,7 +47,7 @@ test("HostLabel seam: an inline host draws its icon and its name in a host-label
     assert.equal(label.classList.contains("heading"), false, "an inline label is not the heading form");
     assert.ok(label.querySelector("svg.icon") !== null, "the label draws the host icon");
     assert.equal(one(label, "span.name").textContent, "halyard");
-    assert.equal(container.querySelector(".unreach"), null, "a host that answers draws no unreachable word");
+    assertNone(container.querySelector(".unreach"), "a host that answers draws no unreachable word");
   }));
 
 test("HostLabel seam: a heading host carries the heading class on the same icon and name", () =>
@@ -63,8 +63,8 @@ test("HostLabel seam: a down host draws the word unreachable as the sibling afte
     const label = one(container, "span.host-label");
     const word = one(container, "span.unreach");
     assert.equal(word.textContent, "unreachable");
-    assert.equal(word.parentElement, label.parentElement, "the word is a sibling of the label");
-    assert.equal(label.nextElementSibling, word, "the word follows the label");
+    assertSame(word.parentElement, label.parentElement, "the word is a sibling of the label");
+    assertSame(label.nextElementSibling, word, "the word follows the label");
   }));
 
 test("HostLabel seam: an empty name draws nothing, down or not", async () => {
@@ -105,5 +105,5 @@ test("HostLabel seam: StateGlyph unreachable names its word, carries data-state 
     assert.equal(glyph.getAttribute("aria-label"), "unreachable");
     assert.equal(one(glyph, "title").textContent, "unreachable");
     assert.equal(one(glyph, "circle").getAttribute("stroke-dasharray"), "2.45 2.45", "the ring is dashed");
-    assert.equal(glyph.querySelector("rect"), null, "unreachable is not stopped's square");
+    assertNone(glyph.querySelector("rect"), "unreachable is not stopped's square");
   }));
