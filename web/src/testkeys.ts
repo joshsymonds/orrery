@@ -20,6 +20,7 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     };
   const context: KeyContext = {
     pickerOpen: false,
+    starterOpen: false,
     openMenu: null,
     helpOpen,
     collapsed: false,
@@ -71,6 +72,8 @@ export function fakeContext(init: Partial<KeyContext> = {}): Fake {
     closeFlyout: record("closeFlyout"),
     toggleStrips: record("toggleStrips"),
     setPickerOpen: record("setPickerOpen"),
+    openStarter: record("openStarter"),
+    closeStarter: record("closeStarter"),
     setMenuKey: record("setMenuKey"),
     setFilter: record("setFilter"),
     setRowOpened: record("setRowOpened"),

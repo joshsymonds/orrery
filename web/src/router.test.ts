@@ -234,3 +234,24 @@ test("AccountsRouter: a hash with any segment after accounts parses to the inbox
     assert.deepEqual(parseAddress(hash), { view: "inbox", entry: null }, hash);
   }
 });
+
+test("HostsRouter: parses #/hosts to the inbox over the hosts entry", () => {
+  assert.deepEqual(parseAddress("#/hosts"), { view: "inbox", entry: { kind: "hosts" } });
+  assert.deepEqual(parseAddress("/hosts"), { view: "inbox", entry: { kind: "hosts" } });
+});
+
+test("HostsRouter: formats the hosts entry as #/hosts whatever the view", () => {
+  for (const view of VIEWS) {
+    assert.equal(formatAddress({ view, entry: { kind: "hosts" } }), "#/hosts", view);
+  }
+});
+
+test("HostsRouter: round-trips the hosts entry over the inbox", () => {
+  assertRoundTrip({ view: "inbox", entry: { kind: "hosts" } });
+});
+
+test("HostsRouter: a hash with any segment after hosts parses to the inbox with no entry", () => {
+  for (const hash of ["#/hosts/x", "#/hosts/", "#/hosts/x/y"]) {
+    assert.deepEqual(parseAddress(hash), { view: "inbox", entry: null }, hash);
+  }
+});

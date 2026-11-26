@@ -19,6 +19,8 @@ export interface Row {
   label: string;
   // The directory the row runs in, which its title draws as the last element of its path. Empty for a Sessions.List row.
   project: string;
+  // The host the row runs on: a pane's host, or a headless session's, serving host included. Empty for a Sessions.List row,
+  // which carries no host.
   host: string;
   state: string;
   summary: string;
@@ -46,6 +48,9 @@ export interface Row {
   endedAt?: number;
   // Whether the pane is unbound (Pane.unbound). Absent reads as false, and always false for a session or headless row.
   unbound?: boolean;
+  // Whether the row's host does not answer: a pane's Pane.unreachable. Absent reads as false, and a session or headless
+  // row is marked by app.tsx from the host status, so it is never set here for one.
+  unreachable?: boolean;
 }
 
 // Panes in a tmux session with this prefix are internal to orrery and are not listed.
@@ -96,6 +101,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       ended: owner?.ended ?? false,
       endedAt: owner ? Number(owner.endedAt) : 0,
       unbound: pane.unbound,
+      unreachable: pane.unreachable,
     });
   }
   for (const session of sessions) {
@@ -138,7 +144,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       kind: "session",
       label: session.headline,
       project: session.dir,
-      host: "",
+      host: session.host,
       state: session.state,
       summary: session.summary,
       question: session.question,

@@ -1,5 +1,6 @@
 import { type ComponentChildren, Fragment, type JSX } from "preact";
 
+import { StateGlyph } from "./glyphs";
 import type { WordTone } from "./recordwords";
 
 // A crumb's label is text, or the title a row's conversation head draws (TitleParts).
@@ -29,12 +30,14 @@ function pillClass(base: string, tone: WordTone | undefined): string {
 // plain label, and the last crumb is the page itself, a span marked as the current page. A place crumb, a project, draws
 // as the inbox draws a project's name. Every text is a
 // child text node, so markup in a label shows as text. The strip, when given, takes a line of its own under the first.
-// A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when given.
+// A non-empty note draws under the row as an alert. The state and blocker pills take a word tone each, when given. A state
+// given with a glyph draws that StateGlyph before its pill.
 export function TitleRow({
   crumbs,
   onBack,
   state,
   stateTone,
+  glyph,
   blocker,
   blockerTone,
   strip,
@@ -45,6 +48,7 @@ export function TitleRow({
   onBack?: () => void;
   state?: string;
   stateTone?: WordTone;
+  glyph?: string;
   blocker?: string;
   blockerTone?: WordTone;
   strip?: ComponentChildren;
@@ -91,7 +95,12 @@ export function TitleRow({
               </Fragment>
             ))}
           </nav>
-          {state ? <span class={pillClass("state", stateTone)}>{state}</span> : null}
+          {state ? (
+            <>
+              {glyph === undefined ? null : <StateGlyph state={glyph} />}
+              <span class={pillClass("state", stateTone)}>{state}</span>
+            </>
+          ) : null}
           {blocker ? <span class={pillClass("blocker", blockerTone)}>{blocker}</span> : null}
           <div class="acts">{children}</div>
         </div>

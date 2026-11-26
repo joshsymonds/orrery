@@ -265,4 +265,6 @@ export const dockLines = {
   resumeRefused: (message: string): string => `Not resumed: ${message}`,
   resumeUnknown: "No answer from the server. It may have resumed: check before trying again.",
   notDelivered: "not delivered",
+  // unreachable is the one line a conversation on a host that does not answer has in place of its dock.
+  unreachable: (host: string): string => `unreachable: ${host} does not answer`,
 };

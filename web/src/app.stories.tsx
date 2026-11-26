@@ -126,9 +126,10 @@ const drawnWhen = (root: HTMLElement, selector: string, text = ""): Promise<HTML
 const clickWhen = (root: HTMLElement, selector: string, text = ""): Promise<void> =>
   whenDrawn(root, selector, text, (element) => element.click());
 
-// press sends one key press to target as the browser does: a keydown that bubbles up to the document.
-function press(target: EventTarget, key: string): void {
-  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+// press sends one key press to target as the browser does: a keydown that bubbles up to the document, with the
+// modifiers given.
+function press(target: EventTarget, key: string, modifiers: KeyboardEventInit = {}): void {
+  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }));
 }
 
 // typeInto types text into the field that selector names, as a key press does: the field takes the text and an input
@@ -268,9 +269,9 @@ const pane17At: Address = { view: "inbox", entry: { kind: "pane", host: "halyard
 // newField is New session's one field.
 const newField = 'input[aria-label="New session"]';
 
-// openNew presses N, which opens New session, and waits until its field is drawn.
+// openNew presses ⌘K, which opens New session's finder, and waits until its field is drawn. N opens the Starter.
 async function openNew(root: HTMLElement): Promise<void> {
-  press(document, "N");
+  press(document, "k", { metaKey: true });
   await drawnWhen(root, newField);
 }
 
@@ -287,8 +288,7 @@ function fixtureWith(asks: [string, AskAnswer][]): FixtureTransport {
 }
 
 // The New session words of round 6's New stories, and the rows Picker.Ask answers them with: the go-to row for pane %12,
-// the tidepool resume, the start in ~/code/tidepool that starts with the words (its form's first message), and the start
-// in its worktree.
+// the tidepool resume, the start in ~/code/tidepool that starts with the words, and the start in its worktree.
 const rosterWords = "roster page tidepool";
 const rosterRows: PickerRowInit[] = [
   {
@@ -708,7 +708,7 @@ export const Page: Stories = {
       after={async (root) => {
         await askNew(root, rosterWords);
         await clickWhen(root, ".pick-row", "in this directory");
-        await drawnWhen(root, 'textarea[aria-label="message"]');
+        await drawnWhen(root, '[role="dialog"][aria-label="Start a session"] input[aria-label="Folder"]');
       }}
     />
   ),

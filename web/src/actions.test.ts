@@ -11,8 +11,10 @@ import {
   markSeen,
   newPromptId,
   notNow,
+  propose,
   pullQueued,
   send,
+  start,
   withdraw,
 } from "./actions";
 import { createClients, createTransport } from "./client";
@@ -423,4 +425,51 @@ test("Decline: decline on a headless session sends Control.Decline with its kind
 test("Decline: a refused decline resolves the server's reason", async () => {
   const { clients } = fakeClients(() => refusal("request is not open"));
   assert.equal(await decline(clients, headlessTarget), "request is not open");
+});
+
+test("Propose: propose sends Picker.Propose with the prompt text and resolves the proposals in the server's order", async () => {
+  const { clients, calls } = fakeClients(() =>
+    okJSON({
+      proposals: [
+        { host: "halyard", dir: "/work/api" },
+        { host: "dock", dir: "/work/web" },
+      ],
+    }),
+  );
+  const proposals = await propose(clients, "fix the flaky api test");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Picker/Propose");
+  assert.deepEqual(calls[0].body, { text: "fix the flaky api test" });
+  assert.deepEqual(
+    proposals.map((proposal) => [proposal.host, proposal.dir]),
+    [
+      ["halyard", "/work/api"],
+      ["dock", "/work/web"],
+    ],
+  );
+});
+
+test("Start: start sends the host it is given as Control.Start's host, with the folder, the message and the id", async () => {
+  const { clients, calls } = fakeClients(() => okJSON({ id: "sess-1" }));
+  const session = await start(clients, "/work/api", "fix it", "0123456789abcdef0123456789abcdef", "dock");
+  assert.equal(session, "sess-1");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/orrery.v1.Control/Start");
+  assert.deepEqual(calls[0].body, {
+    dir: "/work/api",
+    prompt: "fix it",
+    id: "0123456789abcdef0123456789abcdef",
+    host: "dock",
+  });
+});
+
+test("Start: start given the empty host sends no host, which Control.Start reads as the controller's", async () => {
+  const { clients, calls } = fakeClients(() => okJSON({ id: "sess-2" }));
+  await start(clients, "/work/api", "fix it", "0123456789abcdef0123456789abcdef", "");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].body, {
+    dir: "/work/api",
+    prompt: "fix it",
+    id: "0123456789abcdef0123456789abcdef",
+  });
 });

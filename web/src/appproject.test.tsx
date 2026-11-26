@@ -325,12 +325,15 @@ test("ProjectPage: under 760px the page draws alone, and its Back returns to the
     assert.equal(listHidden(container), false, "the inbox draws again");
   }));
 
-test("ProjectPage: New session here opens New's start form on the project's directory", (t) =>
+test("ProjectPage: New session here opens the Starter with the project's directory typed", (t) =>
   withApp(t.signal, undefined, async ({ container }) => {
     await press(headOf(container, "api"));
     await press(buttonIn(container, 'section[aria-label="project"]', "New session here"));
-    const directory = one(container, 'input[aria-label="Directory"]') as HTMLInputElement;
-    assert.equal(directory.value, apiDir);
+    const folder = one(
+      container,
+      '[role="dialog"][aria-label="Start a session"] input[aria-label="Folder"]',
+    ) as HTMLInputElement;
+    assert.equal(folder.value, apiDir);
   }));
 
 test("ProjectPage: a project key the tree does not hold draws the line that nothing is in it", (t) =>

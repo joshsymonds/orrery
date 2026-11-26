@@ -266,8 +266,6 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .btn.icon-only { width: var(--o-size-control-desk); padding: 0; }
 .btn kbd { margin-right: calc(-1 * var(--o-space-4)); }
 
-/* Chip: a short tag on the raised surface, as a project head's host. */
-.dir-head .chip { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; padding: 0 var(--o-space-8); border-radius: var(--o-radius-1); background: var(--o-surface-raised); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
 
 /* FilterChip: a chip that narrows a list. On, it is outlined in its role. */
 .fchip { display: inline-flex; align-items: center; gap: var(--o-space-8); flex: none; height: var(--o-size-control-desk); padding: 0 var(--o-space-12); border: 0; border-radius: var(--o-radius-round); background: none; box-shadow: inset 0 0 0 var(--o-size-hairline) var(--o-line-firm); color: var(--o-ink-2); font: var(--o-type-small); white-space: nowrap; }
@@ -319,6 +317,18 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .glyph[data-state="failed"] { color: var(--o-state-failed); }
 .glyph[data-state="broken"] { color: var(--o-state-failed); }
 .glyph[data-state="stopped"] { color: var(--o-state-stopped); }
+/* An unreachable host's state is grey ink, never stopped's tone: nothing it did is known now. */
+.glyph[data-state="unreachable"] { color: var(--o-ink-3); }
+
+/* HostLabel: the host a pane, a session, an epic or a step runs on, with the host's icon. Inline it sits on its row; on a
+   card's heading it is drawn once, for the rows under it. The word unreachable sits beside a host that does not answer. */
+.host-label { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.host-label .icon { color: var(--o-ink-4); }
+.host-label.heading { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+.host-label + .unreach { margin-left: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+/* The word unreachable in a row, an epic or a step on a host that does not answer, in grey ink wherever it stands. */
+.unreach { color: var(--o-ink-3); }
+.tr .strong > .host-label { margin-left: var(--o-space-8); }
 
 /* Pips: a task's phases, one cell each, in the cell's tone. */
 .pips { display: inline-flex; gap: var(--o-space-2); flex: none; }
@@ -435,6 +445,7 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .inbox .row.step.held .doing { color: var(--o-role-attention); }
 .inbox .dir-kids .steers .row.step { grid-template-columns: var(--o-size-glyph) minmax(0, max-content) auto minmax(0, 1fr); margin-left: var(--o-space-16); }
 .inbox .steers .row.step .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.inbox .row.step > .host-line { grid-column: 2 / -1; }
 
 /* The held layout (round 8, D12 to D14). A conversation that holds what it opened is its block, the tab, on the bracket's
    ground, running to the inbox's right edge past the list's padding. Two rows are necks: the conversation's row, on the
@@ -553,6 +564,11 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .foot > button.act:not(.primary) { background: none; color: var(--o-ink-2); }
 .foot button.act:disabled { background: none; color: var(--o-ink-4); cursor: default; transform: none; }
 .foot button.act kbd { background: var(--o-surface-raised); color: var(--o-ink-2); }
+
+/* The Starter: the proposals' listbox under the prompt, and the place below it, the host choice and the folder. */
+.starter-list { display: grid; gap: var(--o-space-4); min-width: 0; }
+.starter-place { display: grid; gap: var(--o-space-12); min-width: 0; }
+.host-choice select { flex: 1 1 auto; width: 0; min-width: 0; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: var(--o-ink-1); font: inherit; outline: 0; }
 
 /* The key groups: as many columns as the panel holds (34ch each), each a label over its lines of caps and what they do. */
 .keygroups { display: grid; grid-template-columns: repeat(auto-fill, minmax(34ch, 1fr)); gap: var(--o-space-24); }
@@ -959,6 +975,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .statebar { display: flex; align-items: center; gap: var(--o-space-8); min-width: 0; min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-space-4) var(--o-space-4) var(--o-space-12); font: var(--o-type-small); color: var(--o-ink-2); }
 .statebar .word { flex: none; color: var(--state); font-weight: var(--o-font-weight-bold); }
 .dock-box[data-state="done"] .statebar .word, .dock-box[data-state="idle"] .statebar .word, .dock-box[data-state="stopped"] .statebar .word { color: var(--o-ink-2); font-weight: var(--o-font-weight-regular); }
+/* A conversation on a host that does not answer has this line in place of its dock: grey ink, never stopped's tone. */
+.unreachable-dock .statebar[data-state="unreachable"] .word { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
 .statebar .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statebar .what .name { color: var(--o-role-ref); }
 .statebar .clock { flex: none; color: var(--state); }
@@ -1120,15 +1138,9 @@ section.page.leave { animation: move-leave var(--o-move-leave); }
 .wlinks .menu { position: absolute; top: calc(100% + var(--o-space-4)); left: 0; z-index: var(--o-z-menu); }
 /* A command's error under the title row: an alert in the bad role's tint. */
 .page-note { margin: 0; padding: var(--o-space-4) var(--o-space-24); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-role-bad-fill); color: var(--o-role-bad); font: var(--o-type-small); overflow-wrap: anywhere; }
-/* The strip is the title row's own line under its controls: the host's name, each meter, then the context. A meter is its
-   name, a bar at its percent and its value, in its series colour; at warn and crit all three take the level's colour. A
-   stat with no percent draws an empty bar line. */
+/* The strip is the title row's own line under its controls: the host's name, then the context. */
 .pane-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--o-space-4) var(--o-space-16); min-width: 0; font: var(--o-type-small); color: var(--o-ink-3); }
 .pane-strip-host { flex: none; font-weight: var(--o-font-weight-bold); color: var(--o-ink-2); }
-.pane-strip .other { color: var(--o-ink-4); }
-/* The meters are a grid of equal cells, each at most meterCell wide and at least twice the bar's width, so the cells wrap
-   to further rows of the same columns. */
-.pane-strip .meters { display: grid; flex: 1 1 auto; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(calc(var(--o-size-meter-bar-width) * 2), var(--o-layout-meter-cell))); gap: var(--o-space-8) var(--o-space-12); }
 /* A conversation head's machine band: the strip as a full-width row of its own under the title row, on surface.side, the
    inbox column's ground, one step deeper than the goal's well, with an edge under it. The host is marked with its icon. */
 .machine-band { min-height: var(--o-size-control-desk); padding: var(--o-space-4) var(--o-layout-page-pad-desk); border-bottom: var(--o-size-hairline) solid var(--o-line-soft); background: var(--o-surface-side); }
@@ -1203,12 +1215,12 @@ button.subj:hover { background: var(--o-surface-raised); }
   .convo-head > .title-row .crumb.place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .convo-head > .title-row .crumb.here { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; min-width: 0; overflow: hidden; white-space: normal; }
   /* As round 6's touch title row: the host follows the directory ("tidepool · on halyard"), the context sits bare in
-     the title row beside More, find is in More, and the band holds only the meters (or the other host's words). */
+     the title row beside More, and find is in More. The band holds only the host, which the title row already names, so
+     the band is not drawn. */
   .convo-head > .title-row .crumb.place[data-host]::after { content: " · on " attr(data-host); }
   .convo-head > .title-row .icon.find { display: none; }
   .convo-head > .title-row .ctx .name, .convo-head > .title-row .ctx .used { display: none; }
-  .convo-head .machine-band { padding: var(--o-space-8) var(--o-layout-page-pad-phone); }
-  .convo-head .pane-strip-host { display: none; }
+  .convo-head .machine-band { display: none; }
   /* The worker session's title row reads as the conversation head's: the crumbs that lead to it share one line, each
      ellipsized, and the page's crumb takes the line under them, whole. */
   .worker-session > .title-row .crumbs { display: flex; flex: 1 1 0; flex-wrap: wrap; align-items: baseline; gap: 0 var(--o-space-4); }
@@ -2077,6 +2089,17 @@ button.block:hover { --ground: var(--o-surface-raised); }
 .sheet .phopt { justify-content: flex-start; width: 100%; }
 .sheet .phopt[aria-current="true"] { color: var(--o-ink-1); font-weight: var(--o-font-weight-bold); }
 .read.accounts-read { overflow-y: auto; }
+
+/* The hosts view, opened from the inbox head: one row a host, its label, then under it its load and memory meters and whether it
+   answers. A host that does not answer draws its glyph, its label marked down, and the word that it draws no numbers. */
+.read.hosts-read { overflow-y: auto; }
+.hosts { display: grid; gap: var(--o-space-4); min-width: 0; }
+.host-row { display: grid; grid-template-columns: var(--o-size-glyph) max-content minmax(0, 1fr) auto; align-items: center; column-gap: var(--o-space-12); padding: var(--o-space-8); border-radius: var(--o-radius-2); }
+/* The meters are a grid of equal cells, each at most meterCell wide and at least twice the bar's width, so the cells wrap
+   to further rows of the same columns. */
+.host-row .stats { display: grid; justify-content: end; min-width: 0; grid-template-columns: repeat(auto-fill, minmax(calc(var(--o-size-meter-bar-width) * 2), var(--o-layout-meter-cell))); gap: var(--o-space-8) var(--o-space-12); }
+.host-row .reach, .host-row .none { color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+.host-row[data-state="unreachable"] .host-label { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
 
 /* The held card (D12, D14, D15): a card on the side's ground, set into the conversation, with a spine of the open colour down
    its left edge. Fold back sits at the card's left on that spine, in the same colour, and its head reads the mark, the kind
