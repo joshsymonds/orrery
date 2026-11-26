@@ -182,7 +182,7 @@ func (s *Store) ResumeReplannedRelease(ctx context.Context, epic, path string, a
 // question retry and ends the park as RetryEpic does. head stays stopped until the release kind's next decision sends
 // the release back to planning with the round's or the review's report (ReplanRelease), so a candidate that needs a
 // change of its own is planned again instead of resumed as it was. Any other stopped release is a RefusalError, and only
-// ReleaseEpic, or a planner's resume_release action, resumes it.
+// ReleaseEpic, or a planner's resume_release action that resumeReleaseByPlanner allows, resumes it.
 func retryStoppedRelease(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) error {
 	epic := head.ID
 	refusal := RefusalError(fmt.Sprintf(
