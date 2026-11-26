@@ -19,7 +19,11 @@ func TestTaskLadderPlanEndsWithoutParkingOnGaps(t *testing.T) {
 	red := ended(startOf("red", "red", "evidence", 0), "passed")
 	reg := integrateKinds(scripted{})
 	one := []store.EpicRequirement{itemRequirement("R1")}
-	unbuiltR1 := "epic not built: R1 is not green at the stored base s1"
+	// recaptured returns epicRows with orreryd's recapture of R1 at s1 applied, its green run judged fails.
+	recaptured := func(epicRows kinds.Rows) kinds.Rows {
+		epicRows.Evidence = append(epicRows.Evidence, recaptureFailed())
+		return recapturing(epicRows, recaptureOfR1(store.AmendmentApplied))
+	}
 	// rows returns the rows of a plan that completes after turn 1, with stored base s1, and whose task 2 of turn 2 holds
 	// R1 with status.
 	rows := func(status string) kinds.Rows {
@@ -40,11 +44,18 @@ func TestTaskLadderPlanEndsWithoutParkingOnGaps(t *testing.T) {
 			want: []Action{{Kind: ActEnd, Ends: []store.NodeEnd{{Path: "plan", Outcome: "complete"}}, Built: true}},
 		},
 		{
-			name: "control: the same plan with its task failed parks the epic on the Requirement",
+			name: "control: the same plan with its task failed recaptures the Requirement",
 			flow: flow,
 			rows: rows("failed"),
 			reg:  reg,
-			want: []Action{{Kind: ActParkEpic, Reason: unbuiltR1, Trigger: unbuiltTrigger(unbuiltR1)}},
+			want: []Action{{Kind: ActRecapture, Items: []string{"R1"}}},
+		},
+		{
+			name: "control: once that recapture did not pass, the plan parks the epic on the Requirement",
+			flow: flow,
+			rows: recaptured(rows("failed")),
+			reg:  reg,
+			want: []Action{{Kind: ActParkEpic, Reason: recapturedR1, Trigger: unbuiltTrigger(recapturedR1)}},
 		},
 	})
 }

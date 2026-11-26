@@ -27,11 +27,12 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * A conversation's title row, after round 6's touch title row: back, then the project's name as the inbox draws a
- * project's name (the machine band under the row names the host), over the title in bold body type, one step down from the title type, cut short at its second
- * line, then the bare context meter when there is a figure, then the usage readout when there is one, and More. The bare meter names the context and its tokens
- * of the window to the reader, as the web's tooltip does. It draws no Orrery icon and no count. More opens a menu
- * holding Find and Hide the header. The conversation's [work] links draw on the project's line, after the project's name.
- * A non-empty [note] draws under the row, in the crit colour.
+ * project's name, with the [host]'s label inline after it, over the title in bold body type, one step down from the
+ * title type, cut short at its second line, then the bare context meter when there is a figure, then the usage readout
+ * when there is one, and More. The bare meter names the context and its tokens of the window to the reader, as the
+ * web's tooltip does. It draws no Orrery icon and no count. More opens a menu holding Find and Hide the header. The
+ * conversation's [work] links draw on the project's line, after the host's label. A non-empty [note] draws under the
+ * row, in the crit colour. An empty [host] draws no label. A [unreachable] host's label carries the unreachable mark.
  *
  * [usage] is the conversation's list cost in nano US dollars, which the readout draws as "usage $x.xx"; null draws no
  * readout. A tap on the readout calls [onUsage]. The row draws the readout open or folded alike.
@@ -47,6 +48,8 @@ internal fun HeadTitleRow(
     moreOpen: Boolean,
     onDismissMore: () -> Unit,
     onHideHeader: () -> Unit,
+    host: String = "",
+    unreachable: Boolean = false,
     onFind: () -> Unit = {},
     work: List<WorkLink> = emptyList(),
     workLit: String? = null,
@@ -84,6 +87,13 @@ internal fun HeadTitleRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (host.isNotEmpty()) {
+                        HostLabel(
+                            name = host,
+                            unreachable = unreachable,
+                            modifier = Modifier.padding(start = OrreryTokens.Space.eight),
+                        )
+                    }
                     WorkLinks(links = work, lit = workLit, onOpen = onOpenWork, onAll = onAllWork)
                 }
                 Text(

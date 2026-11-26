@@ -42,11 +42,12 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Conversation
 import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.DesignRow
-import io.github.joshsymonds.orrery.api.HostStat
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -83,8 +84,11 @@ private val COMPOSE_MIN_CAP = OrreryTokens.Size.controlTouch
 /** One tick's pane reads. `conversation` is null when the pane has none. */
 private class Snapshot(val pane: Pane?, val conversation: Conversation?)
 
-/** A `Host.Status` read: the serving host's name, and its stats, which are null when the host answers not_found. */
-internal class HostRead(val host: String, val stats: List<HostStat>?)
+/**
+ * A `Host.Status` read: the serving host's name, which is empty when the host answers not_found, and the hosts the
+ * status lists, with their reach.
+ */
+internal class HostRead(val host: String, val hosts: List<HostEntry> = emptyList())
 
 /**
  * One tick's pane reads: the pane list, then the conversation when the pane's state is non-empty.
@@ -121,26 +125,29 @@ internal suspend fun fetchHeadContracts(client: OrreryClient): List<ContractRow>
         }
     }
 
-/** One `Host.Status` read. Null when the call fails, so the meters keep their last stats. */
+/**
+ * One `Host.Status` read of the serving host's name and the hosts' reach. Null when the call fails, so the head keeps
+ * the name and the reach it showed.
+ */
 internal suspend fun fetchHost(client: OrreryClient): HostRead? =
     withContext(Dispatchers.IO) {
         try {
             val status = client.host()
-            HostRead(status?.host.orEmpty(), status?.stats)
+            HostRead(status?.host.orEmpty(), status?.hosts.orEmpty())
         } catch (e: IOException) {
             null
         }
     }
 
+/**
+ * Whether a pane draws unreachable, as the inbox draws it: the pane's own flag, or, for a headless session, a host
+ * [hosts] says does not answer. A pane with no host of its own reads as [serving].
+ */
+internal fun paneUnreachable(pane: Pane, serving: String, hosts: List<HostEntry>): Boolean =
+    pane.unreachable || (pane.headless && !reachableOf(hosts, pane.host.ifEmpty { serving }))
+
 /** The last element of a pane's cwd, which the head names as its directory; "/" for the root. */
 internal fun lastPathElement(path: String): String = path.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
-
-/**
- * The host a conversation is on when that is not the serving host, else null. A serving host not yet read counts as
- * no other host, so a conversation is never called remote before its host is known.
- */
-internal fun otherHostOf(paneHost: String, servingHost: String): String? =
-    paneHost.takeIf { it.isNotEmpty() && servingHost.isNotEmpty() && it != servingHost }
 
 /**
  * A pane, followed while the screen is at least started: its conversation stream delivers each change,
@@ -183,7 +190,8 @@ fun PaneScreen(
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
     var conversation by remember(paneId) { mutableStateOf<Conversation?>(null) }
     var servingHost by remember(paneId) { mutableStateOf("") }
-    var stats by remember(paneId) { mutableStateOf<List<HostStat>?>(null) }
+    // The hosts the status lists with their reach, as the last Host.Status read gave them.
+    var hosts by remember(paneId) { mutableStateOf<List<HostEntry>>(emptyList()) }
     var headEpics by remember(paneId) { mutableStateOf(HeadEpics(emptyList(), emptyMap())) }
     var contracts by remember(paneId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     // The designs the pane's conversation works, as Designs.List serves them while the screen is started.
@@ -284,7 +292,7 @@ fun PaneScreen(
                                     listed?.let { contracts = it }
                                     host?.let {
                                         servingHost = it.host
-                                        stats = it.stats
+                                        hosts = it.hosts
                                     }
                                     withTimeoutOrNull(POLL_INTERVAL_MILLIS) { refreshRequests.receive() }
                                 }
@@ -358,7 +366,6 @@ fun PaneScreen(
     val steered = headEpics.steered
     val lines = askLines(steered, headEpics.details)
     val asking = askingWords(ownName = current?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
-    val otherHost = current?.let { otherHostOf(it.host, servingHost) }
     val bandLines = contractBandLines(contracts, current?.orreryId.orEmpty())
     // The work link, the band line and the transcript line of a contract the conversation proposed open live while it runs.
     // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
@@ -391,6 +398,9 @@ fun PaneScreen(
         onAbout = onAbout,
     )
     val animated = animationsOn()
+    // Whether the pane draws unreachable, by the inbox's rule, and the host its title row and dock name.
+    val unreachable = current?.let { paneUnreachable(it, servingHost, hosts) } == true
+    val paneHost = current?.host.orEmpty().ifEmpty { servingHost }
 
     Column(modifier = modifier.fillMaxSize().onSizeChanged { screenHeightPx = it.height }) {
         if (refreshFailed && current == null) {
@@ -497,8 +507,6 @@ fun PaneScreen(
                             title = shown.label.ifEmpty { shown.command },
                             context = conversation?.context,
                             note = if (refreshFailed) REFRESH_FAILED else "",
-                            stats = if (otherHost == null) stats else null,
-                            otherHost = otherHost,
                             goal = conversation?.goal.orEmpty(),
                             lines = lines,
                             asking = asking,
@@ -520,6 +528,7 @@ fun PaneScreen(
                             onAllWork = openAllWork,
                             usage = usage.readout,
                             onUsage = { usage.open = true },
+                            unreachable = unreachable,
                             modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                         )
                         }
@@ -573,14 +582,18 @@ fun PaneScreen(
                 maxFieldHeight = composeCap,
                 onDraftPresent = { draftPresent = it },
                 onSend = { endRequests++ },
+                unreachableHost = paneHost.takeIf { unreachable },
             )
-            QuickKeys(
-                paneId,
-                client,
-                state = current?.state.orEmpty(),
-                changed = current?.changed ?: 0L,
-                draftPresent = draftPresent,
-            )
+            // A host that does not answer takes no keys, so its quick keys are not offered.
+            if (!unreachable) {
+                QuickKeys(
+                    paneId,
+                    client,
+                    state = current?.state.orEmpty(),
+                    changed = current?.changed ?: 0L,
+                    draftPresent = draftPresent,
+                )
+            }
         }
         usage.SheetIfOpen()
     }

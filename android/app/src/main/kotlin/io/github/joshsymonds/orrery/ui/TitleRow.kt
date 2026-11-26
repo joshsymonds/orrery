@@ -41,8 +41,9 @@ data class Crumb(val label: String, val onGo: (() -> Unit)? = null)
  * state, the blocker, then [actions] wrap onto as many lines as they need. Back and every crumb but the last are
  * tappable; the last crumb is the page itself. A null [onBack] draws no Back. The state and the blocker show only when
  * given. Each draws in the colour of its tone when one is given; with no tone the state takes the default colour and
- * the blocker the attention colour. An [onFind] ends the first line in More, the menu the conversation's title row
- * opens, holding Find; with none the row has no More.
+ * the blocker the attention colour. A non-empty [host] draws its [HostLabel] after the crumbs on the first line, and an
+ * empty one draws none; an [unreachable] host's label carries the unreachable mark. An [onFind] ends the first line in
+ * More, the menu the conversation's title row opens, holding Find; with none the row has no More.
  *
  * One row for all of it measured the state and the actions at their full width first and left the crumbs about one
  * character on a phone, so a slug stood one letter to a line.
@@ -55,6 +56,8 @@ fun TitleRow(
     stateTone: WordTone? = null,
     blocker: String = "",
     blockerTone: WordTone? = null,
+    host: String = "",
+    unreachable: Boolean = false,
     onFind: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
@@ -100,6 +103,7 @@ fun TitleRow(
                         }
                     }
                 }
+                if (host.isNotEmpty()) HostLabel(name = host, unreachable = unreachable)
             }
             if (onFind != null) {
                 MoreMenu(open = moreOpen, onMore = { moreOpen = true }, onDismiss = { moreOpen = false }, onFind = onFind)

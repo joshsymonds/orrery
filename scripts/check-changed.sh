@@ -155,12 +155,12 @@ if [ -n "$pkgs" ] || [ -n "$scan_runs" ]; then
     : >"$record"
     if [ -n "$pkgs" ]; then
         # shellcheck disable=SC2086
-        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" \
+        env -u TMUX -u TMUX_PANE TMPDIR=/tmp TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" \
             go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -artifacts -outputdir "$artifacts" $pkgs
     fi
     for scan in $scan_runs; do
         echo "check-changed: repo-wide scan ${scan#*|} in ${scan%%|*}"
-        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" \
+        env -u TMUX -u TMUX_PANE TMPDIR=/tmp TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" \
             go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -artifacts -outputdir "$artifacts" \
             -run "${scan#*|}" "${scan%%|*}"
     done

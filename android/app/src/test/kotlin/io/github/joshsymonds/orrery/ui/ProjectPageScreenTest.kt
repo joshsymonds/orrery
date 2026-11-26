@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
@@ -58,7 +59,7 @@ class ProjectPageScreenTest {
         const val CONTRACT_TITLE = "Synthetic contract title"
         const val ALPHA_SESSION = "00000000000000000000000000000001"
         const val ENDED_SESSION = "00000000000000000000000000000004"
-        const val ALPHA_KEY = "|$ALPHA"
+        const val ALPHA_KEY = "$HOST|$ALPHA"
         const val ALPHA_NAME = "alpha"
     }
 
@@ -68,7 +69,7 @@ class ProjectPageScreenTest {
     private var openedPane: Pane? = null
     private var openedEpic: String? = null
     private var openedContract: String? = null
-    private var newHere: String? = null
+    private var newHere: Pair<String, String>? = null
     private var backed = false
 
     /** Whether the page is in the composition: a test takes it out and puts it back to leave the page and return. */
@@ -166,7 +167,7 @@ class ProjectPageScreenTest {
                     state = state,
                     onOpenPane = { openedPane = it },
                     onOpenEpic = { openedEpic = it },
-                    onNewHere = { newHere = it },
+                    onNewHere = { host, dir -> newHere = host to dir },
                     onBack = { backed = true },
                     onOpenContract = { id, _ -> openedContract = id },
                     now = { NOW },
@@ -223,7 +224,8 @@ class ProjectPageScreenTest {
             setPage(server, "$REMOTE|$ALPHA")
             awaitNode(hasTestTag(convoTag(paneKey("%1", REMOTE))))
 
-            composeRule.onNodeWithText("~/alpha · on $REMOTE").assertExists()
+            composeRule.onNodeWithText("~/alpha").assertExists()
+            assertEquals(1, countNodes(hasText(REMOTE) and hasAnyAncestor(hasTestTag("card-host:$REMOTE|$ALPHA"))))
         }
     }
 
@@ -359,15 +361,20 @@ class ProjectPageScreenTest {
     }
 
     @Test
-    fun newSessionHereCallsOnNewHereWithTheProjectsDirectory() {
+    fun newSessionHereCallsOnNewHereWithTheProjectsHostAndDirectory() {
         FakeOrreryServer().use { server ->
-            serveAlphaWithAnEpic(server)
-            setPage(server, ALPHA_KEY)
-            awaitNode(hasTestTag(convoTag(paneKey("%1"))))
+            serveDefaults(server)
+            server.respond(
+                PANES_LIST,
+                panesOf(pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, host = REMOTE)),
+            )
+            setPage(server, "$REMOTE|$ALPHA")
+            awaitNode(hasTestTag(convoTag(paneKey("%1", REMOTE))))
 
             composeRule.onNodeWithTag("project-new-here").performClick()
 
-            assertEquals(ALPHA, newHere)
+            assertEquals(REMOTE, newHere?.first)
+            assertEquals(ALPHA, newHere?.second)
         }
     }
 
@@ -376,7 +383,7 @@ class ProjectPageScreenTest {
         FakeOrreryServer().use { server ->
             serveDefaults(server)
             server.respond(PANES_LIST, panesOf(pane("%1", "", "working", NOW - 30, NOW - 10, NOW - 30)))
-            setPage(server, "nodir")
+            setPage(server, "$HOST|nodir")
             awaitNode(hasTestTag(convoTag(paneKey("%1"))))
 
             composeRule.onNodeWithText("No directory").assertExists()

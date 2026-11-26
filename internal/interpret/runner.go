@@ -69,6 +69,7 @@ type Store interface {
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	NodeRuns(ctx context.Context, epic string) ([]store.NodeRun, error)
 	ParkEpicWaking(ctx context.Context, epic, reason string, trigger store.NodeTrigger, at time.Time) error
+	RecaptureEvidence(ctx context.Context, epic string, ids []string, at time.Time) error
 	EndPlanBuilt(ctx context.Context, epic string, ends []store.NodeEnd, at time.Time) error
 	PrepareNode(ctx context.Context, epic, path string, attempt int64, revision, refs string) error
 	RecordNodeResult(ctx context.Context, epic, path string, attempt int64, result string) error
@@ -601,6 +602,8 @@ func (r *Runner) carry(ctx context.Context, epic store.EpicRow, act Action) erro
 		}
 	case ActParkEpic:
 		err = r.store.ParkEpicWaking(ctx, epic.ID, act.Reason, *act.Trigger, at)
+	case ActRecapture:
+		err = r.store.RecaptureEvidence(ctx, epic.ID, act.Items, at)
 	case ActBatch:
 		err = r.endBatch(ctx, epic, act, at)
 	case ActHold, ActReview, ActClosure, ActConclude, ActGapRound, ActRerun:

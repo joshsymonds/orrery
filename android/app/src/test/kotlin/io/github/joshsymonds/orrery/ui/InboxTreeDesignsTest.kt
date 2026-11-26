@@ -154,7 +154,7 @@ class InboxTreeDesignsTest {
             contracts = listOf(contract("c1", conversation = "ghost", repository = "/home/user/other")),
             designs = listOf(design("d1", "ghost", listOf(kid("c1", 1, repository = "/home/user/other")))),
         ).single()
-        assertEquals("|/home/user/other", project.key)
+        assertEquals("laptop|/home/user/other", project.key)
         val row = project.convos.single()
         assertEquals("design:d1", row.key)
         assertNull(row.pane)

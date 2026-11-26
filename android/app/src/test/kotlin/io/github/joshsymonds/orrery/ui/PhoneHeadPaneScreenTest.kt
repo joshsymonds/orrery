@@ -17,7 +17,6 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import com.connectrpc.Code
@@ -71,10 +70,8 @@ private const val COMPACT_TAG = "compact-head"
 private const val COMPACT_ASKING_TAG = "compact-asking"
 private const val COMPACT_BADGE_TAG = "compact-badge:example-repo/rota-export"
 private const val BAND_LINE_TAG = "band-line:example-repo/rota-export"
-private const val METERS_TAG = "head-meters"
-private const val OTHER_HOST_TAG = "head-other-host"
-private const val MACHINE_BAND_TAG = "machine-band"
-private const val MACHINE_HOST_TAG = "machine-host"
+private const val TITLE_TAG = "head-title"
+private const val HOST_LABEL_TAG = "host-label"
 private const val SYNTHETIC_GOAL = "synthetic goal text"
 private const val OTHER_HOST = "other-host"
 
@@ -354,35 +351,38 @@ class PhoneHeadPaneScreenTest {
         }
     }
 
+    /** Waits until the screen has read its host twice, so the first read has landed. The reads run in order each poll. */
+    private fun awaitHostReadLanded(server: FakeOrreryServer) {
+        composeRule.awaitUntil("the host is read twice") { server.requests.count { it.rawPath == HOST_PATH } >= 2 }
+    }
+
     @Test
-    fun anotherHostShowsItsNameAndNoMeters() {
+    fun anotherHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             servePane(server, host = OTHER_HOST)
             server.respond(HOST_PATH, HOST_BODY)
             setScreen(server)
             awaitNewestReply()
+            awaitHostReadLanded(server)
 
-            composeRule.awaitExactlyOne(hasTestTag(OTHER_HOST_TAG))
-            composeRule.onNodeWithText(OTHER_HOST).assertIsDisplayed()
-            composeRule.onNodeWithText("on another host: no meters").assertIsDisplayed()
-            composeRule.onAllNodesWithTag(METERS_TAG).assertCountEquals(0)
+            composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
+            composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
+                .assertTextEquals(OTHER_HOST)
         }
     }
 
     @Test
-    fun theLocalHostShowsItsMeters() {
+    fun theLocalHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
             setScreen(server)
             awaitNewestReply()
+            awaitHostReadLanded(server)
 
-            composeRule.awaitExactlyOne(hasTestTag(METERS_TAG))
-            composeRule.onAllNodesWithTag(OTHER_HOST_TAG).assertCountEquals(0)
-            // The pane screen draws its meters in the shared machine band, led by the host's label.
-            composeRule.onNode(hasTestTag(MACHINE_HOST_TAG) and hasAnyAncestor(hasTestTag(MACHINE_BAND_TAG)))
+            composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
+            composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
                 .assertTextEquals(PANE_HOST)
-            composeRule.onNode(hasTestTag("meter:cpu") and hasAnyAncestor(hasTestTag(MACHINE_BAND_TAG))).assertIsDisplayed()
         }
     }
 }

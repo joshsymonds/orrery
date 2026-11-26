@@ -199,6 +199,7 @@ These conventions are enforced by the lint configuration, the recipes, or a test
 
 - Tests run with `-count=1`, so a cached pass never hides a rerun. `cover` and `check-changed` both pass it.
 - The `cover` and `check-changed` recipes run the tests with `TMUX` and `TMUX_PANE` unset.
+- The `cover`, `check-changed` and `test-budget-update` recipes run the tests with `TMPDIR=/tmp`, as CI does. A `t.TempDir()` path carries the test name, and a unix socket made in it must fit in sun_path's 108 bytes; a dev shell such as `nix develop` sets a longer `TMPDIR` (`/tmp/nix-shell.XXXXXX`), which pushed the sockets of long-named tests past that limit.
 - A test that starts a tmux `-L` server stops it with `tmuxtest.Stop`, which kills the server and removes its socket. A test that leaves a socket behind fails `cover`.
 - `just reap-test-tmux` stops the servers of test binaries that were killed or timed out. It recognises a server by its `-L` name, `orrery-<word>(-<word>)*-<pid>-<hex>`, such as `orrery-test-<pid>-<hex>`, and stops it only when the test binary `<pid>` is gone. Name a test's server in that form so an orphan can be recognised.
 - Tests that start processes write their logs under `t.ArtifactDir()`. `cover` and `check-changed` pass `-artifacts -outputdir test-artifacts`, so the logs survive a failed run.

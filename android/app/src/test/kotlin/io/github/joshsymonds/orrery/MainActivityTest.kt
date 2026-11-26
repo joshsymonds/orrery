@@ -27,7 +27,6 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
-import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
@@ -36,9 +35,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
+import io.github.joshsymonds.orrery.gen.orrery.v1.ProposeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartProposal
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
@@ -67,7 +67,7 @@ private const val EPICS_LIST_PATH = "/orrery.v1.Epics/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
-private const val ASK_PATH = "/orrery.v1.Picker/Ask"
+private const val PROPOSE_PATH = "/orrery.v1.Picker/Propose"
 private const val START_PATH = "/orrery.v1.Control/Start"
 private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EVENT"
 private const val SESSION_ALPHA = "0123456789abcdef0123456789abcdef"
@@ -458,21 +458,12 @@ class MainActivityTest {
     }
 
     @Test
-    fun startingAFreshRowOpensTheSessionItAnswers() {
+    fun startingFromTheStarterOpensTheSessionItStarts() {
         serveSessions(headlessSession(SESSION_STARTED, "started-session"))
         server.respond(
-            ASK_PATH,
-            AskResponse.newBuilder()
-                .addRows(
-                    PickerRow.newBuilder()
-                        .setToken("tok-fresh")
-                        .setKind("fresh")
-                        .setDir("/home/user/alpha")
-                        .setPane("")
-                        .setLabel("")
-                        .setNote("")
-                        .setPrompt(false),
-                )
+            PROPOSE_PATH,
+            ProposeResponse.newBuilder()
+                .addProposals(StartProposal.newBuilder().setHost("example-host").setDir("/home/user/alpha"))
                 .build(),
         )
         server.respond(START_PATH, StartResponse.newBuilder().setId(SESSION_STARTED).build())
@@ -482,16 +473,16 @@ class MainActivityTest {
         composeRule.onNodeWithTag("picker-new").performClick()
         composeRule.onNodeWithTag("picker-text").performTextInput("fix the test")
         composeRule.onNodeWithTag("picker-text").performImeAction()
-        awaitNode(hasTestTag("picker-row:0"))
-        composeRule.onNodeWithTag("picker-row:0").performSemanticsAction(SemanticsActions.OnClick)
-        awaitNode(hasTestTag("start-form"))
-        composeRule.onNodeWithTag("start-message").performTextInput("start it")
+        awaitNode(hasTestTag("picker-proposal:0"))
         composeRule.onNodeWithTag("start-submit").performSemanticsAction(SemanticsActions.OnClick)
 
         awaitNode(titled("started-session"))
         val starts = server.requests.filter { it.rawPath == START_PATH }
         assertEquals(1, starts.size)
-        assertTrue(ID_FORM.matches(StartRequest.parseFrom(starts.single().body).id))
+        val request = StartRequest.parseFrom(starts.single().body)
+        assertEquals("example-host", request.host)
+        assertEquals("/home/user/alpha", request.dir)
+        assertTrue(ID_FORM.matches(request.id))
     }
 
     @Test

@@ -5824,6 +5824,27 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 	return err
 }
 
+const insertToldEpicTell = `-- name: InsertToldEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 1, 0)
+`
+
+type InsertToldEpicTellParams struct {
+	Epic string
+	Seq  int64
+	Text string
+	At   int64
+}
+
+func (q *Queries) InsertToldEpicTell(ctx context.Context, arg InsertToldEpicTellParams) error {
+	_, err := q.db.ExecContext(ctx, insertToldEpicTell,
+		arg.Epic,
+		arg.Seq,
+		arg.Text,
+		arg.At,
+	)
+	return err
+}
+
 const insertToldLimitStep = `-- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
 ON CONFLICT (limit_key, step) DO NOTHING
@@ -15126,6 +15147,23 @@ type SetEpicQuestionEscalationToldParams struct {
 
 func (q *Queries) SetEpicQuestionEscalationTold(ctx context.Context, arg SetEpicQuestionEscalationToldParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setEpicQuestionEscalationTold, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setEpicQuestionOvertaken = `-- name: SetEpicQuestionOvertaken :execrows
+UPDATE epic_questions SET state = 'overtaken' WHERE epic = ? AND seq = ? AND state = 'open'
+`
+
+type SetEpicQuestionOvertakenParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicQuestionOvertaken(ctx context.Context, arg SetEpicQuestionOvertakenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicQuestionOvertaken, arg.Epic, arg.Seq)
 	if err != nil {
 		return 0, err
 	}

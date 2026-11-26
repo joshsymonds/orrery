@@ -741,7 +741,7 @@ func TestOrchestratorCheckRefusesAnAskAsTheLastDecision(t *testing.T) {
 	}
 }
 
-func TestAnsweredFollowsReplacementsToTheirAnswer(t *testing.T) {
+func TestAnsweredFollowsReplacementsToTheirAnswerOrTheirOvertaking(t *testing.T) {
 	t.Parallel()
 	questions := []store.EpicQuestion{
 		{Seq: 1, State: store.QuestionReplaced, ReplacedBy: 2},
@@ -749,8 +749,10 @@ func TestAnsweredFollowsReplacementsToTheirAnswer(t *testing.T) {
 		{Seq: 3, State: store.QuestionReplaced, ReplacedBy: 4},
 		{Seq: 4, State: store.QuestionAnswered, Choice: "edit"},
 		{Seq: 5, State: store.QuestionAnswered},
+		{Seq: 6, State: store.QuestionOvertaken},
+		{Seq: 7, State: store.QuestionReplaced, ReplacedBy: 6},
 	}
-	for seq, want := range map[int64]bool{1: false, 2: false, 3: true, 5: true, 9: true} {
+	for seq, want := range map[int64]bool{1: false, 2: false, 3: true, 5: true, 6: true, 7: true, 9: true} {
 		if got := answered(questions, seq); got != want {
 			t.Errorf("answered(Q%d) = %v, want %v", seq, got, want)
 		}

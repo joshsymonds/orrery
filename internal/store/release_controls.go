@@ -74,7 +74,9 @@ func resumeRelease(
 // resumeReleaseByPlanner resumes the stopped release of epic for a planner's resume_release action, in the caller's
 // write. It runs only for an epic in phase stopped whose owner did not stop the release at the attempt of its parked
 // release node run: a release the owner stopped stays with the owner, and is refused. It refuses any undo-none step
-// named, since only the owner names one. Otherwise it resumes the release as ReleaseEpic does.
+// named, since only the owner names one. It refuses a release whose judge stopped it with a verdict at that attempt
+// (judgeVerdictAt): the planner grades its own epic, so it does not overrule its judge, and the refusal sends it to ask
+// the steerer, who resumes the release through ReleaseEpic. Otherwise it resumes the release as ReleaseEpic does.
 func resumeReleaseByPlanner(
 	ctx context.Context, queries *sqlcgen.Queries, epic string, undoNone []int64, at time.Time,
 ) error {
@@ -100,7 +102,37 @@ func resumeReleaseByPlanner(
 	if ownerStoppedAt(runs, parked.Attempt) {
 		return RefusalError(fmt.Sprintf("epic %s: its owner stopped the release; only the owner resumes it", epic))
 	}
+	if judgeVerdictAt(runs, parked.Attempt) {
+		return RefusalError(fmt.Sprintf(judgeVerdictRefusal, epic))
+	}
 	return resumeStoppedRelease(ctx, queries, head, undoNone, Maker{By: MakerOrreryd}, at)
+}
+
+// judgeVerdictRefusal is the format of the refusal of a planner's resume_release of a release whose judge stopped it
+// with a verdict, and its one verb takes the epic's id. It names the planner's way on: a cannot-proceed question to the
+// steerer, whose resume is the steerer's own epic_release.
+const judgeVerdictRefusal = "epic %s: its release judge found the release short of its postconditions, and the " +
+	"planner does not overrule the judge of its own epic; ask the steerer a cannot-proceed question that names each " +
+	"gap the judge listed with your reading of it, and whose choice to resume says the steerer resumes the release " +
+	"with epic_release"
+
+// The ends of a release judge's step that carry its verdict on the release: done, whose return says whether the
+// release met its postconditions, and goal_unmet, a return that the step's own judge found short of its task twice and
+// kept. A judge whose step ended any other way, or that did not start, gave no verdict.
+const (
+	judgeEndDone      = "done"
+	judgeEndGoalUnmet = "goal_unmet"
+)
+
+// judgeVerdictAt reports whether runs hold a verdict of the release judge at attempt that did not release the epic: a
+// judge release run of that attempt that did not pass and whose step ended done or goal_unmet. A judge that did not
+// start, whose run records no end, and one whose step failed, stopped or failed its checks hold no verdict, so a further
+// run of the judge is no overrule of it.
+func judgeVerdictAt(runs []ReleaseRun, attempt int64) bool {
+	return slices.ContainsFunc(runs, func(run ReleaseRun) bool {
+		return run.Part == ReleasePartJudge && run.Attempt == attempt && !run.Passed &&
+			(run.End == judgeEndDone || run.End == judgeEndGoalUnmet)
+	})
 }
 
 // resumeStoppedRelease resumes the stopped release of head in the caller's write, as ReleaseEpic does for an epic that is

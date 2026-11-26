@@ -47,6 +47,23 @@ func (e *QuestionReplacedError) Error() string {
 	return fmt.Sprintf("question %d was replaced by question %d", e.Seq, e.By)
 }
 
+// QuestionOvertakenError reports an answer to question Seq, which was overtaken: its epic moved on without its answer,
+// so it takes none (overtakeQuestion).
+type QuestionOvertakenError struct{ Seq int64 }
+
+// Error says the question was overtaken and names the decision that records why.
+func (e *QuestionOvertakenError) Error() string {
+	return fmt.Sprintf(
+		"question %d was overtaken: the epic moved on without its answer, so it takes none; decision %s records why",
+		e.Seq, e.Decision(),
+	)
+}
+
+// Decision returns the id of the decision that records why the question was overtaken.
+func (e *QuestionOvertakenError) Decision() string {
+	return overtakenDecisionID(e.Seq)
+}
+
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds. Seen is the time of the epic's last SeeEpic mark, zero when
 // none is stored.
@@ -909,7 +926,8 @@ func (s *Store) AnswerEpic(
 // choice keeps text as given, which may be empty. An unknown epic is ErrNoEpic. A stored id with equal text and choice
 // returns the stored decision and writes nothing, even after its question closed; a stored id with other text or
 // another choice is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion, a replaced one is a
-// *QuestionReplacedError and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
+// *QuestionReplacedError, an overtaken one, which the epic moved on from without its answer, is a
+// *QuestionOvertakenError, and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
 // other with blank text is ErrOtherNeedsText, and so is correct with blank text to a gaps question. Each refusal
 // writes nothing. Otherwise the question becomes answered with choice, a pending trigger `answer:<id>` is added, the
 // decision is appended with its question, and the epic's changed moves to at. An answer to a park question that is not
@@ -1152,9 +1170,10 @@ func decisionChoice(
 }
 
 // requireAnswerable is the refusal of an answer naming choice and text to question seq of epic: ErrNoQuestion when epic
-// has no question seq, a *QuestionReplacedError when a later question replaced it, ErrQuestionClosed when it is
-// answered, ErrNoChoice when it does not offer choice, and ErrOtherNeedsText when choice needs text it lacks (see
-// choiceNeedsText). When the answer is allowed it returns the open question as stored.
+// has no question seq, a *QuestionReplacedError when a later question replaced it, a *QuestionOvertakenError when the
+// epic moved on without its answer, ErrQuestionClosed when it is answered, ErrNoChoice when it does not offer choice,
+// and ErrOtherNeedsText when choice needs text it lacks (see choiceNeedsText). When the answer is allowed it returns the
+// open question as stored.
 func requireAnswerable(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1171,6 +1190,9 @@ func requireAnswerable(
 	}
 	if stored.State == QuestionReplaced {
 		return sqlcgen.EpicQuestion{}, &QuestionReplacedError{Seq: question, By: stored.ReplacedBy}
+	}
+	if stored.State == QuestionOvertaken {
+		return sqlcgen.EpicQuestion{}, &QuestionOvertakenError{Seq: question}
 	}
 	if stored.State != QuestionOpen {
 		return sqlcgen.EpicQuestion{}, fmt.Errorf("question %d on epic %s: %w", question, epic, ErrQuestionClosed)

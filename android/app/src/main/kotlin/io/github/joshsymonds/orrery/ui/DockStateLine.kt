@@ -35,9 +35,26 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
  */
 data class DockStop(val more: String, val name: String, val onStop: () -> Unit)
 
+/** The state line's tone for a dock on a host that does not answer, drawn in the grey ink. */
+internal const val UNREACHABLE_TONE = "unreachable"
+
+/**
+ * The one line a dock on a host that does not answer says, as `unreachable: <host> does not answer`, with no control. An
+ * empty [host] reads as "this host".
+ */
+fun unreachableLine(host: String): StateLine = StateLine(
+    tone = UNREACHABLE_TONE,
+    word = "unreachable: ${host.ifEmpty { "this host" }} does not answer",
+    tool = "",
+    what = "",
+    clock = "",
+    control = DockControl.NONE,
+)
+
 /**
  * The dock's state line: the word in its state's colour, the tool and what, the clock, then the controls at its end.
  * [stop] adds More at the end, which asks before it calls [DockStop.onStop]; a held step has More and no Interrupt.
+ * An unreachable line is drawn in the grey ink, plain.
  */
 @Composable
 fun DockStateLine(
@@ -58,11 +75,16 @@ fun DockStateLine(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
-            val plain = line.tone == "done" || line.tone == "idle" || line.tone == "stopped"
+            val unreachable = line.tone == UNREACHABLE_TONE
+            val plain = unreachable || line.tone == "done" || line.tone == "idle" || line.tone == "stopped"
             Text(
                 text = line.word,
                 modifier = Modifier.testTag("dock-word"),
-                color = if (plain) OrreryTokens.Ink.two else stateColour(line.tone),
+                color = when {
+                    unreachable -> OrreryTokens.Ink.three
+                    plain -> OrreryTokens.Ink.two
+                    else -> stateColour(line.tone)
+                },
                 style = OrreryTokens.Type.small.copy(
                     fontWeight = if (plain) OrreryTokens.Font.Weight.regular else OrreryTokens.Font.Weight.bold,
                 ),

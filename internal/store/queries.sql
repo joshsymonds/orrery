@@ -1308,6 +1308,9 @@ UPDATE epic_tells SET steerer_delivered = 1 WHERE epic = ? AND seq = ?;
 -- name: InsertDeliveredEpicTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 0, 1);
 
+-- name: InsertToldEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told, steerer_delivered) VALUES (?, ?, ?, ?, 1, 0);
+
 -- name: LatestEpicStall :one
 SELECT * FROM epic_stalls WHERE epic = ? ORDER BY seq DESC LIMIT 1;
 
@@ -1348,6 +1351,9 @@ UPDATE epic_questions SET state = 'answered', choice = ? WHERE epic = ? AND seq 
 
 -- name: SetEpicQuestionReplaced :execrows
 UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND seq = ? AND state = 'open';
+
+-- name: SetEpicQuestionOvertaken :execrows
+UPDATE epic_questions SET state = 'overtaken' WHERE epic = ? AND seq = ? AND state = 'open';
 
 -- name: EscalateEpicQuestion :execrows
 UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?

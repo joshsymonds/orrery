@@ -179,8 +179,6 @@ class HeadContractLinesTest {
                     title = "Tide table cache warm-up",
                     context = null,
                     note = "",
-                    stats = emptyList(),
-                    otherHost = null,
                     goal = "Every port’s tide table is cached through December 17.",
                     lines = epicLines.take(1),
                     asking = "",

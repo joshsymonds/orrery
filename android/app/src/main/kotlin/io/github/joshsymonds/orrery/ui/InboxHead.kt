@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,20 +43,23 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /** Search's name: its button's content description, its menu line, and the search field's placeholder. */
 internal const val SEARCH_LABEL = "Search sessions and epics"
 
-/** One action of the head that can fold into More: its [name], its [glyph], its [tag], and what a tap does. */
-private class InboxAction(val name: String, val glyph: Glyph, val tag: String, val onClick: () -> Unit)
+/**
+ * One action of the head that can fold into More: its [name], the [icon] it draws, its [tag], and what a tap does. The
+ * icon is a composable, so an action may draw a glyph or one of the block icons.
+ */
+private class InboxAction(val name: String, val icon: @Composable () -> Unit, val tag: String, val onClick: () -> Unit)
 
 /**
- * How much of the head folds into More, least first. Each step says how many of Search, Pools and Settings it folds,
- * counted from Settings back, how many icon buttons the bar then draws (the bell and More among them) and whether New
- * keeps its word. Folding Settings alone would trade it for
- * More at the same width, so Pools and Settings fold together.
+ * How much of the head folds into More, least first. Each step says how many of Search, Hosts, Pools and Settings it
+ * folds, counted from Settings back, how many icon buttons the bar then draws (the bell and More among them) and whether
+ * New keeps its word. Folding Settings alone would trade it for More at the same width, so Hosts, Pools and Settings
+ * fold together.
  */
 private enum class InboxFold(val folds: Int, val icons: Int, val newWords: Boolean) {
-    NONE(folds = 0, icons = 4, newWords = true),
-    POOLS_SETTINGS(folds = 2, icons = 3, newWords = true),
-    SEARCH_TOO(folds = 3, icons = 2, newWords = true),
-    NEW_BARE(folds = 3, icons = 2, newWords = false),
+    NONE(folds = 0, icons = 5, newWords = true),
+    HOSTS_POOLS_SETTINGS(folds = 3, icons = 3, newWords = true),
+    SEARCH_TOO(folds = 4, icons = 2, newWords = true),
+    NEW_BARE(folds = 4, icons = 2, newWords = false),
 }
 
 private enum class InboxSlot { LEAD, END }
@@ -68,25 +72,27 @@ private val NEW_GAP = OrreryTokens.Space.eight
 
 /**
  * The inbox head, after round 6's phone head: the Orrery mark and the name, then Search, the Notices bell with its
- * [unread] count, Pools, Settings and New, the last a button with its word, the rest icon buttons named for the reader.
- * The bar is one line at any width: when the actions do not fit, Pools and Settings fold into More, then Search, and at
- * the last New gives up its word. The bell always stays in the bar.
+ * [unread] count, Hosts, Pools, Settings and New, the last a button with its word, the rest icon buttons named for the
+ * reader. The bar is one line at any width: when the actions do not fit, Hosts, Pools and Settings fold into More, then
+ * Search, and at the last New gives up its word. The bell always stays in the bar.
  */
 @Composable
 internal fun InboxHead(
     unread: Int,
     onSearch: () -> Unit,
     onNotices: () -> Unit,
+    onHosts: () -> Unit,
     onPools: () -> Unit,
     onSettings: () -> Unit,
     onNew: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Least folded last: Search folds after Pools and Settings, so it comes first in the list of what folds.
+    // Least folded last: Search folds after Hosts, Pools and Settings, so it comes first in the list of what folds.
     val foldable = listOf(
-        InboxAction(SEARCH_LABEL, Glyph.SEARCH, "open-search", onSearch),
-        InboxAction("Pools", Glyph.POOLS, "open-pools", onPools),
-        InboxAction("Settings", Glyph.GEAR, "open-settings", onSettings),
+        InboxAction(SEARCH_LABEL, { GlyphIcon(Glyph.SEARCH, OrreryTokens.Ink.two) }, "open-search", onSearch),
+        InboxAction("Hosts", { BlockGlyph(BlockIcon.Host, OrreryTokens.Ink.two) }, "open-hosts", onHosts),
+        InboxAction("Pools", { GlyphIcon(Glyph.POOLS, OrreryTokens.Ink.two) }, "open-pools", onPools),
+        InboxAction("Settings", { GlyphIcon(Glyph.GEAR, OrreryTokens.Ink.two) }, "open-settings", onSettings),
     )
     val measurer = rememberTextMeasurer()
     SubcomposeLayout(
@@ -165,8 +171,8 @@ private fun InboxEnd(
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Round 6's order: Search, the bell, Pools, Settings.
-        val search = shown.filter { it.glyph == Glyph.SEARCH }
+        // Round 6's order: Search, the bell, then Hosts, Pools, Settings.
+        val search = shown.filter { it.name == SEARCH_LABEL }
         search.forEach { InboxButton(it) }
         IconButton(Glyph.BELL, "Notices", onNotices, Modifier.testTag("open-notices")) {
             if (unread > 0) CountBadge(unread, Modifier.align(Alignment.TopEnd).testTag("notices-unread"))
@@ -177,9 +183,23 @@ private fun InboxEnd(
     }
 }
 
+/**
+ * An action's icon button: a touch control square drawing its [InboxAction.icon], named for the reader as [IconButton]
+ * names its own.
+ */
 @Composable
 private fun InboxButton(action: InboxAction) {
-    IconButton(action.glyph, action.name, action.onClick, Modifier.testTag(action.tag))
+    Box(
+        modifier = Modifier
+            .testTag(action.tag)
+            .size(OrreryTokens.Size.controlTouch)
+            .clip(RoundedCornerShape(OrreryTokens.Radius.two))
+            .clickable(role = Role.Button, onClick = action.onClick)
+            .semantics { contentDescription = action.name },
+        contentAlignment = Alignment.Center,
+    ) {
+        action.icon()
+    }
 }
 
 /** More: the folded [actions] in a menu, each its glyph and its name on one line, tagged as its button would be. */
@@ -192,7 +212,7 @@ private fun InboxMore(actions: List<InboxAction>) {
             actions.forEach { action ->
                 DropdownMenuItem(
                     text = { Text(action.name, maxLines = 1) },
-                    leadingIcon = { GlyphIcon(action.glyph, OrreryTokens.Ink.two) },
+                    leadingIcon = action.icon,
                     onClick = {
                         open = false
                         action.onClick()

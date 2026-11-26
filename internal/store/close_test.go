@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -48,10 +49,10 @@ func createParkedEpic(t *testing.T, s *Store, epic string) {
 	}
 }
 
-// TestCloseEpicEachKindEndsAParkedEpicAndAnswersItsQuestion closes a parked epic as each kind, and checks that the phase
-// reads the closed phase of the kind, that the closer and the epic that replaces it are recorded, that the park ends,
-// and that the open park question is answered with the closed phase.
-func TestCloseEpicEachKindEndsAParkedEpicAndAnswersItsQuestion(t *testing.T) {
+// TestCloseEpicEachKindEndsAParkedEpicAndOvertakesItsQuestion closes a parked epic as each kind, and checks that the
+// phase reads the closed phase of the kind, that the closer and the epic that replaces it are recorded, that the park
+// ends, and that the open park question is overtaken, with orreryd's decision and a tell that name the closed phase.
+func TestCloseEpicEachKindEndsAParkedEpicAndOvertakesItsQuestion(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ kind, by, phase string }{
 		{kind: "superseded", by: closeNext, phase: PhaseClosedSuperseded},
@@ -90,12 +91,20 @@ func TestCloseEpicEachKindEndsAParkedEpicAndAnswersItsQuestion(t *testing.T) {
 					tc.by,
 				)
 			}
-			if len(row.Questions) != 1 || row.Questions[0].State != "answered" || row.Questions[0].Choice != tc.phase {
-				t.Errorf(
-					"questions after the close = %+v, want the park question answered with %q",
-					row.Questions,
-					tc.phase,
-				)
+			if len(row.Questions) != 1 || row.Questions[0].State != QuestionOvertaken || row.Questions[0].Choice != "" {
+				t.Errorf("questions after the close = %+v, want the park question overtaken", row.Questions)
+			}
+			why := "the epic is " + tc.phase + ", and it ended without its answer"
+			wantDecision := EpicDecision{
+				Seq: 3, ID: "overtaken:Q1", Text: "Q1 park closed as overtaken: " + why + ".", Time: closeAt(),
+				Maker: Maker{By: MakerOrreryd},
+			}
+			if got := row.Decisions[len(row.Decisions)-1]; !reflect.DeepEqual(got, wantDecision) {
+				t.Errorf("last decision after the close = %+v, want %+v", got, wantDecision)
+			}
+			wantTells := []string{"credit ran out", "Q1 park is overtaken and takes no answer: " + why + "."}
+			if got := claimTells(t, s); !reflect.DeepEqual(got, wantTells) {
+				t.Errorf("tells after the close = %q, want %q", got, wantTells)
 			}
 			open, err := s.OpenQuestions(ctx, claimEpic)
 			if err != nil {
@@ -224,7 +233,9 @@ func TestCloseEpicStopsItsBuildsAndItsNextTurn(t *testing.T) {
 }
 
 // TestCloseEpicPlannerCloseRoutesTheReportAndOwnerCloseRoutesNone closes one parked epic as the planner and another as the
-// owner. Only the planner's epic needs a report, and only the planner's close adds the tell that ends it.
+// owner. Only the planner's epic needs a report, and only the planner's close adds the tell that ends it. Each close
+// overtakes its park question with a tell the steerer is owed; the owner's is stored told, so the owner gets no notice
+// of their own close, and the planner's is not.
 func TestCloseEpicPlannerCloseRoutesTheReportAndOwnerCloseRoutesNone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -258,9 +269,38 @@ func TestCloseEpicPlannerCloseRoutesTheReportAndOwnerCloseRoutesNone(t *testing.
 	if got := lastTellText(t, s, claimEpic); got != "Closed as superseded by "+closeNext+"." {
 		t.Errorf("last tell of the planner's close = %q, want the closed-as tell naming %s", got, closeNext)
 	}
-	if got := lastTellText(t, s, owned); got != "credit ran out" {
-		t.Errorf("last tell of the owner's close = %q, want the park's tell alone", got)
+	overtakenTell := func(phase string) string {
+		return "Q1 park is overtaken and takes no answer: the epic is " + phase + ", and it ended without its answer."
 	}
+	wantPlanner := [][]any{
+		{"credit ran out", int64(0), int64(0)},
+		{overtakenTell(PhaseClosedSuperseded), int64(0), int64(0)},
+		{"Closed as superseded by " + closeNext + ".", int64(0), int64(0)},
+	}
+	if got := tellMarksOf(t, s, claimEpic); !reflect.DeepEqual(got, wantPlanner) {
+		t.Errorf("tells of the planner's close (text, told, delivered) = %v, want %v", got, wantPlanner)
+	}
+	wantOwner := [][]any{
+		{"credit ran out", int64(0), int64(0)},
+		{overtakenTell(PhaseClosedShipped), int64(1), int64(0)},
+	}
+	if got := tellMarksOf(t, s, owned); !reflect.DeepEqual(got, wantOwner) {
+		t.Errorf("tells of the owner's close (text, told, delivered) = %v, want %v", got, wantOwner)
+	}
+}
+
+// tellMarksOf returns each tell of epic in seq order as its text, its told mark and its steerer's delivered mark.
+func tellMarksOf(t *testing.T, s *Store, epic string) [][]any {
+	t.Helper()
+	tells, err := s.fixtureQueries().ListEpicTells(context.Background(), epic)
+	if err != nil {
+		t.Fatalf("tells of %s: %v", epic, err)
+	}
+	marks := make([][]any, 0, len(tells))
+	for _, tell := range tells {
+		marks = append(marks, []any{tell.Text, tell.Told, tell.SteererDelivered})
+	}
+	return marks
 }
 
 // epicIDsOf returns the ids of rows, in order.

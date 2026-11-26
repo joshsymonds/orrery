@@ -17,8 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsPropertyKey
@@ -46,69 +44,6 @@ private val MeterMinWidth: Dp = OrreryTokens.Size.meterBarWidth * 2
 
 // The clear space at a cell's end, so one cell's bar does not run into the next cell's.
 private val MeterGutter: Dp = OrreryTokens.Space.eight
-
-/**
- * The machine band, the one strip a screen draws the host's machine in: a full-width band of its own under the title
- * row, on surface.side, the inbox's ground, one step deeper than the goal's well, with an edge above and below it. It
- * leads with the host's label, the host icon and its name on a line of its own, then the host's stats as [HostMeters]
- * in a grid of equal cells under it. A host other than the serving one is labelled with its [otherHost] name and says
- * it has no meters. A host read with no stats draws its label alone. Null [stats], a host not read, with no other host
- * draws nothing, not even the band.
- */
-@Composable
-fun MachineBand(host: String, stats: List<HostStat>?, otherHost: String?) {
-    if (otherHost == null && stats == null) return
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("machine-band")
-            .background(OrreryTokens.Surface.side)
-            .drawBehind {
-                val edge = OrreryTokens.Size.hairline.toPx()
-                drawLine(OrreryTokens.Line.soft, Offset(0f, edge / 2), Offset(size.width, edge / 2), edge)
-                drawLine(
-                    OrreryTokens.Line.soft,
-                    Offset(0f, size.height - edge / 2),
-                    Offset(size.width, size.height - edge / 2),
-                    edge,
-                )
-            }
-            .padding(horizontal = OrreryTokens.Layout.pagePadPhone, vertical = OrreryTokens.Space.eight),
-        verticalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
-    ) {
-        HostLabel(otherHost ?: host)
-        if (otherHost != null) {
-            Text(
-                text = "on another host: no meters",
-                modifier = Modifier.testTag("head-other-host"),
-                color = OrreryTokens.Ink.four,
-                style = OrreryTokens.Type.small,
-            )
-        } else if (!stats.isNullOrEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().testTag("head-meters")) {
-                HostMeters(stats)
-            }
-        }
-    }
-}
-
-/** The machine band's label: the host icon in the faint ink, then the host's name in bold. */
-@Composable
-private fun HostLabel(name: String) {
-    Row(
-        modifier = Modifier.testTag("machine-host").semantics(mergeDescendants = true) {},
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.four),
-    ) {
-        BlockGlyph(BlockIcon.Host, OrreryTokens.Ink.four)
-        Text(
-            text = name,
-            color = OrreryTokens.Ink.two,
-            style = OrreryTokens.Type.small.copy(fontWeight = OrreryTokens.Font.Weight.bold),
-            maxLines = 1,
-        )
-    }
-}
 
 /**
  * The host's stats as meters, as web's A4 band draws them, in a grid of equal cells. The column count is how many cells

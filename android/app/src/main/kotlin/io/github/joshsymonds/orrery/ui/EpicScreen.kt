@@ -38,10 +38,12 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.EpicUsageSession
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +79,34 @@ private const val TAG = "EpicScreen"
 class EpicOpening(val section: String)
 
 /**
+ * The epic page's title row: back and the orrery crumb, then the epic's slug, state and blocker pills at [now] and its
+ * host labelled inline, once [detail] is read. While the epic loads, [detail] is null and the slug, pills and host are
+ * left out. An epic with no host of its own reads as [servingHost]. An [unreachable] host's label carries the
+ * unreachable mark.
+ */
+@Composable
+internal fun EpicTitleRow(
+    detail: EpicDetail?,
+    now: Long,
+    servingHost: String,
+    onBack: () -> Unit,
+    unreachable: Boolean = false,
+) {
+    val statePill = detail?.let { statePillOf(it, now) }
+    val blockerPill = detail?.let { blockerPillOf(it, now) }
+    TitleRow(
+        crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
+        onBack = onBack,
+        state = statePill?.word.orEmpty(),
+        stateTone = statePill?.tone,
+        blocker = blockerPill?.word.orEmpty(),
+        blockerTone = blockerPill?.tone,
+        host = detail?.let { it.epic.host.ifEmpty { servingHost } }.orEmpty(),
+        unreachable = unreachable,
+    )
+}
+
+/**
  * One epic as the record draws it: one scrolling list whose sections are drawn only when the epic reaches them. The
  * summary carries the contract and steered doors; the track, Now (its sentence, what asks, and its running steps), what
  * just happened, the tasks (chart then table), the requirements, the review, the release and the report follow, then the
@@ -110,6 +140,17 @@ fun EpicScreen(
     var load by remember(client, epicId) { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember(client, epicId) { mutableIntStateOf(0) }
     var notice by remember(client, epicId) { mutableStateOf("") }
+    // The serving host's name, which an epic or step with no host of its own reads as. Read whether or not the title row
+    // is drawn, since the body's Now steps name it too.
+    var servingHost by remember(client) { mutableStateOf("") }
+    // The hosts the status lists with their reach, so the title row marks an epic on a host that does not answer.
+    var hosts by remember(client) { mutableStateOf<List<HostEntry>>(emptyList()) }
+    LaunchedEffect(client) {
+        fetchHost(client)?.let {
+            servingHost = it.host
+            hosts = it.hosts
+        }
+    }
     val scope = rememberCoroutineScope()
     val releaseCall = remember(client, epicId) { OwnerCall() }
     val gapsCall = remember(client, epicId) { OwnerCall() }
@@ -228,17 +269,16 @@ fun EpicScreen(
         }
     }
     val nowAt = now()
-    val statePill = detail?.let { statePillOf(it, nowAt) }
-    val blockerPill = detail?.let { blockerPillOf(it, nowAt) }
+    // An epic on a host that does not answer draws unreachable in its title row, as the inbox draws it.
+    val unreachable = detail?.let { !reachableOf(hosts, it.epic.host.ifEmpty { servingHost }) } == true
     Column(modifier = modifier.fillMaxSize()) {
         if (titled) {
-            TitleRow(
-                crumbs = listOfNotNull(Crumb("orrery", onBack), detail?.let { Crumb(it.epic.slug) }),
+            EpicTitleRow(
+                detail = detail,
+                now = nowAt,
+                servingHost = servingHost,
                 onBack = onBack,
-                state = statePill?.word.orEmpty(),
-                stateTone = statePill?.tone,
-                blocker = blockerPill?.word.orEmpty(),
-                blockerTone = blockerPill?.tone,
+                unreachable = unreachable,
             )
         }
         if (notice.isNotEmpty()) {
@@ -263,6 +303,7 @@ fun EpicScreen(
             is EpicLoad.Loaded -> EpicBody(
                 loaded = current,
                 now = nowAt,
+                servingHost = servingHost,
                 listState = listState,
                 openAt = openAt,
                 loadArtifact = loadArtifact,
@@ -403,6 +444,7 @@ private class UsageRead {
 private fun EpicBody(
     loaded: EpicLoad.Loaded,
     now: Long,
+    servingHost: String,
     listState: LazyListState,
     openAt: EpicOpening?,
     loadArtifact: ArtifactLoader,
@@ -464,7 +506,7 @@ private fun EpicBody(
                 }
             }
         }
-        section("now") { NowSection(detail = detail, now = now, actions = actions) }
+        section("now") { NowSection(detail = detail, now = now, servingHost = servingHost, actions = actions) }
         if (reached.history) {
             section("happened") {
                 JustHappened(entries = loaded.history, steps = detail.steps, onOpenStep = onOpenStep)
@@ -539,9 +581,9 @@ private fun EpicBody(
 }
 
 // NowSection is Now: its sentence and what asks, then the running steps. Stop… on an owner's park opens a confirm here;
-// Stop is sent only once that confirm is given.
+// Stop is sent only once that confirm is given. A step with no host of its own names the serving host.
 @Composable
-private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
+private fun NowSection(detail: EpicDetail, now: Long, servingHost: String, actions: NowActions) {
     var stopAsking by remember { mutableStateOf(false) }
     NowAsk(
         detail = detail,
@@ -567,7 +609,8 @@ private fun NowSection(detail: EpicDetail, now: Long, actions: NowActions) {
             Text("Keep it running")
         }
     }
-    StepRows(lines = stepLinesOf(detail), tasks = recordTasksOf(detail), now = now)
+    val lines = stepLinesOf(detail).map { line -> line.copy(host = line.host.ifEmpty { servingHost }) }
+    StepRows(lines = lines, tasks = recordTasksOf(detail), now = now)
 }
 
 // Summary is the summary paragraph, then its two doors: the contract, and the conversation that steers the epic. A door

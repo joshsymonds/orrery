@@ -23,25 +23,27 @@ type ActionKind string
 // of a conclusion run's review, the run that runs a reviewer again, with the verdict and findings it settled.
 // ActRebuild starts the ended build run of an open task again, as a send_back that reopens a done task needs.
 // ActGapTask ends an open task as a gap, as its build kind does when a dependency of the task is lost, so the task
-// never starts.
+// never starts. ActRecapture captures the items of the Requirements it names once more at the epic's stored base, as a
+// plan whose epic is not built does before it parks the epic.
 const (
-	ActStart    ActionKind = "start"
-	ActEnd      ActionKind = "end"
-	ActRound    ActionKind = "round"
-	ActPark     ActionKind = "park"
-	ActParkNode ActionKind = "park_node"
-	ActParkEpic ActionKind = "park_epic"
-	ActBatch    ActionKind = "batch"
-	ActHold     ActionKind = "hold"
-	ActReview   ActionKind = "review"
-	ActClosure  ActionKind = "closure"
-	ActConclude ActionKind = "conclude"
-	ActGapRound ActionKind = "gap_round"
-	ActRerun    ActionKind = "rerun"
-	ActWork     ActionKind = "work"
-	ActRun      ActionKind = "run"
-	ActRebuild  ActionKind = "rebuild"
-	ActGapTask  ActionKind = "gap_task"
+	ActStart     ActionKind = "start"
+	ActEnd       ActionKind = "end"
+	ActRound     ActionKind = "round"
+	ActPark      ActionKind = "park"
+	ActParkNode  ActionKind = "park_node"
+	ActParkEpic  ActionKind = "park_epic"
+	ActBatch     ActionKind = "batch"
+	ActHold      ActionKind = "hold"
+	ActReview    ActionKind = "review"
+	ActClosure   ActionKind = "closure"
+	ActConclude  ActionKind = "conclude"
+	ActGapRound  ActionKind = "gap_round"
+	ActRerun     ActionKind = "rerun"
+	ActWork      ActionKind = "work"
+	ActRun       ActionKind = "run"
+	ActRebuild   ActionKind = "rebuild"
+	ActGapTask   ActionKind = "gap_task"
+	ActRecapture ActionKind = "recapture"
 )
 
 // Action is one thing Decide asks for. Start carries the Runs to start and, for a later plan, its Trigger. End carries
@@ -50,7 +52,7 @@ const (
 // child its Task. ParkNode parks the node run at Path, whose Attempt ended with Outcome and Output, for Reason. An end
 // that carries Tell also tells the owner it, as an evidence node at base does when it found Requirements met at the
 // base and ends passed, so the epic goes on. Batch ends the integrate run Run at Path, whose Attempt ended with Outcome
-// and Output, with Trigger. ParkEpic parks the epic for Reason, with Trigger. Work carries a check or release node
+// and Output, with Trigger. ParkEpic parks the epic for Reason, with Trigger. Recapture names its Requirements in Items. Work carries a check or release node
 // run's work: Work is the kind's action, prepare, start, capture, repro, refs, advance, take, integrator, step, judge,
 // record, stop, ending, free, replan, resume, task_integrator, repro_judge or verify, and Def, Run, IDs, Items, Tasks and
 // Units are what it is for. An
@@ -415,8 +417,11 @@ func (p pass) bodyRunning(path string) bool {
 
 // complete decides a plan run whose kind ends it and whose walks have settled. A plan body that holds an
 // integrate node ends built when every Requirement is built or held by a task that ended as a gap, so a plan whose only
-// unbuilt Requirements are gapped ends built and does not park. Otherwise it parks the epic, and wakes the planner with
-// a trigger whose cause names what is unbuilt. Any other plan ends as it did.
+// unbuilt Requirements are gapped ends built and does not park. Otherwise it first captures once more, at the stored
+// base, each item no run there captured green (kinds.Recapture); its kind keeps the plan running while those captures
+// run, as it does for any amendment under way. A run that never captured a Requirement at the stored base shows nothing
+// wrong with it, and the planner should not have to work around that. Once nothing is left to recapture, it parks the
+// epic, and wakes the planner with a trigger whose cause names what is unbuilt. Any other plan ends as it did.
 func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) []Action {
 	ends := p.endsUnder(run.Path, act.Outcome, act.Output)
 	if !slices.ContainsFunc(def.Body, func(node workflow.Node) bool { return node.Kind == kindIntegrate }) {
@@ -425,6 +430,9 @@ func (p pass) complete(def workflow.Node, run store.NodeRun, act kinds.Action) [
 	missing := kinds.Unbuilt(p.rows)
 	if len(missing) == 0 {
 		return []Action{{Kind: ActEnd, Ends: ends, Built: true}}
+	}
+	if recapture := kinds.Recapture(p.rows); len(recapture) > 0 {
+		return []Action{{Kind: ActRecapture, Items: recapture}}
 	}
 	reason := "epic not built: " + strings.Join(missing, "; ")
 	id := store.NodeRunID(p.rows.Epic.ID, run.Path, run.Round, fmt.Sprintf("unbuilt after turn %d", p.highestTurn()))

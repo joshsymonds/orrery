@@ -73,6 +73,17 @@ func triggerRow(t *testing.T, s *Store, epic, id string) (state, cause string) {
 // release while clean, and its release stops it.
 func createStoppedRelease(t *testing.T, s *Store, epic string) {
 	t.Helper()
+	stopReleaseAfter(t, s, epic, "rejected", ReleaseRun{
+		Part: ReleasePartStep, Position: 1, Attempt: 1, Step: "push tag", Evidence: "run-push-tag",
+		Reason: "rejected", At: closeAt(),
+	})
+}
+
+// stopReleaseAfter stores epic as a release that recorded runs under attempt 1 of its release node run and then
+// stopped there with reason, as the release kind stops it. Its release steps are push tag, which has an undo, and
+// publish, which has none. epic starts its release while clean.
+func stopReleaseAfter(t *testing.T, s *Store, epic, reason string, runs ...ReleaseRun) {
+	t.Helper()
 	ctx := context.Background()
 	at := closeAt()
 	row := fullEpic(epic)
@@ -89,13 +100,12 @@ func createStoppedRelease(t *testing.T, s *Store, epic string) {
 	if err := s.StartNodes(ctx, epic, []NodeRun{run}, nil, at); err != nil {
 		t.Fatalf("StartNodes of epic %s: %v", epic, err)
 	}
-	if err := s.RecordRelease(ctx, epic, ReleaseRun{
-		Part: ReleasePartStep, Position: 1, Attempt: 1, Step: "push tag", Evidence: "run-push-tag",
-		Reason: "rejected", At: at,
-	}); err != nil {
-		t.Fatalf("RecordRelease of epic %s: %v", epic, err)
+	for _, release := range runs {
+		if err := s.RecordRelease(ctx, epic, release); err != nil {
+			t.Fatalf("RecordRelease %s %d of epic %s: %v", release.Part, release.Position, epic, err)
+		}
 	}
-	if err := s.StopRelease(ctx, epic, run.Path, 1, "rejected", at); err != nil {
+	if err := s.StopRelease(ctx, epic, run.Path, 1, reason, at); err != nil {
 		t.Fatalf("StopRelease of epic %s: %v", epic, err)
 	}
 }

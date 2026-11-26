@@ -38,10 +38,11 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
-import io.github.joshsymonds.orrery.api.HostStat
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -138,7 +139,8 @@ private fun isShownContract(contract: ContractRow, heldIds: Set<String>): Boolea
  * is a nudge. [held] is the step's held state, so a held step shows no Hold. [label] names the step in the dock,
  * and [doing] says what the step is doing there. [epic] is the id of the epic the step belongs to and [task] the id of
  * its task: the screen reads the epic, and the step's title, state and end come from its record once it is read.
- * Until then [label], [held] and [doing] stand.
+ * Until then [label], [held] and [doing] stand. [host] is the name of the step's host, which its title row names; empty
+ * reads as the serving host.
  */
 data class StepMode(
     val held: Boolean,
@@ -146,7 +148,42 @@ data class StepMode(
     val doing: String = "",
     val epic: String = "",
     val task: String = "",
+    val host: String = "",
 )
+
+/**
+ * A step's page title row: back, then, once the step's epic [detail] is read, the crumbs of its epic and of its task
+ * (the task's [title], which opens the task at [phase]), then its own session's crumb. The step's host is labelled
+ * inline; [StepMode.host] names it, and an empty one reads as [servingHost]. An [unreachable] host's label carries the
+ * unreachable mark. [onFind] is the row's More's Find.
+ */
+@Composable
+internal fun StepTitleRow(
+    step: StepMode,
+    detail: EpicDetail?,
+    title: String,
+    phase: Phase,
+    servingHost: String,
+    onBack: () -> Unit,
+    onOpenEpic: (String) -> Unit,
+    onOpenTask: (String, Phase) -> Unit,
+    onFind: () -> Unit,
+    unreachable: Boolean = false,
+) {
+    TitleRow(
+        crumbs = buildList {
+            if (detail != null) {
+                add(Crumb(label = detail.epic.slug, onGo = { onOpenEpic(step.epic) }))
+                add(Crumb(label = title, onGo = { onOpenTask(step.task, phase) }))
+            }
+            add(Crumb(label = "Worker session"))
+        },
+        onBack = onBack,
+        onFind = onFind,
+        host = step.host.ifEmpty { servingHost },
+        unreachable = unreachable,
+    )
+}
 
 /**
  * A headless session's screen: its conversation, streamed while the screen is started. Each delta is
@@ -226,7 +263,8 @@ fun SessionScreen(
     var stepRead by remember(sessionId) { mutableStateOf(false) }
     var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
-    var stats by remember(sessionId) { mutableStateOf<List<HostStat>?>(null) }
+    // The hosts the status lists with their reach, as the last Host.Status read gave them.
+    var hosts by remember(sessionId) { mutableStateOf<List<HostEntry>>(emptyList()) }
     var nowSeconds by remember { mutableLongStateOf(clock()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -283,7 +321,7 @@ fun SessionScreen(
                             listed?.let { contracts = it }
                             host?.let {
                                 servingHost = it.host
-                                stats = it.stats
+                                hosts = it.hosts
                             }
                             delay(HEAD_POLL_MILLIS)
                         }
@@ -328,6 +366,10 @@ fun SessionScreen(
     val stepTitle = stepRecord?.title ?: step?.label.orEmpty()
     val stepPhase = stepRecord?.let { phaseOfPlace(it.place, it.integrated) } ?: Phase.IMPLEMENTING
     val stepDock = step?.let { DockStep(stepTitle, stepRow?.held ?: it.held, stepRow?.doing ?: it.doing) }
+    // The host the screen's title row and dock name: a step's own, else the session's. Unreachable when its pane flags
+    // it, or the host status says the host does not answer.
+    val screenHost = if (step != null) step.host.ifEmpty { servingHost } else pane?.host.orEmpty().ifEmpty { servingHost }
+    val unreachable = pane?.unreachable == true || !reachableOf(hosts, screenHost)
     val unsent = held?.let { unsentTexts(sentTexts, it.conversation.items, it.queued) }.orEmpty()
     val entries = remember(held, unsent) {
         held?.let {
@@ -387,7 +429,6 @@ fun SessionScreen(
     val steered = headEpics.steered
     val lines = askLines(steered, headEpics.details)
     val asking = askingWords(ownName = pane?.takeIf { ownAsks(it) }?.let { lastPathElement(it.cwd) }, lines = lines)
-    val otherHost = pane?.let { otherHostOf(it.host, servingHost) }
     val bandLines = contractBandLines(contracts, sessionId)
     // The work link, the band line and the transcript line of a contract the conversation proposed open live while it runs.
     // A transcript line also needs the contract listed as this conversation's, so a line of another's stays read-only.
@@ -424,16 +465,17 @@ fun SessionScreen(
         }
         if (step != null) {
             val detail = stepDetail
-            TitleRow(
-                crumbs = buildList {
-                    if (detail != null) {
-                        add(Crumb(label = detail.epic.slug, onGo = { onOpenEpic(step.epic) }))
-                        add(Crumb(label = stepTitle, onGo = { onOpenTask(step.task, stepPhase) }))
-                    }
-                    add(Crumb(label = "Worker session"))
-                },
+            StepTitleRow(
+                step = step,
+                detail = detail,
+                title = stepTitle,
+                phase = stepPhase,
+                servingHost = servingHost,
                 onBack = onBack,
+                onOpenEpic = onOpenEpic,
+                onOpenTask = onOpenTask,
                 onFind = { finding = FindSession(query = "") },
+                unreachable = unreachable,
             )
             detail?.let { shown ->
                 ContextBand(
@@ -443,6 +485,7 @@ fun SessionScreen(
                     onOpenEpic = { onOpenEpic(step.epic) },
                     onOpenTask = onOpenTask,
                     modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
+                    servingHost = servingHost,
                 )
             }
         }
@@ -460,8 +503,6 @@ fun SessionScreen(
                         title = shown.label.ifEmpty { shown.command },
                         context = conversation?.context,
                         note = if (refreshFailed) REFRESH_FAILED else "",
-                        stats = if (otherHost == null) stats else null,
-                        otherHost = otherHost,
                         goal = conversation?.goal.orEmpty(),
                         lines = lines,
                         asking = asking,
@@ -483,6 +524,7 @@ fun SessionScreen(
                         onAllWork = openAllWork,
                         usage = usage.readout,
                         onUsage = { usage.open = true },
+                        unreachable = unreachable,
                         modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                     )
                 }
@@ -601,6 +643,7 @@ fun SessionScreen(
                     stepCalls = if (step != null) stepCalls else null,
                     about = about?.let { "${it.id} ${it.text}" },
                     onClearAbout = onClearAbout,
+                    unreachableHost = screenHost.takeIf { unreachable },
                 )
             }
         }

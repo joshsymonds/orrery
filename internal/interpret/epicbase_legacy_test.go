@@ -62,6 +62,13 @@ func TestEpicBaseLegacyPlanEndsBuiltWhenNoSyncHoldsIt(t *testing.T) {
 	redOfR1 := redRun(red, "R1", evidence.VerdictFails, true)
 	captured := captureRun(passed, "R1")
 	unbuiltR1 := "epic not built: R1 is not green at the stored base " + legacyStored
+	// recapture is orreryd's recapture of R1 at the stored base, applied, whose green run captured nothing.
+	recapture := recaptureOfR1(store.AmendmentApplied)
+	recapture.StoredBase = legacyStored
+	recapturedNothing := store.EvidenceRun{
+		ID: recaptureGreen, Item: "R1", Revision: legacyStored, Phase: evidence.PhaseGreen, State: "ended",
+		NotCaptured: "the capture command is missing",
+	}
 	requirements := []store.EpicRequirement{itemRequirement("R1")}
 	decideCases(t, []decideCase{
 		{
@@ -80,10 +87,20 @@ func TestEpicBaseLegacyPlanEndsBuiltWhenNoSyncHoldsIt(t *testing.T) {
 			want: []Action{{Kind: ActRun, Path: "plan", NodeKind: "plan"}},
 		},
 		{
-			name: "a passed sync without R1's capture at the stored base leaves the epic unbuilt",
+			name: "a passed sync without R1's capture at the stored base recaptures R1 there",
 			flow: flow,
 			rows: withEvidence(legacyEpicRows(red, skipped, passed), requirements, redOfR1),
 			reg:  reg,
+			want: []Action{{Kind: ActRecapture, Items: []string{"R1"}}},
+		},
+		{
+			name: "a passed sync whose recapture of R1 did not pass leaves the epic unbuilt",
+			flow: flow,
+			rows: recapturing(
+				withEvidence(legacyEpicRows(red, skipped, passed), requirements, redOfR1, recapturedNothing),
+				recapture,
+			),
+			reg: reg,
 			want: []Action{{
 				Kind: ActParkEpic, Reason: unbuiltR1, Trigger: unbuiltTrigger(unbuiltR1),
 			}},

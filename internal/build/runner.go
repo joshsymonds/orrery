@@ -340,8 +340,8 @@ func (r *Runner) readRequest(ctx context.Context, epic store.EpicRow, task store
 }
 
 // answered reports whether the owner has answered question seq among questions: it is answered, or the question that
-// replaced it, followed to the last replacement, is. A question that is not stored has no answer to wait for, so it
-// counts as answered.
+// replaced it, followed to the last replacement, is. A question that is not stored, and one that was overtaken, which
+// its epic moved on from without its answer, have no answer to wait for, so each counts as answered.
 func answered(questions []store.EpicQuestion, seq int64) bool {
 	for range questions {
 		i := slices.IndexFunc(questions, func(question store.EpicQuestion) bool { return question.Seq == seq })
@@ -349,7 +349,7 @@ func answered(questions []store.EpicQuestion, seq int64) bool {
 			return true
 		}
 		if questions[i].State != store.QuestionReplaced || questions[i].ReplacedBy == 0 {
-			return questions[i].State == store.QuestionAnswered
+			return questions[i].State == store.QuestionAnswered || questions[i].State == store.QuestionOvertaken
 		}
 		seq = questions[i].ReplacedBy
 	}

@@ -100,11 +100,12 @@ type EvidenceAmendment struct {
 	Settled      time.Time
 }
 
-// amendStart is an amendment as it starts: its amender, the turn and position of the action that asks for it, and what
-// it asks for.
+// amendStart is an amendment as it starts: its amender, the turn and position of the action that asks for it, whether it
+// is orreryd's recapture of the item the Requirement holds (RecaptureEvidence), and what it asks for.
 type amendStart struct {
 	amender        string
 	turn, position int64
+	recapture      bool
 	Amendment
 }
 
@@ -158,6 +159,57 @@ func (s *Store) AmendEvidence(
 		return EvidenceAmendment{}, err
 	}
 	return stored, nil
+}
+
+// RecaptureEvidence captures once more, at the epic's stored base, the item each Requirement ids names holds, in one
+// write, as orreryd's amendment of each to the item it already holds. An epic's plan ends with a Requirement not green at
+// its stored base when no run there captured it, such as after a batch failed for another Requirement's capture, so
+// before the epic is parked as not built its items are captured where it stands (kinds.Recapture). Each amendment keeps
+// the conclusion and kind, so it applies in the write and moves to capturing, its green run and, for a test item, its
+// reproduction named at the stored base (applyAmendment); its green is the Requirement's there (kinds.GreenAt). It gives
+// no planner trigger (finishAmendment), since the plan's next pass reads the outcome and builds the epic or parks it. A
+// refusal of any of them (amendmentRefusal) is a RefusalError and writes nothing.
+func (s *Store) RecaptureEvidence(ctx context.Context, epic string, ids []string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		head, err := epicHead(ctx, queries, epic)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if recaptureErr := recapture(ctx, queries, epic, head.StoredBase, id, at); recaptureErr != nil {
+				return recaptureErr
+			}
+		}
+		return nil
+	})
+}
+
+// recapture stores and applies orreryd's recapture of the item Requirement id of epic holds, in the caller's write, as
+// RecaptureEvidence gives, with storedBase, the epic's stored base, named in its reason.
+func recapture(ctx context.Context, queries *sqlcgen.Queries, epic, storedBase, id string, at time.Time) error {
+	requirement, err := epicRequirement(ctx, queries, epic, id)
+	if err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("the plan ended with %s not green at the stored base %s, so orreryd captures its item "+
+		"there once more before it parks the epic as not built", id, storedBase)
+	started, err := startAmendment(ctx, queries, epic, amendStart{
+		amender: AmenderOrreryd, recapture: true,
+		Amendment: Amendment{Requirement: id, Item: requirement.Item, Reason: reason},
+	}, at)
+	if err != nil {
+		return err
+	}
+	_, err = applyUnchanged(ctx, queries, started, at)
+	return err
+}
+
+// Recaptured reports whether amendment is orreryd's recapture of the item its Requirement held (RecaptureEvidence): an
+// amendment by orreryd whose new item is its prior item. Any other amendment to the item a Requirement holds is refused
+// (amendmentRefusal), so only a recapture has one.
+func Recaptured(amendment EvidenceAmendment) bool {
+	return amendment.Amender == AmenderOrreryd &&
+		evidence.Current(listsAsNull(amendment.Prior), listsAsNull(amendment.Item))
 }
 
 // makerAmender returns the amender an AmendEvidence call by maker stores: the owner, a conversation or orreryd, as
@@ -246,7 +298,7 @@ func epicRequirement(ctx context.Context, queries *sqlcgen.Queries, epic, id str
 
 // amendmentRefusal returns why start may not amend requirement of epic, or "" when it may: a Requirement dropped as
 // already met at the base, an item evidence.Check refuses, with each of its lines, an item the Requirement already holds,
-// whatever empty lists it gives as null or [], an amendment by the planner or orreryd that changes the conclusion or the
+// whatever empty lists it gives as null or [], unless start is orreryd's recapture of it, an amendment by the planner or orreryd that changes the conclusion or the
 // kind, which only the owner and the conversation that steers the epic may change, a Requirement with an amendment that is
 // checking or capturing, and an amendment that keeps the conclusion and kind while evidence work of the epic is under way.
 // A planner or orreryd amendment that changed the kind could drop what the kind checks, such as the reproduction of a test
@@ -263,7 +315,7 @@ func amendmentRefusal(
 	if lines := evidence.Check(start.Item); len(lines) > 0 {
 		return "item: " + strings.Join(lines, "; "), nil
 	}
-	if evidence.Current(listsAsNull(requirement.Item), listsAsNull(start.Item)) {
+	if !start.recapture && evidence.Current(listsAsNull(requirement.Item), listsAsNull(start.Item)) {
 		return fmt.Sprintf("%s already holds this item", id), nil
 	}
 	if !mayAmendClaim(start.amender) && start.Item.Conclusion != requirement.Item.Conclusion {
@@ -542,6 +594,10 @@ func applyAmendment(
 	if setErr := setRequirementItem(ctx, queries, amendment, amendedItem); setErr != nil {
 		return setErr
 	}
+	storedBase := head.StoredBase
+	if storedBase == "" {
+		storedBase = head.Base
+	}
 	text := fmt.Sprintf(
 		"%s amended the evidence of %s (A%d): %s.%s%s",
 		amendment.Amender,
@@ -551,6 +607,10 @@ func applyAmendment(
 		proof,
 		itemsText(amendment.Prior, amendment.Item),
 	)
+	if Recaptured(amendment) {
+		text = fmt.Sprintf("%s recaptures the evidence of %s at the stored base %s (A%d): %s.", amendment.Amender,
+			amendment.Requirement, storedBase, amendment.Seq, amendment.Reason)
+	}
 	if _, err = appendDecision(
 		ctx,
 		queries,
@@ -566,10 +626,6 @@ func applyAmendment(
 	}
 	if takeErr := takeAmendmentAction(ctx, queries, amendment); takeErr != nil {
 		return takeErr
-	}
-	storedBase := head.StoredBase
-	if storedBase == "" {
-		storedBase = head.Base
 	}
 	if storedBase == amendment.Base {
 		if _, err = queries.ApplyEpicAmendment(ctx, sqlcgen.ApplyEpicAmendmentParams{
@@ -807,10 +863,14 @@ func greenOutcome(amendment EvidenceAmendment, green EvidenceRun, repro NodeChec
 
 // finishAmendment ends an amendment that is now applied, in the caller's write. It adds a pending trigger with the id
 // amend-<seq> whose cause names the amendment and outcome, so the planner plans on the new item. An amendment by the owner
-// or by a conversation also adds a tell with the same text, which tells the owner of it.
+// or by a conversation also adds a tell with the same text, which tells the owner of it. A recapture (Recaptured) adds
+// neither: its item is the one the planner planned on, and the plan's next pass reads its green.
 func finishAmendment(
 	ctx context.Context, queries *sqlcgen.Queries, amendment EvidenceAmendment, outcome string, at time.Time,
 ) error {
+	if Recaptured(amendment) {
+		return nil
+	}
 	cause := fmt.Sprintf("evidence of %s amended by the %s (A%d): %s", amendment.Requirement, amendment.Amender,
 		amendment.Seq, outcome)
 	if err := insertAmendmentTrigger(

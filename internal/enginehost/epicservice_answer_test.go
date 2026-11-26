@@ -231,6 +231,35 @@ func TestEpicAnswerToClosedQuestionIsFailedPrecondition(t *testing.T) {
 	}
 }
 
+// TestEpicAnswerToOvertakenQuestionIsFailedPrecondition checks that an answer to a question the epic's release overtook
+// is failed_precondition with a message that says the epic moved on, and records no decision beside the seeds and the
+// overtaken decision the release wrote.
+func TestEpicAnswerToOvertakenQuestionIsFailedPrecondition(t *testing.T) {
+	t.Parallel()
+	st, _ := openPlannerStore(t)
+	client := newEpicsClient(t, startEpicServer(t, st))
+	createEpicOK(t, st, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
+	askQuestions(t, st, "Synthetic question one?")
+	if err := st.EndEpic(
+		t.Context(),
+		epicServiceID,
+		"released",
+		"Released. No gaps.",
+		nil,
+		time.Unix(turnFreed, 0),
+	); err != nil {
+		t.Fatalf("EndEpic released: %v", err)
+	}
+
+	_, err := answerEpic(t, client, "A1", "Ship it.", "Q1", store.ChoiceOther)
+	wantConnectError(t, err, connect.CodeFailedPrecondition,
+		"question: Q1 was overtaken: the epic moved on without its answer, so it takes none; "+
+			"decision overtaken:Q1 records why")
+	if decisions := getEpicOK(t, client).GetDecisions(); len(decisions) != 4 {
+		t.Fatalf("decisions = %d after a refused answer, want the three seeds and overtaken:Q1", len(decisions))
+	}
+}
+
 func TestEpicAnswerToReplacedQuestionIsFailedPrecondition(t *testing.T) {
 	t.Parallel()
 	st, path := openPlannerStore(t)

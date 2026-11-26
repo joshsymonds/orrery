@@ -70,6 +70,8 @@ private const val BAND_LINE_TAG = "band-line:example-repo/rota-export"
 private const val COMPOSER_TAG = "composer"
 private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val SERVING_HOST = "example-host"
+private const val TITLE_TAG = "head-title"
+private const val HOST_LABEL_TAG = "host-label"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -178,7 +180,7 @@ class PhoneHeadSessionScreenTest {
     }
 
     @Test
-    fun theServingHostsMetersDrawInTheSharedMachineBand() {
+    fun theServingHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(fullDelta()))
             server.respond(
@@ -191,10 +193,9 @@ class PhoneHeadSessionScreenTest {
             setScreen(server)
             awaitNewestReply()
 
-            composeRule.awaitExactlyOne(hasTestTag("machine-band"))
-            composeRule.onNode(hasTestTag("machine-host") and hasAnyAncestor(hasTestTag("machine-band")))
+            composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
+            composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
                 .assertTextEquals(SERVING_HOST)
-            composeRule.onNode(hasTestTag("meter:cpu") and hasAnyAncestor(hasTestTag("machine-band"))).assertIsDisplayed()
         }
     }
 

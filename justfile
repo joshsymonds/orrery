@@ -37,7 +37,7 @@ cover:
     # scripts/test-deadline.sh appends each package's CPU seconds to the record, checked against the baseline below.
     record="$artifacts/test-budget.record"
     : >"$record"
-    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
+    env -u TMUX -u TMUX_PANE TMPDIR=/tmp TMUX_TMPDIR="$dir" ORRERY_TEST_CPU_FILE="$record" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$PWD/coverage.out" -artifacts -outputdir "$artifacts" ./... || rc=$?
     if [ "$rc" -ne 0 ]; then
         exit "$rc"
     fi
@@ -311,7 +311,7 @@ test-budget-update: reap-test-tmux
         mkdir "$dir/tmux$run"
         : >"$dir/run$run"
         rc=0
-        env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_CPU_FILE="$dir/run$run" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$dir/cover$run.out" ./... || rc=$?
+        env -u TMUX -u TMUX_PANE TMPDIR=/tmp TMUX_TMPDIR="$dir/tmux$run" ORRERY_TEST_CPU_FILE="$dir/run$run" go test -exec "$PWD/scripts/test-deadline.sh" -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile="$dir/cover$run.out" ./... || rc=$?
         if [ "$rc" -ne 0 ]; then
             echo "test-budget-update: run $run failed (exit $rc); testdata/test-budget.json is unchanged" >&2
             exit "$rc"

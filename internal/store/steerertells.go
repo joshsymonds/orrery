@@ -76,3 +76,19 @@ func insertDeliveredTell(ctx context.Context, queries *sqlcgen.Queries, epic, te
 	}
 	return nil
 }
+
+// insertToldTell adds text to epic as its next tell, as insertTell does, already told, so no owner notice is routed for
+// it, and not yet delivered, so its steerer is still sent it. It is the tell of a write the owner made, who needs no
+// notice of their own write. The insert is marked a caller event, as any tell write is.
+func insertToldTell(ctx context.Context, queries *sqlcgen.Queries, epic, text string, at time.Time) error {
+	highest, err := queries.MaxEpicTellSeq(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read tells of epic %s: %w", epic, err)
+	}
+	if err = queries.InsertToldEpicTell(withEpicEvent(ctx), sqlcgen.InsertToldEpicTellParams{
+		Epic: epic, Seq: highest + 1, Text: text, At: at.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert tell of epic %s: %w", epic, err)
+	}
+	return nil
+}

@@ -48,6 +48,7 @@ import io.github.joshsymonds.orrery.ui.AccountsScreen
 import io.github.joshsymonds.orrery.ui.ContractScreen
 import io.github.joshsymonds.orrery.ui.EpicOpening
 import io.github.joshsymonds.orrery.ui.EpicScreen
+import io.github.joshsymonds.orrery.ui.HostsView
 import io.github.joshsymonds.orrery.ui.NoticesScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
@@ -128,6 +129,8 @@ class MainActivity : ComponentActivity() {
                     }
                     // The directory a project page's New session here opens the picker on, null while it is closed.
                     var pickerDir by remember { mutableStateOf<String?>(null) }
+                    // The host that directory is on, which the picker opens on; null reads as the serving host.
+                    var pickerHost by remember { mutableStateOf<String?>(null) }
                     val animated = animationsOn()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -156,6 +159,7 @@ class MainActivity : ComponentActivity() {
                                             )
                                         },
                                         onOpenSettings = { screen = Screen.Settings },
+                                        onOpenHosts = { screen = Screen.Hosts },
                                         onOpenPools = { screen = Screen.Pools },
                                         onOpenNotices = { screen = Screen.Notices },
                                         onOpenAccounts = { screen = Screen.Accounts },
@@ -169,7 +173,10 @@ class MainActivity : ComponentActivity() {
                                             state = paneListState,
                                             onOpenPane = { screen = paneScreen(it, back = current) },
                                             onOpenEpic = { screen = Screen.Epic(it, back = current) },
-                                            onNewHere = { pickerDir = it },
+                                            onNewHere = { host, dir ->
+                                                pickerHost = host
+                                                pickerDir = dir
+                                            },
                                             onBack = { screen = Screen.Panes },
                                             onOpenContract = { id, conversation ->
                                                 screen = Screen.Contract(
@@ -196,6 +203,7 @@ class MainActivity : ComponentActivity() {
                                                     doing = it.doing,
                                                     epic = current.id,
                                                     task = it.task,
+                                                    host = it.host,
                                                 )
                                             },
                                             onOpenContract = {
@@ -236,6 +244,7 @@ class MainActivity : ComponentActivity() {
                                                     doing = it.doing,
                                                     epic = current.epicId,
                                                     task = it.task,
+                                                    host = it.host,
                                                 )
                                             },
                                         )
@@ -271,6 +280,7 @@ class MainActivity : ComponentActivity() {
                                                 doing = current.doing,
                                                 epic = current.epic,
                                                 task = current.task,
+                                                host = current.host,
                                             ),
                                             onOpenEpic = { screen = Screen.Epic(it) },
                                             onOpenTask = { task, phase ->
@@ -331,6 +341,13 @@ class MainActivity : ComponentActivity() {
                                                 screen = Screen.Phase(epic, task, phase, back = current)
                                             },
                                             listedSteerer = listedSteerer,
+                                        )
+                                    }
+                                    Screen.Hosts -> {
+                                        BackHandler { screen = Screen.Panes }
+                                        HostsView(
+                                            client = client,
+                                            onBack = { screen = Screen.Panes },
                                         )
                                     }
                                     Screen.Pools -> {
@@ -402,16 +419,17 @@ class MainActivity : ComponentActivity() {
                         pickerDir?.let { dir ->
                             PickerPanel(
                                 client = client,
-                                onOpened = { paneId ->
-                                    pickerDir = null
-                                    screen = Screen.Pane(paneId)
-                                },
                                 onStarted = { sessionId ->
                                     pickerDir = null
+                                    pickerHost = null
                                     screen = Screen.Session(sessionId)
                                 },
-                                onClose = { pickerDir = null },
+                                onClose = {
+                                    pickerDir = null
+                                    pickerHost = null
+                                },
                                 startIn = dir,
+                                startHost = pickerHost,
                             )
                         }
                         // A solid band over the status bar's inset, drawn last so nothing that
@@ -499,6 +517,7 @@ class MainActivity : ComponentActivity() {
         doing = step.doing,
         epic = epic,
         task = step.task,
+        host = step.host,
     )
 
     /** The About set on [conversation], the screen a contract's row returned to, or null. */
@@ -517,14 +536,14 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * How deep a screen sits: the home list is 0; a project's page, the pools, the notices or the settings is 1; an
-     * epic's contract, a task's phase output or the accounts and routes page is 2; a pane, a session, an epic or a
+     * How deep a screen sits: the home list is 0; a project's page, the hosts, the pools, the notices or the settings is
+     * 1; an epic's contract, a task's phase output or the accounts and routes page is 2; a pane, a session, an epic or a
      * step's session is one deeper than the screen it opened from.
      */
     private val Screen.depth: Int
         get() = when (this) {
             Screen.Panes -> 0
-            Screen.Pools, Screen.Notices, Screen.Settings, is Screen.Project -> 1
+            Screen.Hosts, Screen.Pools, Screen.Notices, Screen.Settings, is Screen.Project -> 1
             is Screen.Pane -> back.depth + 1
             is Screen.Session -> back.depth + 1
             is Screen.Epic -> back.depth + 1
@@ -541,6 +560,8 @@ class MainActivity : ComponentActivity() {
         /** The accounts and routes page, reached from Settings' first row: back returns to Settings. */
         data object Accounts : Screen
         data object Pools : Screen
+        /** The hosts view, reached from the Hosts action on the home list: back returns to the home list. */
+        data object Hosts : Screen
         /** The notice history, reached from the bell on the home list: back returns to the home list. */
         data object Notices : Screen
         /** A conversation's pane, reached from the home tree or a project's page: back returns to [back]. */
@@ -578,6 +599,7 @@ class MainActivity : ComponentActivity() {
          * A step's session, reached from its epic or from a task's phase output: back returns to [back]. [held] is the
          * step's held state when it was opened, and [label] and [doing] name the step and say what it is doing in its
          * dock. [epic] and [task] are the step's epic and task, whose record the session's band and crumbs read.
+         * [host] is the step's host, which its title row names; empty reads as the serving host.
          */
         data class Step(
             val id: String,
@@ -587,6 +609,7 @@ class MainActivity : ComponentActivity() {
             val doing: String,
             val epic: String,
             val task: String,
+            val host: String,
         ) : Screen
     }
 }

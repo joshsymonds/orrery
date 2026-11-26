@@ -3,8 +3,6 @@ package io.github.joshsymonds.orrery.api
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
@@ -21,16 +19,16 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
+import io.github.joshsymonds.orrery.gen.orrery.v1.ProposeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ProposeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartProposal as StartProposalProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
@@ -490,13 +488,8 @@ class OrreryClientTest {
     }
 
     @Test
-    fun writeCallsNeverRetryAfterAConnectionDropsAsk() {
-        assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_ASK) { it.ask("example request") }
-    }
-
-    @Test
-    fun writeCallsNeverRetryAfterAConnectionDropsRun() {
-        assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_RUN) { it.run("example-token-1") }
+    fun writeCallsNeverRetryAfterAConnectionDropsPropose() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_PROPOSE) { it.propose("example request") }
     }
 
     @Test
@@ -1057,60 +1050,45 @@ class OrreryClientTest {
     }
 
     @Test
-    fun askPostsExactMessageWithBothHeadersAndParsesEveryRowField() {
-        val response = AskResponse.newBuilder()
-            .addRows(
-                PickerRow.newBuilder()
-                    .setToken("example-token-1")
-                    .setKind("jump")
-                    .setDir("/home/user/project")
-                    .setPane("%7")
-                    .setLabel("example-label")
-                    .setNote("example-note")
-                    .setPrompt(false),
-            )
-            .addRows(
-                PickerRow.newBuilder()
-                    .setToken("example-token-2")
-                    .setKind("fresh")
-                    .setDir("/home/user/other")
-                    .setPrompt(true),
-            )
+    fun proposePostsExactTextWithBothHeadersAndParsesEveryProposalField() {
+        val response = ProposeResponse.newBuilder()
+            .addProposals(StartProposalProto.newBuilder().setHost("example-remote").setDir("/home/user/project"))
+            .addProposals(StartProposalProto.newBuilder().setHost("example-controller").setDir("/home/user/other"))
             .build()
         FakeOrreryServer().use { server ->
-            server.respond(PICKER_ASK, response)
+            server.respond(PICKER_PROPOSE, response)
 
-            val rows = OrreryClient(server.baseUrl).ask("example request")
+            val proposals = OrreryClient(server.baseUrl).propose("example request")
 
             assertEquals(
                 listOf(
-                    PickRow("example-token-1", "jump", "/home/user/project", "%7", "example-label", "example-note", false),
-                    PickRow("example-token-2", "fresh", "/home/user/other", "", "", "", true),
+                    StartProposal("example-remote", "/home/user/project"),
+                    StartProposal("example-controller", "/home/user/other"),
                 ),
-                rows,
+                proposals,
             )
             val request = server.requests.single()
-            assertConnectRequest(PICKER_ASK, request)
+            assertConnectRequest(PICKER_PROPOSE, request)
             assertEquals(
-                AskRequest.newBuilder().setText("example request").build(),
-                AskRequest.parseFrom(request.body),
+                ProposeRequest.newBuilder().setText("example request").build(),
+                ProposeRequest.parseFrom(request.body),
             )
         }
     }
 
     @Test
-    fun askOutlastsTheStandardTimeout() {
+    fun proposeOutlastsTheStandardTimeout() {
         FakeOrreryServer().use { server ->
-            server.respond(PICKER_ASK, AskResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
+            server.respond(PICKER_PROPOSE, ProposeResponse.getDefaultInstance(), delayMillis = TIER_ANSWER_MILLIS)
 
-            assertEquals(emptyList<PickRow>(), tieredClient(server).ask("example request"))
+            assertEquals(emptyList<StartProposal>(), tieredClient(server).propose("example request"))
         }
     }
 
     @Test
     fun theTiersDefaultToTenTwentyFiveAndNinetySeconds() {
         // The tier tests above run on scaled timeouts; these are the ones the app uses. An answer at 11 s times out a
-        // standard call and is waited for by the compose (send, say, start) and picker (ask) calls.
+        // standard call and is waited for by the compose (send, say, start) and picker (propose) calls.
         assertEquals(
             mapOf("standard" to 10_000, "compose" to 25_000, "picker" to 90_000, "stream" to 10_000),
             OrreryClient("http://127.0.0.1:1").readTimeoutsMillis,
@@ -1118,28 +1096,12 @@ class OrreryClientTest {
     }
 
     @Test
-    fun runPostsExactMessageWithBothHeadersAndReturnsPane() {
+    fun proposeServerErrorThrowsCallExceptionCarryingReason() {
         FakeOrreryServer().use { server ->
-            server.respond(PICKER_RUN, RunResponse.newBuilder().setPane("%7").build())
-
-            assertEquals("%7", OrreryClient(server.baseUrl).run("example-token-1"))
-
-            val request = server.requests.single()
-            assertConnectRequest(PICKER_RUN, request)
-            assertEquals(
-                RunRequest.newBuilder().setToken("example-token-1").build(),
-                RunRequest.parseFrom(request.body),
-            )
-        }
-    }
-
-    @Test
-    fun askServerErrorThrowsCallExceptionCarryingReason() {
-        FakeOrreryServer().use { server ->
-            server.fail(PICKER_ASK, Code.UNAVAILABLE, "model failed: example reason")
+            server.fail(PICKER_PROPOSE, Code.UNAVAILABLE, "model failed: example reason")
 
             val error = assertThrows(OrreryCallException::class.java) {
-                OrreryClient(server.baseUrl).ask("example request")
+                OrreryClient(server.baseUrl).propose("example request")
             }
 
             assertEquals(Code.UNAVAILABLE, error.code)
@@ -1148,26 +1110,12 @@ class OrreryClientTest {
     }
 
     @Test
-    fun runExpiredTokenThrowsCallExceptionCarryingReason() {
-        FakeOrreryServer().use { server ->
-            server.fail(PICKER_RUN, Code.FAILED_PRECONDITION, "token expired")
-
-            val error = assertThrows(OrreryCallException::class.java) {
-                OrreryClient(server.baseUrl).run("example-token-1")
-            }
-
-            assertEquals(Code.FAILED_PRECONDITION, error.code)
-            assertEquals("token expired", error.message)
-        }
-    }
-
-    @Test
     fun pickerErrorWithEmptyMessageFallsBackToCodeName() {
         FakeOrreryServer().use { server ->
-            server.fail(PICKER_RUN, Code.NOT_FOUND)
+            server.fail(PICKER_PROPOSE, Code.NOT_FOUND)
 
             val error = assertThrows(OrreryCallException::class.java) {
-                OrreryClient(server.baseUrl).run("example-token-1")
+                OrreryClient(server.baseUrl).propose("example request")
             }
 
             assertEquals(Code.NOT_FOUND, error.code)
@@ -1220,8 +1168,7 @@ class OrreryClientTest {
         const val HOST_STATUS = "/orrery.v1.Host/Status"
         const val PUSH_REGISTER = "/orrery.v1.Push/Register"
         const val PUSH_UNREGISTER = "/orrery.v1.Push/Unregister"
-        const val PICKER_ASK = "/orrery.v1.Picker/Ask"
-        const val PICKER_RUN = "/orrery.v1.Picker/Run"
+        const val PICKER_PROPOSE = "/orrery.v1.Picker/Propose"
         const val CONTROL_START = "/orrery.v1.Control/Start"
         const val CONTROL_SAY = "/orrery.v1.Control/Say"
         const val SESSION_ID = "0123456789abcdef0123456789abcdef"

@@ -29,14 +29,22 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 /**
  * The epic's one line, over a task's record and its worker's session: the epic's slug in bold, its state word and its
  * done tasks, then its blocker pill in its tone (attention when the epic asks the owner, quiet when its steerer holds
- * the park or the question), and a chevron. Pressing it calls [onOpenEpic].
+ * the park or the question), and a chevron. Pressing it calls [onOpenEpic]. The epic's host is labelled after the slug,
+ * an empty host reading as [servingHost]; a name that is empty too draws no label.
  */
 @Composable
-fun EpicPin(detail: EpicDetail, now: Long, onOpenEpic: () -> Unit, modifier: Modifier = Modifier) {
+fun EpicPin(
+    detail: EpicDetail,
+    now: Long,
+    onOpenEpic: () -> Unit,
+    modifier: Modifier = Modifier,
+    servingHost: String = "",
+) {
     val state = statePillOf(detail, now)
     val blocker = blockerPillOf(detail, now)
     val tasks = recordTasksOf(detail)
     val done = tasks.count { it.integrated }
+    val host = detail.epic.host.ifEmpty { servingHost }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -53,6 +61,7 @@ fun EpicPin(detail: EpicDetail, now: Long, onOpenEpic: () -> Unit, modifier: Mod
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (host.isNotEmpty()) HostLabel(name = host)
         Text(
             "${state.word} · $done of ${tasks.size} tasks done",
             modifier = Modifier.weight(1f),
@@ -78,7 +87,8 @@ fun EpicPin(detail: EpicDetail, now: Long, onOpenEpic: () -> Unit, modifier: Mod
 /**
  * The band over a task's record and its worker's session: the [EpicPin] over the epic's task strip, one chip per task
  * in task order, each with its five pips. The [currentTask]'s chip is selected and opens nothing; every other chip
- * calls [onOpenTask] with its task and the phase the task is in, implementing for a planned task.
+ * calls [onOpenTask] with its task and the phase the task is in, implementing for a planned task. [servingHost] is the
+ * name an epic with no host reads as, in the pin's label.
  */
 @Composable
 fun ContextBand(
@@ -88,9 +98,10 @@ fun ContextBand(
     onOpenEpic: () -> Unit,
     onOpenTask: (task: String, phase: Phase) -> Unit,
     modifier: Modifier = Modifier,
+    servingHost: String = "",
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        EpicPin(detail = detail, now = now, onOpenEpic = onOpenEpic)
+        EpicPin(detail = detail, now = now, onOpenEpic = onOpenEpic, servingHost = servingHost)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

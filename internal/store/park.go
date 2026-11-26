@@ -42,7 +42,9 @@ const (
 	ParkClassLoop ParkClass = "loop"
 	// ParkClassNotBuilt is a plan run that ended with Requirements unbuilt.
 	ParkClassNotBuilt ParkClass = "not_built"
-	// ParkClassReleaseStep is a release that stopped at a release step the planner may resume.
+	// ParkClassReleaseStep is a release stop that is neither release_undo_none nor release_owner_stop: at its candidate,
+	// at a release step that is not undo none, or at its judge. The planner may resume it, except one its judge stopped
+	// with a verdict (judgeVerdictAt), which the planner asks the steerer about.
 	ParkClassReleaseStep ParkClass = "release_step"
 )
 
