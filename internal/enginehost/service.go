@@ -54,9 +54,9 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// ServeConfig is what ServeWith serves. Each field but PaneSends, Accounts, Designs and Stage is one of the services
-// Serve takes, and the nil rules are Serve's. PaneSends, Accounts, Designs and Stage are served by ServeWith alone.
-// Options apply to each handler.
+// ServeConfig is what ServeWith serves. Each field but PaneSends, Accounts, Designs, Stage and Fleet is one of the
+// services Serve takes, and the nil rules are Serve's. PaneSends, Accounts, Designs, Stage and Fleet are served by
+// ServeWith alone. Options apply to each handler.
 type ServeConfig struct {
 	Commands  Commands
 	Steps     StepCommands
@@ -74,6 +74,8 @@ type ServeConfig struct {
 	Stage     enginev1connect.StageHandler
 	PaneSends PaneSendRecorder
 	Accounts  *Accounts
+	// Fleet is the Fleet service's router and desk. A nil Fleet refuses every Fleet RPC as unavailable.
+	Fleet *Fleet
 	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
 	// create checks run on the Host that Hosts resolves it to.
 	Host string
@@ -98,8 +100,8 @@ type ServeConfig struct {
 // the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, Decline on a headless step id, and NotNow
 // and BringBack on a headless step id, since a step is driven only through the Steps service. opts apply to each of the
 // ten handlers. Serve serves no pane sends, so the PaneSends service refuses every RPC as unavailable, no accounts, so
-// the Accounts service refuses every RPC as unavailable, and no designs, so the Designs service refuses every RPC as
-// unavailable.
+// the Accounts service refuses every RPC as unavailable, no designs, so the Designs service refuses every RPC as
+// unavailable, and no fleet, so the Fleet service refuses every RPC as unavailable.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -161,6 +163,7 @@ func NewHandler(cfg ServeConfig) http.Handler {
 		paneSendService{sends: cfg.PaneSends, now: time.Now}, opts...)
 	accountsPath, accountsHandler := enginev1connect.NewAccountsHandler(
 		&accountService{accounts: cfg.Accounts}, opts...)
+	fleetPath, fleetHandler := enginev1connect.NewFleetHandler(&fleetService{fleet: cfg.Fleet}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
@@ -175,17 +178,19 @@ func NewHandler(cfg ServeConfig) http.Handler {
 	mux.Handle(stagePath, stageHandler)
 	mux.Handle(paneSendsPath, paneSendsHandler)
 	mux.Handle(accountsPath, accountsHandler)
+	mux.Handle(fleetPath, fleetHandler)
 	return mux
 }
 
 // ServeWith answers the services that cfg describes on ln until ctx ends, as Serve does, and also answers the PaneSends
-// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs and the Stage
-// service with cfg.Stage. It then shuts down within shutdownWait and returns nil. A nil cfg.PaneSends refuses every
-// PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as unavailable, a nil cfg.Designs refuses
-// every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC as unimplemented. A nil cfg.Captures
-// refuses CaptureEvidence as unavailable, and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields
-// keep Serve's nil rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as
-// cfg.CallerHost sets it, so no caller names another host.
+// service with cfg.PaneSends, the Accounts service with cfg.Accounts, the Designs service with cfg.Designs, the Stage
+// service with cfg.Stage, and the Fleet service with cfg.Fleet. It then shuts down within shutdownWait and returns nil.
+// A nil cfg.PaneSends refuses every PaneSends RPC as unavailable, a nil cfg.Accounts refuses every Accounts RPC as
+// unavailable, a nil cfg.Designs refuses every Designs RPC as unavailable, and a nil cfg.Stage answers every Stage RPC
+// as unimplemented. A nil cfg.Fleet refuses every Fleet RPC as unavailable. A nil cfg.Captures refuses CaptureEvidence
+// as unavailable, and a nil cfg.Attacher refuses AttachEvidence as unavailable. The other fields keep Serve's nil
+// rules, and cfg.Options apply to each handler. Each request is served with its Orrery-Host set as cfg.CallerHost sets
+// it, so no caller names another host.
 func ServeWith(ctx context.Context, ln net.Listener, cfg ServeConfig) error {
 	srv := &http.Server{
 		Handler:           stampCallerHost(cfg.CallerHost, NewHandler(cfg)),

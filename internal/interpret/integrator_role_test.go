@@ -94,8 +94,8 @@ func TestIntegratorRoleMergesCleanOrConflicting(t *testing.T) {
 // base, never skip a gate declared always, stop on a gate that does not resolve, and run narrower checks of its own only
 // beside the gates; read the evidence commands as references; run heavy commands where the repository's own
 // instructions say they run without naming any one project's command; list every command it ran and its choice of each
-// Done gate; and return done only when all of them passed or failed for a cause origin's side alone holds, shown by the
-// same command failing on origin's commit, which stops no merge. The narrow-checks-as-a-default text it replaces is gone.
+// Done gate; and return done only when all of them passed or failed for a cause it showed the merge did not bring. The
+// narrow-checks-as-a-default text it replaces is gone.
 func TestIntegratorRoleRunsTheDoneGatesUnlessASkipIsShown(t *testing.T) {
 	t.Parallel()
 	for _, want := range []string{
@@ -119,11 +119,8 @@ func TestIntegratorRoleRunsTheDoneGatesUnlessASkipIsShown(t *testing.T) {
 			"repository checks and how.",
 		"Run heavy commands, such as builds and test suites, where the repository's own instructions say they run: " +
 			"its CLAUDE.md, AGENTS.md or CONTRIBUTING.md names the wrapper, the remote machine or the recipe for them.",
-		"return done only when every command you ran passed on the merged tree, or failed for a cause origin's side " +
-			"alone holds, shown as above",
-		"A check that fails for a cause origin's side alone holds does not stop the merge",
-		"Show that it is origin's by running the same command on origin's commit, where it fails the same way, in " +
-			"code the candidate does not change",
+		"return done only when every command you ran passed on the merged tree, or failed for a cause you showed " +
+			"the merge did not bring, as above.",
 		"checks: each command you ran on the merged tree, with command and result; a done return lists at least one. " +
 			"The Done gates you ran are among them.",
 		"gates: one entry for each Done gate, with gate, its name; run, true when you ran it on the merged tree and " +
@@ -207,5 +204,65 @@ func TestIntegratorRoleNamesEveryTookTheSchemaAccepts(t *testing.T) {
 	want := "took, which is " + strings.Join(took[:len(took)-1], ", ") + " or " + took[len(took)-1]
 	if !strings.Contains(integratorRole, want) {
 		t.Errorf("integrator role lacks %q, the took values IntegratorSchema accepts", want)
+	}
+}
+
+// TestIntegratorRoleJudgesAFailedCheck asserts that the role text has the integrator find out why a check failed
+// before deciding, weighing both ways of being wrong; gather the evidence that answers whose failure it is; let a
+// failure the merge did not cause, a flake, the machine or origin's own, leave the merge going on; hold a failure in code
+// either side's change reaches, or one it cannot explain, against the merge; and say what it found, so the call can be
+// checked. Its list of reasons to stop is examples, not the whole of it. The fixed rules it replaces are gone: a flake
+// counted as a failure, and an origin failure shown only by failing the same way again.
+func TestIntegratorRoleJudgesAFailedCheck(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{
+		"When a check fails, find out why before you decide anything, as an engineer who knows this repository would.",
+		"A merge that ships a real break is the worst result.",
+		"A merge stopped for a failure the merge did not cause costs the epic a planner turn that finds nothing to " +
+			"change, a new merge and every check again.",
+		"So the question is whether the merged tree is broken, and if it is, by which side's change.",
+		"run the failing test again, alone or a few times, run the same command on origin's commit or on the release tip",
+		"a test that ran past a time limit on a busy machine says little about the code",
+		"A failure the merge did not cause does not stop the merge: a flaky test that neither side's change reaches, a " +
+			"failure of the machine or the network, or a failure origin's main already has",
+		"A failure in code either side changed, or that either side's change reaches, counts against the merge until " +
+			"you show otherwise, and so does a failure you cannot explain.",
+		"say in the check's result and in the evidence what failed, what you did to find out why, and what that " +
+			"showed, so that someone who has not seen this worktree can check your call.",
+		"Stop, and return status blocked, when you cannot finish a merge you can stand behind",
+		"They are examples, not the whole of it: stop for any reason of the same weight, and say what it is.",
+	} {
+		if !strings.Contains(integratorRole, want) {
+			t.Errorf("integrator role lacks %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"A check that fails and then passes when run again has not passed",
+		"where it fails the same way",
+		"Stop, and return status blocked, when any of these holds.",
+		"failed for a cause origin's side alone holds",
+	} {
+		if strings.Contains(integratorRole, gone) {
+			t.Errorf("integrator role still says %q", gone)
+		}
+	}
+}
+
+// TestTaskIntegratorRoleClashesOnAnyReasonOfTheSameWeight asserts that the task integrator's reasons to return clash
+// are examples of a merge it cannot stand behind, not a closed list.
+func TestTaskIntegratorRoleClashesOnAnyReasonOfTheSameWeight(t *testing.T) {
+	t.Parallel()
+	for _, want := range []string{
+		"Return clash when you cannot finish a merge you can stand behind, because finishing it would mean deciding " +
+			"what neither the task nor the candidate decided.",
+		"They are examples, not the whole of it: return clash for any reason of the same weight, and say what it is.",
+		"The two sides decide one behavior differently, and neither the task nor the candidate says which holds.",
+	} {
+		if !strings.Contains(taskIntegratorRole, want) {
+			t.Errorf("task integrator role lacks %q", want)
+		}
+	}
+	if strings.Contains(taskIntegratorRole, "Return clash when any of these holds.") {
+		t.Error("task integrator role still gives a closed list of reasons to clash")
 	}
 }

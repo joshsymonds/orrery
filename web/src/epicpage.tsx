@@ -8,6 +8,8 @@ import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/e
 import type { UsageEpicTotalsResponse } from "./gen/orrery/v1/usage_pb";
 import { Icon } from "./glyphs";
 import { JustHappened } from "./happenings";
+import { HostLabel } from "./hostlabel";
+import { type HostReach } from "./hostreach";
 import { NowSection } from "./nowsection";
 import type { CallOutcome } from "./ownercall";
 import { Orrery } from "./orrery";
@@ -112,10 +114,10 @@ function SteeredFrom({
 }
 
 // EpicPage is the one epic page, drawn section by section in the order of the record: the title row with the epic's
-// state and blocker pills and its commands, and under it the did-not-land line of a failed command. Then its summary
-// with the Contract door and the Steered from door, its track, Now, Just happened, the tasks with their chart and
-// table, and the requirements. A section the epic has not reached is not drawn. The commands are the ones controlsOf
-// shows for the epic. Each phase click reaches onOpenPhase. After the requirements, the Review, Release and Report
+// host inline, its state and blocker pills and its commands, and under it the did-not-land line of a failed command.
+// Then its summary with the Contract door and the Steered from door, its track, Now, Just happened, the tasks with their
+// chart and table, and the requirements. A section the epic has not reached is not drawn. The commands are the ones
+// controlsOf shows for the epic. Each phase click reaches onOpenPhase. After the requirements, the Review, Release and Report
 // sections draw when their views are non-null, in that order, and then the Usage section, when loadUsage is given and its
 // answer has sessions. loadUsage is read when the page opens and again each time the count of its steps that have ended
 // grows; an error or an empty answer draws no section. Just happened's step lines and evidence runs' judge steps reach
@@ -134,6 +136,8 @@ export function EpicPage(props: {
   loadArtifact: LoadArtifact;
   commands: EpicCommands;
   numberKeys: boolean;
+  // reach is each listed host's reach, which the Now section reads for its steps' hosts; absent reads every host as reachable.
+  reach?: HostReach;
   commandError: string;
   onOpenContract: () => void;
   onOpenSession: (target: SessionTarget) => void;
@@ -157,6 +161,7 @@ export function EpicPage(props: {
     loadArtifact,
     commands,
     numberKeys,
+    reach,
     commandError,
     onOpenContract,
     onOpenSession,
@@ -262,6 +267,7 @@ export function EpicPage(props: {
         strip={narrow ? undefined : strip}
         note={commandError}
       >
+        <HostLabel name={epic?.host ?? ""} />
         {!narrow && !stopAsking && steer?.(steerSheet)}
         {!narrow && stopAsking && (
           <>
@@ -318,6 +324,7 @@ export function EpicPage(props: {
         now={now}
         narrow={narrow}
         numberKeys={numberKeys}
+        reach={reach}
         onAnswer={commands.answer}
         onRetry={() => commands.retry()}
         onStop={() => commands.stop()}

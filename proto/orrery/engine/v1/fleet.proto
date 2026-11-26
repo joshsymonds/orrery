@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Fleet serves the orrery agent on a host: the owner's word that a host saw a tmux pane, and the desk stream of notices
+// the host shows. orreryd's controller drives it, and the orrery CLI reaches it, on the same private socket as Engine and
+// Notices, mode 0600, and never on the public orrery serve API.
+service Fleet {
+  // ReportSeen records that the caller's host saw the tmux pane at unix seconds seen. The pane is a tmux pane id, %
+  // followed by digits.
+  rpc ReportSeen(FleetReportSeenRequest) returns (FleetReportSeenResponse);
+
+  // WatchDesk streams the desk's notice lines: first a hello line naming the host, then a notice line for each notice
+  // posted while the stream is open. The stream ends when the agent stops.
+  rpc WatchDesk(FleetWatchDeskRequest) returns (stream FleetWatchDeskResponse);
+}
+
+// FleetReportSeenRequest names the tmux pane the caller's host saw, and when.
+message FleetReportSeenRequest {
+  // The tmux pane id, % followed by digits.
+  string pane = 1;
+
+  // When the pane was seen, in unix seconds.
+  int64 seen = 2;
+}
+
+// FleetReportSeenResponse is the reply to a ReportSeen. It has no fields.
+message FleetReportSeenResponse {}
+
+// FleetWatchDeskRequest opens the desk stream. It has no fields.
+message FleetWatchDeskRequest {}
+
+// FleetWatchDeskResponse is one line of the desk stream. The first line of a stream is the hello line, kind hello, with
+// only host set; each later line is a notice, kind notice, with state, title, body and quiet set as the notice has them.
+message FleetWatchDeskResponse {
+  // The line's kind: hello or notice.
+  string kind = 1;
+
+  // The orrery name of the host the line comes from.
+  string host = 2;
+
+  // The state the notice reports, such as waiting, done or limited; empty on a hello line.
+  string state = 3;
+
+  // The notice's title; empty on a hello line.
+  string title = 4;
+
+  // The notice's body; empty on a hello line.
+  string body = 5;
+
+  // Whether the notice shows without a sound; false on a hello line.
+  bool quiet = 6;
+}

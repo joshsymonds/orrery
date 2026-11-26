@@ -26,6 +26,7 @@ func TestHelpFlagPrintsUsageAndExitsZero(t *testing.T) {
 		{"session", "say", "--help"},
 		{"run", "--help"},
 		{"events", "--help"},
+		{"node", "--help"},
 	}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {

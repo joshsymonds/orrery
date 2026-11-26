@@ -40,6 +40,8 @@ type ClientConfig struct {
 	Bound time.Duration
 	// Clock times the waits of the ops. Nil takes holder.SystemClock{}.
 	Clock holder.Clock
+	// Secret is the fleet secret that the client sends in the Secret of each Request it makes to the agent.
+	Secret string
 	// Logger receives the client's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }
@@ -254,10 +256,12 @@ func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	}
 }
 
-// exchange sends req on conn, and reads the Response line that answers it. A conn still unanswered when ctx ends is
-// closed, which ends the read. On success conn stays open for the caller, which may read what follows the Response line.
-// On failure exchange closes conn.
+// exchange sends req on conn, and reads the Response line that answers it. Every Request a Client sends goes through
+// exchange, so it is here that req carries the Client's fleet secret. A conn still unanswered when ctx ends is closed,
+// which ends the read. On success conn stays open for the caller, which may read what follows the Response line. On
+// failure exchange closes conn.
 func (c *Client) exchange(ctx context.Context, conn net.Conn, req Request) (Response, error) {
+	req.Secret = c.cfg.Secret
 	stop := context.AfterFunc(ctx, func() { c.closeConn(conn) })
 	resp, err := roundTrip(conn, req)
 	if stopped := stop(); err != nil || !stopped {
@@ -300,6 +304,7 @@ func (c *Client) link(id string) *nodeLink {
 
 // roundTrip writes req as the one line a controller sends, and reads the one line that answers it.
 func roundTrip(conn net.Conn, req Request) (Response, error) {
+	//nolint:gosec // G117: the Secret is marshaled on purpose, to the agent that checks it over the tailnet.
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return Response{}, fmt.Errorf("send %s: %w", req.Op, err)
 	}

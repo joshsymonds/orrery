@@ -89,6 +89,7 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
   failed: "failed",
   broken: "broken",
   stopped: "stopped",
+  unreachable: "unreachable",
   idle: "idle",
 };
 
@@ -155,6 +156,8 @@ function stateDrawing(state: string): JSX.Element {
           <rect class="solid" x="5.75" y="5.75" width="4.5" height="4.5" rx=".5" />
         </>
       );
+    case "unreachable":
+      return <circle cx="8" cy="8" r="6.25" stroke-dasharray="2.45 2.45" />;
     default:
       return <circle cx="8" cy="8" r="6.25" />;
   }

@@ -13,9 +13,10 @@ import {
   type HostStatusResponse,
   HostStatusResponseSchema,
 } from "./gen/orrery/v1/orrery_pb";
+import { Meter, type MeterStat } from "./meter";
 import type { Row } from "./rows";
 import { ContextMeter, PaneStrip } from "./strip";
-import { installTestDom, removeTestDom, teardownOnce } from "./testdom";
+import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 import { turn, until as waitUntil } from "./testwait";
 
 const now = 1000;
@@ -23,8 +24,8 @@ const cursorStrip = 'section[aria-label="reader"] .pane-strip';
 // cursorContext is the reader's context, which its head draws in the title row.
 const cursorContext = 'section[aria-label="reader"] .title-row .ctx';
 
-// The serving host's status: its name and three stats. The second is at warn and the third at crit, and each of the
-// three has a percent.
+// The serving host's status: its name and three stats. The strip draws the name alone, so the stats are there to show it
+// draws none of them; the second is at warn and the third at crit, and each of the three has a percent.
 const denHost = create(HostStatusResponseSchema, {
   host: "den",
   stats: [
@@ -179,14 +180,6 @@ function textsOf(container: HTMLElement, selector: string): string[] {
   return [...container.querySelectorAll(selector)].map((element) => element.textContent ?? "");
 }
 
-function classesOf(container: HTMLElement, selector: string): string[] {
-  return [...container.querySelectorAll(selector)].map((element) => element.getAttribute("class") ?? "");
-}
-
-function widthsOf(container: HTMLElement, selector: string): string[] {
-  return [...container.querySelectorAll<HTMLElement>(selector)].map((element) => element.style.width);
-}
-
 function levelOf(container: HTMLElement, selector: string): string | null {
   return container.querySelector(selector)?.getAttribute("data-level") ?? null;
 }
@@ -209,17 +202,10 @@ function contextOf(tokens: bigint, size: bigint): ConversationContext {
   return create(ConversationContextSchema, { tokens, window: size });
 }
 
-test("PaneStrip: a pane page's strip names the serving host, and draws each stat's name, bar and value in its series then its level", (t) =>
+test("PaneStrip: a pane page's strip names the serving host and draws no meters, whatever stats the host reports", (t) =>
   withStrip(t.signal, { host: denHost }, (container) => {
     assert.equal(textOf(container, `${cursorStrip} .pane-strip-host`), "den");
-    assert.deepEqual(textsOf(container, `${cursorStrip} .meter .name`), ["cpu", "disk", "mem"]);
-    assert.deepEqual(textsOf(container, `${cursorStrip} .meter .value`), ["12%", "65%", "7.1 GB"]);
-    assert.deepEqual(classesOf(container, `${cursorStrip} .meter`), [
-      "meter series-1 level-ok",
-      "meter series-2 level-warn",
-      "meter series-3 level-crit",
-    ]);
-    assert.deepEqual(widthsOf(container, `${cursorStrip} .meter .bar i`), ["12%", "65%", "88%"]);
+    assert.equal(container.querySelectorAll(`${cursorStrip} .meter`).length, 0, "the strip draws no meters");
     assert.equal(
       container.querySelector(cursorContext) === null,
       true,
@@ -301,57 +287,61 @@ test("PaneStrip: no inbox footer remains, and the Keys control sits in the inbox
     assert.equal(container.querySelector('.inbox-foot button[aria-label="Keys"]')?.getAttribute("aria-label"), "Keys");
   }));
 
-test("HeadTitle: each stat draws its name, then its bar (an empty line without a percent), then its value, in series (index mod 5) + 1 at its level; warn and crit take that level's class alone", async () => {
-  const host = create(HostStatusResponseSchema, {
-    host: "den",
-    stats: [
-      { label: "a", value: "1%", percent: 10, level: "ok" },
-      { label: "b", value: "2", level: "ok" },
-      { label: "c", value: "3%", percent: 30, level: "warn" },
-      { label: "d", value: "4%", percent: 40, level: "crit" },
-      { label: "e", value: "5%", percent: 50, level: "ok" },
-      { label: "f", value: "6%", percent: 60, level: "ok" },
-    ],
-  });
-  await withDrawn(<PaneStrip host={host} />, (container) => {
-    const meters = [...container.querySelectorAll(".meter")];
-    assert.deepEqual(
-      meters.map((meter) => meter.getAttribute("class")),
-      [
-        "meter series-1 level-ok",
-        "meter series-2 level-ok",
-        "meter series-3 level-warn",
-        "meter series-4 level-crit",
-        "meter series-5 level-ok",
-        "meter series-1 level-ok",
-      ],
-      "the series wrap every five stats, and warn and crit carry only their level",
-    );
-    assert.deepEqual(
-      meters.map((meter) => [...meter.children].map((child) => child.getAttribute("class"))),
-      [
-        ["name", "bar", "value"],
-        ["name", "bar", "value"],
-        ["name", "bar", "value"],
-        ["name", "bar", "value"],
-        ["name", "bar", "value"],
-        ["name", "bar", "value"],
-      ],
-      "a stat without a percent draws an empty bar line",
-    );
-    assert.deepEqual(
-      meters.map((meter) => meter.querySelector(".name")?.textContent),
-      ["a", "b", "c", "d", "e", "f"],
-    );
-    assert.deepEqual(
-      meters.map((meter) => meter.querySelector(".value")?.textContent),
-      ["1%", "2", "3%", "4%", "5%", "6%"],
-    );
-    assert.deepEqual(
-      meters.map((meter) => meter.querySelector<HTMLElement>(".bar i")?.style.width ?? null),
-      ["10%", null, "30%", "40%", "50%", "60%"],
-    );
-  });
+test("Meter: each stat draws its name, then its bar (an empty line without a percent), then its value, in the series it is given at its level; warn and crit take that level's class alone", async () => {
+  const stats: { series: number; stat: MeterStat }[] = [
+    { series: 1, stat: { label: "a", value: "1%", percent: 10, level: "ok" } },
+    { series: 2, stat: { label: "b", value: "2", level: "ok" } },
+    { series: 3, stat: { label: "c", value: "3%", percent: 30, level: "warn" } },
+    { series: 4, stat: { label: "d", value: "4%", percent: 40, level: "crit" } },
+    { series: 5, stat: { label: "e", value: "5%", percent: 50, level: "ok" } },
+    { series: 1, stat: { label: "f", value: "6%", percent: 60, level: "ok" } },
+  ];
+  await withDrawn(
+    <>
+      {stats.map(({ series, stat }, index) => (
+        <Meter key={index} stat={stat} series={series} />
+      ))}
+    </>,
+    (container) => {
+      const meters = [...container.querySelectorAll(".meter")];
+      assert.deepEqual(
+        meters.map((meter) => meter.getAttribute("class")),
+        [
+          "meter series-1 level-ok",
+          "meter series-2 level-ok",
+          "meter series-3 level-warn",
+          "meter series-4 level-crit",
+          "meter series-5 level-ok",
+          "meter series-1 level-ok",
+        ],
+        "each meter takes the series it is given, and warn and crit carry only their level",
+      );
+      assert.deepEqual(
+        meters.map((meter) => [...meter.children].map((child) => child.getAttribute("class"))),
+        [
+          ["name", "bar", "value"],
+          ["name", "bar", "value"],
+          ["name", "bar", "value"],
+          ["name", "bar", "value"],
+          ["name", "bar", "value"],
+          ["name", "bar", "value"],
+        ],
+        "a stat without a percent draws an empty bar line",
+      );
+      assert.deepEqual(
+        meters.map((meter) => meter.querySelector(".name")?.textContent),
+        ["a", "b", "c", "d", "e", "f"],
+      );
+      assert.deepEqual(
+        meters.map((meter) => meter.querySelector(".value")?.textContent),
+        ["1%", "2", "3%", "4%", "5%", "6%"],
+      );
+      assert.deepEqual(
+        meters.map((meter) => meter.querySelector<HTMLElement>(".bar i")?.style.width ?? null),
+        ["10%", null, "30%", "40%", "50%", "60%"],
+      );
+    },
+  );
 });
 
 test("HeadTitle: a context draws five blocks, with max(1 above zero, round(percent / 20)) of them on", async () => {
@@ -398,14 +388,14 @@ test("HeadTitle: a context names itself and its tokens of the window, and bare l
   });
 });
 
-test("HeadTitle: an other host draws its name and 'on another host: no meters', and no stats", async () => {
+test("HeadTitle: an other host draws its name alone, with no meters and no line saying it has none", async () => {
   const host = create(HostStatusResponseSchema, {
     host: "brine",
     stats: [{ label: "cpu", value: "12%", percent: 12, level: "ok" }],
   });
-  await withDrawn(<PaneStrip host={{ ...host, other: true }} />, (container) => {
+  await withDrawn(<PaneStrip host={host} />, (container) => {
     assert.equal(textOf(container, ".pane-strip-host"), "brine");
-    assert.equal(textOf(container, ".other"), "on another host: no meters");
-    assert.equal(container.querySelectorAll(".meter").length, 0);
+    assert.equal(container.querySelectorAll(".meter").length, 0, "the strip draws no meters");
+    assertNone(container.querySelector(".other"), "the strip draws no line about meters");
   });
 });

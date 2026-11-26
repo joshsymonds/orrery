@@ -76,8 +76,9 @@ func startProposeAgent(t *testing.T, host, root string, load node.Load) *node.Cl
 		Controller: routingController,
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: host},
 		Holders:    routingHolders{},
-		Root:       root,
+		Roots:      []string{root},
 		Panes:      statusPanes{routingPanes: routingPanes{handler: http.NotFoundHandler()}, load: load},
+		Secret:     routingSecret,
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
@@ -96,6 +97,7 @@ func startProposeAgent(t *testing.T, host, root string, load node.Load) *node.Cl
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   quietClock{},
+		Secret:  routingSecret,
 	})
 }
 
@@ -108,6 +110,7 @@ func unreachableClient(t *testing.T) *node.Client {
 		Address: refusedAddress(t),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   instantClock{},
+		Secret:  routingSecret,
 	})
 }
 

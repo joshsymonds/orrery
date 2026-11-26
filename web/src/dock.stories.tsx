@@ -199,3 +199,9 @@ export const Dock: Stories = {
   "step-held": () => <dock.Dock {...base} facts={stepFacts("T1", true)} stepCalls={stepCalls} />,
   "step-confirm": () => <StepConfirm />,
 };
+
+// UnreachableDock is the line a conversation on a host that does not answer draws in place of its dock: it says the host does
+// not answer, and it draws no box, queue or control.
+export const UnreachableDock: Stories = {
+  unreachable: () => <dock.UnreachableDock host="den" />,
+};

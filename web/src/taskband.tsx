@@ -1,14 +1,15 @@
 import type { JSX } from "preact";
 
 import type { EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { HostLabel } from "./hostlabel";
 import type { Phase } from "./phases";
 import { Pips } from "./pips";
 import { phaseOfPlace, recordTasksOf } from "./record";
 import { blockerPillOf, statePillOf } from "./recordwords";
 
-// EpicPin is the epic's one line, drawn first under a task's title row: the epic's slug, its state word with its time, and
-// its tasks done. While the epic asks the owner, its blocker follows in the attention tone; a park or question its
-// steerer holds follows in the quiet tone. Pressing the line opens the epic.
+// EpicPin is the epic's one line, drawn first under a task's title row: the epic's slug with its host inline, its state
+// word with its time, and its tasks done. While the epic asks the owner, its blocker follows in the attention tone; a
+// park or question its steerer holds follows in the quiet tone. Pressing the line opens the epic.
 export function EpicPin({
   detail,
   now,
@@ -25,6 +26,7 @@ export function EpicPin({
   return (
     <button type="button" class="epic-pin" onClick={onOpen}>
       <span class="slug">{detail.epic?.slug ?? ""}</span>
+      <HostLabel name={detail.epic?.host ?? ""} />
       <span class="words">{`${state.word} · ${done} of ${tasks.length} tasks done`}</span>
       {blocker !== null && <span class={`blocker t-${blocker.tone}`}>{blocker.word}</span>}
       <span class="end">

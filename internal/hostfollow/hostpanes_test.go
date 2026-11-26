@@ -319,6 +319,9 @@ func startPaneHost(
 	return host
 }
 
+// testSecret is the fleet secret that the agent of serveAgent admits, and that the clients of nodeClient send.
+const testSecret = "fleet-secret-for-hostfollow-tests"
+
 // testAgent is a node.Agent that serves a host's panes in a test. joined receives once the watch of each connection
 // has joined the host.
 type testAgent struct {
@@ -344,6 +347,7 @@ func serveAgent(t *testing.T, host *panehost.Host, addr string) testAgent {
 		Holders:    holderhost.NewLocal(holderhost.LocalConfig{StateDir: stateDir}),
 		StateDir:   stateDir,
 		Panes:      joinedHost{Host: host, joined: joined},
+		Secret:     testSecret,
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
@@ -367,7 +371,9 @@ func serveAgent(t *testing.T, host *panehost.Host, addr string) testAgent {
 // nodeClient returns the client of remote's agent at addr, whose waits run on clock.
 func nodeClient(addr string, clock holder.Clock) *node.Client {
 	var dialer net.Dialer
-	return node.NewClient(node.ClientConfig{Name: remote, Address: addr, Dial: dialer.DialContext, Clock: clock})
+	return node.NewClient(node.ClientConfig{
+		Name: remote, Address: addr, Dial: dialer.DialContext, Clock: clock, Secret: testSecret,
+	})
 }
 
 // openStore seeds a store at a temporary path, opens it, and closes it at cleanup. It returns the store and its path.

@@ -420,7 +420,7 @@ test("NoticeBell: the inbox head draws the bell between search and New, labelled
     const controls = Array.from(container.querySelectorAll(".inbox-head .end > button")).map(
       (button) => button.getAttribute("aria-label") ?? button.textContent?.trim(),
     );
-    assert.deepEqual(controls, ["Search sessions and epics", "Notices", "New"]);
+    assert.deepEqual(controls, ["Search sessions and epics", "Hosts", "Notices", "New"]);
   }));
 
 test("NoticeBell: the rail's Notices tile sits between Search and Keys, with the inbox collapsed", (t) =>

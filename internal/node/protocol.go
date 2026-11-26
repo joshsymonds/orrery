@@ -73,6 +73,9 @@ type Request struct {
 	Pane   string `json:"pane,omitempty"`
 	// Text is what a wake-pane op types into the pane.
 	Text string `json:"text,omitempty"`
+	// Secret is the fleet secret that the controller presents, which the agent checks against its own before it serves the
+	// Request.
+	Secret string `json:"secret,omitempty"`
 }
 
 // LaunchSpec is the launch that a launch op starts: a holderhost.Spec without its session, which the Request names.

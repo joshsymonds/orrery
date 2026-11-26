@@ -3,6 +3,7 @@ import { useState } from "preact/hooks";
 
 import { hungName } from "./epicrow";
 import { Icon, StateGlyph } from "./glyphs";
+import { HostLabel } from "./hostlabel";
 import { ageText, clockText, glyphStateOf, parseTool, quietRow, shortName, stateWaiting, waitingText } from "./inboxrow";
 import type { Row } from "./rows";
 import { TitleRow } from "./titlerow";
@@ -11,9 +12,10 @@ import { projectWaiting } from "./treefilter";
 import { WorkCard, workCardOf } from "./workcard";
 
 // ProjectPage draws one project of the inbox tree as its page: its name in the title row with New session here (in the
-// foot bar under 760 px, with Back in the title row), its path and host, its counts, its Conversations with what each
-// last said or asks and its WorkCards, and the ended line, which unfolds the ended conversations. A conversation and a
-// WorkCard each call onOpen with their key. The counts and the last change are the tree's own, read from the project.
+// foot bar under 760 px, with Back in the title row), its path and its host as a label, its counts, its Conversations
+// with what each last said or asks and its WorkCards, and the ended line, which unfolds the ended conversations. A
+// conversation and a WorkCard each call onOpen with their key. The counts and the last change are the tree's own, read
+// from the project.
 export function ProjectPage({
   project,
   now,
@@ -44,10 +46,8 @@ export function ProjectPage({
       <div class="spage">
         <div class="inner">
           <section class="proj-head">
-            <span class="path">
-              {project.path}
-              {project.host !== "" && ` · on ${project.host}`}
-            </span>
+            <span class="path">{project.path}</span>
+            <HostLabel name={project.host} />
             <div class="counts">
               <span>
                 <Icon name="chat" />

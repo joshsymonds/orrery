@@ -145,6 +145,7 @@ func startNodeAgent(t *testing.T, local *holderhost.Local, stateDir string) (str
 		WhoIs:      peerWhoIs{own: ln.Addr().String()},
 		Holders:    local,
 		StateDir:   stateDir,
+		Secret:     testSecret,
 		Logger:     slog.New(keptLog{kept: kept}),
 	})
 	if err != nil {
@@ -227,7 +228,13 @@ func openStream(t *testing.T, addr string, req Request) (Response, *bufio.Reader
 // the launch is refused.
 func launchSession(t *testing.T, addr, id string) {
 	t.Helper()
-	req := Request{Version: Version, Op: OpLaunch, Session: id, Launch: &LaunchSpec{Dir: t.TempDir()}}
+	req := Request{
+		Version: Version,
+		Secret:  testSecret,
+		Op:      OpLaunch,
+		Session: id,
+		Launch:  &LaunchSpec{Dir: t.TempDir()},
+	}
 	if resp := ask(t, addr, req); resp.Code != "" {
 		t.Fatalf("launch %s: %+v", id, resp)
 	}
@@ -311,7 +318,11 @@ func TestNodeAgentLaunchesAttachesAndStaysAttached(t *testing.T) {
 	}
 	awaitKept(t, kept, "s1")
 
-	resp, reader, conn := openStream(t, addr, Request{Version: Version, Op: OpAttach, Session: "s1"})
+	resp, reader, conn := openStream(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpAttach, Session: "s1"},
+	)
 	if resp.Code != "" {
 		t.Fatalf("attach from offset 0: %+v", resp)
 	}
@@ -325,7 +336,7 @@ func TestNodeAgentLaunchesAttachesAndStaysAttached(t *testing.T) {
 
 	awaitKept(t, kept, "s1")
 
-	resp, reader, conn = openStream(t, addr, Request{Version: Version, Op: OpAttach, Session: "s1"})
+	resp, reader, conn = openStream(t, addr, Request{Version: Version, Secret: testSecret, Op: OpAttach, Session: "s1"})
 	if resp.Code != "" {
 		t.Fatalf("attach from offset %d: %+v", len(firstLine), resp)
 	}
@@ -356,7 +367,11 @@ func TestNodeAgentRefusesStepSpec(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := tc.spec
 			spec.Dir = t.TempDir()
-			resp := ask(t, addr, Request{Version: Version, Op: OpLaunch, Session: tc.name, Launch: &spec})
+			resp := ask(
+				t,
+				addr,
+				Request{Version: Version, Secret: testSecret, Op: OpLaunch, Session: tc.name, Launch: &spec},
+			)
 			if resp.Code != CodeFailed {
 				t.Fatalf("launch with %s got %+v, want code %q", tc.name, resp, CodeFailed)
 			}
@@ -374,23 +389,27 @@ func TestNodeAgentSessionsListsSessionAndAnswersUnknownsWithErrors(t *testing.T)
 	addr, _ := startNodeAgent(t, local, stateDir)
 	launchSession(t, addr, "listed")
 
-	listed := ask(t, addr, Request{Version: Version, Op: OpSessions})
+	listed := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpSessions})
 	if !slices.Equal(listed.Sessions, []string{"listed"}) {
 		t.Fatalf("sessions = %v, want [listed]", listed.Sessions)
 	}
-	if resp := ask(t, addr, Request{Version: Version, Op: "bogus"}); resp.Code != CodeFailed {
+	if resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: "bogus"}); resp.Code != CodeFailed {
 		t.Fatalf("an unknown op got %+v, want code %q", resp, CodeFailed)
 	}
 	for _, op := range []Op{OpStop, OpKill, OpClear, OpStopOrphan, OpEnd} {
-		if resp := ask(t, addr, Request{Version: Version, Op: op, Session: "unknown"}); resp.Code != CodeGone {
+		if resp := ask(
+			t,
+			addr,
+			Request{Version: Version, Secret: testSecret, Op: op, Session: "unknown"},
+		); resp.Code != CodeGone {
 			t.Fatalf("%s of an unknown session got %+v, want code %q", op, resp, CodeGone)
 		}
 	}
-	gone, _, _ := openStream(t, addr, Request{Version: Version, Op: OpGone, Session: "unknown"})
+	gone, _, _ := openStream(t, addr, Request{Version: Version, Secret: testSecret, Op: OpGone, Session: "unknown"})
 	if gone.Code != CodeGone {
 		t.Fatalf("gone of an unknown session got %+v, want code %q", gone, CodeGone)
 	}
-	attach, _, _ := openStream(t, addr, Request{Version: Version, Op: OpAttach, Session: "unknown"})
+	attach, _, _ := openStream(t, addr, Request{Version: Version, Secret: testSecret, Op: OpAttach, Session: "unknown"})
 	if attach.Code != CodeGone {
 		t.Fatalf("attach to an unknown session got %+v, want code %q", attach, CodeGone)
 	}
@@ -405,7 +424,11 @@ func TestNodeAgentGoneAndEndReturnSpoolAndExitAfterEnd(t *testing.T) {
 	launchSession(t, addr, "ended")
 	awaitKept(t, kept, "ended")
 
-	_, reader, conn := openStream(t, addr, Request{Version: Version, Op: OpAttach, Session: "ended"})
+	_, reader, conn := openStream(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpAttach, Session: "ended"},
+	)
 	frames := spliceAttach(t, conn, reader, 0)
 	readOutput(t, frames, 0, len(firstLine)+len(secondLine))
 	if err := conn.Close(); err != nil {
@@ -418,10 +441,14 @@ func TestNodeAgentGoneAndEndReturnSpoolAndExitAfterEnd(t *testing.T) {
 	}
 	ended := make(chan answer, 1)
 	go func() {
-		resp, err := request(addr, Request{Version: Version, Op: OpEnd, Session: "ended"})
+		resp, err := request(addr, Request{Version: Version, Secret: testSecret, Op: OpEnd, Session: "ended"})
 		ended <- answer{resp: resp, err: err}
 	}()
-	if resp := ask(t, addr, Request{Version: Version, Op: OpStop, Session: "ended"}); resp.Code != "" {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpStop, Session: "ended"},
+	); resp.Code != "" {
 		t.Fatalf("stop: %+v", resp)
 	}
 	end := <-ended
@@ -432,7 +459,11 @@ func TestNodeAgentGoneAndEndReturnSpoolAndExitAfterEnd(t *testing.T) {
 		t.Fatalf("end = %+v, want code none and the stopped exit record", end.resp)
 	}
 
-	gone, reader, conn := openStream(t, addr, Request{Version: Version, Op: OpGone, Session: "ended"})
+	gone, reader, conn := openStream(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpGone, Session: "ended"},
+	)
 	if !exitStopped(gone.Exit) {
 		t.Fatalf("gone = %+v, want the stopped exit record", gone)
 	}
@@ -458,28 +489,49 @@ func TestNodeAgentStopKillAndClearEndSession(t *testing.T) {
 		launchSession(t, addr, id)
 	}
 
-	if resp := ask(t, addr, Request{Version: Version, Op: OpStop, Session: "stopped"}); resp.Code != "" {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpStop, Session: "stopped"},
+	); resp.Code != "" {
 		t.Fatalf("stop: %+v", resp)
 	}
-	if resp := ask(t, addr, Request{Version: Version, Op: OpEnd, Session: "stopped"}); !exitStopped(resp.Exit) {
-		t.Fatalf("end after stop = %+v, want the stopped exit record", resp)
+	stopped := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpEnd, Session: "stopped"})
+	if !exitStopped(stopped.Exit) {
+		t.Fatalf("end after stop = %+v, want the stopped exit record", stopped)
 	}
 
-	if resp := ask(t, addr, Request{Version: Version, Op: OpKill, Session: "killed"}); resp.Code != "" {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpKill, Session: "killed"},
+	); resp.Code != "" {
 		t.Fatalf("kill: %+v", resp)
 	}
-	if resp := ask(t, addr, Request{Version: Version, Op: OpEnd, Session: "killed"}); resp.Code != "" {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpEnd, Session: "killed"},
+	); resp.Code != "" {
 		t.Fatalf("end after kill = %+v, want no code", resp)
 	}
 
-	if resp := ask(t, addr, Request{Version: Version, Op: OpClear, Session: "cleared"}); resp.Code != "" {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpClear, Session: "cleared"},
+	); resp.Code != "" {
 		t.Fatalf("clear: %+v", resp)
 	}
-	if resp := ask(t, addr, Request{Version: Version, Op: OpEnd, Session: "cleared"}); resp.Code != CodeGone {
+	if resp := ask(
+		t,
+		addr,
+		Request{Version: Version, Secret: testSecret, Op: OpEnd, Session: "cleared"},
+	); resp.Code != CodeGone {
 		t.Fatalf("end after clear = %+v, want code %q", resp, CodeGone)
 	}
 
-	resp := ask(t, addr, Request{Version: Version, Op: OpSessions})
+	resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpSessions})
 	if !slices.Equal(resp.Sessions, []string{"killed", "stopped"}) {
 		t.Fatalf("sessions after clear = %v, want [killed stopped]", resp.Sessions)
 	}

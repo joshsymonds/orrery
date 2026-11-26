@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -20,11 +21,13 @@ import (
 
 // startHostFollows starts one hostfollow.Follow for each host of the hosts file that getenv locates, once st is open,
 // and returns the func that stops them all and returns once each has returned. Each host's agent is reached by a client
-// that dials with net.Dialer and keeps the default bound. Each follow's transitions are routed by hub as that host's
-// pane notices (relay.observeRemote). With no store, or no hosts file, nothing starts and the func does nothing. A hosts
-// file that does not load is logged, and nothing starts, since controllerHost has already refused the same file.
+// that dials with net.Dialer, keeps the default bound, and sends fleetSecret, the fleet secret that controllerHost read
+// from the --fleet-secret file. Each follow's transitions are routed by hub as that host's pane notices
+// (relay.observeRemote). With no store, or no hosts file, nothing starts and the func does nothing. A hosts file that
+// does not load is logged, and nothing starts, since controllerHost has already refused the same file.
 func startHostFollows(
 	ctx context.Context, st *store.Store, getenv func(string) string, logger *slog.Logger, hub *relay,
+	fleetSecret string,
 ) func() {
 	if st == nil {
 		return func() {}
@@ -39,7 +42,7 @@ func startHostFollows(
 	var follows sync.WaitGroup
 	for _, host := range file.Hosts {
 		client := node.NewClient(node.ClientConfig{
-			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Logger: logger,
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: fleetSecret, Logger: logger,
 		})
 		follows.Add(1)
 		go func() {
@@ -54,6 +57,23 @@ func startHostFollows(
 		cancel()
 		follows.Wait()
 	}
+}
+
+// fleetSecretOf returns the fleet secret that the file at path holds, which each client of a hosts file's agent sends.
+// A file that lists no host needs none, so it returns "" and no error. A file that lists a host needs one: an unset
+// path, or a file that node.ReadSecret refuses, is an error that names --fleet-secret.
+func fleetSecretOf(file hosts.File, path string) (string, error) {
+	if len(file.Hosts) == 0 {
+		return "", nil
+	}
+	if path == "" {
+		return "", errors.New("--fleet-secret: needed, since hosts.toml lists a host, the file of the fleet secret")
+	}
+	secret, err := node.ReadSecret(path)
+	if err != nil {
+		return "", fmt.Errorf("--fleet-secret: %w", err)
+	}
+	return secret, nil
 }
 
 // loadHostsFile returns the hosts file that getenv locates, as controllerHost reads it: the zero File when no path can

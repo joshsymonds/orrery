@@ -24,7 +24,8 @@ export type Entry =
   | { kind: "epic"; id: string; page: PageView }
   | { kind: "project"; key: string }
   | { kind: "contract"; id: string }
-  | { kind: "accounts" };
+  | { kind: "accounts" }
+  | { kind: "hosts" };
 
 export interface Address {
   view: View;
@@ -148,9 +149,12 @@ export function parseAddress(hash: string): Address {
     return inbox();
   }
   const [viewSegment, ...rest] = path.slice(1).split("/");
-  // The accounts page is one address with no segment after it, and it opens over the inbox.
+  // The accounts page and the hosts view are each one address with no segment after it, and each opens over the inbox.
   if (viewSegment === "accounts") {
     return rest.length === 0 ? { view: "inbox", entry: { kind: "accounts" } } : inbox();
+  }
+  if (viewSegment === "hosts") {
+    return rest.length === 0 ? { view: "inbox", entry: { kind: "hosts" } } : inbox();
   }
   const view = viewOf(viewSegment);
   if (view === undefined) {
@@ -182,11 +186,14 @@ function formatPage(page: PageView): string[] {
 }
 
 // formatAddress writes an address as its hash, with the leading '#'. parseAddress reads the result back to the same
-// address. The accounts page is written as '#/accounts' whatever the view it is over.
+// address. The accounts page and the hosts view are written as '#/accounts' and '#/hosts' whatever the view they are over.
 export function formatAddress(address: Address): string {
   const entry = address.entry;
   if (entry?.kind === "accounts") {
     return "#/accounts";
+  }
+  if (entry?.kind === "hosts") {
+    return "#/hosts";
   }
   const segments: string[] = [address.view];
   if (entry !== null) {

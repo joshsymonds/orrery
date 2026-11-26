@@ -87,7 +87,7 @@ function proposedContract(id: string, conversation: string) {
   return { id, repository: "/work/api", title: `Contract ${id}`, care: "serious", state: "proposed", conversation };
 }
 
-// The host Host.Status answers with: one stat, so the meters button has a value to show.
+// The host Host.Status answers with. The strip names the host and draws none of its stats; the stat is what the server answers.
 const hostBody = {
   host: "den",
   stats: [{ label: "cpu", value: "12%", percent: 12, level: "ok" }],
@@ -377,13 +377,13 @@ function ageOf(root: HTMLElement, name: string): string {
   return row?.querySelector(".age")?.textContent ?? "";
 }
 
-// meterHost is the host the strip's host part names, or null when no strip draws one.
-function meterHost(root: HTMLElement): string | null {
+// stripHostOf is the host the strip's host part names, or null when no strip draws one.
+function stripHostOf(root: HTMLElement): string | null {
   return root.querySelector(".pane-strip-host")?.textContent ?? null;
 }
 
-// meterButtonShown is whether a strip draws its host part.
-function meterButtonShown(root: HTMLElement): boolean {
+// hostPartShown is whether a strip draws its host part.
+function hostPartShown(root: HTMLElement): boolean {
   return root.querySelector(".pane-strip-host") !== null;
 }
 
@@ -1376,7 +1376,7 @@ test("the start read shows the host in the strip's host part, before any poll ti
       await act(() => {
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
       });
-      await until(t.signal, () => meterHost(root) === "den", "the meters button for the host");
+      await until(t.signal, () => stripHostOf(root) === "den", "the strip's host part");
     } finally {
       stop();
     }
@@ -1402,7 +1402,7 @@ test("a refused Host.Status shows no strip host part and no error, while the row
       // from after it has landed. No reload runs with the stream open, so nothing clears the error line after that.
       const readsAtOpen = server.hostCalls;
       await until(t.signal, () => server.hostCalls >= readsAtOpen + 2, "two refused reads with the stream open");
-      assert.equal(meterButtonShown(root), false, "a refused Host.Status drew a host part in the strip");
+      assert.equal(hostPartShown(root), false, "a refused Host.Status drew a host part in the strip");
       assert.equal(errorText(root), "", "a refused Host.Status showed in the error line");
     } finally {
       stop();
@@ -1418,9 +1418,9 @@ test("a Host.Status that starts failing takes the strip's host part away", (t) =
       await act(() => {
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
       });
-      await until(t.signal, () => meterHost(root) === "den", "the meters button");
+      await until(t.signal, () => stripHostOf(root) === "den", "the strip's host part");
       server.hostFails = true;
-      await until(t.signal, () => !meterButtonShown(root), "the meters button gone after a refused read");
+      await until(t.signal, () => !hostPartShown(root), "the strip's host part gone after a refused read");
     } finally {
       stop();
     }
@@ -1458,7 +1458,7 @@ test("a tick during a slow Host.Status starts no second read", (t) =>
         document.dispatchEvent(new KeyboardEvent("keydown", { key: "G" }));
       });
       release();
-      await until(t.signal, () => meterHost(root) === "den", "the host after release");
+      await until(t.signal, () => stripHostOf(root) === "den", "the host after release");
     } finally {
       release();
       stop();

@@ -88,6 +88,7 @@ test("ProjectPage WorkCard words for a contract waiting: its care, title, decisi
     asks: "2 decisions left to answer",
     act: "Read and decide",
     count: "v2",
+    host: "",
   });
   assert.equal(workCardOf(contractItem(1n), now).asks, "1 decision left to answer");
   assert.equal(workCardOf(contractItem(0n), now).asks, "waits for you to accept");
@@ -128,6 +129,7 @@ test("ProjectPage WorkCard words for an epic that asks: its question, Answer, no
     asks: questionOf("lighthouse/rota-export"),
     act: "Answer",
     count: "3 of 6 proven",
+    host: "",
   });
 });
 
@@ -153,6 +155,7 @@ test("ProjectPage WorkCard words for an epic building: live, with no asks", () =
     asks: "",
     act: "",
     count: "1 of 3 proven",
+    host: "",
   });
 });
 

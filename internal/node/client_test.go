@@ -163,6 +163,7 @@ func TestNodeClientRunsSessionOverAgent(t *testing.T) {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   newManualClock(),
+		Secret:  testSecret,
 	})
 	ctx := t.Context()
 
@@ -239,6 +240,7 @@ func TestNodeClientUnknownSessionIsGone(t *testing.T) {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   newManualClock(),
+		Secret:  testSecret,
 	})
 	ctx := t.Context()
 	for _, tc := range []struct {
@@ -277,6 +279,7 @@ func TestNodeClientRefusedAddressIsUnreachable(t *testing.T) {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   clock,
+		Secret:  testSecret,
 	})
 	calls := []struct {
 		name string
@@ -314,6 +317,7 @@ func TestNodeClientSilentAgentIsUnreachable(t *testing.T) {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   clock,
+		Secret:  testSecret,
 	})
 	errs := make(chan error, 1)
 	go func() {
@@ -344,6 +348,7 @@ func TestNodeClientReachReadsReachableAgain(t *testing.T) {
 		Dial:    route.DialContext,
 		Bound:   testBound,
 		Clock:   clock,
+		Secret:  testSecret,
 	})
 	awaitUnreachable(t, client, clock)
 

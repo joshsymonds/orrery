@@ -40,6 +40,7 @@ const (
 	wakeController = "ctl"
 	wakeHostB      = "b"
 	wakeLogin      = "owner@example.com"
+	wakeSecret     = "fleet-secret-for-wake-tests"
 	wakeEpicID     = "synthetic-repo-0a1b2c3/epic-wake"
 	// wakeTmux is the TMUX of the tmux socket the pane callers run in, and wakeColumn is the server column of the pane
 	// rows that socket's panes have.
@@ -266,6 +267,17 @@ func wakeHandler(st *store.Store) http.Handler {
 	})
 }
 
+// wakeSecretOption makes a client send wakeSecret as the fleet secret of each call, as a host's forwarder does, so the
+// wake relay admits the call.
+func wakeSecretOption() connect.ClientOption {
+	return connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			req.Header().Set(protocol.HeaderSecret, wakeSecret)
+			return next(ctx, req)
+		}
+	}))
+}
+
 // startWakeRelay serves handler behind hostrelay.Serve, which admits host b's agent, and returns the relay's address.
 // The relay stops at cleanup.
 func startWakeRelay(t *testing.T, handler http.Handler) string {
@@ -275,6 +287,7 @@ func startWakeRelay(t *testing.T, handler http.Handler) string {
 		Hosts:   []hosts.Host{{Name: wakeHostB, Address: wakeHostB + ":7000"}},
 		WhoIs:   wakeRelayWhoIs{},
 		Handler: handler,
+		Secret:  wakeSecret,
 	})
 	if err != nil {
 		t.Fatalf("hostrelay.Listen: %v", err)
@@ -330,6 +343,7 @@ func startWakeAgent(t *testing.T, wake func(context.Context, string, string, str
 		Holders:    holderhost.NewLocal(holderhost.LocalConfig{StateDir: dir}),
 		StateDir:   dir,
 		WakePane:   wake,
+		Secret:     wakeSecret,
 	})
 	if err != nil {
 		t.Fatalf("new agent of %s: %v", wakeHostB, err)
@@ -348,6 +362,7 @@ func startWakeAgent(t *testing.T, wake func(context.Context, string, string, str
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   wakeNeverClock{},
+		Secret:  wakeSecret,
 	})
 }
 
@@ -405,7 +420,8 @@ func TestPaneCallerEpicCreateRecordsHostRow(t *testing.T) {
 	repo, base := wakeRepo(t)
 	contract := wakeContract(repo, base)
 	proposeWakeContract(t, st, contract, wakeHostB+"-3")
-	client := enginev1connect.NewEpicsClient(http.DefaultClient, "http://"+startWakeRelay(t, wakeHandler(st)))
+	client := enginev1connect.NewEpicsClient(http.DefaultClient, "http://"+startWakeRelay(t, wakeHandler(st)),
+		wakeSecretOption())
 
 	createWakeEpic(t, client, contract, "%3", "")
 
@@ -437,7 +453,8 @@ func TestPaneCallerWakeReachesHostAgent(t *testing.T) {
 	repo, base := wakeRepo(t)
 	contract := wakeContract(repo, base)
 	proposeWakeContract(t, st, contract, wakeHostB+"-3")
-	client := enginev1connect.NewEpicsClient(http.DefaultClient, "http://"+startWakeRelay(t, wakeHandler(st)))
+	client := enginev1connect.NewEpicsClient(http.DefaultClient, "http://"+startWakeRelay(t, wakeHandler(st)),
+		wakeSecretOption())
 	createWakeEpic(t, client, contract, "%3", "")
 
 	agentPane := &paneSpy{}
