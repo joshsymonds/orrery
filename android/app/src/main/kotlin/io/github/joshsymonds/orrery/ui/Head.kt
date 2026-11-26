@@ -13,9 +13,9 @@ import androidx.compose.ui.semantics.stateDescription
 import io.github.joshsymonds.orrery.api.ConversationContext
 
 /**
- * The conversation's header on a phone. The title row always draws, with the [host]'s label in it and no host meters.
- * When the header is open it adds the band; when folded (reading or hidden) it adds the compact line, with the words
- * that ask the reader.
+ * The conversation's header on a phone. The title row always draws, with the [host]'s label in it and no host meters, and
+ * the label carries the unreachable mark when [unreachable]. When the header is open it adds the band; when folded
+ * (reading or hidden) it adds the compact line, with the words that ask the reader.
  */
 @Composable
 internal fun Head(
@@ -44,6 +44,7 @@ internal fun Head(
     onAllWork: () -> Unit = {},
     usage: Long? = null,
     onUsage: () -> Unit = {},
+    unreachable: Boolean = false,
 ) {
     var moreOpen by remember { mutableStateOf(false) }
     Column(
@@ -55,6 +56,7 @@ internal fun Head(
             dir = dir,
             title = title,
             host = host,
+            unreachable = unreachable,
             context = context,
             note = note,
             onBack = onBack,
