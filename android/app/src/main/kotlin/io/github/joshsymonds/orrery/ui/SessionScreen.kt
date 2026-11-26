@@ -38,9 +38,11 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.Move
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.animationsOn
@@ -152,7 +154,8 @@ data class StepMode(
 /**
  * A step's page title row: back, then, once the step's epic [detail] is read, the crumbs of its epic and of its task
  * (the task's [title], which opens the task at [phase]), then its own session's crumb. The step's host is labelled
- * inline; [StepMode.host] names it, and an empty one reads as [servingHost]. [onFind] is the row's More's Find.
+ * inline; [StepMode.host] names it, and an empty one reads as [servingHost]. An [unreachable] host's label carries the
+ * unreachable mark. [onFind] is the row's More's Find.
  */
 @Composable
 internal fun StepTitleRow(
@@ -165,6 +168,7 @@ internal fun StepTitleRow(
     onOpenEpic: (String) -> Unit,
     onOpenTask: (String, Phase) -> Unit,
     onFind: () -> Unit,
+    unreachable: Boolean = false,
 ) {
     TitleRow(
         crumbs = buildList {
@@ -177,6 +181,7 @@ internal fun StepTitleRow(
         onBack = onBack,
         onFind = onFind,
         host = step.host.ifEmpty { servingHost },
+        unreachable = unreachable,
     )
 }
 
@@ -258,6 +263,8 @@ fun SessionScreen(
     var stepRead by remember(sessionId) { mutableStateOf(false) }
     var contracts by remember(sessionId) { mutableStateOf<List<ContractRow>>(emptyList()) }
     var servingHost by remember(sessionId) { mutableStateOf("") }
+    // The hosts the status lists with their reach, as the last Host.Status read gave them.
+    var hosts by remember(sessionId) { mutableStateOf<List<HostEntry>>(emptyList()) }
     var nowSeconds by remember { mutableLongStateOf(clock()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -312,7 +319,10 @@ fun SessionScreen(
                             epics?.let { headEpics = it }
                             designList?.let { designs = it }
                             listed?.let { contracts = it }
-                            host?.let { servingHost = it.host }
+                            host?.let {
+                                servingHost = it.host
+                                hosts = it.hosts
+                            }
                             delay(HEAD_POLL_MILLIS)
                         }
                     }
@@ -356,6 +366,10 @@ fun SessionScreen(
     val stepTitle = stepRecord?.title ?: step?.label.orEmpty()
     val stepPhase = stepRecord?.let { phaseOfPlace(it.place, it.integrated) } ?: Phase.IMPLEMENTING
     val stepDock = step?.let { DockStep(stepTitle, stepRow?.held ?: it.held, stepRow?.doing ?: it.doing) }
+    // The host the screen's title row and dock name: a step's own, else the session's. Unreachable when its pane flags
+    // it, or the host status says the host does not answer.
+    val screenHost = if (step != null) step.host.ifEmpty { servingHost } else pane?.host.orEmpty().ifEmpty { servingHost }
+    val unreachable = pane?.unreachable == true || !reachableOf(hosts, screenHost)
     val unsent = held?.let { unsentTexts(sentTexts, it.conversation.items, it.queued) }.orEmpty()
     val entries = remember(held, unsent) {
         held?.let {
@@ -461,6 +475,7 @@ fun SessionScreen(
                 onOpenEpic = onOpenEpic,
                 onOpenTask = onOpenTask,
                 onFind = { finding = FindSession(query = "") },
+                unreachable = unreachable,
             )
             detail?.let { shown ->
                 ContextBand(
@@ -509,6 +524,7 @@ fun SessionScreen(
                         onAllWork = openAllWork,
                         usage = usage.readout,
                         onUsage = { usage.open = true },
+                        unreachable = unreachable,
                         modifier = Modifier.fillMaxWidth().background(OrreryTokens.Surface.page),
                     )
                 }
@@ -627,6 +643,7 @@ fun SessionScreen(
                     stepCalls = if (step != null) stepCalls else null,
                     about = about?.let { "${it.id} ${it.text}" },
                     onClearAbout = onClearAbout,
+                    unreachableHost = screenHost.takeIf { unreachable },
                 )
             }
         }

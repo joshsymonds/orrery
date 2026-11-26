@@ -74,6 +74,9 @@ private const val INTERRUPT_FAILED = "could not interrupt"
  * from a call is handled where the call is made. The texts a call hands back go into [draft] in send order; what a
  * control could not do is said in a note above the box, or on its row. [onSend] hears each tap on Send, before the
  * request goes out.
+ *
+ * A non-null [unreachableHost] is a host that does not answer: the dock is its one line, `unreachable: <host> does not
+ * answer`, with no box, queue, about line or control.
  */
 @Composable
 fun Dock(
@@ -96,10 +99,12 @@ fun Dock(
     onDraftPresent: (Boolean) -> Unit = {},
     onSend: () -> Unit = {},
     newPromptId: () -> String = { UUID.randomUUID().toString() },
+    unreachableHost: String? = null,
 ) {
     val dockKey = sessionId ?: paneId ?: facts.name
     val scope = rememberCoroutineScope()
-    val line = stateLine(facts, nowSeconds, zone)
+    val reachable = unreachableHost == null
+    val line = unreachableHost?.let(::unreachableLine) ?: stateLine(facts, nowSeconds, zone)
     val rowNotes = remember(dockKey) { mutableStateMapOf<String, String>() }
     val hiddenRows = remember(dockKey) { mutableStateListOf<String>() }
     var note by remember(dockKey) { mutableStateOf<String?>(null) }
@@ -265,9 +270,9 @@ fun Dock(
                 line = line,
                 onInterrupt = { interrupt() },
                 onResume = { sessionId?.let { resume(it) } },
-                stop = stop,
+                stop = stop.takeIf { reachable },
             )
-            if (waits.isNotEmpty()) {
+            if (reachable && waits.isNotEmpty()) {
                 DockDivider()
                 Text(
                     text = waits,
@@ -279,7 +284,7 @@ fun Dock(
                     style = OrreryTokens.Type.small,
                 )
             }
-            if (rows.isNotEmpty()) {
+            if (reachable && rows.isNotEmpty()) {
                 DockDivider()
                 DockTray(
                     pane = facts.kind == DockKind.PANE,
@@ -296,7 +301,7 @@ fun Dock(
                     },
                 )
             }
-            if (about != null && !aboutCleared) {
+            if (reachable && about != null && !aboutCleared) {
                 DockDivider()
                 Row(
                     modifier = Modifier
@@ -319,18 +324,20 @@ fun Dock(
                     })
                 }
             }
-            DockBox(
-                draft = draft,
-                client = client,
-                paneId = paneId ?: sessionId ?: facts.name,
-                edge = edge,
-                maxFieldHeight = maxFieldHeight,
-                hint = dockPlaceholder(facts),
-                onDraftPresent = onDraftPresent,
-                status = (note ?: stepCalls?.outcome)?.let(::noteLine),
-                onSend = onSend,
-                send = sendAndHideWaits,
-            )
+            if (reachable) {
+                DockBox(
+                    draft = draft,
+                    client = client,
+                    paneId = paneId ?: sessionId ?: facts.name,
+                    edge = edge,
+                    maxFieldHeight = maxFieldHeight,
+                    hint = dockPlaceholder(facts),
+                    onDraftPresent = onDraftPresent,
+                    status = (note ?: stepCalls?.outcome)?.let(::noteLine),
+                    onSend = onSend,
+                    send = sendAndHideWaits,
+                )
+            }
         }
     }
 }
