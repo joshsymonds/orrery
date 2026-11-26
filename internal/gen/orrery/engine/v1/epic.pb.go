@@ -2660,7 +2660,8 @@ type EpicQuestion struct {
 	Turn int64 `protobuf:"varint,2,opt,name=turn,proto3" json:"turn,omitempty"`
 	// The question.
 	Text string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
-	// The question's state: open until the owner answers it.
+	// The question's state: open until it closes, then answered when a decision answers it, replaced when a later
+	// question replaces it, or overtaken when the epic moved on without its answer, which takes no answer after.
 	State string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
 	// The label the question is filed under, kebab-case. Empty for a question stored before labels.
 	Label string `protobuf:"bytes,5,opt,name=label,proto3" json:"label,omitempty"`

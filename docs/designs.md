@@ -90,7 +90,7 @@ When a held epic has a predecessor that will not ship, its steering conversation
 - `start` starts the epic now (4.4), whether or not its predecessors have shipped.
 - `close` closes the epic abandoned, as `CloseEpic` with kind `abandoned` closes it (`closed_abandoned`), with an empty `by`.
 
-The question is asked once per epic. It is asked when the epic first has a predecessor that will not ship, at creation or at a later check. A later check that finds the same state asks nothing more. When the epic leaves `held` by any other write, such as its start or a `CloseEpic`, its open held question is closed unanswered.
+The question is asked once per epic. It is asked when the epic first has a predecessor that will not ship, at creation or at a later check. A later check that finds the same state asks nothing more. When the epic leaves `held` by any other write, its open held question is closed unanswered, as `overtaken`, with orreryd's decision `overtaken:Q<n>` and a tell to the steering conversation that it takes no answer: a start once its predecessors shipped overtakes it in the start's write, and a `CloseEpic` overtakes it as a close overtakes every open question. An answer to it after is refused.
 
 ### 4.4 Start
 

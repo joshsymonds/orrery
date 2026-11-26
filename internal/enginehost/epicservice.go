@@ -564,11 +564,13 @@ func (s *epicService) answerNote(
 
 // answerError maps an error from recording the answer req names to its Connect error: an unknown epic is NotFound on
 // epic_id, an id recorded with other text or another choice is AlreadyExists, an unknown question is NotFound on
-// question, a replaced or closed question is FailedPrecondition, a choice the question does not offer is
+// question, a replaced, overtaken or closed question is FailedPrecondition, a choice the question does not offer is
 // InvalidArgument on choice, other with blank text is InvalidArgument on text, and any other error goes through
-// epicStoreError.
+// epicStoreError. An overtaken question's message says the epic moved on without its answer and names the decision
+// that records why.
 func answerError(req *v1.AnswerEpicRequest, err error) error {
 	var replaced *store.QuestionReplacedError
+	var overtaken *store.QuestionOvertakenError
 	switch {
 	case errors.Is(err, store.ErrNoEpic):
 		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("epic_id: no epic %s", req.GetEpicId()))
@@ -579,6 +581,12 @@ func answerError(req *v1.AnswerEpicRequest, err error) error {
 	case errors.As(err, &replaced):
 		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
 			"question: %s was replaced by %s", questionID(replaced.Seq), questionID(replaced.By),
+		))
+	case errors.As(err, &overtaken):
+		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf(
+			"question: %s was overtaken: the epic moved on without its answer, so it takes none; "+
+				"decision %s records why",
+			questionID(overtaken.Seq), overtaken.Decision(),
 		))
 	case errors.Is(err, store.ErrQuestionClosed):
 		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("question: %s is closed", req.GetQuestion()))

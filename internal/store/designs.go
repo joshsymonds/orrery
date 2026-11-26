@@ -504,8 +504,10 @@ const heldStartDecision = "held-start"
 
 // StartHeldEpic starts the held epic id at base, at at, in one write: its base and stored base become base, its phase
 // becomes accepted at at, and orreryd appends a decision, held-start, whose text names base as origin main, the commit
-// the epic starts from once its last predecessor shipped. It returns an error that matches ErrNoEpic when no epic has
-// the id, and ErrNotHeld when the epic is not held. It stores nothing on an error.
+// the epic starts from once its last predecessor shipped. A held question still open is overtaken in the same write,
+// after held-start (overtakeQuestion): an answer of start would have closed it, so the epic starts without its answer,
+// because its predecessors shipped, and the question's will-not-ship premise no longer holds. It returns an error that
+// matches ErrNoEpic when no epic has the id, and ErrNotHeld when the epic is not held. It stores nothing on an error.
 func (s *Store) StartHeldEpic(ctx context.Context, id, base string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		started, err := queries.StartHeldEpic(ctx, sqlcgen.StartHeldEpicParams{Base: base, At: at.Unix(), ID: id})
@@ -521,7 +523,10 @@ func (s *Store) StartHeldEpic(ctx context.Context, id, base string, at time.Time
 		); err != nil {
 			return fmt.Errorf("record start of held epic %s: %w", id, err)
 		}
-		return nil
+		return overtakeOpenQuestions(ctx, queries, id, overtaking{
+			why:   fmt.Sprintf("the epic started at base %s once its predecessors shipped, without its answer", base),
+			takes: isHeldQuestion,
+		}, at)
 	})
 }
 

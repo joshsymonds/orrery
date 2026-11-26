@@ -18,11 +18,13 @@ import (
 // refusal, and the turn writes nothing.
 var ErrBadQuestion = errors.New("bad planner question")
 
-// The states a planner question moves through: open until it is answered, or replaced by a later question.
+// The states a planner question moves through: open until it is answered, replaced by a later question, or overtaken
+// when the epic moves on without its answer (overtakeQuestion).
 const (
-	QuestionOpen     = "open"
-	QuestionAnswered = "answered"
-	QuestionReplaced = "replaced"
+	QuestionOpen      = "open"
+	QuestionAnswered  = "answered"
+	QuestionReplaced  = "replaced"
+	QuestionOvertaken = "overtaken"
 )
 
 // ChoiceOther is the choice orrery offers on every question. A question never declares it.

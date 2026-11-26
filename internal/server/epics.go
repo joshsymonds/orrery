@@ -308,9 +308,10 @@ type storedHead interface {
 }
 
 // storedPhaseLive reports whether an orreryd epic in phase is live: it is not met_at_base, released or done, which end an
-// epic, and not a closed phase, which a close ends it in. Each list that reads a stored epic's phase applies this rule.
+// epic, and not a closed phase, which a close ends it in, the phases the store calls final (store.FinalPhase). Each
+// list that reads a stored epic's phase applies this rule.
 func storedPhaseLive(phase string) bool {
-	return phase != "met_at_base" && phase != "released" && phase != "done" && !store.IsClosedPhase(phase)
+	return !store.FinalPhase(phase)
 }
 
 // storedEpicMessage returns the Epic of an epic orreryd's database holds, from its head: its outcome is the phase,

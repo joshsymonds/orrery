@@ -55,12 +55,14 @@ type closeEnd struct {
 // recorded as named. closer is CloserOwner or CloserPlanner.
 //
 // The write sets the epic's phase to the closed phase of kind, records closer and by, and clears its park and pause.
-// Each open question is answered with the closed phase, so the epic has none open. Its running turn ends free, which
-// never counts toward a park, and the triggers it claimed return to pending. Every pending trigger of the epic is then
-// consumed, so the planner has nothing to claim. Its running node runs end and its due resumes close. An evidence
-// amendment of the epic that is checking is refused, with the planner action that asked for it, and one that is
-// capturing, whose item is applied already, is applied. A planner close also adds one tell, which says the epic is
-// closed and is the ending the owner is told; an owner close adds none.
+// Each open question is overtaken, with its decision and its tell, as any write that ends an epic for good overtakes
+// them (overtakeQuestion), so the epic has none open; an owner close stores those tells told, so the owner gets no
+// notice of their own close and the steerer is still sent each. Its running turn ends free, which never counts toward a
+// park, and the triggers it claimed return to pending. Every pending trigger of the epic is then consumed, so the
+// planner has nothing to claim. Its running node runs end and its due resumes close. An evidence amendment of the epic
+// that is checking is refused, with the planner action that asked for it, and one that is capturing, whose item is
+// applied already, is applied. A planner close also adds one tell, which says the epic is closed and is the ending the
+// owner is told; an owner close adds no such tell.
 //
 // The write appends one close action made by maker at at.
 //
@@ -137,10 +139,14 @@ func endClosedTurn(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) 
 	return running.Step, nil
 }
 
-// closeEpicRows writes end in the caller's write: the answers, the open evidence amendments, the node runs, the head, the
-// phase, the triggers and the due resumes, and for a planner close the ending tell.
+// closeEpicRows writes end in the caller's write: the overtaken questions, the open evidence amendments, the node runs,
+// the head, the phase, the triggers and the due resumes, and for a planner close the ending tell. The close overtakes
+// every open question itself, before setEpicPhase would, since the closer decides who is told: an owner close stores
+// its overtaken tells told, as it adds no ending tell, and an epic the owner closed has no report a notice could open on.
 func closeEpicRows(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) error {
-	if err := answerOpenQuestions(ctx, queries, end.epic, end.phase); err != nil {
+	closing := endedForGood(end.phase)
+	closing.told = end.closer == CloserOwner
+	if err := overtakeOpenQuestions(ctx, queries, end.epic, closing, end.at); err != nil {
 		return err
 	}
 	if err := settleClosedAmendments(ctx, queries, end); err != nil {
@@ -167,23 +173,6 @@ func closeEpicRows(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) 
 	}
 	if end.closer == CloserPlanner {
 		return insertTell(ctx, queries, end.epic, closeTell(end), end.at)
-	}
-	return nil
-}
-
-// answerOpenQuestions answers each open question of epic with choice, the phase the close ends the epic in, in the
-// caller's write.
-func answerOpenQuestions(ctx context.Context, queries *sqlcgen.Queries, epic, choice string) error {
-	open, err := queries.ListOpenEpicQuestions(ctx, epic)
-	if err != nil {
-		return fmt.Errorf("read open questions of epic %s: %w", epic, err)
-	}
-	for _, question := range open {
-		if err = queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
-			Choice: choice, Epic: epic, Seq: question.Seq,
-		}); err != nil {
-			return fmt.Errorf("answer question %d of epic %s: %w", question.Seq, epic, err)
-		}
 	}
 	return nil
 }
