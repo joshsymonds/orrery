@@ -196,6 +196,34 @@ func (c *Client) act(ctx context.Context, op Op, id string) error {
 	return err
 }
 
+// hostCall sends req, and returns the Response unless the agent's answer carries an error code. While the agent cannot be
+// reached, it sends req again after each retry interval, until the agent answers or ctx ends. So a host op fails only for
+// a failure the agent gave, or for the end of ctx.
+func (c *Client) hostCall(ctx context.Context, req Request) (Response, error) {
+	for {
+		resp, err := c.call(ctx, req)
+		if !errors.Is(err, holderhost.ErrUnreachable) {
+			return resp, err
+		}
+		if pauseErr := c.pause(ctx); pauseErr != nil {
+			return Response{}, errors.Join(err, pauseErr)
+		}
+	}
+}
+
+// pause waits one retry interval on the clock, and returns nil. It returns ctx's error instead when ctx has ended.
+func (c *Client) pause(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.cfg.Clock.After(c.cfg.Bound / retriesPerBound):
+		return nil
+	}
+}
+
 // call sends req, and returns the Response unless the agent's answer carries an error code.
 func (c *Client) call(parent context.Context, req Request) (Response, error) {
 	resp, err := c.request(parent, req)
@@ -382,6 +410,11 @@ func (c *Client) setUnreachable(unreachable bool) {
 type nodeLink struct {
 	client *Client
 	id     string
+	// holderDir is the directory of a gate's holder, and scope the systemd-run path it was launched under. A link with a
+	// holderDir attaches that holder by its directory, through gate-attach. Empty means the link attaches the session's
+	// holder by its id.
+	holderDir string
+	scope     string
 	// watch starts the end watch, on the first call of Done.
 	watch sync.Once
 	// done closes once the holder has ended, and exit and found are set before it closes.
@@ -396,7 +429,7 @@ var _ holder.Link = (*nodeLink)(nil)
 // returned connection stays open after ctx ends.
 func (l *nodeLink) Dial(parent context.Context) (net.Conn, error) {
 	client := l.client
-	req := Request{Version: Version, Op: OpAttach, Session: l.id}
+	req := l.attachRequest()
 	ctx, cancel := client.bound(parent)
 	defer cancel()
 	conn, err := client.dial(ctx)
@@ -412,6 +445,15 @@ func (l *nodeLink) Dial(parent context.Context) (net.Conn, error) {
 		return nil, client.opErr(req, err)
 	}
 	return conn, nil
+}
+
+// attachRequest returns the request that attaches the link's holder: gate-attach for a gate's holder by its directory, and
+// attach for a session's holder by its id.
+func (l *nodeLink) attachRequest() Request {
+	if l.holderDir != "" {
+		return Request{Version: Version, Op: OpGateAttach, HolderDir: l.holderDir, Scope: l.scope}
+	}
+	return Request{Version: Version, Op: OpAttach, Session: l.id}
 }
 
 // Done returns the channel that closes once the holder has ended. The first call starts the end watch.
