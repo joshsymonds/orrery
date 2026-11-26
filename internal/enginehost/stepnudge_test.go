@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -505,7 +506,7 @@ func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
 // begins: the loop is not running, so the call can only be released by the gate.
 func TestStepRunOwnerActionWaitingWhenGateBeginsIsRefused(t *testing.T) {
 	t.Parallel()
-	run := newStepRun(stepRunConfig{id: stepLoopID, logger: slog.New(slog.DiscardHandler)})
+	run := newStepRun(stepRunConfig{id: stepLoopID, logger: slog.New(slog.DiscardHandler), host: hostexec.NewLocal()})
 
 	errs := make(chan error, 1)
 	go func() {

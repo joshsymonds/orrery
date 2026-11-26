@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -52,6 +53,7 @@ func evidenceCaptureFor(t *testing.T, pools PoolCommands, extra ...string) evide
 		worktrees:    t.TempDir(),
 		gateStateDir: gateShortStateDir(t),
 		blobs:        evidenceBlobs{dir: filepath.Join(t.TempDir(), "blobs")},
+		host:         hostexec.NewLocal(),
 	}
 }
 

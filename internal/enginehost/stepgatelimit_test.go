@@ -8,6 +8,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -45,7 +46,7 @@ func newGateLimitTestFixture(t *testing.T, caller haikuCaller, sessions *stepLoo
 	f.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, store: s, writer: writer,
 		logger: slog.New(slog.DiscardHandler), now: f.clock.now, modelLimit: watchLoopModelLimit, haiku: caller,
-		newTimer: f.timers.newTimer, agentGate: gate,
+		newTimer: f.timers.newTimer, agentGate: gate, host: hostexec.NewLocal(),
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)

@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -41,6 +42,11 @@ type stepsOnGateDir struct {
 // Status answers from rows.
 func (f stepsOnGateDir) Status(ctx context.Context, id string) (store.StepRow, error) {
 	return f.rows.Status(ctx, id)
+}
+
+// hostNamed resolves every host name to the local host, as a Steps built without hosts does.
+func (f checkRowsSteps) hostNamed(name string) (hostexec.Host, error) {
+	return hostexec.LocalHosts().Host(name)
 }
 
 // writeCheckLog writes text as the file name in dir and returns its path, failing t when the write fails.

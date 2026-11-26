@@ -37,8 +37,8 @@ type evidenceCapture struct {
 	gateStateDir string
 	gateScope    string
 	blobs        evidenceBlobs
-	// host is the Host the capture's git, worktrees and artifact reads run on. It is set with on, and is the local host
-	// when it is not set (see hostOf).
+	// host is the Host the capture's git, worktrees, gate and artifact reads run on: the host its epic is stored on. It is
+	// set with on, and a capture run without one has no Host to run on (see hostOf).
 	host hostexec.Host
 	// logTail is the number of newest output bytes a capture keeps, and the size at which a log read back counts as
 	// cut, in place of evidenceCaptureLogTail when it is not zero. Tests set it to keep their logs small.
@@ -59,12 +59,9 @@ func (c evidenceCapture) on(host hostexec.Host) evidenceCapture {
 	return c
 }
 
-// hostOf returns the Host the capture runs on: its host, or the local host when none is set, as a capture built outside
-// a runner runs.
+// hostOf returns the Host the capture runs on, the one set with on. It is never the local host by default: a capture runs
+// on the host its epic is stored on, so it is set before the capture runs.
 func (c evidenceCapture) hostOf() hostexec.Host {
-	if c.host == nil {
-		return hostexec.NewLocal()
-	}
 	return c.host
 }
 
@@ -163,11 +160,12 @@ func (c evidenceCapture) readoptLost(
 }
 
 // captureGrantRequest returns the grant request run id's capture queues in worktree: one member of the default gate pool.
+// Its pools are read through the capture's host.
 func (c evidenceCapture) captureGrantRequest(
 	ctx context.Context, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
-	return stepGrant(ctx, hostexec.NewLocal(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
+	return stepGrant(ctx, c.hostOf(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
 }
 
 // captureGate returns the gate that runs item's capture in worktree as run id. Its stdout and stderr tails are 1 MiB

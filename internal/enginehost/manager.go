@@ -20,6 +20,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/telemetry"
@@ -270,6 +271,11 @@ type Manager struct {
 	local    *holderhost.Local
 	hostName string
 	hosts    map[string]holderhost.Host
+	// files is the host a step's agent files are read through when its StepSession, or the continue that respawns it,
+	// names none. Steps always names the host its epic is stored on, so only a caller that starts or continues a step on
+	// the Manager directly with no host reads through it. It is the controller's own host, which serves the controller's
+	// own work.
+	files hostexec.Files
 	// holderVersion is the holder wire version the controller speaks when it re-adopts a holder.
 	holderVersion int
 	// attachTimeout bounds a re-adoption's attach in place of holder.AttachTimeout when it is not zero. Tests set it.
@@ -306,9 +312,9 @@ type Manager struct {
 	mu sync.Mutex
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
-	// stopping holds the retired sessions, by id, until their pump has ended and their stop has returned (see
-	// stopRetired). A Say or Continue that finds no live session waits for the one held here, so its old holder's
-	// directory is gone when it resumes (see awaitStopping).
+	// stopping holds the retired sessions, and the sessions Release or an idle stop is stopping, by id, until their pump has
+	// ended and their stop has returned (see stopRetired and beginStopLocked). A Say or Continue that finds no live session
+	// waits for the one held here, so its old holder's directory is gone when it resumes (see awaitStopping).
 	stopping map[string]*liveSession
 	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
 	// to the same observer.
@@ -376,6 +382,7 @@ func NewManager(cfg Config) *Manager {
 		}),
 		hostName:      cfg.HostName,
 		hosts:         cfg.Hosts,
+		files:         hostexec.NewLocal(), // serves the controller's own work: sessions it starts directly read agents here
 		holderVersion: cfg.HolderVersion,
 		writer:        cfg.Writer,
 		now:           cfg.Now,
@@ -1254,8 +1261,14 @@ func (m *Manager) failSend(ctx context.Context, live *liveSession, prompt store.
 // and do nothing else, as Say does. A step that is not live, as after an idle stop or a drain at its hand-off, is
 // respawned first from its rows (see respawnStep). The prompt is recorded with its PromptID, sender and round, and a failed
 // send records the step failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and
-// ErrEmptyPrompt for empty text.
+// ErrEmptyPrompt for empty text. A respawn reads the step's agents through the manager's own host (see Manager.files).
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	return m.continueWithFiles(ctx, id, prompt, nil)
+}
+
+// continueWithFiles is Continue for a step whose respawn reads its agent files through files, the host its epic is
+// stored on, or through the manager's own host when files is nil (see respawnStep).
+func (m *Manager) continueWithFiles(ctx context.Context, id string, prompt StepPrompt, files hostexec.Files) error {
 	defer m.calls.enter()()
 	if prompt.Text == "" {
 		return ErrEmptyPrompt
@@ -1271,7 +1284,7 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 	}
 	live, err := m.claimStep(id)
 	if errors.Is(err, ErrNoSession) {
-		live, err = m.respawnStep(ctx, id)
+		live, err = m.respawnStep(ctx, id, files)
 	}
 	if err != nil {
 		return fmt.Errorf("continue step %s: %w", id, err)
@@ -1291,9 +1304,10 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 // old holder's record or directory. Then it takes id out of the drained set, refusing when the manager is closed (see
 // claimRespawn), before it reads the rows. A directory that is gone, an agent that no longer
 // resolves, or a spawn that fails, records the step failed without a notice and returns the error. It returns the step
-// claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
-// wrapping ErrNoSession when id is not a step row.
-func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
+// claimed with its turn running, as claimStep does. Its agent is resolved through files, the host the step's epic is
+// stored on (see continueWithFiles), or through the manager's own host when files is nil. resumeMu makes concurrent
+// calls for one id start a single process. It returns an error wrapping ErrNoSession when id is not a step row.
+func (m *Manager) respawnStep(ctx context.Context, id string, files hostexec.Files) (*liveSession, error) {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	if live, err := m.claimStep(id); err == nil {
@@ -1316,7 +1330,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 	if err = checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
-	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents}
+	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents, Files: files}
 	if err = m.resolveStepAgent(ctx, session); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -1986,9 +2000,9 @@ func (m *Manager) Close() {
 	m.pumps.Wait()
 	// Each host watcher ends at once, since Close cancelled it (see watchHost), and none starts after the close.
 	m.watchers.Wait()
-	// A session retired before the close is still being stopped on its own goroutine (stopRetired), and its holder's
-	// directory is removed only once that stop returns. Close waits for those stops too, so no stop of this manager
-	// still touches a holder directory once Close returns.
+	// A session retired before the close, or released or idle-stopped (see beginStopLocked), is still being stopped, and its
+	// holder's directory is removed only once that stop returns. Close waits for those stops too, so no stop of this
+	// manager still touches a holder directory once Close returns.
 	m.mu.Lock()
 	retired := make([]*liveSession, 0, len(m.stopping))
 	for _, live := range m.stopping {
@@ -2070,6 +2084,7 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	live.held = false
 	delete(m.sessions, id)
 	m.disarmIdleLocked(live)
+	m.beginStopLocked(live)
 	m.mu.Unlock()
 	if err := live.sess.Stop(); err != nil {
 		m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
@@ -2079,6 +2094,7 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	if err := m.waitPump(ctx, live); err != nil {
 		m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
 	}
+	m.endStop(live)
 	if held {
 		m.settleIdleHeld(ctx, live)
 	}
@@ -2766,6 +2782,21 @@ func (m *Manager) stopRetired(live *liveSession) {
 		m.logger.Warn("stop drained session", "session", live.id, "err", err)
 	}
 	<-live.done
+	m.endStop(live)
+}
+
+// beginStopLocked registers live, which Release or stopIdle has just taken out of the live set, as stopping until endStop
+// is called once its stop has returned. Until then Close waits for live.stopped, and awaitStopping waits for the holder's
+// directory, so no stop of this manager is left touching a holder directory that a new holder takes. The caller holds the
+// lock.
+func (m *Manager) beginStopLocked(live *liveSession) {
+	live.stopped = make(chan struct{})
+	m.stopping[live.id] = live
+}
+
+// endStop takes live out of m.stopping and closes live.stopped, once live's stop has returned, so the holder's directory is
+// gone. It serves a retired session (see stopRetired) and a session begun with beginStopLocked.
+func (m *Manager) endStop(live *liveSession) {
 	m.mu.Lock()
 	if m.stopping[live.id] == live {
 		delete(m.stopping, live.id)

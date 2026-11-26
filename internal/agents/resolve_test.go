@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // gitHead is the HEAD file that makes a folder's .git a git directory, so that the folder is a work-tree root.
@@ -68,6 +70,7 @@ func setUp(t *testing.T, files map[string]string, p place) (string, Where) {
 		Home:      under(root, p.home),
 		ConfigDir: under(root, p.config),
 		Managed:   under(root, p.managed),
+		Files:     hostexec.NewLocal(),
 	}
 }
 
@@ -372,10 +375,20 @@ func TestResolveBadWhere(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Resolve(context.Background(), "reviewer", tt.where); err == nil {
+			where := tt.where
+			where.Files = hostexec.NewLocal()
+			if err := Resolve(context.Background(), "reviewer", where); err == nil {
 				t.Errorf("Resolve(reviewer) = nil; want an error")
 			}
 		})
+	}
+}
+
+func TestResolveNoFiles(t *testing.T) {
+	_, where := setUp(t, nil, place{dir: "home/proj", home: "home"})
+	where.Files = nil
+	if err := Resolve(context.Background(), "reviewer", where); err == nil || errors.Is(err, ErrUnresolved) {
+		t.Errorf("Resolve(reviewer) with no Files = %v; want an error that does not wrap ErrUnresolved", err)
 	}
 }
 

@@ -33,6 +33,34 @@ type StepPrompt struct {
 	Loop     *store.StepLoop
 }
 
+// fileContinuer is a stepSessions that continues a step with the host its agent files are read through named. Manager
+// is one: a step it respawns to take a prompt reads its agents through that host, not the manager's own.
+type fileContinuer interface {
+	continueWithFiles(ctx context.Context, id string, prompt StepPrompt, files hostexec.Files) error
+}
+
+// hostSessions is the stepSessions a run on host drives. Its Continue names host as the files a respawned step reads
+// its agents through, so a step under an epic stored on host reads its agents there, and never on the controller. A
+// stepSessions that cannot name files is continued with its own Continue.
+type hostSessions struct {
+	stepSessions
+	host hostexec.Host
+}
+
+// Continue sends prompt to the session as its next message, through the run's host when the session names files.
+func (h hostSessions) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	var err error
+	if fc, ok := h.stepSessions.(fileContinuer); ok {
+		err = fc.continueWithFiles(ctx, id, prompt, h.host)
+	} else {
+		err = h.stepSessions.Continue(ctx, id, prompt)
+	}
+	if err != nil {
+		return fmt.Errorf("continue step %s through its host: %w", id, err)
+	}
+	return nil
+}
+
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
 // stops. Manager satisfies it.
 type stepSessions interface {
@@ -244,7 +272,9 @@ type stepRun struct {
 	once      sync.Once
 }
 
-// newStepRun returns a stepRun built from cfg that is not running. Call run to start it.
+// newStepRun returns a stepRun built from cfg that is not running. Call run to start it. cfg's host is required and has no
+// default: it is the host the step's git, worktrees and gates run on, the host its epic is stored on. Every caller passes
+// the host its row or epic names, so a run is never built to run on this machine by default.
 func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.now == nil {
 		cfg.now = time.Now
@@ -252,14 +282,14 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.publish == nil {
 		cfg.publish = func(context.Context, string) {}
 	}
-	if cfg.host == nil {
-		cfg.host = hostexec.NewLocal()
-	}
 	if cfg.countLines == nil {
 		host := cfg.host
 		cfg.countLines = func(ctx context.Context, dir, start, commit string) (store.StepLines, error) {
 			return stepGitLines(ctx, host, dir, start, commit)
 		}
+	}
+	if cfg.sessions != nil {
+		cfg.sessions = hostSessions{stepSessions: cfg.sessions, host: cfg.host}
 	}
 	start := cfg.now()
 	return &stepRun{

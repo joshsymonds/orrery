@@ -14,9 +14,10 @@ import (
 )
 
 // checkSteps is the daemon's steps for the check tool. Its Status answers row, and it keeps its gate logs in logs. Every
-// other command is the embedded StepCommands', which the tool never reaches.
+// other command is the embedded Steps', which the tool never reaches. The check tool reads kept logs through the host
+// the row names, so the embedded Steps must name hosts: a zero Steps names each host as this machine.
 type checkSteps struct {
-	enginehost.StepCommands
+	*enginehost.Steps
 	row  store.StepRow
 	logs string
 }
@@ -102,7 +103,7 @@ func TestStepByPartCheckTool(t *testing.T) {
 			},
 		},
 	}
-	p := newPeer(t, startDaemon(t, checkSteps{row: row, logs: logs}), nil)
+	p := newPeer(t, startDaemon(t, checkSteps{Steps: &enginehost.Steps{}, row: row, logs: logs}), nil)
 	gateRoundTwo := []string{"gate round 2: failed", "exit 1 in round two"}
 
 	t.Run("header, detail and last 40 lines of the kept log", func(t *testing.T) {
