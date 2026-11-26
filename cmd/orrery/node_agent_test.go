@@ -32,10 +32,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
-// TestMain puts a built orrery first on PATH when a run selects the node agent tests, since each session the agent
-// launches runs under orrery holder (see holdertest.Main).
+// TestMain puts a built orrery first on PATH when a run selects a test that needs it: TestNodeAgentServe and the node
+// restart tests, since each session the agent launches runs under orrery holder, and TestNodeLocalVerbsDesk, since the
+// desk runs orrery as a process (see holdertest.Main).
 func TestMain(m *testing.M) {
-	os.Exit(holdertest.Main(m, "TestNodeAgentServe"))
+	os.Exit(holdertest.Main(m, "TestNodeAgentServe", "TestNodeRestart", "TestNodeLocalVerbsDesk"))
 }
 
 const (
