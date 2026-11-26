@@ -23,12 +23,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -39,8 +41,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.OrreryMono
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
@@ -53,10 +57,17 @@ private const val CONTRACT_VIEW = 24f
 private const val GLYPH_STROKE = 1.5f
 private const val CONTRACT_STROKE = 1.5f
 
+/** The length of each dash, and each gap, of the unreachable glyph's ring, in the glyph's view units. */
+private const val UNREACHABLE_DASH = 2.5f
+
 private const val STATE_WAITING = "waiting"
 private const val STATE_BROKEN = "broken"
+private const val STATE_UNREACHABLE = "unreachable"
 private const val UNSEEN_WORDS = "new since you looked"
 private const val CONTRACT_WORDS = "contract"
+
+/** Semantics key: the colour a state glyph is drawn in, on the glyph's node. */
+internal val GlyphColourKey = SemanticsPropertyKey<Color>("GlyphColour")
 
 /**
  * One conversation and what hangs under it, drawn as round 8 draws the inbox tree (D13): its row, then each epic's and
@@ -176,7 +187,11 @@ private fun ConvoLine(
             Text(
                 convoLineText(convo, now),
                 style = OrreryTokens.Type.small,
-                color = if (pane.state == STATE_WAITING) OrreryTokens.Role.attention else OrreryTokens.Ink.three,
+                color = if (pane.state == STATE_WAITING && !pane.unreachable) {
+                    OrreryTokens.Role.attention
+                } else {
+                    OrreryTokens.Ink.three
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -191,8 +206,10 @@ private fun ConvoLine(
     }
 }
 
-// A conversation's second line; an unbound pane's command is set in the mono family.
+// A conversation's second line; an unbound pane's command is set in the mono family. A pane whose host does not answer
+// says unreachable, since what it is doing is not known.
 private fun convoLineText(convo: Convo, now: Long): AnnotatedString {
+    if (convo.pane?.unreachable == true) return AnnotatedString(STATE_UNREACHABLE)
     val line = convoLineOf(convo, now)
     val command = if (convo.pane?.unbound == true) line.indexOf(UNBOUND_COMMAND) else -1
     return buildAnnotatedString {
@@ -201,8 +218,13 @@ private fun convoLineText(convo: Convo, now: Long): AnnotatedString {
     }
 }
 
-// A conversation's glyph: broken for a session that failed or a pane with no Claude session bound to it, else its state's.
-private fun glyphOfRow(pane: Pane): String = if (pane.state == "failed" || pane.unbound) STATE_BROKEN else pane.state
+// A conversation's glyph: unreachable for a pane whose host does not answer, broken for a session that failed or a pane
+// with no Claude session bound to it, else its state's.
+private fun glyphOfRow(pane: Pane): String = when {
+    pane.unreachable -> STATE_UNREACHABLE
+    pane.state == "failed" || pane.unbound -> STATE_BROKEN
+    else -> pane.state
+}
 
 // The new dot: drawn only for a row unseen since its owner last looked, else a gap of the same width.
 @Composable
@@ -276,9 +298,10 @@ internal fun HungRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                // An epic names its own host on its row: it may run on another host than the conversation steering it.
+                // An epic names its own host on its row: it may run on another host than the conversation steering it. A host
+                // that does not answer carries the unreachable mark.
                 if (hung is EpicNode && hung.host.isNotEmpty()) {
-                    HostLabel(name = hung.host)
+                    HostLabel(name = hung.host, unreachable = !reachableOf(hung.hosts, hung.host))
                 }
             }
             if (contract && words.count.isNotEmpty()) {
@@ -286,20 +309,26 @@ internal fun HungRow(
             }
         }
         if (hung is EpicNode) {
-            EpicSteps(hung.epic, hung.detail, onOpen, inDesign)
+            EpicSteps(hung.epic, hung.detail, onOpen, inDesign, hung.hosts)
         }
     }
 }
 
 // An epic's running steps, at most MAX_STEP_ROWS, then one line for the rest. A step's pips are its task's cells in the
-// epic's record, when the record is known.
+// epic's record, when the record is known. A step on a host that does not answer draws unreachable.
 @Composable
-private fun EpicSteps(epic: EpicRow, detail: EpicDetail?, onOpen: (String) -> Unit, inDesign: Boolean) {
+private fun EpicSteps(
+    epic: EpicRow,
+    detail: EpicDetail?,
+    onOpen: (String) -> Unit,
+    inDesign: Boolean,
+    hosts: List<HostEntry>,
+) {
     val shown = epic.runningSteps.take(MAX_STEP_ROWS)
     val more = epic.runningSteps.size - shown.size
     val tasks = detail?.let { recordTasksOf(it) }.orEmpty()
     for (step in shown) {
-        StepLine(step, stepCellsOf(step.task, tasks), onOpen, inDesign)
+        StepLine(step, stepCellsOf(step.task, tasks), onOpen, inDesign, unreachable = !reachableOf(hosts, step.host))
     }
     if (more > 0) {
         Text(
@@ -311,9 +340,15 @@ private fun EpicSteps(epic: EpicRow, detail: EpicDetail?, onOpen: (String) -> Un
 }
 
 // A step reads as the Now rows do: its purpose, else its task, else its role, then what it is doing, then the pips of its
-// task when it has one.
+// task when it has one. A step whose host does not answer draws unreachable, and its host carries the unreachable mark.
 @Composable
-private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> Unit, inDesign: Boolean) {
+private fun StepLine(
+    step: StepRow,
+    cells: List<CellTone>,
+    onOpen: (String) -> Unit,
+    inDesign: Boolean,
+    unreachable: Boolean,
+) {
     val key = "step:${step.id}"
     Row(
         modifier = Modifier
@@ -324,7 +359,12 @@ private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> U
         horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         verticalAlignment = Alignment.Top,
     ) {
-        StateGlyph(if (step.held) "held" else "working", Modifier.padding(top = OrreryTokens.Space.two))
+        val state = when {
+            unreachable -> STATE_UNREACHABLE
+            step.held -> "held"
+            else -> "working"
+        }
+        StateGlyph(state, Modifier.padding(top = OrreryTokens.Space.two))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 stepHeadlineOf(step),
@@ -341,7 +381,7 @@ private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> U
                 overflow = TextOverflow.Ellipsis,
             )
             if (step.host.isNotEmpty()) {
-                HostLabel(name = step.host)
+                HostLabel(name = step.host, unreachable = unreachable)
             }
         }
         if (step.task.isNotEmpty()) {
@@ -354,12 +394,18 @@ private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> U
 private fun boldUnlessIn(inDesign: Boolean): FontWeight =
     if (inDesign) OrreryTokens.Font.Weight.regular else OrreryTokens.Font.Weight.bold
 
-// A state glyph in the state's colour, named by the state's words; an unknown state draws idle.
+// A state glyph in the state's colour, named by the state's words, with its colour on the semantics key; an unknown state
+// draws idle.
 @Composable
 internal fun StateGlyph(state: String, modifier: Modifier = Modifier) {
     val color = glyphColorOf(state)
     val word = glyphWordOf(state)
-    Canvas(modifier = modifier.size(OrreryTokens.Size.glyph).semantics { contentDescription = word }) {
+    Canvas(
+        modifier = modifier.size(OrreryTokens.Size.glyph).semantics {
+            contentDescription = word
+            set(GlyphColourKey, color)
+        },
+    ) {
         drawGlyph(state, color)
     }
 }
@@ -374,6 +420,7 @@ private fun glyphColorOf(state: String): Color = when (state) {
     "interrupting" -> OrreryTokens.State.interrupting
     "failed", STATE_BROKEN -> OrreryTokens.State.failed
     "stopped" -> OrreryTokens.State.stopped
+    STATE_UNREACHABLE -> OrreryTokens.Ink.three
     else -> OrreryTokens.State.idle
 }
 
@@ -388,11 +435,13 @@ internal fun glyphWordOf(state: String): String = when (state) {
     "failed" -> "failed"
     STATE_BROKEN -> STATE_BROKEN
     "stopped" -> "stopped"
+    STATE_UNREACHABLE -> STATE_UNREACHABLE
     else -> "idle"
 }
 
 // A glyph's drawing in its 16-unit box: a ring with a mark inside it, except working (a track with an arc), waiting (a
-// solid disc with a question mark) and stopped (a ring with a square).
+// solid disc with a question mark), stopped (a ring with a square) and unreachable (a dashed hollow ring, which nothing
+// stopped, since the host does not answer).
 private fun DrawScope.drawGlyph(state: String, color: Color) {
     val stroke = Stroke(width = glyphPx(GLYPH_STROKE), cap = StrokeCap.Round, join = StrokeJoin.Round)
     val centre = Offset(glyphPx(8f), glyphPx(8f))
@@ -474,6 +523,16 @@ private fun DrawScope.drawGlyph(state: String, color: Color) {
         "stopped" -> {
             ring(color)
             drawRect(color, topLeft = Offset(glyphPx(5.75f), glyphPx(5.75f)), size = Size(glyphPx(4.5f), glyphPx(4.5f)))
+        }
+        STATE_UNREACHABLE -> {
+            val dash = glyphPx(UNREACHABLE_DASH)
+            val dashed = Stroke(
+                width = stroke.width,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(dash, dash)),
+            )
+            drawCircle(color, radius, centre, style = dashed)
         }
         else -> ring(color)
     }

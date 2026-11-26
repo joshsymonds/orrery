@@ -36,7 +36,8 @@ import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 
 /**
  * A project's card: a head with the fold control, the folder, the name, the path with home as ~, and the card's host
- * as a HostLabel, drawn once on the head for every card, the serving host's included. Folded, the head also says how
+ * as a HostLabel, drawn once on the head for every card, the serving host's included, with the unreachable mark when that
+ * host does not answer. Folded, the head also says how
  * many things wait on you (only when [waiting] is not zero) and how many conversations the project holds, and nothing
  * else is drawn. Open, its conversations sit on the card's ground, with no line, then the ended line, which shows the
  * count of ended conversations and opens to them. Each conversation is drawn by [convo], with whether its fold is open
@@ -143,7 +144,7 @@ private fun ProjectHead(
             horizontalArrangement = Arrangement.spacedBy(OrreryTokens.Space.eight),
         ) {
             if (project.host.isNotEmpty()) {
-                HostLabel(name = project.host)
+                HostLabel(name = project.host, unreachable = !project.reachable)
             }
             if (folded && waiting > 0) {
                 Text(

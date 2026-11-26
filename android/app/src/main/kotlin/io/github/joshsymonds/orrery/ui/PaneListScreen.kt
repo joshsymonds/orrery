@@ -39,6 +39,8 @@ import io.github.joshsymonds.orrery.api.ContractRow
 import io.github.joshsymonds.orrery.api.DesignRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRow
+import io.github.joshsymonds.orrery.api.HostEntry
+import io.github.joshsymonds.orrery.api.HostStatus
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Move
@@ -127,7 +129,10 @@ class PaneListState {
 @Composable
 internal fun rememberPaneListState(): PaneListState = remember { PaneListState() }
 
-/** What one read of the lists, the epics and their details, the contracts, the host and the designs answered with. */
+/**
+ * What one read of the lists, the epics and their details, the contracts, the host, the designs and the hosts the host
+ * status lists answered with.
+ */
 internal class TreeData(
     val panes: List<Pane>,
     val archived: Set<String>,
@@ -136,6 +141,7 @@ internal class TreeData(
     val contracts: List<ContractRow>,
     val host: String,
     val designs: List<DesignRow> = emptyList(),
+    val hosts: List<HostEntry> = emptyList(),
 )
 
 /**
@@ -392,9 +398,9 @@ fun PaneListScreen(
 }
 
 /**
- * Reads the lists, every live epic's detail, the contracts, the host and the designs. Null when a list or an epic did not
- * answer. A contracts read that fails keeps the contracts of [held], a host read that fails keeps its host, and a designs
- * read that fails keeps the designs of [held].
+ * Reads the lists, every live epic's detail, the contracts, the host status and the designs. Null when a list or an epic
+ * did not answer. A contracts read that fails keeps the contracts of [held], a host read that fails keeps the host and
+ * the hosts of [held], and a designs read that fails keeps the designs of [held].
  */
 internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? = withContext(Dispatchers.IO) {
     try {
@@ -406,30 +412,49 @@ internal suspend fun readTree(client: OrreryClient, held: TreeData?): TreeData? 
         } catch (error: IOException) {
             held?.contracts ?: emptyList()
         }
-        val host = try {
-            client.host()?.host ?: ""
+        // One host status read gives the serving host and the hosts it lists; a failed read keeps both of [held].
+        val status = try {
+            client.host()
         } catch (error: IOException) {
-            held?.host ?: ""
+            held?.let { HostStatus(it.host, emptyList(), it.hosts) }
         }
         val designs = try {
             client.designs()
         } catch (error: IOException) {
             held?.designs ?: emptyList()
         }
-        TreeData(rows.panes, rows.archived, epics, details, contracts, host, designs)
+        TreeData(
+            rows.panes,
+            rows.archived,
+            epics,
+            details,
+            contracts,
+            status?.host.orEmpty(),
+            designs,
+            status?.hosts.orEmpty(),
+        )
     } catch (error: IOException) {
         null
     }
 }
 
 /**
- * Reads only the three row lists, and keeps the epics, details, contracts and host of [held]. Null when a list did not
- * answer.
+ * Reads only the three row lists, and keeps the epics, details, contracts, host and hosts of [held]. Null when a list did
+ * not answer.
  */
 private suspend fun readRows(client: OrreryClient, held: TreeData): TreeData? = withContext(Dispatchers.IO) {
     try {
         val rows = readRowLists(client)
-        TreeData(rows.panes, rows.archived, held.epics, held.details, held.contracts, held.host, held.designs)
+        TreeData(
+            rows.panes,
+            rows.archived,
+            held.epics,
+            held.details,
+            held.contracts,
+            held.host,
+            held.designs,
+            held.hosts,
+        )
     } catch (error: IOException) {
         null
     }
@@ -453,8 +478,28 @@ private fun readRowLists(client: OrreryClient): RowLists {
 
 /** Where a read draws each conversation, in the inbox and in the archived view, without the open entry's hold. */
 private fun spotsOfRead(data: TreeData): Map<String, Placed> = spotsOf(
-    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.INBOX, data.designs),
-    inboxTree(data.panes, data.archived, data.epics, data.details, data.contracts, data.host, TreeView.ARCHIVED, data.designs),
+    inboxTree(
+        data.panes,
+        data.archived,
+        data.epics,
+        data.details,
+        data.contracts,
+        data.host,
+        TreeView.INBOX,
+        data.designs,
+        data.hosts,
+    ),
+    inboxTree(
+        data.panes,
+        data.archived,
+        data.epics,
+        data.details,
+        data.contracts,
+        data.host,
+        TreeView.ARCHIVED,
+        data.designs,
+        data.hosts,
+    ),
 )
 
 /**
@@ -471,6 +516,7 @@ private fun TreeData.holding(held: String?): TreeData {
         contracts = contracts,
         host = host,
         designs = designs,
+        hosts = hosts,
     )
 }
 
@@ -520,6 +566,7 @@ private fun InboxBody(
             drawn.host,
             state.view,
             drawn.designs,
+            drawn.hosts,
         )
     }
     // The rows and ended lines drawn with a mark: a move lands in a place drawn here, or behind a shut ended line.
