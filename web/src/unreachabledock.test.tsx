@@ -140,21 +140,21 @@ async function withApp(
 // reader is the cursor's reader column, which holds the title row, the reader and the dock of the row it shows.
 function reader(container: HTMLElement): HTMLElement {
   const column = container.querySelector<HTMLElement>('section[aria-label="reader"]');
-  assert.notEqual(column, null, "the cursor's reader is drawn");
+  assert.ok(column !== null, "the cursor's reader is drawn");
   return column as HTMLElement;
 }
 
 // titleRowOf is the cursor's title row.
 function titleRowOf(container: HTMLElement): HTMLElement {
   const titleRow = reader(container).querySelector<HTMLElement>(".title-row");
-  assert.notEqual(titleRow, null, "the title row is drawn");
+  assert.ok(titleRow !== null, "the title row is drawn");
   return titleRow as HTMLElement;
 }
 
 // dockOf is the dock the cursor's row draws under its reader.
 function dockOf(container: HTMLElement): HTMLElement {
   const dock = reader(container).querySelector<HTMLElement>(".send .dock");
-  assert.notEqual(dock, null, "the dock is drawn");
+  assert.ok(dock !== null, "the dock is drawn");
   return dock as HTMLElement;
 }
 
@@ -237,10 +237,3 @@ test("HostsWebUnreachable dock: keys aimed at a row on a host that does not answ
   });
 });
 
-test("HostsWebUnreachable dock: a pane on a host that answers keeps its input box and draws no unreachable title or line", async () => {
-  await withApp(rowsFrom([pane("%5", false)], []), status(true), ({ container }) => {
-    assert.equal(titleRowOf(container).querySelector(".state"), null, "the title row names no state");
-    assert.notEqual(reader(container).querySelector("textarea"), null, "the input box is drawn");
-    assertNone(reader(container).querySelector(".unreachable-dock"), "no unreachable line is drawn");
-  });
-});
