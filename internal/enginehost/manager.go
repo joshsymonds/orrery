@@ -322,6 +322,10 @@ type Manager struct {
 	// kept holds the drained steps, by id, from their retirement until Stop, Release or a respawn takes them (see
 	// retireLocked). Each has no live session.
 	kept map[string]*liveSession
+	// unlisted holds the ids of the step sessions that Reconcile left for a host it could not list, so their holders
+	// are not re-adopted yet (see holdUnlisted). Each is held live for its loop (see StepLive) until its host reads
+	// reachable, when reconcileSessionOnReach settles it and releases it (see releaseUnlisted). It is guarded by mu.
+	unlisted map[string]bool
 	// quiet holds the ids of the sessions the owner's Interrupt left quiet, until the owner's next Say to each clears it.
 	// While an id is in it, no caller event starts a turn in that session or resumes it (see claimFree and admitEvent),
 	// and Reconcile does not resume it (see resumable). It is kept apart from the live session, so a session the idle
@@ -399,6 +403,7 @@ func NewManager(cfg Config) *Manager {
 		stopping:      map[string]*liveSession{},
 		stepObservers: map[string]StepObserver{},
 		kept:          map[string]*liveSession{},
+		unlisted:      map[string]bool{},
 		quiet:         map[string]struct{}{},
 		attempts:      map[attemptKey]*attempt{},
 		idleDue:       make(chan struct{}),
