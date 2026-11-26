@@ -319,6 +319,15 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .glyph[data-state="failed"] { color: var(--o-state-failed); }
 .glyph[data-state="broken"] { color: var(--o-state-failed); }
 .glyph[data-state="stopped"] { color: var(--o-state-stopped); }
+/* An unreachable host's state is grey ink, never stopped's tone: nothing it did is known now. */
+.glyph[data-state="unreachable"] { color: var(--o-ink-3); }
+
+/* HostLabel: the host a pane, a session, an epic or a step runs on, with the host's icon. Inline it sits on its row; on a
+   card's heading it is drawn once, for the rows under it. The word unreachable sits beside a host that does not answer. */
+.host-label { display: inline-flex; align-items: center; gap: var(--o-space-4); flex: none; min-width: 0; color: var(--o-ink-2); font: var(--o-type-small); font-weight: var(--o-font-weight-bold); white-space: nowrap; }
+.host-label .icon { color: var(--o-ink-4); }
+.host-label.heading { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
+.host-label + .unreach { margin-left: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
 
 /* Pips: a task's phases, one cell each, in the cell's tone. */
 .pips { display: inline-flex; gap: var(--o-space-2); flex: none; }
