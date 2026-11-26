@@ -109,7 +109,7 @@ func gathererTestHistoryLines(commit string) string {
 // holds judged runs of R1 and R2 and a run of R1 with no verdict. The brief's block lists the latest three judged runs
 // of R1, oldest first, each with its revision, phase, the argv its capture ran, its exit, verdict and judge reason, and
 // leaves out the oldest, the run of R2 and the run with no verdict. The prompt states the rule for an earlier run whose
-// command ran no test.
+// command ran no test, and that a brief whose tests are not at its commit yet is captured as given.
 func TestGathererPromptListsTheEarlierJudgedRunsOfEachBriefsItem(t *testing.T) {
 	t.Parallel()
 	repo, base := captureTestRepo(t)
@@ -128,9 +128,13 @@ func TestGathererPromptListsTheEarlierJudgedRunsOfEachBriefsItem(t *testing.T) {
 		"  When an earlier judged run of a brief's item was judged not to show its conclusion because its command " +
 			"ran no test, or not the tests the conclusion names, the same command at a commit with the same tests " +
 			"shows the same. Change the command so it runs what the conclusion names: a capture may run any argv, " +
-			"not only the brief's capture argv. When no command at the brief's commit can show it, leave the brief " +
-			"without a capture, and say in the note that the item's evidence needs amending, naming the item and " +
-			"the judge's reason.\n",
+			"not only the brief's capture argv. When no command at the brief's commit can show it although the tests " +
+			"its conclusion names are there, leave the brief without a capture, and say in the note that the item's " +
+			"evidence needs amending, naming the item and the judge's reason.\n",
+		"  When the tests a brief's conclusion names are not at its commit yet, as before its task is built or " +
+			"before a later task adds them, run the brief's capture argv as given. A run that finds no test, such as " +
+			"pytest's exit 5, is the evidence that the conclusion does not hold there yet; the judge records it, so " +
+			"never leave such a brief without a capture.\n",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
