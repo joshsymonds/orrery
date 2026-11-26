@@ -518,17 +518,13 @@ func (a *Agent) sessions(ctx context.Context) Response {
 }
 
 // launch starts the session that req's Launch describes under a holder on this machine, and then detaches the launch's
-// own process and keeps the holder attached. A step, or a launch that names claude's agent, agents or schema options, is
-// refused, since steps stay on the controller. So is a session whose holder is live, since a launch clears the holder it
-// finds.
+// own process and keeps the holder attached. The launch's step flag and its claude agent, agents and schema options pass
+// to the holder unchanged, so a step or a session that names those options runs on this machine too. A launch that names
+// no spec is refused, and so is a session whose holder is live, since a launch clears the holder it finds.
 func (a *Agent) launch(ctx context.Context, req Request) Response {
 	spec := req.Launch
-	switch {
-	case spec == nil:
+	if spec == nil {
 		return Response{Code: CodeFailed, Message: "node: launch names no spec"}
-	case spec.Step || spec.Agent != "" || spec.Agents != "" || spec.Schema != "":
-		return Response{Code: CodeFailed, Message: fmt.Sprintf(
-			"node: launch of %s is a step or names claude options, which stay on the controller", req.Session)}
 	}
 	dir, err := a.holderPath(req.Session)
 	if err != nil {
@@ -549,6 +545,10 @@ func (a *Agent) launch(ctx context.Context, req Request) Response {
 		Dir:     spec.Dir,
 		Resume:  spec.Resume,
 		Model:   spec.Model,
+		Agent:   spec.Agent,
+		Agents:  spec.Agents,
+		Schema:  spec.Schema,
+		Step:    spec.Step,
 	})
 	if err != nil {
 		return failed(err)

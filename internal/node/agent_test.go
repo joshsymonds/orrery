@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -18,6 +17,7 @@ import (
 
 	"tailscale.com/client/tailscale/apitype"
 
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/holderhost"
@@ -136,14 +136,14 @@ func clearSessions(t *testing.T, local *holderhost.Local) {
 
 // startNodeAgent serves an Agent over local on a loopback listener until the test ends. It returns the listener's address,
 // and the channel on which each keeper reports its attach. The controller is every peer but the agent's own address.
-func startNodeAgent(t *testing.T, local *holderhost.Local, stateDir string) (string, <-chan string) {
+func startNodeAgent(t *testing.T, holders holderhost.Host, stateDir string) (string, <-chan string) {
 	t.Helper()
 	ln := listenLoopback(t)
 	kept := make(chan string, 64)
 	agent, err := NewAgent(AgentConfig{
 		Controller: testController,
 		WhoIs:      peerWhoIs{own: ln.Addr().String()},
-		Holders:    local,
+		Holders:    holders,
 		StateDir:   stateDir,
 		Secret:     testSecret,
 		Logger:     slog.New(keptLog{kept: kept}),
@@ -350,19 +350,34 @@ func TestNodeAgentLaunchesAttachesAndStaysAttached(t *testing.T) {
 	awaitKept(t, kept, "s1")
 }
 
-// TestNodeAgentRefusesStepSpec refuses a launch of a step, and a launch that names claude's agent, agents or schema
-// options, since steps stay on the controller. A refused launch makes no holder directory.
-func TestNodeAgentRefusesStepSpec(t *testing.T) {
+// launchRecorder is a holderhost.Host that records the Spec of each launch, and refuses the launch, so a test sees the
+// Spec an agent hands its Holders without a session starting. Every other op is the embedded Local's.
+type launchRecorder struct {
+	*holderhost.Local
+	specs chan holderhost.Spec
+}
+
+// Launch records spec, and refuses the launch with an error that names it.
+func (r launchRecorder) Launch(_ context.Context, spec holderhost.Spec) (*session.Session, error) {
+	r.specs <- spec
+	return nil, errors.New("recorded launch")
+}
+
+// TestNodeAgentPassesStepAndClaudeOptionsToHolders hands a step launch, and a launch that names claude's agent, agents or
+// schema options, to the agent's Holders with each field set, since steps and such sessions run on the agent's machine.
+func TestNodeAgentPassesStepAndClaudeOptionsToHolders(t *testing.T) {
 	local, stateDir := nodeLocal(t)
-	addr, _ := startNodeAgent(t, local, stateDir)
+	specs := make(chan holderhost.Spec, 4)
+	addr, _ := startNodeAgent(t, launchRecorder{Local: local, specs: specs}, stateDir)
 	for _, tc := range []struct {
 		name string
 		spec LaunchSpec
+		want holderhost.Spec
 	}{
-		{name: "step", spec: LaunchSpec{Step: true}},
-		{name: "agent", spec: LaunchSpec{Agent: "reviewer"}},
-		{name: "agents", spec: LaunchSpec{Agents: `{"a":{}}`}},
-		{name: "schema", spec: LaunchSpec{Schema: `{"type":"object"}`}},
+		{name: "step", spec: LaunchSpec{Step: true}, want: holderhost.Spec{Step: true}},
+		{name: "agent", spec: LaunchSpec{Agent: "reviewer"}, want: holderhost.Spec{Agent: "reviewer"}},
+		{name: "agents", spec: LaunchSpec{Agents: `{"a":{}}`}, want: holderhost.Spec{Agents: `{"a":{}}`}},
+		{name: "schema", spec: LaunchSpec{Schema: `{"type":"object"}`}, want: holderhost.Spec{Schema: `{"type":"object"}`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := tc.spec
@@ -373,10 +388,18 @@ func TestNodeAgentRefusesStepSpec(t *testing.T) {
 				Request{Version: Version, Secret: testSecret, Op: OpLaunch, Session: tc.name, Launch: &spec},
 			)
 			if resp.Code != CodeFailed {
-				t.Fatalf("launch with %s got %+v, want code %q", tc.name, resp, CodeFailed)
+				t.Fatalf("launch with %s got %+v, want the recorder's refusal", tc.name, resp)
 			}
-			if _, err := os.Stat(filepath.Join(stateDir, holdersName, tc.name)); !errors.Is(err, fs.ErrNotExist) {
-				t.Fatalf("the refused launch left a holder directory: %v", err)
+			select {
+			case got := <-specs:
+				want := tc.want
+				want.Session = tc.name
+				want.Dir = spec.Dir
+				if got != want {
+					t.Fatalf("holders got spec %+v, want %+v", got, want)
+				}
+			default:
+				t.Fatalf("launch with %s never reached the agent's holders", tc.name)
 			}
 		})
 	}
