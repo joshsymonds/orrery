@@ -449,6 +449,20 @@ func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
 	return nil
 }
 
+// nameUnhostedDesigns names the design rows of st that have no host as host, the controller's host name that the
+// Designs service places a design on, once the store is open. A design stored before its host was known reads host
+// after this. A nil st has no rows to name. The write runs on a context that ctx's cancellation does not reach, for
+// the reason nameUnhosted gives.
+func nameUnhostedDesigns(ctx context.Context, st *store.Store, host string) error {
+	if st == nil {
+		return nil
+	}
+	if _, err := st.NameUnhostedDesigns(context.WithoutCancel(ctx), host); err != nil {
+		return fmt.Errorf("name the controller's designs: %w", err)
+	}
+	return nil
+}
+
 // checkClockSeams refuses a negative --due-at or --relay-at as a usage error.
 func checkClockSeams(dueAt, relayAt int64) error {
 	if dueAt < 0 {
@@ -768,7 +782,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
 	// A row from before the host column has no host until this names it, so every row reads the host it runs on
 	// before the manager reconciles it.
-	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), pageErr)
+	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), nameUnhostedDesigns(ctx, st, host), pageErr)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.

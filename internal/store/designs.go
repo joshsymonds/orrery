@@ -42,7 +42,7 @@ var ErrNotHeld = errors.New("epic not held")
 // Design is one design as its record holds it: its id, its title, its working conversation, the orrery name of the host
 // its steps run on and when it was made. The working conversation is the session of the design's newest
 // design_conversations row, or else the sessions row that wrote the design, as DesignConversation names it. Host is ""
-// for the controller's own host.
+// only for a design stored with no host, until NameUnhostedDesigns names it.
 type Design struct {
 	ID, Title, Conversation, Host string
 	Created                       time.Time
@@ -103,6 +103,27 @@ func (s *Store) CreateDesign(ctx context.Context, design Design) error {
 		}
 		return nil
 	})
+}
+
+// NameUnhostedDesigns writes name into the host of each design whose host is "" and returns how many designs it named.
+// It refuses an empty name with an error and writes nothing.
+func (s *Store) NameUnhostedDesigns(ctx context.Context, name string) (int64, error) {
+	if name == "" {
+		return 0, errors.New("name unhosted designs: host name is empty")
+	}
+	var named int64
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		rows, err := queries.NameUnhostedDesigns(ctx, name)
+		if err != nil {
+			return fmt.Errorf("name unhosted designs %s: %w", name, err)
+		}
+		named = rows
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return named, nil
 }
 
 // Design returns the design with the given id, with its contracts in position order and its State as DesignState
