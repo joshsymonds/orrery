@@ -176,9 +176,10 @@ subcommands:
   holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]
                                                 run PATH as a gate: no stdin, stdout/stderr tails, stopped at SECONDS
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
-        [--host-status-cmd PATH] [--metrics-listen ADDR]
+        [--host-status-cmd PATH] [--metrics-listen ADDR] [--fleet-secret FILE]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
                                                 with --metrics-listen, also /metrics on a second loopback address
+                                                with --fleet-secret, the file holding the secret each hosts.toml agent takes
   gateway [--listen ADDR]                       serve the Claude gateway on loopback ADDR until SIGINT or SIGTERM
   release-step KIND -candidate SHA [FLAGS] [-- RUN...]
                                                 orreryd's: carry out the built-in release step KIND (push-main,
@@ -684,6 +685,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	flags.Var(&logins, "allow-login", "Tailscale login the API admits, repeatable")
 	var pushHosts listFlag
 	flags.Var(&pushHosts, "push-host", "push relay host a subscription may name, repeatable")
+	fleetSecret := flags.String("fleet-secret", "", "file that holds the fleet secret of the hosts.toml agents")
 	var hostStatus *hoststatus.Runner
 	flags.Func("host-status-cmd", "absolute path of the command Host.Status runs", func(value string) error {
 		if !filepath.IsAbs(value) {
@@ -727,7 +729,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	shutdown := make(chan struct{})
 	cfg.HandlerOptions, cfg.Logins, cfg.Tmux, cfg.Push, cfg.HostStatus = handlerOptions, logins, tmux, pushStore, hostStatus
 	cfg.Sessions, cfg.Shutdown, cfg.Home = sessions, shutdown, home
-	if err := setServeHosts(&cfg, getenv); err != nil {
+	if err := setServeHosts(&cfg, getenv, *fleetSecret); err != nil {
 		return err
 	}
 	cfg.Picker = servePickerConfig(tmux, getenv)
