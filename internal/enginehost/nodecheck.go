@@ -266,10 +266,15 @@ func (n *NodeChecks) notStarted(
 }
 
 // request returns the grant request check queues in worktree: the pools its needs name, or one member of the default gate
-// pool when it names none. Its pools are read through host, the host the check's epic is stored on.
+// pool when it names none. Its pools are read through host, the host the check's epic is stored on, and the request names
+// that host, by the name the epic is stored with, as its host.
 func (n *NodeChecks) request(
 	ctx context.Context, host hostexec.Host, worktree string, check store.NodeCheck,
 ) (grants.Request, error) {
+	hostName, err := n.store.EpicHost(ctx, check.Epic)
+	if err != nil {
+		return grants.Request{}, fmt.Errorf("host of epic %s: %w", check.Epic, err)
+	}
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
 	if len(check.Needs) > 0 {
 		needs = make([]grants.Need, 0, len(check.Needs))
@@ -278,7 +283,7 @@ func (n *NodeChecks) request(
 		}
 	}
 	return stepGrant(
-		ctx, host, worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
+		ctx, hostName, host, worktree, "node-check-"+check.ID, check.Argv, needs, stepGetenv(n.environ),
 	)
 }
 

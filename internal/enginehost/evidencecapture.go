@@ -40,6 +40,8 @@ type evidenceCapture struct {
 	// host is the Host the capture's git, worktrees, gate and artifact reads run on: the host its epic is stored on. It is
 	// set with on, and a capture run without one has no Host to run on (see hostOf).
 	host hostexec.Host
+	// hostName is the name of host, which the capture's grant requests name as their host. It is set with onHost.
+	hostName string
 	// logTail is the number of newest output bytes a capture keeps, and the size at which a log read back counts as
 	// cut, in place of evidenceCaptureLogTail when it is not zero. Tests set it to keep their logs small.
 	logTail int
@@ -57,6 +59,13 @@ func (c evidenceCapture) tail() int {
 func (c evidenceCapture) on(host hostexec.Host) evidenceCapture {
 	c.host = host
 	return c
+}
+
+// onHost returns the capture that runs on host, the Host named hostName, as on does, and whose grant requests name hostName
+// as their host.
+func (c evidenceCapture) onHost(hostName string, host hostexec.Host) evidenceCapture {
+	c.hostName = hostName
+	return c.on(host)
 }
 
 // hostOf returns the Host the capture runs on, the one set with on. It is never the local host by default: a capture runs
@@ -160,12 +169,14 @@ func (c evidenceCapture) readoptLost(
 }
 
 // captureGrantRequest returns the grant request run id's capture queues in worktree: one member of the default gate pool.
-// Its pools are read through the capture's host.
+// Its pools are read through the capture's host, and the request names that host, as set with onHost, as its host.
 func (c evidenceCapture) captureGrantRequest(
 	ctx context.Context, worktree, id string, item evidence.Item,
 ) (grants.Request, error) {
 	needs := []grants.Need{{Pool: gates.DefaultPool, Count: 1}}
-	return stepGrant(ctx, c.hostOf(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
+	return stepGrant(
+		ctx, c.hostName, c.hostOf(), worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ),
+	)
 }
 
 // captureGate returns the gate that runs item's capture in worktree as run id. Its stdout and stderr tails are 1 MiB

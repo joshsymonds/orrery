@@ -47,7 +47,8 @@ var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // HostProcesses is the processes of one host other than the broker's own: whether a process lives under the start time
 // its grant recorded, and whether a holder directory lives there. A node.Client is one.
 type HostProcesses interface {
-	// ProcessAlive reports whether the process with pid lives under the start time start.
+	// ProcessAlive reports whether the process with pid lives under the start time start. A start of 0 is a start time
+	// the broker could not read, and asks only whether pid lives.
 	ProcessAlive(ctx context.Context, pid int, start int64) (bool, error)
 	// HolderAlive reports whether the holder directory dir lives.
 	HolderAlive(ctx context.Context, dir string) (bool, error)
@@ -63,8 +64,8 @@ type HostProcesses interface {
 // the same way. A nil WatchClient or WatchHolder means the process or holder is watched through the OS. AfterFunc arms
 // the retry of store writes the store refused and the status deadline of each member a request waits on, to run its
 // function after the given delay, and nil means time.AfterFunc. Its stop ends an armed timer, as time.Timer.Stop does.
-// Hosts holds the hosts other than Host whose pools and processes the broker may follow, by host name. The broker does
-// not read it yet.
+// Hosts holds the hosts other than Host whose pools and processes the broker follows, by host name: a request from one of
+// them may use the pools that name it, and a grant of one of them follows its processes (see lastsOf).
 type Config struct {
 	Host        string
 	Hosts       map[string]HostProcesses
@@ -86,10 +87,17 @@ const storeRetry = 5 * time.Second
 // the member's pool.
 const statusDeadline = 60 * time.Second
 
+// remoteAskBound bounds one ask of another host's processes. The node client retries an ask of a host it cannot
+// reach until the ask's context ends, so an unbounded ask would hold the broker's lock, or a watch, for as long as
+// the host is down. A bounded ask that fails keeps the grant it asks about.
+const remoteAskBound = 15 * time.Second
+
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
 // and every needed pool must be among them. ClientPID is the process the grant lasts with. Holder is the absolute
 // holder directory the grant also lasts with, stored with the grant, and empty when the grant names none. GrantID
-// names a grant to reclaim. Command is the argv of the command the grant is for, stored with the grant.
+// names a grant to reclaim. Command is the argv of the command the grant is for, stored with the grant. Host is the host
+// the request's processes run on, stored with the grant, and empty or the broker's own host for a local request. A
+// request from another host may use the pools that name that host, and its grant follows that host's processes.
 type Request struct {
 	Project   string
 	Pools     []pools.Pool
@@ -98,6 +106,7 @@ type Request struct {
 	Holder    string
 	GrantID   string
 	Command   []string
+	Host      string
 }
 
 // Grant holds Members until the Acquire that granted it returns.
@@ -120,6 +129,7 @@ type Event struct {
 // member command runs for it.
 type Broker struct {
 	host    string
+	hosts   map[string]HostProcesses
 	store   *store.Store
 	environ []string
 	now     func() time.Time
@@ -273,6 +283,7 @@ func NewBroker(cfg Config) *Broker {
 		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger, alive: cfg.Alive,
 		holderAlive: cfg.HolderAlive, watchClient: cfg.WatchClient, watchHolder: cfg.WatchHolder,
 		afterFunc: cfg.AfterFunc,
+		hosts:     cfg.Hosts,
 		done:      make(chan struct{}),
 		pools:     make(map[string]*poolUse),
 		attached:  make(map[string]*waiter),
@@ -318,6 +329,45 @@ func (b *Broker) lasts(pid int, start int64, holder string) bool {
 		return true
 	}
 	return holder != "" && b.holderAlive(holder)
+}
+
+// lastsOf reports whether a grant of host lasts with its client and holder, as lasts does. A grant of this broker's host,
+// or of no host, asks the local processes. A grant of another host asks that host's processes instead, and lasts while the
+// host reports its client or its holder alive. A host that does not answer keeps the grant, and so does a host that
+// Config.Hosts does not name.
+func (b *Broker) lastsOf(ctx context.Context, host string, pid int, start int64, holder string) bool {
+	if !b.remoteHost(host) {
+		return b.lasts(pid, start, holder)
+	}
+	processes := b.hosts[host]
+	if processes == nil {
+		return true
+	}
+	askCtx, cancelAsk := context.WithTimeout(ctx, remoteAskBound)
+	alive, err := processes.ProcessAlive(askCtx, pid, start)
+	cancelAsk()
+	if err != nil {
+		b.logger.WarnContext(ctx, "host did not answer for client; grant kept", "host", host, "client", pid, "err", err)
+		return true
+	}
+	if alive || holder == "" {
+		return alive
+	}
+	askCtx, cancelAsk = context.WithTimeout(ctx, remoteAskBound)
+	held, err := processes.HolderAlive(askCtx, holder)
+	cancelAsk()
+	if err != nil {
+		b.logger.WarnContext(ctx, "host did not answer for holder; grant kept",
+			"host", host, "holder", holder, "err", err)
+		return true
+	}
+	return held
+}
+
+// remoteHost reports whether a grant of host follows another host's processes, which the broker asks through b.hosts. A
+// grant of this broker's host, or of no host, is not remote.
+func (b *Broker) remoteHost(host string) bool {
+	return host != "" && host != b.host
 }
 
 // reclaims reports whether req, a reclaim, names the grant that held is: it names the client pid the grant lasts with,
@@ -372,11 +422,11 @@ func parseStartTime(stat string) (int64, error) {
 // request names, and its holder when one is named. A signal from either makes awaitExit check entry, until
 // unwatchLocked stops it.
 func (b *Broker) watchLocked(ctx context.Context, entry *waiter) {
-	clientExited, stopClient := b.watchClient(entry.req.ClientPID, entry.clientStart)
+	clientExited, stopClient := b.clientWatchOf(ctx, entry)
 	var holderExited <-chan struct{}
 	stopHolder := func() {}
 	if entry.req.Holder != "" {
-		holderExited, stopHolder = b.watchHolder(entry.req.Holder)
+		holderExited, stopHolder = b.holderWatchOf(ctx, entry)
 	}
 	stopped := make(chan struct{})
 	entry.watchStop = func() {
@@ -385,6 +435,32 @@ func (b *Broker) watchLocked(ctx context.Context, entry *waiter) {
 		stopHolder()
 	}
 	go b.awaitExit(ctx, entry, clientExited, holderExited, stopped)
+}
+
+// clientWatchOf starts the exit watch of entry's client, and returns its exited channel and its stop. A grant of this
+// broker's host, or of no host, watches the client through the OS. A grant of another host polls that host's processes,
+// and a host that Config.Hosts does not name is not watched.
+func (b *Broker) clientWatchOf(ctx context.Context, entry *waiter) (<-chan struct{}, func()) {
+	if !b.remoteHost(entry.req.Host) {
+		return b.watchClient(entry.req.ClientPID, entry.clientStart)
+	}
+	processes := b.hosts[entry.req.Host]
+	if processes == nil {
+		return nil, func() {}
+	}
+	return remoteClientWatch(ctx, b.logger, b.afterFunc, processes, entry.req.ClientPID, entry.clientStart)
+}
+
+// holderWatchOf starts the exit watch of entry's holder, the same way clientWatchOf starts its client's.
+func (b *Broker) holderWatchOf(ctx context.Context, entry *waiter) (<-chan struct{}, func()) {
+	if !b.remoteHost(entry.req.Host) {
+		return b.watchHolder(entry.req.Holder)
+	}
+	processes := b.hosts[entry.req.Host]
+	if processes == nil {
+		return nil, func() {}
+	}
+	return remoteHolderWatch(ctx, b.logger, b.afterFunc, processes, entry.req.Holder)
 }
 
 // unwatchLocked stops the exit watch of entry, if one runs.
@@ -431,7 +507,7 @@ func (b *Broker) endIfDeadLocked(ctx context.Context, entry *waiter) bool {
 	if !detached && !queued {
 		return false
 	}
-	if b.lasts(entry.req.ClientPID, entry.clientStart, entry.req.Holder) {
+	if b.lastsOf(ctx, entry.req.Host, entry.req.ClientPID, entry.clientStart, entry.req.Holder) {
 		return false
 	}
 	if detached {
@@ -474,7 +550,7 @@ func (b *Broker) Restore(ctx context.Context) error {
 		b.holds[hold.Member] = hold.Since
 	}
 	for _, row := range rows {
-		if !b.lasts(row.ClientPID, row.ClientStart, row.Holder) {
+		if !b.lastsOf(ctx, row.Host, row.ClientPID, row.ClientStart, row.Holder) {
 			if deadErr := b.restoreDeadLocked(storeCtx, row); deadErr != nil {
 				return deadErr
 			}
@@ -517,7 +593,7 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 		id: strconv.FormatUint(b.seq, 10), seq: b.seq,
 		req: Request{
 			Project: row.Project, Pools: defs, Needs: needsOf(kept.Members), ClientPID: row.ClientPID,
-			Holder: row.Holder, Command: row.Command,
+			Holder: row.Holder, Command: row.Command, Host: row.Host,
 		},
 		poolsJSON:   row.Pools,
 		grant:       kept,
@@ -911,18 +987,20 @@ func (b *Broker) checkLocked(req Request) ([]pools.Pool, error) {
 		}
 	}
 	for _, def := range needed {
-		if err := b.refuseLocked(def); err != nil {
+		if err := b.refuseLocked(def, req.Host); err != nil {
 			return nil, err
 		}
 	}
 	return needed, nil
 }
 
-// refuseLocked refuses a pool this broker cannot grant: one on another host, one defined differently from the pool of
-// its name in use, or one with a member that another pool in use holds.
-func (b *Broker) refuseLocked(def pools.Pool) error {
-	if def.Host != b.host {
-		return fmt.Errorf("pool %q is on host %q, not %q: %w", def.Name, def.Host, b.host, ErrRefused)
+// refuseLocked refuses a pool this broker cannot grant for a request from host: one this broker does not admit for host
+// (see admitsLocked), one defined differently from the pool of its name in use, or one with a member that another pool in
+// use holds.
+func (b *Broker) refuseLocked(def pools.Pool, host string) error {
+	if !b.admitsLocked(def.Host, host) {
+		return fmt.Errorf("pool %q is on host %q, which a request from %q cannot use: %w",
+			def.Name, def.Host, host, ErrRefused)
 	}
 	if use, ok := b.pools[def.Name]; ok && !use.def.Equal(def) {
 		return fmt.Errorf("pool %q is defined differently from the one in use: %w", def.Name, ErrRefused)
@@ -939,6 +1017,16 @@ func (b *Broker) refuseLocked(def pools.Pool) error {
 		}
 	}
 	return nil
+}
+
+// admitsLocked reports whether a request from host may use a pool on poolHost: the pool is on this broker's host, or it
+// is on host, and Config.Hosts names host.
+func (b *Broker) admitsLocked(poolHost, host string) bool {
+	if poolHost == b.host {
+		return true
+	}
+	_, named := b.hosts[host]
+	return poolHost == host && named
 }
 
 // useLocked brings def's pool into use if it is not already. Its members start Unknown, and no command runs for them
@@ -1140,18 +1228,12 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	for _, m := range assignment.Members {
 		stored = append(stored, store.GrantMember{Pool: m.Pool, Member: m.Name})
 	}
-	clientStart, startErr := readStart(queued.req.ClientPID)
-	if startErr != nil {
-		// A client whose /proc entry is unreadable is already gone. It is stored with start time 0, which no process
-		// has, so the next restore ends its grant.
-		b.logger.WarnContext(ctx, "client start time unreadable", "client", queued.req.ClientPID, "err", startErr)
-		clientStart = 0
-	}
+	clientStart := b.clientStartOf(ctx, queued.req)
 	granted := b.now()
 	row := store.GrantRow{
-		ID: id, Project: queued.req.Project, Holder: queued.req.Holder, ClientPID: queued.req.ClientPID,
-		ClientStart: clientStart, Pools: queued.poolsJSON, Command: queued.req.Command, Members: stored,
-		Granted: granted,
+		ID: id, Project: queued.req.Project, Holder: queued.req.Holder, Host: queued.req.Host,
+		ClientPID: queued.req.ClientPID, ClientStart: clientStart, Pools: queued.poolsJSON,
+		Command: queued.req.Command, Members: stored, Granted: granted,
 	}
 	if err := b.store.AddGrant(ctx, row); err != nil {
 		if store.Busy(err) {
@@ -1176,6 +1258,26 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	b.attached[id] = queued
 	b.dequeueLocked(queued)
 	close(queued.decided)
+}
+
+// clientStartOf returns the start time stored for the client of req's grant. A client this machine runs has the start
+// time its /proc gives. A client whose /proc entry is unreadable is already gone: it is stored with start time 0, which no
+// process has here, so the next restore ends its grant.
+//
+// A request from another host's caller, which names no holder, has its client on that host, whose start time this
+// machine cannot read. It is stored with start time 0, which asks that host whether the client's pid lives, whatever its
+// start time (see node.OpProcessAlive). A grant of another host that names a holder is a gate this orreryd started on
+// that host, and its client is this orreryd, whose start time this machine reads.
+func (b *Broker) clientStartOf(ctx context.Context, req Request) int64 {
+	if b.remoteHost(req.Host) && req.Holder == "" {
+		return 0
+	}
+	start, err := readStart(req.ClientPID)
+	if err != nil {
+		b.logger.WarnContext(ctx, "client start time unreadable", "client", req.ClientPID, "err", err)
+		return 0
+	}
+	return start
 }
 
 // queuedLocked returns the queued request with id, which Plan named.

@@ -373,14 +373,15 @@ func noValue(err error) Response {
 
 // processAlive reports whether the process with pid lives under the start time start, as grants.processAlive checks it on
 // this machine: /proc must report the same start time for pid. A pid whose stat cannot be read counts as gone, so that a
-// pid reused by another process is not the client.
+// pid reused by another process is not the client. A start of 0 is one the controller could not read, for a client that
+// runs on this machine, and any start time /proc reports for pid matches it.
 func processAlive(pid int, start int64) bool {
 	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {
 		return false
 	}
 	got, err := procStart(string(raw))
-	return err == nil && got == start
+	return err == nil && (start == 0 || got == start)
 }
 
 // procStart returns field 22, the start time, of a /proc/PID/stat line. The command name is in parentheses and may hold
