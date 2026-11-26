@@ -181,7 +181,7 @@ class HostsDroidHostLabelTest {
                 state = PaneListState(),
                 onOpenPane = {},
                 onOpenEpic = {},
-                onNewHere = {},
+                onNewHere = { _, _ -> },
                 onBack = {},
                 now = { NOW },
             )

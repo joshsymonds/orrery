@@ -3,22 +3,30 @@ package io.github.joshsymonds.orrery
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry as HostEntryProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -41,6 +49,12 @@ private const val CONVO_KEY = "pane:example-host:%1"
 private const val CONVO_LABEL = "alpha-build"
 private const val CONVO_ORRERY_ID = "synthetic-orrery-id"
 private const val EPIC_ID = "example-repo/example-epic"
+private const val SERVING_HOST = "example-host"
+private const val REMOTE_HOST = "example-remote"
+private const val REMOTE_PROJECT_KEY = "$REMOTE_HOST|$PROJECT_DIR"
+private const val HOST_STATUS_PATH = "/orrery.v1.Host/Status"
+private const val START_PATH = "/orrery.v1.Control/Start"
+private const val STARTED_SESSION = "aabbccddeeff00112233445566778899"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -92,6 +106,13 @@ class MainActivityProjectPageTest {
 
     private fun panesOf(vararg panes: PaneProto): PanesListResponse =
         PanesListResponse.newBuilder().addAllPanes(panes.toList()).build()
+
+    private fun hostEntry(name: String): HostEntryProto = HostEntryProto.newBuilder()
+        .setName(name)
+        .setLoadPercent(0.0)
+        .setMemoryPercent(0.0)
+        .setReachable(true)
+        .build()
 
     private fun launch(): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
@@ -258,6 +279,39 @@ class MainActivityProjectPageTest {
 
         awaitNode(hasTestTag("start-form"))
         composeRule.onNodeWithTag("start-dir").assertTextEquals(PROJECT_DIR)
+    }
+
+    @Test
+    fun newSessionHereOnAnotherHostsCardStartsOnThatHost() {
+        server.respond(
+            HOST_STATUS_PATH,
+            HostStatusResponse.newBuilder()
+                .setHost(SERVING_HOST)
+                .addHosts(hostEntry(SERVING_HOST))
+                .addHosts(hostEntry(REMOTE_HOST))
+                .build(),
+        )
+        server.respond(
+            PANES_PATH,
+            panesOf(PaneProto.newBuilder(paneProto("%3", "remote-build")).setHost(REMOTE_HOST).build()),
+        )
+        server.respond(START_PATH, StartResponse.newBuilder().setId(STARTED_SESSION).build())
+        launch()
+        awaitNode(hasTestTag("project-open:$REMOTE_PROJECT_KEY"))
+        composeRule.onNodeWithTag("project-open:$REMOTE_PROJECT_KEY").performClick()
+        awaitNode(hasTestTag("project-new-here"))
+
+        composeRule.onNodeWithTag("project-new-here").performClick()
+        awaitNode(hasTestTag("start-form"))
+        composeRule.onNodeWithTag("picker-text").performTextInput("fix the remote build")
+        composeRule.onNodeWithTag("start-submit").performSemanticsAction(SemanticsActions.OnClick)
+        awaitNone(hasTestTag("picker-title"))
+
+        val starts = server.requests.filter { it.rawPath == START_PATH }
+        assertEquals(1, starts.size)
+        val request = StartRequest.parseFrom(starts.single().body)
+        assertEquals(REMOTE_HOST, request.host)
+        assertEquals(PROJECT_DIR, request.dir)
     }
 
     @Test

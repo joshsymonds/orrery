@@ -69,7 +69,7 @@ class ProjectPageScreenTest {
     private var openedPane: Pane? = null
     private var openedEpic: String? = null
     private var openedContract: String? = null
-    private var newHere: String? = null
+    private var newHere: Pair<String, String>? = null
     private var backed = false
 
     /** Whether the page is in the composition: a test takes it out and puts it back to leave the page and return. */
@@ -167,7 +167,7 @@ class ProjectPageScreenTest {
                     state = state,
                     onOpenPane = { openedPane = it },
                     onOpenEpic = { openedEpic = it },
-                    onNewHere = { newHere = it },
+                    onNewHere = { host, dir -> newHere = host to dir },
                     onBack = { backed = true },
                     onOpenContract = { id, _ -> openedContract = id },
                     now = { NOW },
@@ -361,15 +361,20 @@ class ProjectPageScreenTest {
     }
 
     @Test
-    fun newSessionHereCallsOnNewHereWithTheProjectsDirectory() {
+    fun newSessionHereCallsOnNewHereWithTheProjectsHostAndDirectory() {
         FakeOrreryServer().use { server ->
-            serveAlphaWithAnEpic(server)
-            setPage(server, ALPHA_KEY)
-            awaitNode(hasTestTag(convoTag(paneKey("%1"))))
+            serveDefaults(server)
+            server.respond(
+                PANES_LIST,
+                panesOf(pane("%1", ALPHA, "working", NOW - 30, NOW - 10, NOW - 30, host = REMOTE)),
+            )
+            setPage(server, "$REMOTE|$ALPHA")
+            awaitNode(hasTestTag(convoTag(paneKey("%1", REMOTE))))
 
             composeRule.onNodeWithTag("project-new-here").performClick()
 
-            assertEquals(ALPHA, newHere)
+            assertEquals(REMOTE, newHere?.first)
+            assertEquals(ALPHA, newHere?.second)
         }
     }
 
