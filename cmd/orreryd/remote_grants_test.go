@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -200,6 +201,31 @@ func serveRemoteGrantAgent(t *testing.T, agent *node.Agent, ln net.Listener) {
 	})
 }
 
+// remoteGrantBootSkew is how many clock ticks later than the controller's the start times of b's processes read, as they
+// do on another machine, which booted at another time.
+const remoteGrantBootSkew = 1000
+
+// otherMachine is the processes of b as the controller sees them across machines. The agent of b runs in this process and
+// shares the controller's /proc, so otherMachine stands for b's own /proc: each of its start times reads
+// remoteGrantBootSkew ticks later than the controller's own /proc reads it. A start time the controller read from its own
+// /proc then names no process of b, as on another machine, and a start of 0, which names none, asks only whether the pid
+// lives.
+type otherMachine struct {
+	grants.HostProcesses
+}
+
+// ProcessAlive asks the agent of b whether the process with pid lives under start, a start time of b's /proc.
+func (m otherMachine) ProcessAlive(ctx context.Context, pid int, start int64) (bool, error) {
+	if start != 0 {
+		start -= remoteGrantBootSkew
+	}
+	alive, err := m.HostProcesses.ProcessAlive(ctx, pid, start)
+	if err != nil {
+		return false, fmt.Errorf("process %d on b: %w", pid, err)
+	}
+	return alive, nil
+}
+
 // remoteGrantStore opens a store of the test's own for the brokers to keep their grants in.
 func remoteGrantStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -217,15 +243,16 @@ func remoteGrantStore(t *testing.T) *store.Store {
 	return st
 }
 
-// remoteGrantBroker starts a broker of the controller over st, which follows host b through rig's client. The controller's
-// own view of its processes reports none alive, so a grant of b that the broker keeps is kept by b's report alone: the
-// client of the grants in this test is a process of this machine, which the controller would find alive. It is closed
+// remoteGrantBroker starts a broker of the controller over st, which follows host b through rig's client, as another
+// machine's processes (see otherMachine). The controller's own view of its processes reports none alive, so a grant of b
+// that the broker keeps is kept by b's report alone: the client of the grants in this test is a process of this machine,
+// which the controller would find alive. It is closed
 // when the test ends, so its watches stop before the agent of b does.
 func remoteGrantBroker(t *testing.T, rig remoteGrantRig, st *store.Store, hosts bool) *grants.Broker {
 	t.Helper()
 	var named map[string]grants.HostProcesses
 	if hosts {
-		named = map[string]grants.HostProcesses{remoteGrantAgent: rig.client}
+		named = map[string]grants.HostProcesses{remoteGrantAgent: otherMachine{rig.client}}
 	}
 	b := grants.NewBroker(grants.Config{
 		Host:        remoteGrantHostName,

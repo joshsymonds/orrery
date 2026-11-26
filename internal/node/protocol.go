@@ -82,7 +82,8 @@ const (
 	// hostexec.Host.KillLeftovers does.
 	OpKillLeftovers Op = "kill-leftovers"
 	// OpProcessAlive answers in the Response's Alive whether the process with the request's PID lives under the start
-	// time Start.
+	// time Start. A Start of 0 is a start time the controller could not read, the start of a client on this machine, and
+	// asks only whether PID lives.
 	OpProcessAlive Op = "process-alive"
 	// OpHolderAlive answers in the Response's Alive whether the holder of the directory HolderDir lives.
 	OpHolderAlive Op = "holder-alive"
@@ -147,7 +148,8 @@ type Request struct {
 	// Scope is the systemd-run path that a gate-attach op reattaches the holder under, or empty when it was started
 	// plainly.
 	Scope string `json:"scope,omitempty"`
-	// PID and Start name the process that a process-alive op checks: its pid, and the start time it must have.
+	// PID and Start name the process that a process-alive op checks: its pid, and the start time it must have, or 0 for
+	// any start time.
 	PID   int   `json:"pid,omitempty"`
 	Start int64 `json:"start,omitempty"`
 	// Secret is the fleet secret that the controller presents, which the agent checks against its own before it serves the

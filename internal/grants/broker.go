@@ -47,7 +47,8 @@ var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // HostProcesses is the processes of one host other than the broker's own: whether a process lives under the start time
 // its grant recorded, and whether a holder directory lives there. A node.Client is one.
 type HostProcesses interface {
-	// ProcessAlive reports whether the process with pid lives under the start time start.
+	// ProcessAlive reports whether the process with pid lives under the start time start. A start of 0 is a start time
+	// the broker could not read, and asks only whether pid lives.
 	ProcessAlive(ctx context.Context, pid int, start int64) (bool, error)
 	// HolderAlive reports whether the holder directory dir lives.
 	HolderAlive(ctx context.Context, dir string) (bool, error)
@@ -1227,13 +1228,7 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	for _, m := range assignment.Members {
 		stored = append(stored, store.GrantMember{Pool: m.Pool, Member: m.Name})
 	}
-	clientStart, startErr := readStart(queued.req.ClientPID)
-	if startErr != nil {
-		// A client whose /proc entry is unreadable is already gone. It is stored with start time 0, which no process
-		// has, so the next restore ends its grant.
-		b.logger.WarnContext(ctx, "client start time unreadable", "client", queued.req.ClientPID, "err", startErr)
-		clientStart = 0
-	}
+	clientStart := b.clientStartOf(ctx, queued.req)
 	granted := b.now()
 	row := store.GrantRow{
 		ID: id, Project: queued.req.Project, Holder: queued.req.Holder, Host: queued.req.Host,
@@ -1263,6 +1258,26 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	b.attached[id] = queued
 	b.dequeueLocked(queued)
 	close(queued.decided)
+}
+
+// clientStartOf returns the start time stored for the client of req's grant. A client this machine runs has the start
+// time its /proc gives. A client whose /proc entry is unreadable is already gone: it is stored with start time 0, which no
+// process has here, so the next restore ends its grant.
+//
+// A request from another host's caller, which names no holder, has its client on that host, whose start time this
+// machine cannot read. It is stored with start time 0, which asks that host whether the client's pid lives, whatever its
+// start time (see node.OpProcessAlive). A grant of another host that names a holder is a gate this orreryd started on
+// that host, and its client is this orreryd, whose start time this machine reads.
+func (b *Broker) clientStartOf(ctx context.Context, req Request) int64 {
+	if b.remoteHost(req.Host) && req.Holder == "" {
+		return 0
+	}
+	start, err := readStart(req.ClientPID)
+	if err != nil {
+		b.logger.WarnContext(ctx, "client start time unreadable", "client", req.ClientPID, "err", err)
+		return 0
+	}
+	return start
 }
 
 // queuedLocked returns the queued request with id, which Plan named.
