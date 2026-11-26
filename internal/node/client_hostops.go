@@ -195,7 +195,7 @@ func (c *Client) hostLaunch(ctx context.Context, cfg hostexec.Launch) (hostexec.
 	if err != nil {
 		return nil, fmt.Errorf("node: launch of %s on %s: %w", cfg.Session, c.cfg.Name, err)
 	}
-	if err = c.hostClear(ctx, dir); err != nil {
+	if err := c.hostClear(ctx, dir); err != nil {
 		return nil, err
 	}
 	spec := GateSpec{
@@ -238,8 +238,11 @@ func (c *Client) hostReattach(ctx context.Context, dir, scope string) (hostexec.
 func (c *Client) attachGate(ctx context.Context, link *nodeLink) (*holder.Process, error) {
 	for {
 		process, _, err := holder.ReattachLink(ctx, link, 0, holder.WireVersion)
+		if err == nil {
+			return process, nil
+		}
 		if !errors.Is(err, holderhost.ErrUnreachable) {
-			return process, err
+			return nil, fmt.Errorf("node: attach the gate holder: %w", err)
 		}
 		if pauseErr := c.pause(ctx); pauseErr != nil {
 			return nil, errors.Join(err, pauseErr)

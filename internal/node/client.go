@@ -214,11 +214,11 @@ func (c *Client) hostCall(ctx context.Context, req Request) (Response, error) {
 // pause waits one retry interval on the clock, and returns nil. It returns ctx's error instead when ctx has ended.
 func (c *Client) pause(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("node: retry of the agent: %w", err)
 	}
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("node: retry of the agent: %w", ctx.Err())
 	case <-c.cfg.Clock.After(c.cfg.Bound / retriesPerBound):
 		return nil
 	}
