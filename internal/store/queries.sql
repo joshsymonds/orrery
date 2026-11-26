@@ -2202,7 +2202,10 @@ ORDER BY states.at, states.contract, states.seq;
 SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?;
 
 -- name: InsertDesign :exec
-INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?);
+INSERT INTO designs (id, title, conversation, created, host) VALUES (?, ?, ?, ?, ?);
+
+-- name: NameUnhostedDesigns :execrows
+UPDATE designs SET host = sqlc.arg(host) WHERE host = '';
 
 -- name: GetDesign :one
 SELECT * FROM designs WHERE id = ?;

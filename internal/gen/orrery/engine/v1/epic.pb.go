@@ -4863,7 +4863,9 @@ type CreateEpicRequest struct {
 	Id string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
 	// The commit the epic starts from, a name git resolves to a commit of the contract's repository. It takes the place of
 	// the base the accepted version's body holds.
-	Base          string `protobuf:"bytes,5,opt,name=base,proto3" json:"base,omitempty"`
+	Base string `protobuf:"bytes,5,opt,name=base,proto3" json:"base,omitempty"`
+	// The orrery name of the host the epic runs on. Empty takes hosts.toml's default host, else the controller.
+	Host          string `protobuf:"bytes,6,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4922,6 +4924,13 @@ func (x *CreateEpicRequest) GetId() string {
 func (x *CreateEpicRequest) GetBase() string {
 	if x != nil {
 		return x.Base
+	}
+	return ""
+}
+
+func (x *CreateEpicRequest) GetHost() string {
+	if x != nil {
+		return x.Host
 	}
 	return ""
 }
@@ -8080,12 +8089,13 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06parked\x18\r \x01(\tR\x06parked\x12%\n" +
 	"\x0eopen_questions\x18\x0e \x01(\x05R\ropenQuestions\x12#\n" +
 	"\rsteerer_heard\x18\x0f \x01(\bR\fsteererHeard\x12\x12\n" +
-	"\x04host\x18\x10 \x01(\tR\x04host\"\xa6\x01\n" +
+	"\x04host\x18\x10 \x01(\tR\x04host\"\xba\x01\n" +
 	"\x11CreateEpicRequest\x12A\n" +
 	"\tdecisions\x18\x02 \x03(\v2#.orrery.engine.v1.EpicDecisionInputR\tdecisions\x12\x1a\n" +
 	"\bworkflow\x18\x03 \x01(\tR\bworkflow\x12\x0e\n" +
 	"\x02id\x18\x04 \x01(\tR\x02id\x12\x12\n" +
-	"\x04base\x18\x05 \x01(\tR\x04baseJ\x04\b\x01\x10\x02R\bcontract\"b\n" +
+	"\x04base\x18\x05 \x01(\tR\x04base\x12\x12\n" +
+	"\x04host\x18\x06 \x01(\tR\x04hostJ\x04\b\x01\x10\x02R\bcontract\"b\n" +
 	"\x12CreateEpicResponse\x120\n" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\x12\x1a\n" +
 	"\bwarnings\x18\x02 \x03(\tR\bwarnings\":\n" +

@@ -138,6 +138,7 @@ type Design struct {
 	Title        string
 	Conversation string
 	Created      int64
+	Host         string
 }
 
 type DesignApproach struct {

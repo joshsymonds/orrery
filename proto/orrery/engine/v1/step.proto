@@ -98,6 +98,10 @@ message StartStepRequest {
 
   // What the step is for. Optional: a start without one gets a model-written purpose.
   string purpose = 16;
+
+  // The orrery name of the host the step runs on. Empty takes the stored epic's host when the step names an epic, else
+  // hosts.toml's default host, else the host the call arrived as, else the controller.
+  string host = 17;
 }
 
 // StartStepResponse names the started step.

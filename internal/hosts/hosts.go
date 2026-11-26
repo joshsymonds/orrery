@@ -1,10 +1,12 @@
 // Package hosts reads the remote hosts that this controller reaches, from the machine's hosts file. The file is
 // $XDG_CONFIG_HOME/orrery/hosts.toml when XDG_CONFIG_HOME is set, else $HOME/.config/orrery/hosts.toml.
 //
-// The file is TOML. A top-level name is the controller's orrery name. Each entry of the hosts array of tables names one
+// The file is TOML. A top-level name is the controller's orrery name. A top-level default names the host that work
+// naming no host takes: the controller's name or a listed host. Each entry of the hosts array of tables names one
 // remote host with name and address, where address is the host's agent as host:port:
 //
 //	name = "desktop"
+//	default = "workstation"
 //
 //	[[hosts]]
 //	name = "workstation"
@@ -30,10 +32,14 @@ type Host struct {
 	Address string `toml:"address"`
 }
 
-// File is the hosts file as read: the controller's orrery name and the remote hosts that it reaches, in file order.
+// File is the hosts file as read: the controller's orrery name, the default host and the remote hosts that it reaches,
+// in file order.
 type File struct {
-	Name  string `toml:"name"`
-	Hosts []Host `toml:"hosts"`
+	Name string `toml:"name"`
+	// Default is the host that work naming no host takes: the controller's name or a listed host. Empty means the
+	// controller.
+	Default string `toml:"default"`
+	Hosts   []Host `toml:"hosts"`
 }
 
 // Path returns the hosts file's path. It is $XDG_CONFIG_HOME/orrery/hosts.toml when XDG_CONFIG_HOME is set, else

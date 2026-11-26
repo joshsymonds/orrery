@@ -8,17 +8,25 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // Config is what the Stage service reads: the store it keeps the stage's records in, the steps it starts, the sessions
-// it starts to continue a design's conversation, the clock it stamps records with and the environment it reads.
+// it starts to continue a design's conversation, the clock it stamps records with, the environment it reads, the Hosts
+// that resolve host names, the orrery name of the controller's host and the roots of each remote host.
 type Config struct {
 	Store    *store.Store
 	Steps    StepStarter
 	Sessions SessionStarter
 	Now      func() time.Time
 	Getenv   func(string) string
+	Hosts    hostexec.Hosts
+	// Controller is the orrery name of the controller's host.
+	Controller string
+	// Roots lists each remote host's roots by its orrery name.
+	Roots map[string]hostrepo.RootLister
 }
 
 // StepStarter starts a step. *enginehost.Steps satisfies it.

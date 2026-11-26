@@ -19,6 +19,15 @@ func (c *Client) Folders(ctx context.Context) ([]string, error) {
 	return resp.Folders, nil
 }
 
+// Roots asks the host's agent for its roots, the directories whose folders OpFolders reports, and returns them.
+func (c *Client) Roots(ctx context.Context) ([]string, error) {
+	resp, err := c.answer(ctx, Request{Version: Version, Op: OpFolders})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Roots, nil
+}
+
 // Folder asks the host's agent to check that dir is an existing directory under its Root, as OpFolder does, and returns
 // the resolved path of dir.
 func (c *Client) Folder(ctx context.Context, dir string) (string, error) {

@@ -883,7 +883,7 @@ CREATE TABLE designs (
     title TEXT NOT NULL,
     conversation TEXT NOT NULL,    -- a sessions row id; no reference to sessions
     created INTEGER NOT NULL
-);
+, host TEXT NOT NULL DEFAULT '');
 CREATE TABLE design_contracts (
     contract TEXT PRIMARY KEY REFERENCES contracts (id),
     design TEXT NOT NULL REFERENCES designs (id),
@@ -1258,6 +1258,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (122,121,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (123,122,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (124,123,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);
