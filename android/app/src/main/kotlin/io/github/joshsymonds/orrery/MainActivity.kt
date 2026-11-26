@@ -414,10 +414,6 @@ class MainActivity : ComponentActivity() {
                         pickerDir?.let { dir ->
                             PickerPanel(
                                 client = client,
-                                onOpened = { paneId ->
-                                    pickerDir = null
-                                    screen = Screen.Pane(paneId)
-                                },
                                 onStarted = { sessionId ->
                                     pickerDir = null
                                     screen = Screen.Session(sessionId)

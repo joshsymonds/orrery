@@ -17,7 +17,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsRemoveRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AccountsRenameRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.BackgroundTask as BackgroundTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.BringBackRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Contract as ContractProto
@@ -146,7 +145,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.RouteSeat as RouteSeatProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RoutesSetContextAccountRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
@@ -556,17 +554,6 @@ sealed interface LlmWrite<out T> {
     data class Refused(val code: Code, val reason: String) : LlmWrite<Nothing>
     data object NoAnswer : LlmWrite<Nothing>
 }
-
-/** One candidate the picker offers for the text it was asked. [prompt] is true when the row starts Claude with that text. */
-data class PickRow(
-    val token: String,
-    val kind: String,
-    val dir: String,
-    val pane: String,
-    val label: String,
-    val note: String,
-    val prompt: Boolean,
-)
 
 /** One host and folder a headless session could start in: the orrery [host] name and the [dir] on it. */
 data class StartProposal(val host: String, val dir: String)
@@ -1693,22 +1680,6 @@ class OrreryClient(
         }
     }
 
-    fun ask(text: String): List<PickRow> {
-        val request = AskRequest.newBuilder().setText(text).build()
-        val response = call(write = true) { picking.picker.ask(request, CLIENT_HEADERS) }
-        return response.rowsList.map { row ->
-            PickRow(
-                token = row.token,
-                kind = row.kind,
-                dir = row.dir,
-                pane = row.pane,
-                label = row.label,
-                note = row.note,
-                prompt = row.prompt,
-            )
-        }
-    }
-
     /** The host and folder proposals for [text] over the reachable hosts, in the order the server ranks them. */
     fun propose(text: String): List<StartProposal> {
         val request = ProposeRequest.newBuilder().setText(text).build()
@@ -1716,11 +1687,6 @@ class OrreryClient(
         return response.proposalsList.map { proposal ->
             StartProposal(host = proposal.host, dir = proposal.dir)
         }
-    }
-
-    fun run(token: String): String {
-        val request = RunRequest.newBuilder().setToken(token).build()
-        return call(write = true) { standard.picker.run(request, CLIENT_HEADERS) }.pane
     }
 
     /** Reports the pane read through [readUpTo], unix seconds. */
