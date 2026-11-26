@@ -697,7 +697,7 @@ message EpicsReleaseRequest {
   // The epic's id.
   string id = 1;
 
-  // Field 2 was undo_none, the undo-none release steps the owner named to run again, which no release names now.
+  // Field 2 is reserved, so its number and name are never reused.
   reserved 2;
   reserved "undo_none";
 }

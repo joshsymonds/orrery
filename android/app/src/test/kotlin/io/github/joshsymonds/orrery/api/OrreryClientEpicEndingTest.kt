@@ -183,7 +183,6 @@ class OrreryClientEpicEndingTest {
             assertConnectRequest(EPICS_RELEASE, request)
             val body = EpicsReleaseRequest.parseFrom(request.body)
             assertEquals("example-repo/example-epic", body.id)
-            assertEquals(emptyList<Int>(), body.undoNoneList)
         }
     }
 
