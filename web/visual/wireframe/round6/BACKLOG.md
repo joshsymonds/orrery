@@ -107,7 +107,7 @@ Scenarios: `notices-centre`, `convo-epic` (step-end block), `android-notificatio
 | "A project's page" | Composed by the client from the lists it already reads, filtered by directory; no call needed. |
 | "Red, implement, green, review as a task's place" | Client-only: `orchestrate` folds into implement and `verify` into review (F4). |
 | "A limit wait drawn grey" | Client-only: a `limited` tone apart from the owner hold (F4). |
-| "A session's meters on another host" | Not planned: `Host.Status` answers for the serving host, and every host so far is the serving one. |
+| "A session's meters on another host" | Done: `Host.Status`'s per-host list is served, and the Android hosts view draws it. |
 
 ## Frontend track
 
