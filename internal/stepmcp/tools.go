@@ -230,7 +230,7 @@ type startArgs struct {
 	Epic       string          `json:"epic,omitempty"`
 	Task       string          `json:"task,omitempty"`
 	Purpose    string          `json:"purpose,omitempty"`
-	Host       string          `json:"host,omitempty"     jsonschema:"the host the step runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; a step of an epic keeps the epic's host"`
+	Host       string          `json:"host,omitempty"       jsonschema:"the host the step runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; a step of an epic keeps the epic's host"`
 }
 
 // idArgs is the arguments of a tool that takes one id, the step tools and the epic tools alike.
