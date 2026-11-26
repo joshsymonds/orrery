@@ -213,7 +213,8 @@ func TestBriefJudgeAttachStartsExactlyOneJudge(t *testing.T) {
 }
 
 // TestBriefJudgeAttachStartsOneJudgePerBrief attaches one capture to two briefs of the same revision. Each brief is judged once,
-// so two judges start, and each brief holds.
+// so two judges start, and each brief holds. The second brief's spec draws another conclusion from the same command, so
+// neither brief can take the other's verdict as an exact match (see reusedVerdict), however their judges interleave.
 func TestBriefJudgeAttachStartsOneJudgePerBrief(t *testing.T) {
 	t.Parallel()
 	repo, base := captureTestRepo(t)
@@ -223,10 +224,16 @@ func TestBriefJudgeAttachStartsOneJudgePerBrief(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds(), evidenceRunHolds()}}
 	ev := briefJudgeNew(t, st, steps, nil)
 
+	other := briefJudgeItem()
+	other.Conclusion = "the marker names the head commit"
 	briefs := []string{briefJudgeBriefID, "brief-2"}
-	for _, id := range briefs {
+	for i, id := range briefs {
+		spec := item
+		if i == 1 {
+			spec = other
+		}
 		briefJudgeAddBrief(t, st, briefJudgeBrief{
-			id: id, name: "R1", phase: evidence.PhaseGreen, revision: base, item: item,
+			id: id, name: "R1", phase: evidence.PhaseGreen, revision: base, item: spec,
 		})
 	}
 	evidenceAttachGather(t, st)
