@@ -44,6 +44,15 @@ var ErrBadMember = errors.New("bad member name")
 // memberNamePattern is the form of a member name, the same pattern internal/pools checks in pool files.
 var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+// HostProcesses is the processes of one host other than the broker's own: whether a process lives under the start time
+// its grant recorded, and whether a holder directory lives there. A node.Client is one.
+type HostProcesses interface {
+	// ProcessAlive reports whether the process with pid lives under the start time start.
+	ProcessAlive(ctx context.Context, pid int, start int64) (bool, error)
+	// HolderAlive reports whether the holder directory dir lives.
+	HolderAlive(ctx context.Context, dir string) (bool, error)
+}
+
 // Config is what a Broker runs with. Host is the host a pool must name to be granted here. Store keeps the live grants.
 // Environ is the environment each member command runs in, plus ORRERY_POOL and ORRERY_MEMBER. Now stamps grants, and
 // nil means time.Now. Logger receives the broker's warnings, and nil discards them. Alive reports whether the process
@@ -54,8 +63,11 @@ var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // the same way. A nil WatchClient or WatchHolder means the process or holder is watched through the OS. AfterFunc arms
 // the retry of store writes the store refused and the status deadline of each member a request waits on, to run its
 // function after the given delay, and nil means time.AfterFunc. Its stop ends an armed timer, as time.Timer.Stop does.
+// Hosts holds the hosts other than Host whose pools and processes the broker may follow, by host name. The broker does
+// not read it yet.
 type Config struct {
 	Host        string
+	Hosts       map[string]HostProcesses
 	Store       *store.Store
 	Environ     []string
 	Now         func() time.Time

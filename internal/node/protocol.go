@@ -1,10 +1,15 @@
 package node
 
-import "github.com/joshsymonds/orrery/internal/holder"
+import (
+	"io/fs"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/holder"
+)
 
 // Version is the protocol version a controller and an agent speak. A Request names it, and an agent refuses a Request
 // that names another version.
-const Version = "node.v1"
+const Version = "node.v2"
 
 // Op names an operation a controller asks of an agent. Each op is answered by one Response, and an op that carries a
 // stream says what follows the Response.
@@ -53,6 +58,62 @@ const (
 	// OpWakePane types the request's Text into pane Pane of the tmux server Server when the pane is idle, and answers in
 	// the Response's Woke whether it did.
 	OpWakePane Op = "wake-pane"
+	// OpGit runs the request's Git as git -C Dir with its argv, env and stdin, and answers with the run's Git result.
+	OpGit Op = "git"
+	// OpFile runs the one file-system method the request's File names, and answers with its File result.
+	OpFile Op = "file"
+	// OpGateLaunch starts the child that the request's Gate describes under a holder, as hostexec.Host.Launch does. Its
+	// Response comes once the holder serves its socket.
+	OpGateLaunch Op = "gate-launch"
+	// OpGateAttach splices the connection, byte for byte, onto the holder socket of the gate directory HolderDir, which
+	// the request's Scope names, as hostexec.Host.Reattach does. A Response with a Code means the splice did not start.
+	OpGateAttach Op = "gate-attach"
+	// OpGateStop ends the holder of the gate directory HolderDir and leaves the directory in place, as hostexec.Host.Stop
+	// does.
+	OpGateStop Op = "gate-stop"
+	// OpGateClear stops the holder of the gate directory HolderDir and removes the directory, as hostexec.Host.Clear does.
+	OpGateClear Op = "gate-clear"
+	// OpExitRecord answers with the exit record that the holder of HolderDir left, in the Response's Exit, when it left
+	// one.
+	OpExitRecord Op = "exit-record"
+	// OpKillLeftovers kills the processes that the child of the gate directory HolderDir left running, as
+	// hostexec.Host.KillLeftovers does.
+	OpKillLeftovers Op = "kill-leftovers"
+	// OpProcessAlive answers in the Response's Alive whether the process with the request's PID lives under the start
+	// time Start.
+	OpProcessAlive Op = "process-alive"
+	// OpHolderAlive answers in the Response's Alive whether the holder of the directory HolderDir lives.
+	OpHolderAlive Op = "holder-alive"
+)
+
+// FileOp names the one hostexec.Files method a file op calls. Each names the method of the same meaning.
+type FileOp string
+
+const (
+	// FileRead calls ReadFile on the request's Path.
+	FileRead FileOp = "read"
+	// FileReadRooted calls ReadRooted on the request's Root and Name.
+	FileReadRooted FileOp = "read-rooted"
+	// FileStat calls Stat on the request's Path.
+	FileStat FileOp = "stat"
+	// FileLstat calls Lstat on the request's Path.
+	FileLstat FileOp = "lstat"
+	// FileReadDir calls ReadDir on the request's Path.
+	FileReadDir FileOp = "read-dir"
+	// FileWrite calls WriteFile on the request's Path, with its Data and Perm.
+	FileWrite FileOp = "write"
+	// FileSymlink calls Symlink with the request's Target, and links it at the request's Path.
+	FileSymlink FileOp = "symlink"
+	// FileMkdirTemp calls MkdirTemp in the request's Path, with its Pattern.
+	FileMkdirTemp FileOp = "mkdir-temp"
+	// FileMkdirAll calls MkdirAll on the request's Path, with its Perm.
+	FileMkdirAll FileOp = "mkdir-all"
+	// FileRemove calls Remove on the request's Path.
+	FileRemove FileOp = "remove"
+	// FileRemoveAll calls RemoveAll on the request's Path.
+	FileRemoveAll FileOp = "remove-all"
+	// FileEvalSymlinks calls EvalSymlinks on the request's Path.
+	FileEvalSymlinks FileOp = "eval-symlinks"
 )
 
 // Request is the one line a controller sends first on a connection. Version names the protocol and Op the operation.
@@ -73,9 +134,59 @@ type Request struct {
 	Pane   string `json:"pane,omitempty"`
 	// Text is what a wake-pane op types into the pane.
 	Text string `json:"text,omitempty"`
+	// Git is the git run that a git op makes.
+	Git *GitSpec `json:"git,omitempty"`
+	// File is the file-system method that a file op calls.
+	File *FileSpec `json:"file,omitempty"`
+	// Gate is the child that a gate-launch op starts.
+	Gate *GateSpec `json:"gate,omitempty"`
+	// HolderDir is the holder directory that a gate op, exit-record, kill-leftovers or holder-alive acts on.
+	HolderDir string `json:"holderDir,omitempty"`
+	// Scope is the systemd-run path that a gate-attach op reattaches the holder under, or empty when it was started
+	// plainly.
+	Scope string `json:"scope,omitempty"`
+	// PID and Start name the process that a process-alive op checks: its pid, and the start time it must have.
+	PID   int   `json:"pid,omitempty"`
+	Start int64 `json:"start,omitempty"`
 	// Secret is the fleet secret that the controller presents, which the agent checks against its own before it serves the
 	// Request.
 	Secret string `json:"secret,omitempty"`
+}
+
+// GitSpec is the git run that a git op makes: git -C Dir with Args, as hostexec.GitCall describes it.
+type GitSpec struct {
+	Dir   string   `json:"dir"`
+	Args  []string `json:"args"`
+	Env   []string `json:"env,omitempty"`
+	Stdin []byte   `json:"stdin,omitempty"`
+	// Remote marks a run that reaches a remote, as hostexec.GitCall.Remote does.
+	Remote bool `json:"remote,omitempty"`
+}
+
+// FileSpec is the file-system method that a file op calls. Op names the method, and the other fields are the arguments
+// that method reads, which the op ignores the rest of. Path is the path an op acts on, and for symlink the link.
+type FileSpec struct {
+	Op      FileOp      `json:"op"`
+	Path    string      `json:"path,omitempty"`
+	Root    string      `json:"root,omitempty"`
+	Name    string      `json:"name,omitempty"`
+	Target  string      `json:"target,omitempty"`
+	Pattern string      `json:"pattern,omitempty"`
+	Data    []byte      `json:"data,omitempty"`
+	Perm    fs.FileMode `json:"perm,omitempty"`
+}
+
+// GateSpec is the child that a gate-launch op starts: a hostexec.Launch, whose fields it mirrors.
+type GateSpec struct {
+	Scope    string        `json:"scope,omitempty"`
+	StateDir string        `json:"stateDir,omitempty"`
+	Session  string        `json:"session"`
+	Path     string        `json:"path"`
+	Args     []string      `json:"args,omitempty"`
+	Dir      string        `json:"dir,omitempty"`
+	Env      []string      `json:"env,omitempty"`
+	Limit    time.Duration `json:"limit,omitempty"`
+	Tail     int           `json:"tail,omitempty"`
 }
 
 // LaunchSpec is the launch that a launch op starts: a holderhost.Spec without its session, which the Request names.
@@ -106,7 +217,58 @@ type Response struct {
 	Folder string `json:"folder,omitempty"`
 	// Woke reports whether a wake-pane op typed its text into the pane.
 	Woke bool `json:"woke,omitempty"`
+	// Git is the result of a git op.
+	Git *GitResult `json:"git,omitempty"`
+	// File is the result of a file op.
+	File *FileResult `json:"file,omitempty"`
+	// Alive reports whether a process-alive or holder-alive op found its process or holder alive.
+	Alive bool `json:"alive,omitempty"`
 }
+
+// GitResult is the result of a git op: what git wrote and how it ended. Started is false when git could not start, and
+// then ExitCode, Stdout and Stderr are empty.
+type GitResult struct {
+	Started  bool   `json:"started"`
+	ExitCode int    `json:"exitCode"`
+	Stdout   []byte `json:"stdout,omitempty"`
+	Stderr   []byte `json:"stderr,omitempty"`
+}
+
+// FileResult is the result of a file op. Data is what a read returns, Path the path that mkdir-temp or eval-symlinks
+// returns, Info what stat or lstat describes, and Entries what read-dir lists. Errno names the fs error the method
+// returned, when it returned one of the kinds FileErrno names.
+type FileResult struct {
+	Data    []byte     `json:"data,omitempty"`
+	Path    string     `json:"path,omitempty"`
+	Info    *FileInfo  `json:"info,omitempty"`
+	Entries []FileInfo `json:"entries,omitempty"`
+	Errno   FileErrno  `json:"errno,omitempty"`
+}
+
+// FileInfo is a fs.FileInfo as JSON carries it: the name, size, mode and modification time of a file, and whether it is
+// a directory.
+type FileInfo struct {
+	Name    string      `json:"name"`
+	Size    int64       `json:"size"`
+	Mode    fs.FileMode `json:"mode"`
+	ModTime time.Time   `json:"modTime"`
+	IsDir   bool        `json:"isDir"`
+}
+
+// FileErrno names an fs error a file op's result carries, so that the controller returns the error the os function
+// returned for it.
+type FileErrno string
+
+const (
+	// ErrnoNotExist is fs.ErrNotExist.
+	ErrnoNotExist FileErrno = "not-exist"
+	// ErrnoExist is fs.ErrExist.
+	ErrnoExist FileErrno = "exist"
+	// ErrnoPermission is fs.ErrPermission.
+	ErrnoPermission FileErrno = "permission"
+	// ErrnoNotRegular is hostexec.ErrNotRegular.
+	ErrnoNotRegular FileErrno = "not-regular"
+)
 
 // Code classifies a failed op, so that the controller returns the error the holder package returns for it.
 type Code string
@@ -118,6 +280,10 @@ const (
 	CodeUnattachable Code = "unattachable"
 	// CodeNoAnswer is holder.ErrNoAnswer: a live holder did not answer within the attach's bound.
 	CodeNoAnswer Code = "no-answer"
+	// CodeRefused is a Request for a path outside the agent's roots, which the agent refuses.
+	CodeRefused Code = "refused"
+	// CodeVersion is a Request of another protocol version than the agent serves.
+	CodeVersion Code = "version"
 	// CodeFailed is any other failure, which the Response's Message describes.
 	CodeFailed Code = "failed"
 )
