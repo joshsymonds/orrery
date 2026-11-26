@@ -221,6 +221,8 @@ type Response struct {
 	Folders []string `json:"folders,omitempty"`
 	// Folder is the resolved path that a folder op checked.
 	Folder string `json:"folder,omitempty"`
+	// Roots are the absolute directories whose folders a folders op reports.
+	Roots []string `json:"roots,omitempty"`
 	// Woke reports whether a wake-pane op typed its text into the pane.
 	Woke bool `json:"woke,omitempty"`
 	// Git is the result of a git op.

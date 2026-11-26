@@ -125,6 +125,7 @@ type StepStart struct {
 	Purpose     string
 	Caller      store.EpicCaller
 	Host        string
+	Arrived     string // the orrery name of the host the start call arrived as, or "" when it arrived as none
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
@@ -193,6 +194,8 @@ type StepsConfig struct {
 	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
 	Host  string
 	Hosts hostexec.Hosts
+	// Placement places each step that names no host on the host it is placed on.
+	Placement HostPlacer
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager

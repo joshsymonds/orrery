@@ -39,12 +39,13 @@ var ErrDesignCycle = errors.New("starts-after edges form a cycle")
 // ErrNotHeld reports that an epic a held-epic call names is not held.
 var ErrNotHeld = errors.New("epic not held")
 
-// Design is one design as its record holds it: its id, its title, its working conversation and when it was made. The
-// working conversation is the session of the design's newest design_conversations row, or else the sessions row that
-// wrote the design, as DesignConversation names it.
+// Design is one design as its record holds it: its id, its title, its working conversation, the orrery name of the host
+// its steps run on and when it was made. The working conversation is the session of the design's newest
+// design_conversations row, or else the sessions row that wrote the design, as DesignConversation names it. Host is ""
+// for the controller's own host.
 type Design struct {
-	ID, Title, Conversation string
-	Created                 time.Time
+	ID, Title, Conversation, Host string
+	Created                       time.Time
 }
 
 // DesignContract is one contract of a design as the design's record shows it. Position is its place in the design's
@@ -82,7 +83,7 @@ type HeldEpic struct {
 	Answer               string
 }
 
-// CreateDesign stores the design as a new design. It stores the design's ID, Title, Conversation and Created, and
+// CreateDesign stores the design as a new design. It stores the design's ID, Title, Conversation, Host and Created, and
 // returns an error that matches ErrDesignExists, and stores nothing, when a design or a contract already has the
 // design's ID.
 func (s *Store) CreateDesign(ctx context.Context, design Design) error {
@@ -96,6 +97,7 @@ func (s *Store) CreateDesign(ctx context.Context, design Design) error {
 		}
 		if err = queries.InsertDesign(ctx, sqlcgen.InsertDesignParams{
 			ID: design.ID, Title: design.Title, Conversation: design.Conversation, Created: design.Created.Unix(),
+			Host: design.Host,
 		}); err != nil {
 			return fmt.Errorf("insert design %s: %w", design.ID, err)
 		}
@@ -435,7 +437,8 @@ func readDesignRows(ctx context.Context, queries *sqlcgen.Queries, row sqlcgen.D
 	}
 	record := DesignRecord{
 		Design: Design{
-			ID: row.ID, Title: row.Title, Conversation: conversation, Created: time.Unix(row.Created, 0),
+			ID: row.ID, Title: row.Title, Conversation: conversation, Host: row.Host,
+			Created: time.Unix(row.Created, 0),
 		},
 		OfOne: len(members) == 1,
 	}

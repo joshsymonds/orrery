@@ -15,6 +15,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -83,7 +84,11 @@ type ServeConfig struct {
 	// Orrery-Host of each request, over any Orrery-Host the request sent, and sends no Orrery-Host when it is empty.
 	CallerHost string
 	// Hosts resolves host names to the Hosts that run epic git. Nil resolves every name to this machine.
-	Hosts   hostexec.Hosts
+	Hosts hostexec.Hosts
+	// Placement places the work of each call on the host it names, and names the default host.
+	Placement HostPlacer
+	// Roots lists each remote host's roots by its orrery name, for the checkouts that work on that host fetches.
+	Roots   map[string]hostrepo.RootLister
 	Options []connect.HandlerOption
 }
 

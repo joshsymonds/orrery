@@ -426,6 +426,7 @@ func fullCreateRequest() *v1.CreateEpicRequest {
 			{Id: "D2", Text: "Keep password login."},
 		},
 		Workflow: "lookdev",
+		Host:     "workstation",
 	}
 }
 

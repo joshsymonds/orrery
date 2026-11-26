@@ -34,6 +34,8 @@ type DesignStore interface {
 type Designs struct {
 	Store DesignStore
 	Now   func() time.Time
+	// Placement places each design's steps on the host they run on.
+	Placement HostPlacer
 }
 
 // designService implements the Designs RPCs over designs. A nil designs answers the RPCs as unavailable.
