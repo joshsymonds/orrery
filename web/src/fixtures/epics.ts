@@ -1270,13 +1270,12 @@ export const orbitReleasing: EpicsGetResponse = {
   }),
 };
 
-// offlineStopped is offline-tables stopped at step 2, whose undo is none, so Release from step 2 is offered.
+// offlineStopped is offline-tables stopped at step 2, the step that failed in its release.
 // Its summary and contract draw the page's lede with its Contract and Steered from doors, as round 6's scenario does.
 export const offlineStopped: EpicsGetResponse = {
   ...offlineGet,
   summary: "Tide tables are readable with no network: the last seven days are kept on the phone and marked with their age.",
   contract: create(EpicContractSchema, { title: "offline-tables", care: "serious", accepted: at("@11:20") }),
-  releaseSteps: offlineGet.releaseSteps.map((step) => (step.position === 2n ? { ...step, undo: "none" } : step)),
 };
 
 // offlineStoppedHistory is what just happened to offline-tables: its release ran step 1 and stopped at step 2.

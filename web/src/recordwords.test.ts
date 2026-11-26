@@ -331,12 +331,9 @@ test("SteererHolds: the blocker pill reads a steerer's park and a steerer-held q
   });
 });
 
-test("SteererHolds: a steerer's park holds a stopped release, so its pill reads the steerer's, not the step with no undo", () => {
+test("SteererHolds: a steerer's park holds a stopped release, and a stopped release with no park gives no pill", () => {
   const steps = [create(EpicReleaseProofSchema, { position: 1n, step: "publish", state: "failed", undo: "none" })];
-  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: steps }), now), {
-    word: "step 1 failed and cannot be undone",
-    tone: "attention",
-  });
+  assert.equal(blockerPillOf(orrerydIn("stopped", { releaseSteps: steps }), now), null);
   assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: steps, parked: "publish failed", steererParked: true }), now), {
     word: "its steerer holds the park",
     tone: "quiet",
@@ -512,12 +509,9 @@ test("EpicWords: a releasing epic's now sentence names its running release step,
   assert.equal(nowSentenceOf(orrerydIn("releasing")), "Releasing.");
 });
 
-test("EpicWords: a stopped release's now sentence names the step with no undo that waits on you, else the first unpassed step, else none", () => {
+test("EpicWords: a stopped release's now sentence names its first unpassed step whatever its undo, else none", () => {
   const offered = [releaseStep(1, "passed"), releaseStep(2, "failed", "none"), releaseStep(3, "waiting")];
-  assert.equal(
-    nowSentenceOf(orrerydIn("stopped", { releaseSteps: offered })),
-    "The release stopped at step 2, and that step has no undo. It waits on you.",
-  );
+  assert.equal(nowSentenceOf(orrerydIn("stopped", { releaseSteps: offered })), "The release stopped at step 2.");
   const undone = [releaseStep(1, "passed"), releaseStep(2, "waiting"), releaseStep(3, "failed", "rollback")];
   assert.equal(nowSentenceOf(orrerydIn("stopped", { releaseSteps: undone })), "The release stopped at step 2.");
   assert.equal(nowSentenceOf(orrerydIn("stopped")), "The release stopped.");
@@ -536,12 +530,9 @@ test("EpicWords: an owner's park or an open question still wins over the release
   );
 });
 
-test("EpicWords: a stopped release with an undo-none failed step gives the blocker pill its words, and nothing else gives a release pill", () => {
+test("EpicWords: no stopped release gives a release pill, whatever its failed step's undo, and nothing else gives one either", () => {
   const offered = [releaseStep(1, "passed"), releaseStep(2, "failed", " None ")];
-  assert.deepEqual(blockerPillOf(orrerydIn("stopped", { releaseSteps: offered }), now), {
-    word: "step 2 failed and cannot be undone",
-    tone: "attention",
-  });
+  assert.equal(blockerPillOf(orrerydIn("stopped", { releaseSteps: offered }), now), null);
   const undone = [releaseStep(1, "passed"), releaseStep(2, "failed", "rollback")];
   assert.equal(blockerPillOf(orrerydIn("stopped", { releaseSteps: undone }), now), null);
   assert.equal(blockerPillOf(orrerydIn("releasing", { releaseSteps: [releaseStep(1, "running")] }), now), null);

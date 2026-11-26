@@ -1025,29 +1025,6 @@ test("ReleaseTable: page/epic-releasing draws Release with step 2 running and th
   );
 });
 
-test("ReleaseFrom: page/epic-release-failed draws step 2 failed and Release from step 2 offered, no call made", (t) => {
-  mockTimers(t, ["setTimeout"]);
-  return withStory(
-    t,
-    Page["epic-release-failed"],
-    (root) => root.querySelector('.epic-page section.release [data-step="2"] .cell.bad') !== null,
-    (root) => {
-      assertNoFailure(root);
-      assert.ok(root.querySelector('.epic-page section.release [data-step="2"] .cell')?.textContent.includes("failed"));
-      assert.ok(
-        root.querySelector(".epic-page section.release .tr-detail .inote.error")?.textContent.includes("CI is red on the tag"),
-        "step 2's reason is drawn",
-      );
-      const offered = [...root.querySelectorAll(".epic-page section.release button")].filter(
-        (button) => button.textContent === "Release from step 2",
-      );
-      assert.equal(offered.length, 1, "Release from step 2 is offered once");
-      assert.equal(root.querySelector(".epic-page section.release .sure"), null, "no confirm is open");
-      assert.equal(root.querySelector(".epic-page section.release .call-line"), null, "no release call is made");
-    },
-  );
-});
-
 test("EpicClose: page/epic-ended-gaps draws Report with Release it anyway and Close as…, no call made", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(

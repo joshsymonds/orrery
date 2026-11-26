@@ -44,7 +44,7 @@ function deferred<T>(): Deferred<T> {
 // Calls records each call the report makes, in order. Each call is held open until its test answers it, unless the calls
 // answer at once: landed for a send, and true for a read, which is what a healthy epic does.
 class Calls {
-  readonly releases: number[][] = [];
+  releases = 0;
   readonly closes: { kind: string; by: string }[] = [];
   readonly sends: Deferred<CallOutcome>[] = [];
   readonly reads: Deferred<boolean>[] = [];
@@ -63,8 +63,8 @@ class Calls {
     return answer.promise;
   }
 
-  release = (undoNone: number[]): Promise<CallOutcome> => {
-    this.releases.push(undoNone);
+  release = (): Promise<CallOutcome> => {
+    this.releases += 1;
     return this.pending();
   };
 
@@ -253,16 +253,16 @@ test("EpicClose: Release it anyway asks first, sends one release with no undo, a
     const calls = new Calls(false);
     await draw(container, calls);
     await click(buttonNamed(container, "Release it anyway"));
-    assert.equal(calls.releases.length, 0, "asking sends nothing");
+    assert.equal(calls.releases, 0, "asking sends nothing");
     assert.equal(textOf(container, ".sure"), "Release rota anyway?");
     assert.equal(container.querySelectorAll(".sure")[1]?.textContent, "Its gaps stay, and its release steps run.");
     await click(buttonNamed(container, "Keep it"));
     assert.equal(container.querySelector(".sure"), null);
-    assert.equal(calls.releases.length, 0, "keep sends nothing");
+    assert.equal(calls.releases, 0, "keep sends nothing");
 
     await click(buttonNamed(container, "Release it anyway"));
     await click(buttonNamed(container, "Release it anyway"));
-    assert.deepEqual(calls.releases, [[]], "one confirm sends one release with an empty undo list");
+    assert.equal(calls.releases, 1, "one confirm sends one release");
     assert.equal(buttonNamed(container, "Release it anyway").disabled, true);
     assert.equal(lineText(container), "Sending…");
     await answer(calls.sends, 0, { kind: "landed" });
@@ -271,7 +271,7 @@ test("EpicClose: Release it anyway asks first, sends one release with no undo, a
     await answerRead(calls.reads, 0, true);
     await settle(t, () => isIdle(container), "the group is back at rest");
     assert.equal(container.querySelector(".call-line"), null, "a landed call that was read again leaves no line");
-    assert.equal(calls.releases.length, 1);
+    assert.equal(calls.releases, 1);
   }));
 
 test("EpicClose: Close as… confirm is disabled until a kind is picked and, for superseded, an epic", () =>
@@ -404,7 +404,7 @@ test("EpicClose: a refusal shows its reason in red, and a second press is a seco
     await click(buttonNamed(container, "Release it anyway"));
     assert.equal(container.querySelector(".sure")?.textContent, "Release rota anyway?", "the second press asks again");
     await click(buttonNamed(container, "Release it anyway"));
-    assert.equal(calls.releases.length, 2, "the second confirm sends a second release");
+    assert.equal(calls.releases, 2, "the second confirm sends a second release");
   }));
 
 test("EpicClose: an unanswered call says so, and the read is awaited, then offered again", (t) =>
@@ -437,7 +437,7 @@ test("EpicClose: narrow, both confirms are in a dialog and the group stays under
     assert.equal(release.getAttribute("aria-label"), "Release rota anyway?");
     assert.equal(container.querySelector(".gaps-acts .sure"), null, "no in-place confirm when narrow");
     await click(buttonNamed(release, "Release it anyway"));
-    assert.deepEqual(calls.releases, [[]]);
+    assert.equal(calls.releases, 1);
     await settle(t, () => isIdle(container), "the release is answered");
 
     await click(buttonNamed(container, "Close as…"));
@@ -509,7 +509,7 @@ test("EpicClose: asking Release it anyway or Close as… closes when the epic st
     await click(buttonNamed(container, "Close as…"));
     assert.equal(radio(container, "abandoned").checked, false, "a new Close as… starts with no kind picked");
     assert.equal(buttonNamed(container, buttonLabel(container)).disabled, true, "the confirm needs a kind");
-    assert.deepEqual(calls.releases, []);
+    assert.equal(calls.releases, 0);
     assert.deepEqual(calls.closes, []);
   }));
 
@@ -523,7 +523,7 @@ test("EpicClose: narrow, a release dialog closes when the epic stops ending with
     assert.ok(container.querySelector("[role='dialog']") === null, "the dialog is gone");
     await draw(container, calls, { narrow: true });
     assert.ok(container.querySelector("[role='dialog']") === null, "offered again, no dialog is open");
-    assert.deepEqual(calls.releases, []);
+    assert.equal(calls.releases, 0);
   }));
 
 test("EpicClose: narrow, a sheet whose picked epic is dropped clears the pick, shows the line in the dialog and sends nothing", () =>

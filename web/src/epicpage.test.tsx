@@ -121,8 +121,8 @@ function recorder(): { calls: string[]; commands: EpicCommands } {
       calls.push(`answer ${questionId} ${choice} ${text}`);
       return "";
     },
-    release: async (undoNone) => {
-      calls.push(`release ${JSON.stringify(undoNone)}`);
+    release: async () => {
+      calls.push("release");
       return { kind: "landed" };
     },
     close: async (kind, by) => {
@@ -1074,34 +1074,8 @@ test("ReleaseTable: a releasing epic draws its Release section with its words, i
     assert.equal(textOf(container, ".release .sec .n"), "step 2 of 2");
     assert.deepEqual(textsOf(container, ".release .tr .id"), ["1", "2"]);
     assert.equal(textOf(container, ".release .then"), "Then: the tag is pushed");
-    assert.equal(has(container, ".release button"), false, "a running release offers no Release from step");
+    assert.equal(has(container, ".release button"), false, "a running release offers no release");
   });
-});
-
-test("ReleaseFrom: a stopped epic's Release from step N, confirmed, sends one release of that step", async () => {
-  const { calls, commands } = recorder();
-  await withPage(
-    detail({
-      ...releasing,
-      epic: { ...orrerydEpic, outcome: "stopped" },
-      releaseSteps: [
-        { position: 1n, step: "Tag the release", target: "origin", undo: "git tag -d", state: "passed" },
-        { position: 2n, step: "Push the branch", target: "origin", undo: "none", state: "failed", reason: "rejected" },
-      ],
-    }),
-    async (container) => {
-      await pressButton(container, ".release", "Release from step 2");
-      assert.equal(calls.length, 0, "asking sends nothing");
-      await pressButton(container, ".release", "Release from step 2");
-      await act(async () => {});
-      assert.deepEqual(
-        calls.filter((call) => call.startsWith("release")),
-        ["release [2]"],
-        "the confirm sends one release of step 2",
-      );
-    },
-    { commands },
-  );
 });
 
 // endedWithGaps is an orreryd epic that ended with gaps on the repository path, beside two other epics: one on the same
