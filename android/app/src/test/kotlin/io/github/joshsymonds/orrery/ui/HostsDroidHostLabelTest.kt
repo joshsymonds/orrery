@@ -284,10 +284,12 @@ class HostsDroidHostLabelTest {
             // The page's head names its host once, and the WorkCard under a conversation names the epic's own host.
             assertEquals(1, namedUnder(headTag(SERVING, ALPHA), SERVING))
             assertEquals(1, namedUnder("card:epic:$REMOTE_EPIC", REMOTE))
+            // The page's rows sit under its host-and-folder head, which names the host, so neither a pane's row nor a headless
+            // session's names it again; each row is drawn, so the check is not empty.
+            assertEquals(1, countNodes(hasTestTag("project-convo:pane:$SERVING:%1")))
             assertEquals(0, namedUnder("project-convo:pane:$SERVING:%1", SERVING))
-            // The headless session's row is not under an inbox card, so it names its host inline; an empty host reads as the
-            // page's.
-            assertEquals(1, namedUnder("project-convo:session:$EMPTY_HEADLESS", SERVING))
+            assertEquals(1, countNodes(hasTestTag("project-convo:session:$EMPTY_HEADLESS")))
+            assertEquals(0, namedUnder("project-convo:session:$EMPTY_HEADLESS", SERVING))
         }
     }
 
