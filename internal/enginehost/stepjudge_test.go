@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 )
 
 func TestStepJudgeSchemaIsTwoVerdictObject(t *testing.T) {
@@ -93,28 +95,31 @@ func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
 		"one-line reason",
 		"naming what is missing",
 		"lost only its middle, which does not mean the return was cut off",
-		"## Task\nwrite the parser",
-		"## Return\nparser written",
-		"## Diff stat\nparser.go | 12 +",
-		"## Gate stdout tail\nPASS go test",
-		"## Gate stderr tail\nwarn: slow",
+		"<task>\nwrite the parser\n</task>",
+		"<return>\nparser written\n</return>",
+		"<diff_stat>\nparser.go | 12 +\n</diff_stat>",
+		"<gate_stdout_tail>\nPASS go test\n</gate_stdout_tail>",
+		"<gate_stderr_tail>\nwarn: slow\n</gate_stderr_tail>",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("input is missing %q:\n%s", want, got)
 		}
+	}
+	if !strings.HasSuffix(got, stepJudgeInstruction+"\n\n"+haikuprompt.Answer) {
+		t.Fatalf("input does not end with the instruction and the answer line:\n%s", got)
 	}
 }
 
 func TestStepJudgeInputOmitsEmptyDiffStatAndGateTail(t *testing.T) {
 	t.Parallel()
 	got := stepJudgeInput("answer the question", "42", "  \n", "", " \n")
-	if strings.Contains(got, "## Diff stat") {
+	if strings.Contains(got, "<diff_stat>") {
 		t.Fatalf("blank diff stat must be omitted:\n%s", got)
 	}
-	if strings.Contains(got, "## Gate stdout tail") || strings.Contains(got, "## Gate stderr tail") {
+	if strings.Contains(got, "<gate_stdout_tail>") || strings.Contains(got, "<gate_stderr_tail>") {
 		t.Fatalf("blank gate tails must be omitted:\n%s", got)
 	}
-	if !strings.Contains(got, "## Task\nanswer the question") || !strings.Contains(got, "## Return\n42") {
+	if stepJudgeSection(t, got, "task") != "answer the question" || stepJudgeSection(t, got, "return") != "42" {
 		t.Fatalf("task and return sections must stay:\n%s", got)
 	}
 }
@@ -127,23 +132,15 @@ func TestStepJudgeInputCutsOversizedSectionsAtEightKiB(t *testing.T) {
 	got := stepJudgeInput(big, big, big, big, big)
 	// The task and the return keep 8 KiB of head and 8 KiB of tail around the 8192 bytes left out.
 	ends := strings.Repeat("h", k) + "\n[8192 bytes left out]\n" + strings.Repeat("t", k)
-	for _, tc := range []struct{ heading, want string }{
-		{"## Task\n", ends},
-		{"## Return\n", ends},
-		{"## Diff stat\n", strings.Repeat("h", k)},
-		{"## Gate stdout tail\n", strings.Repeat("t", k)},
-		{"## Gate stderr tail\n", strings.Repeat("t", k)},
+	for _, tc := range []struct{ tag, want string }{
+		{"task", ends},
+		{"return", ends},
+		{"diff_stat", strings.Repeat("h", k)},
+		{"gate_stdout_tail", strings.Repeat("t", k)},
+		{"gate_stderr_tail", strings.Repeat("t", k)},
 	} {
-		start := strings.Index(got, tc.heading)
-		if start < 0 {
-			t.Fatalf("missing section %q", tc.heading)
-		}
-		body := got[start+len(tc.heading):]
-		if next := strings.Index(body, "\n\n## "); next >= 0 {
-			body = body[:next]
-		}
-		if body != tc.want {
-			t.Fatalf("section %q is %d bytes, want %d bytes of the expected cut", tc.heading, len(body), len(tc.want))
+		if body := stepJudgeSection(t, got, tc.tag); body != tc.want {
+			t.Fatalf("part %q is %d bytes, want %d bytes of the expected cut", tc.tag, len(body), len(tc.want))
 		}
 	}
 }
@@ -155,12 +152,12 @@ func TestStepJudgeInputKeepsEndsAndOmissionOfLongReturn(t *testing.T) {
 	got := stepJudgeInput("task", long, "", "", "")
 	ends := strings.Repeat("a", stepJudgeSectionBytes) + "\n[4104 bytes left out]\n" +
 		strings.Repeat("a", stepJudgeSectionBytes-len("END-MARK")) + "END-MARK"
-	if !strings.HasSuffix(got, "## Return\n"+ends) {
-		t.Fatalf("20 KiB return is not its head, omission line, and end marker:\n%q", got[len(got)-200:])
+	if body := stepJudgeSection(t, got, "return"); body != ends {
+		t.Fatalf("20 KiB return is not its head, omission line, and end marker:\n%q", body[len(body)-200:])
 	}
 	// A return of exactly 16 KiB is not cut.
 	whole := strings.Repeat("b", 2*stepJudgeSectionBytes)
-	if got := stepJudgeInput("task", whole, "", "", ""); !strings.HasSuffix(got, "## Return\n"+whole) {
+	if got := stepJudgeInput("task", whole, "", "", ""); stepJudgeSection(t, got, "return") != whole {
 		t.Fatal("16 KiB return was cut")
 	}
 }
@@ -179,7 +176,7 @@ func TestStepJudgeInputCutsOnRuneBoundary(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			got := stepJudgeInput("task", tc.text, "", "", "")
-			body := got[strings.Index(got, "## Return\n")+len("## Return\n"):]
+			body := stepJudgeSection(t, got, "return")
 			if strings.ContainsRune(body, '\uFFFD') {
 				t.Fatal("cut produced invalid UTF-8")
 			}
@@ -190,25 +187,27 @@ func TestStepJudgeInputCutsOnRuneBoundary(t *testing.T) {
 	}
 }
 
-// stepJudgeSection returns the body of the section of input that opens with heading, up to the next section.
-func stepJudgeSection(t *testing.T, input, heading string) string {
+// stepJudgeSection returns the text of the part of input tagged tag, between its opening and closing tags.
+func stepJudgeSection(t *testing.T, input, tag string) string {
 	t.Helper()
-	start := strings.Index(input, heading)
+	open, closing := "<"+tag+">\n", "\n</"+tag+">"
+	start := strings.Index(input, open)
 	if start < 0 {
-		t.Fatalf("input has no section %q:\n%s", heading, input)
+		t.Fatalf("input has no part %q:\n%s", tag, input)
 	}
-	body := input[start+len(heading):]
-	if next := strings.Index(body, "\n\n## "); next >= 0 {
-		body = body[:next]
+	body := input[start+len(open):]
+	end := strings.Index(body, closing)
+	if end < 0 {
+		t.Fatalf("part %q of input is not closed:\n%s", tag, input)
 	}
-	return body
+	return body[:end]
 }
 
 func TestStepJudgeInputKeepsTheTailOfEachGateStream(t *testing.T) {
 	t.Parallel()
 	stream := strings.Repeat("x", stepJudgeSectionBytes) + "FAILED: last line"
 	got := stepJudgeInput("task", "return", "", stream, stream)
-	for _, heading := range []string{"## Gate stdout tail\n", "## Gate stderr tail\n"} {
+	for _, heading := range []string{"gate_stdout_tail", "gate_stderr_tail"} {
 		body := stepJudgeSection(t, got, heading)
 		if !strings.HasSuffix(body, "FAILED: last line") {
 			t.Fatalf("%q lost its last line: %q", heading, body[len(body)-40:])
@@ -269,11 +268,11 @@ func TestStepJudgeInputCutsInvalidUTF8WithoutPanic(t *testing.T) {
 	t.Parallel()
 	junk := strings.Repeat("\x80", 2*stepJudgeSectionBytes+808)
 	got := stepJudgeInput(junk, "return", "", junk, junk)
-	task := got[strings.Index(got, "## Task\n")+len("## Task\n") : strings.Index(got, "\n\n## Return")]
+	task := stepJudgeSection(t, got, "task")
 	if len(task) > 2*stepJudgeSectionBytes {
 		t.Fatalf("task section is %d bytes, want at most %d", len(task), 2*stepJudgeSectionBytes)
 	}
-	for _, heading := range []string{"## Gate stdout tail\n", "## Gate stderr tail\n"} {
+	for _, heading := range []string{"gate_stdout_tail", "gate_stderr_tail"} {
 		gate := stepJudgeSection(t, got, heading)
 		if len(gate) > stepJudgeSectionBytes {
 			t.Fatalf("%q is %d bytes, want at most %d", heading, len(gate), stepJudgeSectionBytes)

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 )
 
 // stepMonitorSchema is the JSON schema the monitor's reply must match: one of the watch's four verdicts and a one-line
@@ -24,7 +26,7 @@ const stepMonitorSchema = `{
 // stepMonitorDoingBytes is the longest doing line kept.
 const stepMonitorDoingBytes = 200
 
-// stepMonitorInstruction opens the monitor's input. It defines each verdict and asks for the doing line.
+// stepMonitorInstruction closes the monitor's input, after its tagged parts. It defines each verdict and asks for the doing line.
 const stepMonitorInstruction = "A coding step has tripped a watch. Judge what it is doing from the recent events.\n" +
 	"Verdicts:\n" +
 	"- " + watchVerdictProgressing + ": real progress since the last check.\n" +
@@ -41,7 +43,10 @@ var errStepMonitorDoing = errors.New("enginehost: monitor doing line is empty")
 
 // stepMonitorInput builds the monitor's stdin from the trip's why sentence and the recent events.
 func stepMonitorInput(why, recent string) string {
-	return stepMonitorInstruction + "\n\n## Why\n" + why + "\n\n## Recent events\n" + recent
+	return haikuprompt.Input(stepMonitorInstruction,
+		haikuprompt.Part{Tag: "why", Text: why},
+		haikuprompt.Part{Tag: "recent_events", Text: recent},
+	)
 }
 
 // parseStepMonitor reads the monitor's reply. It returns the verdict and the doing line, trimmed, reduced to its first

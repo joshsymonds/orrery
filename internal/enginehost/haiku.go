@@ -246,14 +246,25 @@ func haikuDecodeField(fields map[string]json.RawMessage, key string, dst any) er
 	return nil
 }
 
+// haikuSystemPrompt replaces Claude Code's system prompt in a Haiku call. The default one sets up an agent that codes and
+// acts, which a call that only judges or names the material it is given has no use for.
+const haikuSystemPrompt = "You read the material you are given and answer one question about it, only through the " +
+	"StructuredOutput tool."
+
 // haikuArgv is the argv after the claude binary: one structured answer on model, in at most haikuMaxTurns turns, with
-// settings as its --settings value, no tools, no saved session.
+// settings as its --settings value, haikuSystemPrompt as its system prompt, no tools, no MCP servers, no skills or
+// slash commands, and no saved session. --tools "" leaves the MCP servers' tools in, about two hundred of them on a host
+// with servers configured, so --strict-mcp-config with no --mcp-config drops them: with them, Haiku could spend its
+// turns calling a tool its material talks about instead of answering.
 func haikuArgv(model, schema, settings string) []string {
 	return []string{
 		"-p", "--model", model,
 		"--settings", settings,
+		"--system-prompt", haikuSystemPrompt,
 		"--no-session-persistence",
 		"--tools", "",
+		"--strict-mcp-config",
+		"--disable-slash-commands",
 		"--max-turns", haikuMaxTurns,
 		"--output-format", "json",
 		"--json-schema", schema,

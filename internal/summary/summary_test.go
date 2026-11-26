@@ -73,6 +73,7 @@ func argvFor(model, settings, system string) string {
 		"--system-prompt", system,
 		"--no-session-persistence",
 		"--tools", "",
+		"--strict-mcp-config",
 		"--max-turns", "1",
 	}
 	return strings.Join(args, "\n") + "\n"

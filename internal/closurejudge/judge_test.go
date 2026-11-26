@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -81,7 +82,8 @@ func TestInboxClosureJudgePassesBaseURLEnvModelSchemaAndInput(t *testing.T) {
 			if got.schema != judgeSchema {
 				t.Errorf("schema = %q, want %q", got.schema, judgeSchema)
 			}
-			if want := Instruction + "\n\n" + exampleRecent; got.input != want {
+			want := haikuprompt.Input(Instruction, haikuprompt.Part{Tag: "conversation", Text: exampleRecent})
+			if got.input != want {
 				t.Errorf("input = %q, want %q", got.input, want)
 			}
 		})

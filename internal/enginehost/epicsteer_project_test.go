@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,12 +17,6 @@ type projectCase struct {
 	target func(t *testing.T, env moveEnv) (session, refusal string)
 }
 
-// outsideRefusal is the refusal of a move of the test epic to session, a target whose directory dir lies outside the
-// epic's repository.
-func outsideRefusal(session, dir string) string {
-	return fmt.Sprintf("session %s runs in %s, outside the repository of epic %s", session, dir, epicServiceID)
-}
-
 // subdirOf creates the directory name inside the repository of env and returns its path.
 func subdirOf(t *testing.T, env moveEnv, name string) string {
 	t.Helper()
@@ -34,7 +27,9 @@ func subdirOf(t *testing.T, env moveEnv, name string) string {
 	return dir
 }
 
-func TestSteerProjectRefusesTargetThatIsNoConversationOrIsOutsideRepository(t *testing.T) {
+// TestSteerProjectRefusesTargetThatIsNoConversation moves the epic to a session that is no row, a step and a pane with
+// no Claude. Each is refused by name, and the epic keeps its steerer.
+func TestSteerProjectRefusesTargetThatIsNoConversation(t *testing.T) {
 	t.Parallel()
 	cases := []projectCase{
 		{name: "no session row", target: func(_ *testing.T, _ moveEnv) (string, string) {
@@ -53,19 +48,6 @@ func TestSteerProjectRefusesTargetThatIsNoConversationOrIsOutsideRepository(t *t
 			pane := env.syncPane(t, "orrery-empty", "%3", "")
 			return pane, "session orrery-empty is a pane with no Claude"
 		}},
-		{name: "headless directory outside", target: func(t *testing.T, env moveEnv) (string, string) {
-			t.Helper()
-			dir := t.TempDir()
-			session := startedIn(t, env.m, dir)
-			return session, outsideRefusal(session, dir)
-		}},
-		{name: "pane path outside", target: func(t *testing.T, env moveEnv) (string, string) {
-			t.Helper()
-			dir := t.TempDir()
-			env.panes.dir = dir
-			pane := env.syncPane(t, "orrery-pane", "%5", "working")
-			return pane, outsideRefusal(pane, dir)
-		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -80,20 +62,10 @@ func TestSteerProjectRefusesTargetThatIsNoConversationOrIsOutsideRepository(t *t
 	}
 }
 
-// TestSteerProjectEmptyPanePathIsRefusedNotReadFromWorkingDirectory runs in the epic's repository, so a git read of an
-// empty pane path that fell back to the process directory would find the repository and accept the move. It is not
-// parallel, since t.Chdir changes the process directory.
-func TestSteerProjectEmptyPanePathIsRefusedNotReadFromWorkingDirectory(t *testing.T) {
-	env := newMoveEnv(t)
-	t.Chdir(env.repo)
-	pane := env.syncPane(t, "orrery-pane", "%5", "working")
-
-	err := env.move(t, pane, nil)
-	wantConnectError(t, err, connect.CodeFailedPrecondition, outsideRefusal(pane, ""))
-	env.wantUnmoved(t)
-}
-
-func TestSteerProjectAcceptsTargetInsideRepository(t *testing.T) {
+// TestSteerProjectAcceptsAConversationAnywhere moves the epic to a conversation in a subdirectory of its repository, in
+// a linked worktree of it, and in a directory outside it, headless or a pane. A steerer answers the epic's questions and
+// changes nothing in its repository, so each move is accepted and is the epic's one move.
+func TestSteerProjectAcceptsAConversationAnywhere(t *testing.T) {
 	t.Parallel()
 	cases := []projectCase{
 		{name: "headless subdirectory", target: func(t *testing.T, env moveEnv) (string, string) {
@@ -106,9 +78,12 @@ func TestSteerProjectAcceptsTargetInsideRepository(t *testing.T) {
 			stepGitTestRun(t, env.repo, "worktree", "add", "-q", "--detach", linked)
 			return startedIn(t, env.m, linked), ""
 		}},
-		{name: "pane path inside", target: func(t *testing.T, env moveEnv) (string, string) {
+		{name: "headless directory outside", target: func(t *testing.T, env moveEnv) (string, string) {
 			t.Helper()
-			env.panes.dir = subdirOf(t, env, "pane")
+			return startedIn(t, env.m, t.TempDir()), ""
+		}},
+		{name: "pane", target: func(t *testing.T, env moveEnv) (string, string) {
+			t.Helper()
 			return env.syncPane(t, "orrery-pane", "%5", "working"), ""
 		}},
 	}

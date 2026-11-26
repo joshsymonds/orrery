@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -19,7 +20,7 @@ const sessionHeadlineSchema = `{"type":"object","additionalProperties":false,"re
 // sessionHeadlineInstruction asks for the headline the call's input supports: the first prompt started the session, and
 // the recent turns, oldest first, show what it has done since.
 const sessionHeadlineInstruction = "Give a one-line headline of a few words saying what this session has been doing. " +
-	"The first prompt below started it, and the recent turns, oldest first, show what it has done since. " +
+	"The first prompt above started it, and the recent turns, oldest first, show what it has done since. " +
 	"Answer with the headline field only."
 
 // sessionHeadlineTurns is how many of a session's most recent turns a headline call reads.
@@ -239,8 +240,10 @@ func sessionHeadlineInput(firstPrompt string, turns []store.RecentTurn) string {
 	for _, turn := range turns {
 		lines = append(lines, turn.Role+": "+turn.Text)
 	}
-	return sessionHeadlineInstruction + "\n\nFirst prompt:\n" + firstPrompt +
-		"\n\nRecent turns, oldest first:\n" + strings.Join(lines, "\n")
+	return haikuprompt.Input(sessionHeadlineInstruction,
+		haikuprompt.Part{Tag: "first_prompt", Text: firstPrompt},
+		haikuprompt.Part{Tag: "recent_turns", Text: strings.Join(lines, "\n")},
+	)
 }
 
 // sessionHeadlineReply is the structured output a headline call decodes.

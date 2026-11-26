@@ -6,14 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 )
 
 // stepPurposeSchema is the structured output a purpose call must return.
 const stepPurposeSchema = `{"type":"object","additionalProperties":false,"required":["purpose"],"properties":{"purpose":{"type":"string"}}}`
 
 // stepPurposeInstruction asks for what the step in the call's input is for, in at most ten words. The step's prompt
-// follows it there.
-const stepPurposeInstruction = "Say what the step below is for, in at most ten words. Answer with the purpose field " +
+// comes before it there.
+const stepPurposeInstruction = "Say what the step above is for, in at most ten words. Answer with the purpose field " +
 	"only."
 
 // stepPurposeReply is the structured output a purpose call decodes.
@@ -39,7 +41,8 @@ func (s *Steps) askStepPurpose(ctx context.Context, id string, start StepStart, 
 // storeStepPurpose calls haiku for the purpose of step id from prompt and stores the purpose the reply holds. A failed
 // call, reply or write is logged and leaves the purpose empty.
 func (s *Steps) storeStepPurpose(ctx context.Context, id, prompt string, haiku haikuCaller) {
-	raw, err := haiku.Call(ctx, stepPurposeSchema, stepPurposeInstruction+"\n\n"+prompt)
+	raw, err := haiku.Call(ctx, stepPurposeSchema,
+		haikuprompt.Input(stepPurposeInstruction, haikuprompt.Part{Tag: "step_prompt", Text: prompt}))
 	if err != nil {
 		s.logger.ErrorContext(ctx, "ask for step purpose", "step", id, "error", err)
 		return

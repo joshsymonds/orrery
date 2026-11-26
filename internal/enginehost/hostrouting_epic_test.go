@@ -1,8 +1,6 @@
 package enginehost
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -77,32 +75,20 @@ func TestEpicHostRoutingEpicServices(t *testing.T) {
 			t.Errorf("host a recorded %d calls, want none: %v", len(calls), calls)
 		}
 	})
-	t.Run("steer reads the epic repository on b", func(t *testing.T) {
+	t.Run("steer runs no git on either host", func(t *testing.T) {
 		t.Parallel()
 		a, b, hosts := hostRoutingGatesHosts()
 		repo := stepGitTestRepo(t)
 		st := epicTestStore(t)
-		// The epic is stored on b and its controller is a, so only the epic's own host can send the repository read
-		// to b.
 		hostRoutingGatesEpic(t, st, repo, hosts)
-		// The session runs in a subdirectory of the repository, so the read of its directory is told apart from the
-		// read of the repository.
-		sub := filepath.Join(repo, "steer")
-		if err := os.Mkdir(sub, 0o700); err != nil {
-			t.Fatalf("Mkdir %s: %v", sub, err)
-		}
-		session := hostRoutingEpicSession(t, st, sub)
+		session := hostRoutingEpicSession(t, st, t.TempDir())
+		before := len(b.Calls())
 		hostRoutingEpicMove(t, st, hosts, "a", hostRoutingEpic, session)
-		commonDir := []string{"rev-parse", "--path-format=absolute", "--git-common-dir"}
-		if calls := b.Calls(); !hostRoutingGitCall(calls, repo, commonDir...) {
-			t.Errorf("host b recorded no read of the repository %s of epic %s: %v", repo, hostRoutingEpic, calls)
+		if calls := b.Calls()[before:]; len(calls) != 0 {
+			t.Errorf("host b recorded %d calls for the steer, want none: %v", len(calls), calls)
 		}
-		calls := a.Calls()
-		if hostRoutingGitCall(calls, repo, commonDir...) {
-			t.Errorf("host a read the repository %s of epic %s: %v", repo, hostRoutingEpic, calls)
-		}
-		if !hostRoutingGitCall(calls, sub, commonDir...) {
-			t.Errorf("host a recorded no read of the session directory %s: %v", sub, calls)
+		if calls := a.Calls(); len(calls) != 0 {
+			t.Errorf("host a recorded %d calls for the steer, want none: %v", len(calls), calls)
 		}
 	})
 }

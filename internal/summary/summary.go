@@ -394,7 +394,7 @@ func failureDetail(runCtx context.Context, err error, stdout, stderr string) str
 }
 
 // argvFor is the argv after the claude binary: the model, the settings document, the system prompt, no session saved,
-// no tools, one turn.
+// no tools and no MCP servers, whose tools --tools "" leaves in, so the one turn cannot go to a tool call, one turn.
 func argvFor(model, settings, system string) []string {
 	return []string{
 		"-p", "--model", model,
@@ -402,6 +402,7 @@ func argvFor(model, settings, system string) []string {
 		"--system-prompt", system,
 		"--no-session-persistence",
 		"--tools", "",
+		"--strict-mcp-config",
 		"--max-turns", "1",
 	}
 }

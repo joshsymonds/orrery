@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/route"
 )
@@ -78,7 +79,8 @@ func TestDonePassesPaneBaseURLAndModel(t *testing.T) {
 			if got.schema != judgeSchema {
 				t.Errorf("schema = %q, want %q", got.schema, judgeSchema)
 			}
-			if want := instruction + "\n\n" + exampleMessage; got.input != want {
+			want := haikuprompt.Input(instruction, haikuprompt.Part{Tag: "final_message", Text: exampleMessage})
+			if got.input != want {
 				t.Errorf("input = %q, want %q", got.input, want)
 			}
 		})

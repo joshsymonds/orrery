@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -16,7 +17,7 @@ import (
 const sessionTitleSchema = `{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string"}}}`
 
 // sessionTitleInstruction asks for the title that the session's first prompt follows in the call's input.
-const sessionTitleInstruction = "Give a short title of a few words naming what this session is about, from its first prompt below. Answer with the title field only."
+const sessionTitleInstruction = "Give a short title of a few words naming what this session is about, from its first prompt above. Answer with the title field only."
 
 // SessionTitleStore reads the headless sessions that have no title, reads one of them, and stores a title for one.
 // *store.Store satisfies it.
@@ -147,7 +148,8 @@ func (t *SessionTitles) wokenSession(ctx context.Context, id string) {
 // session. A good reply forgets the session's failures. The write ignores ctx's cancellation, so a stop that lands after a reply still
 // stores it, and a write the store refuses is logged and kept for a retry to write again.
 func (t *SessionTitles) title(ctx context.Context, row store.UntitledSession) {
-	raw, err := t.cfg.Haiku.Call(ctx, sessionTitleSchema, sessionTitleInstruction+"\n\n"+row.FirstPrompt)
+	raw, err := t.cfg.Haiku.Call(ctx, sessionTitleSchema,
+		haikuprompt.Input(sessionTitleInstruction, haikuprompt.Part{Tag: "first_prompt", Text: row.FirstPrompt}))
 	if err != nil {
 		t.cfg.Logger.ErrorContext(ctx, "title session", "session", row.ID, "error", err)
 		t.calls.failed(row.ID, func() { t.Wake(row.ID) })

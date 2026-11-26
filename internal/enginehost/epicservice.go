@@ -84,13 +84,11 @@ type EpicCommands interface {
 	UnarchiveRow(ctx context.Context, kind, id string, at time.Time) error
 }
 
-// SteeringSessions starts and stops the steering sessions of epics, and reads the directory of a tmux pane. *EpicSteering
-// satisfies it. CreateEpic starts the steering session of an epic that no conversation creates, and stops it when the
+// SteeringSessions starts and stops the steering sessions of epics. *EpicSteering satisfies it. CreateEpic starts the steering session of an epic that no conversation creates, and stops it when the
 // create then stores nothing.
 type SteeringSessions interface {
 	Start(ctx context.Context, row store.EpicRow) (string, error)
 	Stop(ctx context.Context, id string) error
-	PaneDir(ctx context.Context, server, pane string) (string, error)
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil

@@ -9,14 +9,14 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
-	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // MoveEpic hands the epic to the session the request names, or to the calling conversation when it names none, and
-// returns the stored epic. The target must be a conversation in the epic's repository: a sessions row that is not a
-// step, a pane row only with a Claude in it, and a directory that shares the repository's git common directory. Each
-// refusal names why and writes nothing.
+// returns the stored epic. The target must be a conversation: a sessions row that is not a step, and a pane row only
+// with a Claude in it. It may run in any directory, since a steerer answers the epic's questions and events and changes
+// nothing in its repository, so a conversation in another repository can steer an epic it directs. Each refusal names
+// why and writes nothing.
 func (s *epicService) MoveEpic(
 	ctx context.Context,
 	req *connect.Request[v1.MoveEpicRequest],
@@ -57,87 +57,36 @@ func (s *epicService) MoveEpic(
 	return connect.NewResponse(&v1.MoveEpicResponse{Epic: message}), nil
 }
 
-// moveTo hands epic to session as maker, once session passes the target checks: it is a conversation whose directory is in
-// epic's repository. Each refusal names why and writes nothing.
+// moveTo hands epic to session as maker, once session passes the target checks: it is a conversation. Each refusal
+// names why and writes nothing.
 func (s *epicService) moveTo(ctx context.Context, epic store.EpicRow, session string, maker store.Maker) error {
-	dir, err := s.moveTargetDir(ctx, session)
-	if err != nil {
+	if err := s.checkMoveTarget(ctx, session); err != nil {
 		return err
 	}
-	epicHost, err := resolveHost(s.hosts, epic.Host)
-	if err != nil {
-		return epicStoreError(fmt.Errorf("host of epic %s: %w", epic.ID, err))
-	}
-	controller, err := resolveHost(s.hosts, s.host)
-	if err != nil {
-		return epicStoreError(fmt.Errorf("controller host: %w", err))
-	}
-	err = checkInRepository(ctx, epicHost, controller, epic, session, dir)
-	if err != nil {
-		return err
-	}
-	if _, err = s.epics.MoveEpic(ctx, epic.ID, session, maker, time.Now()); err != nil {
+	if _, err := s.epics.MoveEpic(ctx, epic.ID, session, maker, time.Now()); err != nil {
 		return epicControlError(epic.ID, err)
 	}
 	return nil
 }
 
-// moveTargetDir returns the directory of session, a session a move makes the steerer: a headless session's directory, or
-// the current path of a pane with a Claude in it. A session that is no row, is a step, or is a pane with no Claude is
-// refused by name.
-func (s *epicService) moveTargetDir(ctx context.Context, session string) (string, error) {
+// checkMoveTarget refuses session as the steerer a move makes unless it is a conversation: a headless session, or a pane
+// with a Claude in it. A session that is no row, is a step, or is a pane with no Claude is refused by name.
+func (s *epicService) checkMoveTarget(ctx context.Context, session string) error {
 	target, ok, err := s.epics.SteerTarget(ctx, session)
 	if err != nil {
-		return "", epicStoreError(err)
+		return epicStoreError(err)
 	}
-	if !ok {
-		return "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("session %s is not a session", session))
-	}
-	switch target.Kind {
-	case store.KindStep:
-		return "", refuseEpic(connect.CodeFailedPrecondition,
+	switch {
+	case !ok:
+		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("session %s is not a session", session))
+	case target.Kind == store.KindStep:
+		return refuseEpic(connect.CodeFailedPrecondition,
 			fmt.Sprintf("session %s is a step, not a conversation", session))
-	case store.KindEngine:
-		return target.Dir, nil
-	}
-	if target.State == "" {
-		return "", refuseEpic(connect.CodeFailedPrecondition,
+	case target.Kind != store.KindEngine && target.State == "":
+		return refuseEpic(connect.CodeFailedPrecondition,
 			fmt.Sprintf("session %s is a pane with no Claude", session))
 	}
-	if s.steering == nil {
-		return "", refuseEpic(connect.CodeUnavailable, steeringUnavailableMessage)
-	}
-	dir, err := s.steering.PaneDir(ctx, target.Server, target.Pane)
-	if err != nil {
-		return "", refuseEpic(connect.CodeFailedPrecondition,
-			fmt.Sprintf("session %s: its pane's directory cannot be read: %v", session, err))
-	}
-	return dir, nil
-}
-
-// checkInRepository refuses a move of epic to session whose directory dir is not in the epic's repository. The two must
-// share a git common directory, so a subdirectory of the repository and a linked worktree of it both pass. An empty dir
-// is refused, since git would read the server's own directory for it. The epic's repository is read through epicHost,
-// the epic's own host, and dir through controller, since sessions run on the controller and are not routed by host.
-func checkInRepository(
-	ctx context.Context, epicHost, controller hostexec.Host, epic store.EpicRow, session, dir string,
-) error {
-	common, err := stepGit(
-		ctx, epicHost, epic.Repository, "rev-parse", "--path-format=absolute", "--git-common-dir",
-	)
-	if err != nil {
-		return epicStoreError(fmt.Errorf("resolve repository of epic %s: %w", epic.ID, err))
-	}
-	if dir != "" {
-		target, dirErr := stepGit(
-			ctx, controller, dir, "rev-parse", "--path-format=absolute", "--git-common-dir",
-		)
-		if dirErr == nil && target == common {
-			return nil
-		}
-	}
-	return refuseEpic(connect.CodeFailedPrecondition,
-		fmt.Sprintf("session %s runs in %s, outside the repository of epic %s", session, dir, epic.ID))
+	return nil
 }
 
 // ContinueEpic starts a steering session in the epic's repository and moves the epic to it as the owner, then answers

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -170,7 +171,8 @@ func (e *EpicReports) report(ctx context.Context, id, ending string) {
 	}
 	shipped, notShipped := requirementSplit(flow.Epic.Requirements, flow.Evidence)
 	raw, err := e.cfg.Haiku.Call(
-		ctx, epicReportSchema, epicReportInstruction+"\n\n"+epicReportText(flow, shipped, notShipped),
+		ctx, epicReportSchema, haikuprompt.Input(epicReportInstruction,
+			haikuprompt.Part{Tag: "epic", Text: epicReportText(flow, shipped, notShipped)}),
 	)
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "report epic", "epic", id, "error", err)

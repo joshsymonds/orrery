@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 )
 
 // stepJudgeVerdictMet and stepJudgeVerdictUnmet are the two verdicts the judge may return.
@@ -28,14 +30,14 @@ const stepJudgeSchema = `{
 // stepJudgeSectionBytes is the most a kept head or tail of a section holds.
 const stepJudgeSectionBytes = 8 * 1024
 
-// stepJudgeInstruction opens the judge's input. The mechanical checks have already passed, so the judge answers unmet
+// stepJudgeInstruction closes the judge's input, after its tagged parts. The mechanical checks have already passed, so the judge answers unmet
 // only when the return itself shows the task is not finished or reports a failure. It applies to every kind of step.
 const stepJudgeInstruction = "The step's mechanical checks already passed. " +
 	"Answer unmet only when the return says part of the task is not done or reports a failure. " +
 	"Give a one-line reason, naming what is missing when unmet. " +
 	"A return that omits proof, output or counts is not unmet. " +
 	"Never ask for a change the task does not name. " +
-	"A section with a line naming bytes left out lost only its middle, which does not mean the return was cut off."
+	"A tagged part with a line naming bytes left out lost only its middle, which does not mean the return was cut off."
 
 // errStepJudgeVerdict reports a judge reply whose verdict is neither met nor unmet.
 var errStepJudgeVerdict = errors.New("enginehost: judge verdict is not met or unmet")
@@ -44,24 +46,24 @@ var errStepJudgeVerdict = errors.New("enginehost: judge verdict is not met or un
 var errStepJudgeReason = errors.New("enginehost: judge reason is empty")
 
 // stepJudgeInput builds the judge's stdin from the step's first prompt, its return, and, when non-empty, the diff stat
-// and the gate's stdout and stderr tails, each in its own section. The prompt and the return keep both ends of a long
+// and the gate's stdout and stderr tails, each in its own tag, laid out by haikuprompt.Input. The prompt and the return keep both ends of a long
 // text, as stepJudgeEnds describes. The diff stat keeps its head and each gate tail keeps its last bytes, since the
 // failure a judge needs sits at the end of the output. The diff stat and each gate tail are omitted when blank.
 func stepJudgeInput(prompt, result, diffStat, gateStdout, gateStderr string) string {
-	sections := []string{
-		"## Task\n" + stepJudgeEnds(prompt),
-		"## Return\n" + stepJudgeEnds(result),
+	parts := []haikuprompt.Part{
+		{Tag: "task", Text: stepJudgeEnds(prompt)},
+		{Tag: "return", Text: stepJudgeEnds(result)},
 	}
 	if strings.TrimSpace(diffStat) != "" {
-		sections = append(sections, "## Diff stat\n"+stepJudgeHead(diffStat))
+		parts = append(parts, haikuprompt.Part{Tag: "diff_stat", Text: stepJudgeHead(diffStat)})
 	}
 	if strings.TrimSpace(gateStdout) != "" {
-		sections = append(sections, "## Gate stdout tail\n"+stepJudgeTail(gateStdout))
+		parts = append(parts, haikuprompt.Part{Tag: "gate_stdout_tail", Text: stepJudgeTail(gateStdout)})
 	}
 	if strings.TrimSpace(gateStderr) != "" {
-		sections = append(sections, "## Gate stderr tail\n"+stepJudgeTail(gateStderr))
+		parts = append(parts, haikuprompt.Part{Tag: "gate_stderr_tail", Text: stepJudgeTail(gateStderr)})
 	}
-	return stepJudgeInstruction + "\n\n" + strings.Join(sections, "\n\n")
+	return haikuprompt.Input(stepJudgeInstruction, parts...)
 }
 
 // stepJudgeHead keeps the first stepJudgeSectionBytes of text, backing off to a rune boundary.

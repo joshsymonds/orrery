@@ -573,8 +573,9 @@ func resumeDelayed(t *testing.T) {
 	second.fire(t, route.JudgeDelay-time.Duration(delayedRestartSecs)*time.Second)
 	hub2.router.Wait()
 
-	if len(caller.inputs) != 1 || !strings.HasSuffix(caller.inputs[0], paneMessage) {
-		t.Errorf("judge inputs = %q, want one ending in the stored message %q", caller.inputs, paneMessage)
+	if len(caller.inputs) != 1 ||
+		!strings.HasPrefix(caller.inputs[0], "<final_message>\n"+paneMessage+"\n</final_message>") {
+		t.Errorf("judge inputs = %q, want one that opens with the stored message %q", caller.inputs, paneMessage)
 	}
 	dueSecs := paneClock + int64(route.JudgeDelay/time.Second)
 	second.check(t,

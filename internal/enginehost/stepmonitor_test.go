@@ -61,14 +61,14 @@ func TestStepMonitorInputDefinesVerdictsAndCarriesWhyAndRecent(t *testing.T) {
 		"one line under 100 characters",
 		"doing",
 		"The step has produced no event for ten minutes of model time.",
-		"## Recent events\n10:02 bash: go test ./...",
+		"<recent_events>\n10:02 bash: go test ./...\n</recent_events>",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("input is missing %q:\n%s", want, got)
 		}
 	}
 	whyAt := strings.Index(got, "The step has produced")
-	recentAt := strings.Index(got, "## Recent events")
+	recentAt := strings.Index(got, "<recent_events>")
 	if whyAt < 0 || recentAt < 0 || whyAt > recentAt {
 		t.Fatalf("why must come before the recent events:\n%s", got)
 	}

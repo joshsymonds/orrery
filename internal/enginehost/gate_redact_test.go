@@ -175,7 +175,7 @@ func TestGateRedactJudgeInputHoldsNoSecret(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("judge called %d times, want 1", len(inputs))
 	}
-	for _, want := range []string{"## Gate stdout tail\n" + stdoutWant, "## Gate stderr tail\n" + stderrWant} {
+	for _, want := range []string{"<gate_stdout_tail>\n" + stdoutWant, "<gate_stderr_tail>\n" + stderrWant} {
 		if !strings.Contains(inputs[0], want) {
 			t.Errorf("judge input does not contain %q:\n%s", want, inputs[0])
 		}

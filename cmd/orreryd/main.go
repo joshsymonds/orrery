@@ -1363,7 +1363,7 @@ func (h *sessionHost) serveConfig(
 // epicSteering returns the steering sessions of the epics st serves, which manager starts.
 func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, PaneDir: paneDir, Hosts: hosts,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, Hosts: hosts,
 	})
 }
 
@@ -1373,24 +1373,6 @@ func contractsOf(
 	st *store.Store, hosts hostexec.Hosts, hostName string, acceptCheck func(context.Context, string) error,
 ) *enginehost.Contracts {
 	return &enginehost.Contracts{Store: st, Now: time.Now, Hosts: hosts, Host: hostName, AcceptCheck: acceptCheck}
-}
-
-// paneDir returns the current directory of the tmux pane on the server whose store column is server. Its error names
-// the pane that did not read.
-func paneDir(ctx context.Context, server, pane string) (string, error) {
-	column, err := tmuxctl.ServerOfColumn(server)
-	if err != nil {
-		return "", fmt.Errorf("pane %s: %w", pane, err)
-	}
-	client, err := tmuxClient(column)
-	if err != nil {
-		return "", err
-	}
-	values, err := client.PaneValues(ctx, pane, "pane_current_path")
-	if err != nil {
-		return "", fmt.Errorf("read directory of pane %s: %w", pane, err)
-	}
-	return values[0], nil
 }
 
 // serveOpts returns the handler options the session socket serves with: opts.metricsHandlers, and with st open, the

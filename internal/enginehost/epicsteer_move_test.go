@@ -1,7 +1,6 @@
 package enginehost
 
 import (
-	"context"
 	"maps"
 	"net/http"
 	"testing"
@@ -13,23 +12,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// movePanes is the SteeringSessions the move tests serve with: fixedSteering's Start and Stop, and a PaneDir that returns
-// dir, the current path the test gives every pane.
-type movePanes struct {
-	fixedSteering
-	dir string
-}
-
-// PaneDir returns the directory the test set.
-func (p *movePanes) PaneDir(context.Context, string, string) (string, error) { return p.dir, nil }
-
-// moveEnv is the world a move test runs in: a Manager over its store, a client of the Epics service served with panes,
-// the git repository of the epic, and the headless conversation that created the epic and steers it.
+// moveEnv is the world a move test runs in: a Manager over its store, a client of the Epics service served with
+// fixedSteering, the git repository of the epic, and the headless conversation that created the epic and steers it.
 type moveEnv struct {
 	m       *Manager
 	st      *store.Store
 	client  enginev1connect.EpicsClient
-	panes   *movePanes
 	repo    string
 	steerer string
 }
@@ -39,14 +27,13 @@ func newMoveEnv(t *testing.T) moveEnv {
 	t.Helper()
 	m, _ := newTestManager(t, fakeClaudePath(t))
 	st := concreteStore(t, m)
-	panes := &movePanes{}
-	client := newEpicsClient(t, serveEpicsWith(t, st, panes))
+	client := newEpicsClient(t, serveEpicsWith(t, st, fixedSteering{}))
 	repo := stepGitTestRepo(t)
 	steerer := startedIn(t, m, repo)
 	if err := steererSetCreate(t, st, client, repo, sessionHeader(steerer)); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
-	return moveEnv{m: m, st: st, client: client, panes: panes, repo: repo, steerer: steerer}
+	return moveEnv{m: m, st: st, client: client, repo: repo, steerer: steerer}
 }
 
 // startedIn starts a headless session in dir on m and returns its id.
@@ -153,7 +140,6 @@ func TestSteerMoveEmptySessionFromHeadlessConversationMovesToCaller(t *testing.T
 func TestSteerMoveEmptySessionFromPaneWithStateMovesToCaller(t *testing.T) {
 	t.Parallel()
 	env := newMoveEnv(t)
-	env.panes.dir = env.repo
 	pane := env.syncPane(t, "orrery-pane", "%7", "working")
 
 	if err := env.move(t, "", paneHeader("%7")); err != nil {

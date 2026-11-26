@@ -299,6 +299,7 @@ func TestIntentRunArgvEnvAndCwd(t *testing.T) {
 		"--settings", wantSettings,
 		"--no-session-persistence",
 		"--tools", "",
+		"--strict-mcp-config",
 		"--max-turns", "1",
 	}
 	if !slices.Equal(runs[0].args, wantArgs) {

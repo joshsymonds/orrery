@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/closurejudge"
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -158,8 +159,9 @@ func TestInboxClosureJudgeDoneSessionGetsOneCallAndStoredVerdict(t *testing.T) {
 		t.Fatalf("closure calls = %d, want 1", len(caller.calls))
 	}
 	input := caller.calls[0].input
-	if !strings.HasPrefix(input, closurejudge.Instruction) {
-		t.Errorf("input does not start with the closure instruction: %q", input)
+	if !strings.HasPrefix(input, "<conversation>\n") ||
+		!strings.HasSuffix(input, closurejudge.Instruction+"\n\n"+haikuprompt.Answer) {
+		t.Errorf("input is not the tagged conversation closed by the closure instruction: %q", input)
 	}
 	for _, want := range []string{"User: " + closurePrompt, "Assistant: " + closureEarlier, "Assistant: " + closureFinal} {
 		if !strings.Contains(input, want) {

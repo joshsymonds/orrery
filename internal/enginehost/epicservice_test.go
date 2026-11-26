@@ -43,7 +43,7 @@ func epicTestStore(t *testing.T) *store.Store {
 const fixedSteerID = "steering-fixed"
 
 // fixedSteering is the SteeringSessions the epic server helpers serve with: Start returns fixedSteerID and starts no
-// session, Stop does nothing, and PaneDir returns no directory.
+// session, and Stop does nothing.
 type fixedSteering struct{}
 
 // Start returns fixedSteerID.
@@ -51,9 +51,6 @@ func (fixedSteering) Start(context.Context, store.EpicRow) (string, error) { ret
 
 // Stop does nothing.
 func (fixedSteering) Stop(context.Context, string) error { return nil }
-
-// PaneDir returns no directory.
-func (fixedSteering) PaneDir(context.Context, string, string) (string, error) { return "", nil }
 
 // startEpicServer serves epics with fixedSteering on a sessions socket in a temporary directory and returns the socket's
 // path. The server stops at cleanup.

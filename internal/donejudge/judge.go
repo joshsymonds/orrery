@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/route"
 )
@@ -52,7 +53,8 @@ func (j *Judge) Done(
 		return route.Verdict{}, errors.New("done judge: empty message")
 	}
 	model := protocol.SummaryModel(baseURL, j.models)
-	raw, err := j.caller.CallVia(ctx, baseURL, model, env, schema, instruction+"\n\n"+message)
+	raw, err := j.caller.CallVia(ctx, baseURL, model, env, schema,
+		haikuprompt.Input(instruction, haikuprompt.Part{Tag: "final_message", Text: message}))
 	if err != nil {
 		return route.Verdict{}, fmt.Errorf("done judge: %w", err)
 	}

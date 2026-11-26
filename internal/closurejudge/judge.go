@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -62,7 +63,8 @@ func (j *Judge) Closed(
 		return Verdict{}, errors.New("closure judge: empty recent text")
 	}
 	model := protocol.SummaryModel(baseURL, j.models)
-	raw, err := j.caller.CallVia(ctx, baseURL, model, env, schema, Instruction+"\n\n"+recent)
+	raw, err := j.caller.CallVia(ctx, baseURL, model, env, schema,
+		haikuprompt.Input(Instruction, haikuprompt.Part{Tag: "conversation", Text: recent}))
 	if err != nil {
 		return Verdict{}, fmt.Errorf("closure judge: %w", err)
 	}

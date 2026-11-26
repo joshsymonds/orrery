@@ -200,11 +200,11 @@ func TestJudgeLoopWritingStepInputCarriesDiffStatAndGateTail(t *testing.T) {
 	}
 	input := inputs[0]
 	for _, want := range []string{
-		"## Task\n" + judgeLoopPrompt,
-		"## Return\n" + fmt.Sprintf(`{"status":%q,"commit":%q}`, stepLoopDone, commit),
-		"## Diff stat\n",
+		"<task>\n" + judgeLoopPrompt + "\n</task>",
+		"<return>\n" + fmt.Sprintf(`{"status":%q,"commit":%q}`, stepLoopDone, commit) + "\n</return>",
+		"<diff_stat>\n",
 		stepDoneOwned,
-		"## Gate stdout tail\ngate-tail-marker",
+		"<gate_stdout_tail>\ngate-tail-marker",
 	} {
 		if !strings.Contains(input, want) {
 			t.Errorf("judge input does not contain %q:\n%s", want, input)
@@ -230,7 +230,9 @@ func TestJudgeLoopGateInputCarriesStdoutAndStderrSections(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("judge called %d times, want 1", len(inputs))
 	}
-	for _, want := range []string{"## Gate stdout tail\nout-tail\n", "## Gate stderr tail\nerr-tail\n"} {
+	for _, want := range []string{
+		"<gate_stdout_tail>\nout-tail\n</gate_stdout_tail>", "<gate_stderr_tail>\nerr-tail\n</gate_stderr_tail>",
+	} {
 		if !strings.Contains(inputs[0], want) {
 			t.Errorf("judge input does not contain %q:\n%s", want, inputs[0])
 		}
@@ -349,7 +351,7 @@ func TestJudgeLoopFallback(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("judge called %d times, want 1", len(inputs))
 	}
-	const header = "## Diff stat\n"
+	const header = "<diff_stat>\n"
 	at := strings.Index(inputs[0], header)
 	if at < 0 || !strings.Contains(inputs[0][at+len(header):], stepDoneOwned) {
 		t.Errorf("judge input diff stat does not name %q:\n%s", stepDoneOwned, inputs[0])

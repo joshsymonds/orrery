@@ -332,6 +332,8 @@ func intentArgv() ([]string, error) {
 		"--settings", stamp.Settings(true, nil, []string{memory}),
 		"--no-session-persistence",
 		"--tools", "",
+		// --tools "" leaves the MCP servers' tools in, so the one turn could go to one of them.
+		"--strict-mcp-config",
 		"--max-turns", "1",
 	}, nil
 }

@@ -22,14 +22,12 @@ type steeringSessions interface {
 
 // EpicSteeringConfig configures EpicSteering. Manager starts and stops the steering sessions. Sessions reads the row
 // of a session once it is started, so Start can tell a session whose spawn failed. Render returns the contract and log
-// lines of an epic, which Start puts in the session's first prompt. PaneDir returns the current directory of a tmux
-// pane, given the store column of its server and its id. Hosts resolves host names to the Hosts that run an epic's git,
+// lines of an epic, which Start puts in the session's first prompt. Hosts resolves host names to the Hosts that run an epic's git,
 // as ServeConfig's does; nil resolves every name to this machine.
 type EpicSteeringConfig struct {
 	Manager  *Manager
 	Sessions steeringSessions
 	Render   func(store.EpicRow) ([]string, error)
-	PaneDir  func(ctx context.Context, server, pane string) (string, error)
 	Hosts    hostexec.Hosts
 }
 
@@ -39,12 +37,11 @@ type EpicSteering struct {
 	manager  *Manager
 	sessions steeringSessions
 	render   func(store.EpicRow) ([]string, error)
-	paneDir  func(ctx context.Context, server, pane string) (string, error)
 }
 
 // NewEpicSteering returns the EpicSteering that cfg configures.
 func NewEpicSteering(cfg EpicSteeringConfig) *EpicSteering {
-	return &EpicSteering{manager: cfg.Manager, sessions: cfg.Sessions, render: cfg.Render, paneDir: cfg.PaneDir}
+	return &EpicSteering{manager: cfg.Manager, sessions: cfg.Sessions, render: cfg.Render}
 }
 
 // SteeringPrompt returns the first prompt of a steering session of the epic with id: the instruction line, the line
@@ -85,9 +82,4 @@ func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, er
 // Stop stops the steering session id through the Manager, as Manager.Stop does.
 func (s *EpicSteering) Stop(ctx context.Context, id string) error {
 	return s.manager.Stop(ctx, id)
-}
-
-// PaneDir returns the current directory of the tmux pane on server, as the config's PaneDir reads it.
-func (s *EpicSteering) PaneDir(ctx context.Context, server, pane string) (string, error) {
-	return s.paneDir(ctx, server, pane)
 }

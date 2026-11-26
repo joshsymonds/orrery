@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/haikuprompt"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -150,7 +151,8 @@ func (e *EpicSummaries) wokenEpic(ctx context.Context, id string) {
 // the epic. A good reply forgets the epic's failures. The write ignores ctx's cancellation, so a stop that lands after a reply
 // still stores it, and a write the store refuses is logged and kept for a retry to write again.
 func (e *EpicSummaries) summarize(ctx context.Context, row store.EpicRow) {
-	raw, err := e.cfg.Haiku.Call(ctx, epicSummarySchema, epicSummaryInstruction+"\n\n"+epicSummaryText(row))
+	raw, err := e.cfg.Haiku.Call(ctx, epicSummarySchema,
+		haikuprompt.Input(epicSummaryInstruction, haikuprompt.Part{Tag: "contract", Text: epicSummaryText(row)}))
 	if err != nil {
 		e.cfg.Logger.ErrorContext(ctx, "summarize epic", "epic", row.ID, "error", err)
 		e.calls.failed(row.ID, func() { e.Wake(row.ID) })

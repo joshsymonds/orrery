@@ -289,7 +289,7 @@ func (p *LimitProber) run(ctx context.Context, account, model string) error {
 		Args: []string{
 			path, "-p", "--model", model,
 			"--settings", stamp.Settings(true, nil, []string{memory}),
-			"--no-session-persistence", "--tools", "", "--max-turns", "1",
+			"--no-session-persistence", "--tools", "", "--strict-mcp-config", "--max-turns", "1",
 		},
 		Dir:   "/",
 		Env:   limitProbeEnv(p.cfg.Environ, p.cfg.Gateway, account),
