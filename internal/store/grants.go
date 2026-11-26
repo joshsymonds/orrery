@@ -24,11 +24,12 @@ type GrantMember struct {
 // GrantRow is a live grant. ClientStart is the client's start time from /proc, which tells the client's process from
 // another that later takes its pid. Pools is opaque JSON the caller writes. Command is the argv the client runs under
 // the grant; a nil Command is stored as an empty array and reads back as an empty slice. Granted is stored at
-// whole-second precision.
+// whole-second precision. Host is the host the grant was granted for, and an empty Host is the controller's own host.
 type GrantRow struct {
 	ID          string
 	Project     string
 	Holder      string
+	Host        string
 	ClientPID   int
 	ClientStart int64
 	Pools       string
@@ -52,7 +53,7 @@ func (s *Store) AddGrant(ctx context.Context, row GrantRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.InsertGrant(ctx, sqlcgen.InsertGrantParams{
 			ID: row.ID, Project: row.Project, ClientPid: int64(row.ClientPID), ClientStart: row.ClientStart,
-			Pools: row.Pools, Command: string(encoded), Granted: row.Granted.Unix(), Holder: row.Holder,
+			Pools: row.Pools, Command: string(encoded), Granted: row.Granted.Unix(), Holder: row.Holder, Host: row.Host,
 		}); err != nil {
 			return fmt.Errorf("insert grant %s: %w", row.ID, err)
 		}
@@ -119,7 +120,7 @@ func (s *Store) Grants(ctx context.Context) ([]GrantRow, error) {
 			return nil, fmt.Errorf("decode command of grant %s: %w", grant.ID, decodeErr)
 		}
 		out = append(out, GrantRow{
-			ID: grant.ID, Project: grant.Project, Holder: grant.Holder, ClientPID: int(grant.ClientPid),
+			ID: grant.ID, Project: grant.Project, Holder: grant.Holder, Host: grant.Host, ClientPID: int(grant.ClientPid),
 			ClientStart: grant.ClientStart, Pools: grant.Pools, Command: command, Members: byGrant[grant.ID],
 			Granted: time.Unix(grant.Granted, 0),
 		})
