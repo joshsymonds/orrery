@@ -45,6 +45,7 @@ class HeadTitleRowTest {
         context: ConversationContext? = null,
         note: String = "",
         title: String = "Tide table cache warm-up",
+        host: String = "",
     ) {
         composeRule.setContent {
             HeadTitleRow(
@@ -57,16 +58,26 @@ class HeadTitleRowTest {
                 moreOpen = moreOpen,
                 onDismissMore = { moreOpen = false },
                 onHideHeader = { hideCalls++ },
+                host = host,
             )
         }
     }
 
     @Test
-    fun drawsTheDirAloneAndTheTitleSinceTheMachineBandNamesTheHost() {
+    fun drawsTheDirAndTheTitleAndNoHostLabelWithoutAHost() {
         setRow()
 
         composeRule.onNodeWithTag("head-dir").assertTextEquals("tidepool")
         composeRule.onNodeWithTag("head-text").assertTextEquals("Tide table cache warm-up")
+        composeRule.onAllNodesWithTag("host-label").assertCountEquals(0)
+    }
+
+    @Test
+    fun theHostIsTheRowsLabelAfterTheDir() {
+        setRow(host = "halyard")
+
+        composeRule.onNodeWithTag("host-label").assertTextEquals("halyard")
+        composeRule.onNodeWithTag("head-dir").assertTextEquals("tidepool")
     }
 
     @Test

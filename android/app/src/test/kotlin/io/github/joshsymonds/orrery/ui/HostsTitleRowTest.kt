@@ -128,8 +128,6 @@ class HostsTitleRowTest {
                 title = "Tide table cache warm-up",
                 context = null,
                 note = "",
-                stats = null,
-                otherHost = null,
                 goal = "",
                 lines = emptyList(),
                 asking = "",

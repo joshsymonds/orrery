@@ -731,37 +731,29 @@ class PaneScreenTest {
     }
 
     @Test
-    fun hostStatsShowMeters() {
+    fun hostStatsDrawNoMetersInThePaneHead() {
         FakeOrreryServer().use { server ->
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
             setClockedScreen(server)
 
-            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
-        }
-    }
-
-    @Test
-    fun hostNotFoundRemovesMeters() {
-        FakeOrreryServer().use { server ->
-            servePane(server)
-            server.respond(HOST_PATH, HOST_BODY)
-            setClockedScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
-
-            server.fail(HOST_PATH, Code.NOT_FOUND)
+            // A read starts only after the read before it has returned its host call, so the third
+            // read means the host has been read and its stats handled.
             composeRule.mainClock.advanceTimeBy(1_000)
-            composeRule.awaitNone(hasTestTag(HOST_METERS_TAG))
+            composeRule.awaitUntil { paneListRequests(server) == 2 }
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.awaitUntil { paneListRequests(server) == 3 }
+            composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
         }
     }
 
     @Test
-    fun failedHostCallKeepsLastMeters() {
+    fun failedHostCallDoesNotFailTheRefresh() {
         FakeOrreryServer().use { server ->
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
             setClockedScreen(server)
-            composeRule.awaitExactlyOne(hasTestTag(HOST_METERS_TAG))
+            composeRule.awaitUntil("the host is read") { server.requests.any { it.rawPath == HOST_PATH } }
 
             server.fail(HOST_PATH, Code.INTERNAL_ERROR)
             composeRule.mainClock.advanceTimeBy(1_000)
@@ -770,7 +762,6 @@ class PaneScreenTest {
             // read means the failed host call has been handled.
             composeRule.mainClock.advanceTimeBy(1_000)
             composeRule.awaitUntil { paneListRequests(server) == 3 }
-            composeRule.onAllNodesWithTag(HOST_METERS_TAG).assertCountEquals(1)
             composeRule.onNodeWithText("could not refresh").assertDoesNotExist()
         }
     }

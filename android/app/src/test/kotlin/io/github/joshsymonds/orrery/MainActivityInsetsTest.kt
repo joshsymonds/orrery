@@ -60,7 +60,7 @@ private const val HEAD_TITLE_TAG = "head-title"
 private const val HEAD_TEXT_TAG = "head-text"
 private const val BAND_GOAL_TAG = "band-goal"
 private const val BAND_HIDE_TAG = "band-hide"
-private const val HEAD_METERS_TAG = "head-meters"
+private const val HOST_LABEL_TAG = "host-label"
 private const val COMPACT_HEAD_TAG = "compact-head"
 private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val EPICS_GET_PATH = "/orrery.v1.Epics/Get"
@@ -82,12 +82,12 @@ private const val SESSION_GOAL = "synthetic goal"
 private const val REPLY_TEXT = "synthetic reply"
 private const val WAITING_TEXT = "synthetic waiting message"
 private const val QUEUED_TEXT = "synthetic queued prompt"
-/** The open header's parts: the title row, the meters, the goal and an ask line. Each draws with the keyboard down. */
+/** The open header's parts: the title row, its host's label, the goal and an ask line. Each draws with the keyboard down. */
 private val OPEN_HEADER = listOf(
     HEAD_TAG,
     HEAD_TITLE_TAG,
     HEAD_TEXT_TAG,
-    HEAD_METERS_TAG,
+    HOST_LABEL_TAG,
     BAND_GOAL_TAG,
     EPIC_LINE_TAG,
 )
@@ -240,7 +240,7 @@ class MainActivityInsetsTest {
         return openRow(SESSION_ROW_TAG)
     }
 
-    /** This machine's host status: the header's meters draw, and the pane or session is on this host. */
+    /** This machine's host status: the header names the host, and the pane or session is on this host. */
     private fun serveHost() {
         server.respond(HOST_PATH, HOST_BODY)
     }

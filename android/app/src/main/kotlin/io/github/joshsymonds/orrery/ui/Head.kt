@@ -11,11 +11,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import io.github.joshsymonds.orrery.api.ConversationContext
-import io.github.joshsymonds.orrery.api.HostStat
 
 /**
- * The conversation's header on a phone. The title row always draws. When the header is open it adds the machine band
- * and the band; when folded (reading or hidden) it adds the compact line, with the words that ask the reader.
+ * The conversation's header on a phone. The title row always draws, with the [host]'s label in it and no host meters.
+ * When the header is open it adds the band; when folded (reading or hidden) it adds the compact line, with the words
+ * that ask the reader.
  */
 @Composable
 internal fun Head(
@@ -24,8 +24,6 @@ internal fun Head(
     title: String,
     context: ConversationContext?,
     note: String,
-    stats: List<HostStat>?,
-    otherHost: String?,
     goal: String,
     lines: List<AskLine>,
     asking: String,
@@ -73,7 +71,6 @@ internal fun Head(
             onUsage = onUsage,
         )
         if (fold == HeadFold.OPEN) {
-            MachineBand(host = host, stats = stats, otherHost = otherHost)
             Band(
                 goal = goal,
                 lines = lines,
