@@ -98,10 +98,6 @@ func TestCatastropheParkOpensItsParkQuestionAndTellsIt(t *testing.T) {
 		drive     func(t *testing.T, s *Store, park string)
 		turnEnded bool
 	}{
-		{
-			name: "release_owner_stop", class: ParkClassReleaseOwnerStop,
-			park: "the owner stopped the release", drive: releaseOwnerStops,
-		},
 		{name: "met_at_base", class: ParkClassMetAtBase, park: metAtBaseParkReason, drive: metAtBaseParks},
 		{
 			name: "ref_move", class: ParkClassRefMove,

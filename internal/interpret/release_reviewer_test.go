@@ -162,10 +162,33 @@ func TestReleaseReviewerHoldsLetStepOneStart(t *testing.T) {
 	}
 }
 
-// TestReleaseReviewerRefusalStopsAsOwnerStop: a release reviewer that refuses the candidate, or that cannot start, records
+// requireRefusalPlannerPark fails unless the park of runEpic is the planner's release_step park with reason: the epic holds
+// no question, and a pending trigger wakes the planner with reason.
+func requireRefusalPlannerPark(t *testing.T, s *store.Store, reason string) {
+	t.Helper()
+	ctx := context.Background()
+	epic := epicOf(t, s)
+	if epic.Parked != reason || epic.ParkClass != store.ParkClassReleaseStep {
+		t.Errorf("park of epic = %q %q, want %q %q", epic.ParkClass, epic.Parked, store.ParkClassReleaseStep, reason)
+	}
+	if len(epic.Questions) != 0 {
+		t.Errorf("questions = %+v, want none: the planner answers a refused review's stop", epic.Questions)
+	}
+	triggers, err := s.TurnTriggers(ctx, runEpic, 0)
+	if err != nil {
+		t.Fatalf("TurnTriggers: %v", err)
+	}
+	if !slices.ContainsFunc(triggers, func(trigger store.EpicTrigger) bool {
+		return strings.HasPrefix(trigger.ID, "park:") && trigger.Cause == reason
+	}) {
+		t.Errorf("triggers = %+v, want a park trigger that wakes the planner with %q", triggers, reason)
+	}
+}
+
+// TestReleaseReviewerRefusalStopsAsPlannerPark: a release reviewer that refuses the candidate, or that cannot start, records
 // its review failed with its reason. In a workflow with no plan that can make a change to the candidate, the release stops
-// there as an owner stop naming that reason, and the first step does not start.
-func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
+// there as the planner's release_step park naming that reason, with no park question, and the first step does not start.
+func TestReleaseReviewerRefusalStopsAsPlannerPark(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name   string
@@ -218,7 +241,7 @@ func TestReleaseReviewerRefusalStopsAsOwnerStop(t *testing.T) {
 			if phase := w.flowOf(runEpic).Epic.Phase; phase != store.PhaseStopped {
 				t.Errorf("epic phase = %q, want stopped", phase)
 			}
-			requireQuestionPark(t, w.s, store.ParkClassReleaseOwnerStop, tc.reason)
+			requireRefusalPlannerPark(t, w.s, tc.reason)
 			for _, call := range w.fakes.steps.calls {
 				if call.ID == w.stepID(1) {
 					t.Errorf("step starts = %+v, want the first release step never started", w.fakes.steps.calls)
