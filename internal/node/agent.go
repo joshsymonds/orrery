@@ -348,7 +348,8 @@ func noRoot() Response {
 	return Response{Code: CodeFailed, Message: "agent has no root"}
 }
 
-// folders answers with the directories that rootFolders lists under each of the agent's Roots, sorted by path.
+// folders answers with the directories that rootFolders lists under each of the agent's Roots, sorted by path, and with
+// the Roots themselves, in the order they are configured.
 func (a *Agent) folders() Response {
 	if len(a.cfg.Roots) == 0 {
 		return noRoot()
@@ -358,7 +359,7 @@ func (a *Agent) folders() Response {
 		folders = append(folders, rootFolders(root)...)
 	}
 	slices.Sort(folders)
-	return Response{Folders: folders}
+	return Response{Folders: folders, Roots: slices.Clone(a.cfg.Roots)}
 }
 
 // folder answers with the resolved path of req.Dir, when checkFolder admits it under any of the agent's Roots. A dir
