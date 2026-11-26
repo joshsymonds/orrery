@@ -302,7 +302,7 @@ func (p *LimitProber) run(ctx context.Context, account, model string) error {
 		Path: path,
 		Args: []string{
 			path, "-p", "--model", model,
-			"--settings", stamp.Settings(true, nil, []string{memory}),
+			"--settings", stamp.Settings(true, limitProbeSettingsEnv(p.cfg.Gateway, account), []string{memory}),
 			"--no-session-persistence", "--tools", "", "--strict-mcp-config", "--max-turns", "1",
 		},
 		Dir:   "/",
@@ -310,6 +310,18 @@ func (p *LimitProber) run(ctx context.Context, account, model string) error {
 		Stdin: strings.NewReader(limitProbePrompt),
 	}
 	return p.cfg.Exec(ctx, cmd)
+}
+
+// limitProbeSettingsEnv returns the env a probe's --settings carries: the gateway as the base URL and the account as
+// the pinned account header. claude applies a settings file's env over its process environment, and the user's
+// settings may set both, as the owner's set ANTHROPIC_CUSTOM_HEADERS to patchbay's caller key, so a probe that set
+// them only in its environment went out unpinned on the caller's own login. The --settings flag outranks the user's
+// settings, so these reach the request.
+func limitProbeSettingsEnv(gateway, account string) map[string]string {
+	return map[string]string{
+		strings.TrimSuffix(limitProbeBaseURLPrefix, "="): gateway,
+		strings.TrimSuffix(limitProbeHeadersPrefix, "="): limitProbePinHeader + ": " + account,
+	}
 }
 
 // limitProbeEnv returns environ without the entries a probe sets itself, plus the gateway as the base URL, the account

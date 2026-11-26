@@ -16,8 +16,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// ErrNotClaimable reports that an epic has no turn to claim: it is paused or parked, it has a running turn, or it has
-// no pending trigger.
+// ErrNotClaimable reports that an epic has no turn to claim: it is in a final phase, it is paused or parked, it has a
+// running turn, or it has no pending trigger.
 var ErrNotClaimable = errors.New("epic has no turn to claim")
 
 // ErrTurnNotRunning reports that a turn is not running.
@@ -122,7 +122,8 @@ type EpicTask struct {
 // Choices, Recommended, Why, Confidence and Replaces are the question's shape as the turn stored it. ReplacedBy is the
 // seq of the question that replaced it, and Choice is the choice that answered it: ChoiceOther for words, "" while it
 // is open or replaced. Escalated is when the question was escalated, zero while it is not; EscalationReason and
-// EscalationMaker are what that escalation names, and EscalationTold is set once the owner has been told of it.
+// EscalationMaker are what that escalation names, and EscalationTold is set once the owner has been told of it. Calls
+// are the calls planner turns stored on the question, in turn order, nil for none.
 type EpicQuestion struct {
 	Seq              int64
 	Turn             int64
@@ -140,6 +141,7 @@ type EpicQuestion struct {
 	EscalationReason string
 	EscalationMaker  Maker
 	EscalationTold   bool
+	Calls            []QuestionCall
 }
 
 // EpicTrigger is one trigger of an epic: its cause, its state, the turn that claimed it (0 while pending) and when it
@@ -153,15 +155,16 @@ type EpicTrigger struct {
 }
 
 // EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions, its outcome, its
-// actions and the gaps it cannot resolve without the owner.
+// actions, the gaps it cannot resolve without the owner, and its calls on the open questions planner turns asked.
 type EpicPlan struct {
-	Decisions    []string
-	Tasks        []EpicTaskInput
-	Outline      string
-	Questions    []EpicQuestionInput
-	Outcome      string
-	Actions      []EpicActionInput
-	Unresolvable []GapDeclaration
+	Decisions     []string
+	Tasks         []EpicTaskInput
+	Outline       string
+	Questions     []EpicQuestionInput
+	Outcome       string
+	Actions       []EpicActionInput
+	Unresolvable  []GapDeclaration
+	QuestionCalls []QuestionCallInput
 }
 
 // EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
@@ -345,7 +348,8 @@ func taskLadderOf(
 	return taskRungsOf(rungs), refusedOf, nil
 }
 
-// loadQuestions fills the questions of row from the rows stored under row.ID, in seq order.
+// loadQuestions fills the questions of row from the rows stored under row.ID, in seq order, each with the calls planner
+// turns stored on it.
 func loadQuestions(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	questions, err := queries.ListEpicQuestions(ctx, row.ID)
 	if err != nil {
@@ -354,6 +358,14 @@ func loadQuestions(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) 
 	row.Questions, err = convertInOrder(questions, questionOf)
 	if err != nil {
 		return fmt.Errorf("questions: %w", err)
+	}
+	calls, err := queries.ListEpicQuestionCalls(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list question calls: %w", err)
+	}
+	byQuestion := questionCallsOf(calls)
+	for i := range row.Questions {
+		row.Questions[i].Calls = byQuestion[row.Questions[i].Seq]
 	}
 	return nil
 }
@@ -559,8 +571,8 @@ func triggerOf(trigger sqlcgen.EpicTrigger) EpicTrigger {
 
 // ClaimTurn starts a running turn on epic in one write and claims every pending trigger of the epic for it. The turn's
 // seq is the epic's highest turn seq plus one, and it sees the epic's highest decision seq. An unknown epic is
-// ErrNoEpic. A paused or parked epic, one with a running turn, or one with no pending trigger is ErrNotClaimable and
-// the write changes nothing.
+// ErrNoEpic. An epic in a final phase, a paused or parked epic, one with a running turn, or one with no pending trigger
+// is ErrNotClaimable and the write changes nothing.
 func (s *Store) ClaimTurn(ctx context.Context, epic string, at time.Time) (EpicTurn, error) {
 	var turn EpicTurn
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -577,15 +589,16 @@ func (s *Store) ClaimTurn(ctx context.Context, epic string, at time.Time) (EpicT
 	return turn, nil
 }
 
-// checkClaimable returns ErrNoEpic for an unknown epic, and ErrNotClaimable when the epic is closed, paused or question
-// parked, has a running turn, or has no pending trigger. A planner park leaves the epic claimable.
+// checkClaimable returns ErrNoEpic for an unknown epic, and ErrNotClaimable when the epic is in a final phase
+// (FinalPhase: met_at_base, released, done or closed), paused or question parked, has a running turn, or has no pending
+// trigger. A planner park leaves the epic claimable.
 func checkClaimable(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
 	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
 		return err
 	}
-	if IsClosedPhase(head.Phase) {
-		return fmt.Errorf("epic %s is closed: %w", epic, ErrNotClaimable)
+	if FinalPhase(head.Phase) {
+		return fmt.Errorf("epic %s is %s, a final phase: %w", epic, head.Phase, ErrNotClaimable)
 	}
 	if head.Paused != 0 || questionPark(head.Parked, head.ParkClass) != "" {
 		return fmt.Errorf("epic %s is paused or parked: %w", epic, ErrNotClaimable)
@@ -640,11 +653,13 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 // whose DependsOn names no task of the epic or of the plan, a title two of its tasks share, or the task itself is
 // ErrBadDependency, and the call writes nothing. A gap declaration whose recommendation is not release or correct also
 // writes nothing.
+//
+// The plan's question calls are applied before its questions are stored (applyQuestionCalls): each call on a question
+// still open is stored, and an overtaken call closes its question as overtaken with its decision and its tell, so a
+// question the plan replaces is replaced only when no call closed it. A call checkQuestionCalls or applyQuestionCalls
+// refuses is ErrBadQuestion, and the call writes nothing.
 func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
-	if err := checkQuestions(plan.Questions); err != nil {
-		return err
-	}
-	if err := checkGapDeclarations(plan.Unresolvable); err != nil {
+	if err := checkPlan(plan); err != nil {
 		return err
 	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
@@ -657,36 +672,59 @@ func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan 
 		if rows == 0 {
 			return fmt.Errorf("turn %d of epic %s: %w", turn, epic, ErrTurnNotRunning)
 		}
-		if err = insertInOrder(plan.Decisions, func(position int64, text string) error {
-			return queries.InsertEpicTurnDecision(ctx, sqlcgen.InsertEpicTurnDecisionParams{
-				Epic: epic, Turn: turn, Position: position, Text: text,
-			})
-		}); err != nil {
-			return fmt.Errorf("decisions of turn %d of epic %s: %w", turn, epic, err)
-		}
-		fan, err := planFanOutOf(ctx, queries, epic)
-		if err != nil {
-			return fmt.Errorf("build node of turn %d of epic %s: %w", turn, epic, err)
-		}
-		if err = insertTasks(ctx, queries, epic, turn, plan.Tasks, fan, at); err != nil {
-			return fmt.Errorf("tasks of turn %d of epic %s: %w", turn, epic, err)
-		}
-		if err = insertQuestions(ctx, queries, epic, turn, plan.Questions); err != nil {
-			return fmt.Errorf("questions of turn %d of epic %s: %w", turn, epic, err)
-		}
-		if err = insertActions(ctx, queries, epic, turn, plan.Actions); err != nil {
-			return fmt.Errorf("actions of turn %d of epic %s: %w", turn, epic, err)
-		}
-		if err = insertUnresolvable(ctx, queries, epic, turn, plan.Unresolvable); err != nil {
-			return fmt.Errorf("unresolvable gaps of turn %d of epic %s: %w", turn, epic, err)
-		}
-		if err = queries.ConsumeEpicTriggers(ctx, sqlcgen.ConsumeEpicTriggersParams{
-			Epic: epic, Turn: turn,
-		}); err != nil {
-			return fmt.Errorf("consume triggers of turn %d of epic %s: %w", turn, epic, err)
-		}
-		return nil
+		return storePlanRows(ctx, queries, epic, turn, plan, at)
 	})
+}
+
+// checkPlan returns the refusal CompleteTurn gives plan before it writes: the first question that breaks a rule of
+// QuestionRefusals (checkQuestions), the first question call checkQuestionCalls refuses, or the first gap declaration
+// checkGapDeclarations refuses.
+func checkPlan(plan EpicPlan) error {
+	if err := checkQuestions(plan.Questions); err != nil {
+		return err
+	}
+	if err := checkQuestionCalls(plan.QuestionCalls, plan.Outcome); err != nil {
+		return err
+	}
+	return checkGapDeclarations(plan.Unresolvable)
+}
+
+// storePlanRows writes the rows of plan, the return of turn seq turn of epic, in the caller's write, once the turn is
+// completed: its decisions, its tasks with their build child runs, its question calls, its questions, its actions and
+// its unresolvable gaps, in that order, and then consumes the triggers the turn claimed.
+func storePlanRows(
+	ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, plan EpicPlan, at time.Time,
+) error {
+	if err := insertInOrder(plan.Decisions, func(position int64, text string) error {
+		return queries.InsertEpicTurnDecision(ctx, sqlcgen.InsertEpicTurnDecisionParams{
+			Epic: epic, Turn: turn, Position: position, Text: text,
+		})
+	}); err != nil {
+		return fmt.Errorf("decisions of turn %d of epic %s: %w", turn, epic, err)
+	}
+	fan, err := planFanOutOf(ctx, queries, epic)
+	if err != nil {
+		return fmt.Errorf("build node of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = insertTasks(ctx, queries, epic, turn, plan.Tasks, fan, at); err != nil {
+		return fmt.Errorf("tasks of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = applyQuestionCalls(ctx, queries, epic, turn, plan.QuestionCalls, at); err != nil {
+		return fmt.Errorf("question calls of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = insertQuestions(ctx, queries, epic, turn, plan.Questions); err != nil {
+		return fmt.Errorf("questions of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = insertActions(ctx, queries, epic, turn, plan.Actions); err != nil {
+		return fmt.Errorf("actions of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = insertUnresolvable(ctx, queries, epic, turn, plan.Unresolvable); err != nil {
+		return fmt.Errorf("unresolvable gaps of turn %d of epic %s: %w", turn, epic, err)
+	}
+	if err = queries.ConsumeEpicTriggers(ctx, sqlcgen.ConsumeEpicTriggersParams{Epic: epic, Turn: turn}); err != nil {
+		return fmt.Errorf("consume triggers of turn %d of epic %s: %w", turn, epic, err)
+	}
+	return nil
 }
 
 // taskFanOut is the build node a turn's tasks fan out under: the path and Round of the running plan run, and the id of
@@ -1102,7 +1140,9 @@ func parkVoided(ctx context.Context, queries *sqlcgen.Queries, epic string, turn
 }
 
 // endTurn ends the running turn seq of epic as state with reason, ended at at, and returns the triggers the turn
-// claimed to pending with turn 0. A turn that is not running, or does not exist, is ErrTurnNotRunning.
+// claimed to pending with turn 0. On an epic that reached a final phase while the turn ran, those triggers are consumed
+// instead, since no later turn claims them (consumeAtFinalPhase). A turn that is not running, or does not exist, is
+// ErrTurnNotRunning.
 func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, state, reason string,
 	at time.Time,
 ) error {
@@ -1118,7 +1158,11 @@ func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn in
 	if err = queries.ReleaseEpicTriggers(ctx, sqlcgen.ReleaseEpicTriggersParams{Epic: epic, Turn: turn}); err != nil {
 		return fmt.Errorf("release triggers of turn %d of epic %s: %w", turn, epic, err)
 	}
-	return nil
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	return consumeAtFinalPhase(ctx, queries, epic, head.Phase)
 }
 
 // setParked parks epic with reason, cut to TurnReasonMax bytes, as class of subject, in the caller's write. A question
@@ -1218,9 +1262,7 @@ func insertParkTrigger(ctx context.Context, queries *sqlcgen.Queries, epic, reas
 	if err != nil {
 		return fmt.Errorf("count triggers of epic %s: %w", epic, err)
 	}
-	return insertNodeTrigger(ctx, queries, epic, NodeTrigger{
-		ID: fmt.Sprintf("%s%d", parkTriggerPrefix, stored+1), Cause: reason,
-	}, at)
+	return insertTriggerOnce(ctx, queries, epic, fmt.Sprintf("%s%d", parkTriggerPrefix, stored+1), reason, at)
 }
 
 // capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.

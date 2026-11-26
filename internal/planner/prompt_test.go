@@ -333,8 +333,8 @@ func adviceEpic() store.EpicRow {
 }
 
 // TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts renders adviceEpic with two follow rows. Each question
-// shows its label or park, its declared choices and its recommendation; an answer with a choice names it, and one
-// with no text has no `: text`. The follow rows render in the order given, under Advice followed.
+// shows its label or park, its declared choices and its recommendation, and each question a planner turn asked shows
+// that it has no call yet; an answer with a choice names it, and one with no text has no `: text`. The follow rows render in the order given, under Advice followed.
 func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
 	t.Parallel()
 	follows := []store.LabelFollow{
@@ -350,10 +350,12 @@ func TestPromptShowsQuestionAdviceAnswerChoicesAndFollowCounts(t *testing.T) {
 		"  sqlite: Keep the store in SQLite.\n" +
 		"  files: Write the store to files.\n" +
 		"  recommended: sqlite (high): The tables already hold the epic.\n" +
+		"  last call: none\n" +
 		"- Q2 (park): usage limit reached\n" +
 		"  retry: End the park and start a turn on the waiting triggers.\n" +
 		"  recommended: retry (low): No model judges a park.\n" +
 		"- Q4 (turn 2): name the epic?\n" +
+		"  last call: none\n" +
 		"\n## Advice followed\n" +
 		"- cache-ttl: 1 of 2 answers took the recommendation\n" +
 		"- which-store: 2 of 3 answers took the recommendation\n" +

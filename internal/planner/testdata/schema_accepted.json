@@ -41,6 +41,9 @@
   "outline": {
    "type": "string"
   },
+  "question_calls": {
+   "type": "string"
+  },
   "questions": {
    "items": {
     "additionalProperties": false,
@@ -194,6 +197,7 @@
   "outline",
   "questions",
   "actions",
+  "question_calls",
   "outcome"
  ],
  "type": "object"

@@ -4305,6 +4305,29 @@ func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestion
 	return err
 }
 
+const insertEpicQuestionCall = `-- name: InsertEpicQuestionCall :exec
+INSERT INTO epic_question_calls (epic, question, turn, call, reason) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicQuestionCallParams struct {
+	Epic     string
+	Question int64
+	Turn     int64
+	Call     string
+	Reason   string
+}
+
+func (q *Queries) InsertEpicQuestionCall(ctx context.Context, arg InsertEpicQuestionCallParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicQuestionCall,
+		arg.Epic,
+		arg.Question,
+		arg.Turn,
+		arg.Call,
+		arg.Reason,
+	)
+	return err
+}
+
 const insertEpicQuestionTell = `-- name: InsertEpicQuestionTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told, question) VALUES (?, ?, ?, ?, 0, ?)
 `
@@ -8383,6 +8406,39 @@ func (q *Queries) ListEpicPremises(ctx context.Context, epic string) ([]EpicPrem
 			&i.ID,
 			&i.Text,
 			&i.IfWrong,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicQuestionCalls = `-- name: ListEpicQuestionCalls :many
+SELECT epic, question, turn, call, reason FROM epic_question_calls WHERE epic = ? ORDER BY question, turn
+`
+
+func (q *Queries) ListEpicQuestionCalls(ctx context.Context, epic string) ([]EpicQuestionCall, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicQuestionCalls, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicQuestionCall
+	for rows.Next() {
+		var i EpicQuestionCall
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Question,
+			&i.Turn,
+			&i.Call,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}

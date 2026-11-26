@@ -115,6 +115,34 @@ func stopReleaseAfter(t *testing.T, s *Store, epic, reason string, runs ...Relea
 // summary is how the action is named.
 func requireRefusedAction(t *testing.T, s *Store, action PlannerAction, summary, refusal string) {
 	t.Helper()
+	requireRefusalRecorded(t, s, action, summary, refusal)
+	id := fmt.Sprintf("action-%d-%d-refused", action.Turn, action.Position)
+	if gotState, cause := triggerRow(t, s, action.Epic, id); gotState != "pending" ||
+		cause != "planner "+summary+" refused: "+refusal {
+		t.Errorf("trigger %s = state %q cause %q, want pending with the refusal", id, gotState, cause)
+	}
+}
+
+// requireRefusedWithoutTrigger checks that action is refused with refusal and its decision, as requireRefusedAction
+// does, and that no trigger was added for it: its epic is in a final phase, where no planner turn runs.
+func requireRefusedWithoutTrigger(t *testing.T, s *Store, action PlannerAction, summary, refusal string) {
+	t.Helper()
+	requireRefusalRecorded(t, s, action, summary, refusal)
+	id := fmt.Sprintf("action-%d-%d-refused", action.Turn, action.Position)
+	var triggers int
+	if err := s.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM epic_triggers WHERE epic = ? AND id = ?`, action.Epic, id).Scan(&triggers); err != nil {
+		t.Fatalf("count trigger %s of epic %s: %v", id, action.Epic, err)
+	}
+	if triggers != 0 {
+		t.Errorf("epic %s holds trigger %s, want none for a refusal on an epic in a final phase", action.Epic, id)
+	}
+}
+
+// requireRefusalRecorded checks that action is stored refused with refusal, and that its decision holds the summary,
+// the refusal and the planner's reason.
+func requireRefusalRecorded(t *testing.T, s *Store, action PlannerAction, summary, refusal string) {
+	t.Helper()
 	var state, stored string
 	if err := s.db.QueryRowContext(context.Background(),
 		`SELECT state, refusal FROM planner_actions WHERE epic = ? AND turn = ? AND position = ?`,
@@ -130,10 +158,6 @@ func requireRefusedAction(t *testing.T, s *Store, action PlannerAction, summary,
 	if got, want := decisionNamed(t, s, action.Epic, id).Text,
 		"planner "+summary+" refused: "+refusal+". Its reason: "+action.Reason; got != want {
 		t.Errorf("decision %s text = %q, want %q", id, got, want)
-	}
-	if gotState, cause := triggerRow(t, s, action.Epic, id); gotState != "pending" ||
-		cause != "planner "+summary+" refused: "+refusal {
-		t.Errorf("trigger %s = state %q cause %q, want pending with the refusal", id, gotState, cause)
 	}
 }
 
@@ -547,23 +571,6 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 			summary: "resume release",
 			refusal: "epic " + actionOther + ": its owner stopped the release; only the owner resumes it",
 		},
-		{
-			name: "close on a closed epic",
-			epic: actionEpic,
-			setup: func(t *testing.T, s *Store) {
-				t.Helper()
-				createEpic(t, s, fullEpic(actionEpic))
-				if _, err := s.CloseEpic(context.Background(), actionEpic, "abandoned", "", CloserOwner,
-					Maker{By: MakerOwner}, closeAt()); err != nil {
-					t.Fatalf("CloseEpic: %v", err)
-				}
-			},
-			action: EpicActionInput{
-				Kind: ActionCloseEpic, Close: "abandoned", Reason: "the work is dropped",
-			},
-			summary: "close epic as abandoned",
-			refusal: "epic " + actionEpic + " is closed",
-		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -580,4 +587,34 @@ func TestOrchestratorActionRefusalIsRecordedWithItsTrigger(t *testing.T) {
 			requireRefusedAction(t, s, action, c.summary, c.refusal)
 		})
 	}
+}
+
+// TestOrchestratorActionRefusedOnAClosedEpicWakesNoTurn checks that an action on a closed epic, such as one a planner
+// close left behind it, is refused and recorded with its decision, and adds no trigger: no planner turn runs for an
+// epic in a final phase, so a trigger there would be claimed by none.
+func TestOrchestratorActionRefusedOnAClosedEpicWakesNoTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	createEpic(t, s, fullEpic(actionEpic))
+	if _, err := s.CloseEpic(
+		ctx,
+		actionEpic,
+		"abandoned",
+		"",
+		CloserOwner,
+		Maker{By: MakerOwner},
+		closeAt(),
+	); err != nil {
+		t.Fatalf("CloseEpic: %v", err)
+	}
+	action := storeActions(t, s, actionEpic, EpicActionInput{
+		Kind: ActionCloseEpic, Close: "abandoned", Reason: "the work is dropped",
+	})[0]
+
+	stop, err := s.CarryOutAction(ctx, action, closeAt())
+	if err != nil || stop != nil {
+		t.Fatalf("CarryOutAction = %v, %v; want no steps and no error for a refusal", stop, err)
+	}
+	requireRefusedWithoutTrigger(t, s, action, "close epic as abandoned", "epic "+actionEpic+" is closed")
 }

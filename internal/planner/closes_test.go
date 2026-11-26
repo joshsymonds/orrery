@@ -173,6 +173,7 @@ func TestChoiceLinesNameTheFindingsAChoiceCloses(t *testing.T) {
 		"- Q2 (turn 22, review-finding-scope): Keep the edit?",
 		"  keep-fix: Keep it and close conformance-1. (closes conformance-1)",
 		"  revert-fix: Restore the test.",
+		"  last call: none",
 	}
 	if got := questionLines([]store.EpicQuestion{question}); !reflect.DeepEqual(got, wantPrompt) {
 		t.Errorf("questionLines = %q, want %q", got, wantPrompt)

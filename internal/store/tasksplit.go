@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -26,23 +27,30 @@ const minSplitDescendants = 2
 // deliverable, gate, evidence item, files, test changes, claims and contributions as given, and with the task as its
 // SplitFrom. A descendant has no depends_on and no build, and no build child run, as the task reopenDesign inserts has
 // none; it starts on rung 1 like any fresh task, and starting it is not done here. A task whose depends_on names the
-// task depends on the descendants instead, in the task's place, in seq order, with no entry repeated. It returns the ids
-// of the task's steps with no end, for the runner to stop.
+// task depends on the descendants instead, in the task's place, in seq order, with no entry repeated. An orchestrator's
+// question the task's build holds, still open, is overtaken as `T<seq> moved on without its answer: it was split into
+// T<a>, T<b>`, since a split task never runs again (overtakeAsk). It returns the ids of the task's steps with no end, for
+// the runner to stop.
 func splitTask(
-	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, _ time.Time,
+	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time,
 ) ([]string, error) {
 	if err := checkSplit(ctx, queries, action); err != nil {
 		return nil, err
 	}
-	if err := writeSplit(ctx, queries, action); err != nil {
+	if err := writeSplit(ctx, queries, action, at); err != nil {
 		return nil, err
 	}
 	return openTaskSteps(ctx, queries, action.Epic, action.Task)
 }
 
 // writeSplit writes the split of action in the caller's write, once checkSplit allows it: the task is ended as split, its
-// claim rows are removed, its descendants are inserted, and the tasks that depend on it are rewired to them.
-func writeSplit(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction) error {
+// claim rows are removed, its descendants are inserted, the tasks that depend on it are rewired to them, and the open
+// question its build holds is overtaken at at.
+func writeSplit(ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, at time.Time) error {
+	task, readErr := queries.GetEpicTask(ctx, sqlcgen.GetEpicTaskParams{Epic: action.Epic, Seq: action.Task})
+	if readErr != nil {
+		return fmt.Errorf("read task %d of epic %s: %w", action.Task, action.Epic, readErr)
+	}
 	if err := setTaskStatus(ctx, queries, action.Epic, action.Task, TaskSplit); err != nil {
 		return err
 	}
@@ -55,7 +63,20 @@ func writeSplit(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 	if err != nil {
 		return err
 	}
-	return rewireDependents(ctx, queries, action.Epic, action.Task, seqs)
+	if rewireErr := rewireDependents(ctx, queries, action.Epic, action.Task, seqs); rewireErr != nil {
+		return rewireErr
+	}
+	return overtakeAsk(ctx, queries, action.Epic, action.Task, buildOf(task), splitHow(seqs), at)
+}
+
+// splitHow says how a split into the descendants seqs moved its task on, for the question it overtakes:
+// `it was split into T<a>, T<b>`, the descendants in seq order.
+func splitHow(seqs []int64) string {
+	names := make([]string, len(seqs))
+	for i, seq := range seqs {
+		names[i] = fmt.Sprintf("T%d", seq)
+	}
+	return "it was split into " + strings.Join(names, ", ")
 }
 
 // insertDescendants inserts each descendant of action as the next task seqs of its epic, in order, in the caller's write,

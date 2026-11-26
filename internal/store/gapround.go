@@ -21,7 +21,7 @@ func (s *Store) StartGapRound(
 			return err
 		}
 		for _, trigger := range triggers {
-			if err := insertNodeTrigger(ctx, queries, epic, trigger, at); err != nil {
+			if err := insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at); err != nil {
 				return err
 			}
 		}

@@ -672,7 +672,7 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 }
 
 // complete completes turn seq of epic with the plan that result holds. A result that does not parse fails the turn, and
-// so does a plan with a question the store refuses, with the refusal as the reason.
+// so does a plan with a question or a question call the store refuses, with the refusal as the reason.
 func (r *Runner) complete(ctx context.Context, epic string, seq int64, result string) error {
 	ret, err := Parse(json.RawMessage(result))
 	if err != nil {
@@ -772,9 +772,13 @@ func planOf(ret Return) store.EpicPlan {
 			Gap: entry.Gap, Reason: entry.Reason, Recommended: entry.Recommended,
 		})
 	}
+	calls := make([]store.QuestionCallInput, 0, len(ret.QuestionCalls))
+	for _, call := range ret.QuestionCalls {
+		calls = append(calls, store.QuestionCallInput{Question: call.Question, Call: call.Call, Reason: call.Reason})
+	}
 	return store.EpicPlan{
 		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: questions, Outcome: ret.Outcome,
-		Actions: actions, Unresolvable: unresolvable,
+		Actions: actions, Unresolvable: unresolvable, QuestionCalls: calls,
 	}
 }
 
@@ -820,7 +824,8 @@ func questionInputOf(question Question) store.EpicQuestionInput {
 // epic's phase and the findings of review that the next closure round checks, then those of checkSpentGaps against
 // gapTurns, the planner turns each gap of the epic was given before the checked turn, for the rerun_review actions that
 // name a reviewer whose gap has spent its turns, then those of checkCall, by bound, whether the park epic holds is at
-// the bound of its chain and waits on the planner's call. Coverage and the spent lines are not refusals: the prompt names
+// the bound of its chain and waits on the planner's call, then those of checkQuestionCalls against the epic's questions,
+// so each open question a planner turn asked takes its call. Coverage and the spent lines are not refusals: the prompt names
 // them. When epic holds a planner-class park that is not at the bound, a return with no action and no question gets one
 // more line from checkPark, which names the park reason; at the bound, checkCall refuses that return instead. A question
 // park is not checked, since its park question answers it. The gate resolves under ctx without its cancellation, so the
@@ -860,6 +865,7 @@ func returnCheck(
 		refusals = append(refusals, checkCloses(ret, epic.Phase, open)...)
 		refusals = append(refusals, checkSpentGaps(ret, gapTurns)...)
 		refusals = append(refusals, checkCall(ret, bound)...)
+		refusals = append(refusals, checkQuestionCalls(ret, epic.Questions)...)
 		if bound {
 			return refusals
 		}
