@@ -117,7 +117,8 @@ func hostClients(
 	clients := make(map[string]*node.Client, len(file.Hosts))
 	for _, host := range file.Hosts {
 		clients[host.Name] = node.NewClient(node.ClientConfig{
-			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger, Clock: clock,
+			Name: host.Name, Address: host.Address, Dial: dialer.DialContext, Secret: secret, Logger: logger,
+			Clock: clock,
 		})
 	}
 	return clients
