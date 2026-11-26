@@ -68,13 +68,14 @@ type Relay struct {
 	whoIs    node.WhoIs
 	sessions SessionHosts
 	handler  http.Handler
+	secret   string
 	logger   *slog.Logger
 }
 
 // Listen returns the Relay that cfg describes, listening on cfg.Address. It returns nil and no error when cfg.Hosts is
 // empty, since a controller with no hosts has no agent to admit, and then it opens no socket. Otherwise it fails when
-// cfg.WhoIs or cfg.Handler is nil, and when WhoIs of the relay's own address names no node, no user profile, a tagged
-// node or no login. A listener that it has opened is closed before it fails.
+// cfg.WhoIs or cfg.Handler is nil, when cfg.Secret is empty, and when WhoIs of the relay's own address names no node,
+// no user profile, a tagged node or no login. A listener that it has opened is closed before it fails.
 func Listen(ctx context.Context, cfg Config) (*Relay, error) {
 	if len(cfg.Hosts) == 0 {
 		return nil, nil
@@ -84,6 +85,8 @@ func Listen(ctx context.Context, cfg Config) (*Relay, error) {
 		return nil, errors.New("hostrelay: no WhoIs to admit connections by")
 	case cfg.Handler == nil:
 		return nil, errors.New("hostrelay: no handler for the calls it admits")
+	case cfg.Secret == "":
+		return nil, errors.New("hostrelay: no fleet secret to admit calls by")
 	}
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.Address)
 	if err != nil {
@@ -104,6 +107,7 @@ func Listen(ctx context.Context, cfg Config) (*Relay, error) {
 		whoIs:    cfg.WhoIs,
 		sessions: cfg.Sessions,
 		handler:  cfg.Handler,
+		secret:   cfg.Secret,
 		logger:   logger,
 	}, nil
 }
@@ -137,14 +141,16 @@ func (r *Relay) Addr() net.Addr {
 
 // Serve serves HTTP on the relay's listener until ctx ends, then shuts down and returns nil. A connection reaches the
 // handler only after admit has named its peer an agent of hosts.toml, and each request on it carries the host's name in
-// protocol.HeaderHost. A request that names a session in protocol.HeaderSession, which another host runs, is refused
-// before the handler sees it (see checkClaims). Shutdown waits for the handlers, which see ctx end and can return.
+// protocol.HeaderHost. A request must carry the relay's fleet secret in protocol.HeaderSecret, or it is refused before
+// the handler sees it (see checkSecret). A request that names a session in protocol.HeaderSession, which another host
+// runs, is refused before the handler sees it (see checkClaims). Shutdown waits for the handlers, which see ctx end and
+// can return.
 func (r *Relay) Serve(ctx context.Context) error {
 	admitted := newAdmitListener(r.listener, func(conn net.Conn) (string, error) {
 		return r.admit(ctx, conn)
 	}, r.logger)
 	srv := &http.Server{
-		Handler:           hostHeader(r.checkClaims(r.handler)),
+		Handler:           r.checkSecret(hostHeader(r.checkClaims(r.handler))),
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ConnContext:       connContext,
 		ReadHeaderTimeout: headerTimeout,
@@ -227,6 +233,21 @@ func connContext(ctx context.Context, conn net.Conn) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, hostKey{}, peer.host)
+}
+
+// checkSecret returns the handler that refuses a request whose protocol.HeaderSecret does not match the relay's
+// secret, as an unauthenticated error, and otherwise deletes the header and calls next, so the handler never sees the
+// secret. It runs before hostHeader and checkClaims, so a refused request reaches neither.
+func (r *Relay) checkSecret(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if !node.SecretMatches(r.secret, req.Header.Get(protocol.HeaderSecret)) {
+			r.refuse(w, req, errors.Join(connect.NewError(connect.CodeUnauthenticated,
+				errors.New("hostrelay: the call does not carry the fleet secret"))))
+			return
+		}
+		req.Header.Del(protocol.HeaderSecret)
+		next.ServeHTTP(w, req)
+	})
 }
 
 // hostHeader sets protocol.HeaderHost of each request to the host that its connection was admitted as, which replaces

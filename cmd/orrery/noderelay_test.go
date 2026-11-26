@@ -34,6 +34,9 @@ const (
 	nodeStepC    = "step-on-c"
 )
 
+// nodeSecret is the fleet secret that the test controller's relay admits calls by, and that agent b's forwarder sets.
+const nodeSecret = "test-fleet-secret"
+
 // nodeWhoIs names each peer of the test relay, as tailscaled's WhoIs names a connection's peer: the relay's own address
 // is the controller, and every other address is agent b, since agent b's forwarder makes every connection to the relay a
 // test opens. The forwarder dials from whatever port the kernel gives it. Dialing from one fixed port made a second
@@ -166,6 +169,7 @@ func startNodeRelay(t *testing.T) *nodeRelay {
 		WhoIs:    whois,
 		Sessions: sessions,
 		Handler:  handler,
+		Secret:   nodeSecret,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +191,7 @@ func startNodeRelay(t *testing.T) *nodeRelay {
 		t.Fatal(err)
 	}
 	forwardCtx, cancelForward := context.WithCancel(t.Context())
-	forwardCfg := hostrelay.ForwardConfig{Address: relayAddr, Dial: (&net.Dialer{}).DialContext}
+	forwardCfg := hostrelay.ForwardConfig{Address: relayAddr, Dial: (&net.Dialer{}).DialContext, Secret: nodeSecret}
 	forwarded := make(chan error, 1)
 	go func() { forwarded <- hostrelay.Forward(forwardCtx, ln, forwardCfg) }()
 	t.Cleanup(func() {

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+
+	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
 // ForwardConfig configures Forward: the controller's relay address, the dialer that reaches it over the tailnet, and
@@ -31,8 +33,9 @@ const flushImmediately = -1
 // Forward serves HTTP on ln, the listener of an agent's sessions.sock, and relays each request to the controller at
 // cfg.Address, which cfg.Dial connects to. A request keeps its method, path, query, headers and body, and each response
 // streams back to the client, flushed as each chunk arrives, so that the messages of a Connect server stream reach the
-// client as they are sent. A request whose controller cannot be reached is answered 502. Forward shuts down once ctx
-// ends, when its handlers see ctx end and return, and then returns nil.
+// client as they are sent. Each request carries cfg.Secret as protocol.HeaderSecret, which replaces any value the
+// client sent. A request whose controller cannot be reached is answered 502. Forward shuts down once ctx ends, when its
+// handlers see ctx end and return, and then returns nil.
 func Forward(ctx context.Context, ln net.Listener, cfg ForwardConfig) error {
 	logger := cfg.Logger
 	if logger == nil {
@@ -44,6 +47,7 @@ func Forward(ctx context.Context, ln net.Listener, cfg ForwardConfig) error {
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
+			pr.Out.Header.Set(protocol.HeaderSecret, cfg.Secret)
 		},
 		Transport:     transport,
 		FlushInterval: flushImmediately,

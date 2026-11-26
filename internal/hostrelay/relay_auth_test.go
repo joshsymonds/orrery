@@ -20,6 +20,7 @@ const (
 	testLogin  = "josh@example.com"
 	otherLogin = "someone@example.com"
 	callPath   = "/calls/ping"
+	testSecret = "test-fleet-secret"
 )
 
 // testAgents are the agents of hosts.toml that the relay admits.
@@ -62,10 +63,12 @@ func peerAnswer(login string, peer *tailcfg.Node) whoIsAnswer {
 	}}
 }
 
-// call is one request that the spy handler recorded: its path, and the Orrery-Host it carried.
+// call is one request that the spy handler recorded: its path, the Orrery-Host it carried, and the values of the fleet
+// secret header it carried, which are none once the relay has deleted it.
 type call struct {
-	path string
-	host string
+	path    string
+	host    string
+	secrets []string
 }
 
 // spy is the handler that the relay serves admitted calls to. It records each request before it answers, so a client
@@ -79,7 +82,11 @@ func newSpy() spy {
 }
 
 func (s spy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	s.seen <- call{path: req.URL.Path, host: req.Header.Get(protocol.HeaderHost)}
+	s.seen <- call{
+		path:    req.URL.Path,
+		host:    req.Header.Get(protocol.HeaderHost),
+		secrets: req.Header.Values(protocol.HeaderSecret),
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -102,7 +109,13 @@ func freeLoopbackAddr(t *testing.T) string {
 func startRelay(t *testing.T, addr string, agents []hosts.Host, whois node.WhoIs) chan call {
 	t.Helper()
 	spied := newSpy()
-	relay, err := Listen(t.Context(), Config{Address: addr, Hosts: agents, WhoIs: whois, Handler: spied})
+	relay, err := Listen(t.Context(), Config{
+		Address: addr,
+		Hosts:   agents,
+		WhoIs:   whois,
+		Handler: spied,
+		Secret:  testSecret,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +144,24 @@ func clientFrom(t *testing.T, from string) *http.Client {
 	return &http.Client{Transport: transport}
 }
 
-// callRequest returns a call to the relay at addr, which sends its own Orrery-Host.
+// callRequest returns a call to the relay at addr, which sends its own Orrery-Host and the test fleet secret.
 func callRequest(t *testing.T, addr string) *http.Request {
+	t.Helper()
+	return callWithSecret(t, addr, testSecret)
+}
+
+// callWithSecret returns a call to the relay at addr, which sends its own Orrery-Host, and secret as its fleet secret
+// when secret is not empty.
+func callWithSecret(t *testing.T, addr, secret string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+callPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set(protocol.HeaderHost, "spoofed")
+	if secret != "" {
+		req.Header.Set(protocol.HeaderSecret, secret)
+	}
 	return req
 }
 
@@ -371,6 +394,7 @@ func TestRelayAuthRefusesOwnAddressWithoutLogin(t *testing.T) {
 				Hosts:   testAgents(),
 				WhoIs:   whois,
 				Handler: newSpy(),
+				Secret:  testSecret,
 			})
 			if err == nil {
 				t.Fatal("Listen succeeded")
@@ -389,8 +413,8 @@ func TestRelayAuthNeedsWhoIsAndHandler(t *testing.T) {
 		name string
 		cfg  Config
 	}{
-		{"no WhoIs", Config{Hosts: testAgents(), Handler: newSpy()}},
-		{"no handler", Config{Hosts: testAgents(), WhoIs: fakeWhoIs{}}},
+		{"no WhoIs", Config{Hosts: testAgents(), Handler: newSpy(), Secret: testSecret}},
+		{"no handler", Config{Hosts: testAgents(), WhoIs: fakeWhoIs{}, Secret: testSecret}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

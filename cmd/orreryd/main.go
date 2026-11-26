@@ -108,7 +108,8 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-shell PATH]
-               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR] [--gateway URL]
+               [--holder-scope PATH] [--metrics-listen ADDR] [--relay-listen ADDR] [--fleet-secret FILE]
+               [--gateway URL]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -129,6 +130,8 @@ flags:
                     serve /metrics on ADDR, a loopback IP literal with a port (default: none)
   --relay-listen ADDR
                     serve the relay that admits the hosts.toml agents on ADDR, host:port (default: none)
+  --fleet-secret FILE
+                    file that holds the fleet secret the relay of --relay-listen admits calls by (default: none)
   --gateway URL     probe each idle account's usage limits through the gateway at URL, an absolute http or
                     https URL (default: none, no limit probes)
 `
@@ -170,6 +173,7 @@ type options struct {
 	storeBusy       time.Duration           // the --store-busy-timeout test seam's wait, store.BusyTimeout by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	relayListen     string                  // the --relay-listen address, "" when unset
+	fleetSecret     string                  // the --fleet-secret file that holds the relay's fleet secret, "" when unset
 	gateway         string                  // the --gateway URL every limit probe is sent to, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
@@ -495,6 +499,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	relayListen := flags.String("relay-listen", "", "address the relay of the hosts.toml agents listens on")
+	fleetSecret := flags.String("fleet-secret", "", "file that holds the fleet secret the relay admits calls by")
 	gateway := flags.String("gateway", "", "gateway URL every limit probe is sent to")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	dueAt := flags.Int64("due-at", 0, "test seam: unix seconds the due pass reads as now")
@@ -553,6 +558,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		storeBusy:     *storeBusy,
 		metricsListen: *metricsListen,
 		relayListen:   *relayListen,
+		fleetSecret:   *fleetSecret,
 		gateway:       *gateway,
 		flowTicks:     *flowTicks,
 		dueNow:        unixClock(*dueAt),
@@ -1249,9 +1255,11 @@ const relayUnusedMessage = "--relay-listen is unused"
 
 // startRelay opens the relay of the hosts.toml agents on opts.relayListen and serves it in the background until the
 // session service stops, with cfg's services as its handler, and st, when it is not nil, as the store that names each
-// session's host. The relay admits connections by opts.relayWhoIs, or node.Tailnet() when that is nil. With the flag
-// unset it does nothing. With no hosts file, or one that lists no host, it opens nothing and logs that the flag is
-// unused. A hosts file that does not load is an error, and so is a relay that fails to open, which names its address.
+// session's host. The relay admits connections by opts.relayWhoIs, or node.Tailnet() when that is nil, and admits each
+// call by the fleet secret that opts.fleetSecret's file holds. With the flag unset it does nothing. With no hosts file,
+// or one that lists no host, it opens nothing and logs that the flag is unused. A hosts file that does not load is an
+// error, and so is a relay that opens with no fleet secret: an unset --fleet-secret or a file that node.ReadSecret
+// refuses. A relay that fails to open is an error too, which names its address.
 func (h *sessionHost) startRelay(
 	ctx context.Context,
 	opts options,
@@ -1271,6 +1279,13 @@ func (h *sessionHost) startRelay(
 		logger.WarnContext(ctx, relayUnusedMessage, "addr", opts.relayListen, "reason", "hosts.toml lists no host")
 		return nil
 	}
+	if opts.fleetSecret == "" {
+		return errors.New("relay listener: --relay-listen needs --fleet-secret, the file that holds the fleet secret")
+	}
+	secret, err := node.ReadSecret(opts.fleetSecret)
+	if err != nil {
+		return fmt.Errorf("relay listener: --fleet-secret: %w", err)
+	}
 	whoIs := opts.relayWhoIs
 	if whoIs == nil {
 		whoIs = node.Tailnet()
@@ -1280,6 +1295,7 @@ func (h *sessionHost) startRelay(
 		Hosts:   file.Hosts,
 		WhoIs:   whoIs,
 		Handler: enginehost.NewHandler(cfg),
+		Secret:  secret,
 		Logger:  logger,
 	}
 	// A nil store must stay a nil interface, since a nil *store.Store would name every session's host as none.
