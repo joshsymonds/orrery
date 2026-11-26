@@ -31,7 +31,7 @@ func startHostAgent(t *testing.T, root string) *node.Client {
 		Controller: routingController,
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: routingHost},
 		Holders:    routingHolders{},
-		Root:       root,
+		Roots:      []string{root},
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
