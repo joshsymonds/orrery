@@ -1240,7 +1240,7 @@ func startSessions(
 		acceptCheck := host.wireStage(st, steps, host.manager, getenv, hosts, hostName, clients)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
+		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts, hostName),
 			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
 		host.designs = &enginehost.Designs{Store: st, Now: time.Now, Placement: placement}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
@@ -1459,10 +1459,13 @@ func (h *sessionHost) serveConfig(
 	return cfg
 }
 
-// epicSteering returns the steering sessions of the epics st serves, which manager starts.
-func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
+// epicSteering returns the steering sessions of the epics st serves, which manager starts. hostName is the name the
+// controller's epics are stamped with, and hosts resolves the hosts that run an epic's git.
+func epicSteering(
+	manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts, hostName string,
+) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, Hosts: hosts,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, Hosts: hosts, Host: hostName,
 	})
 }
 
