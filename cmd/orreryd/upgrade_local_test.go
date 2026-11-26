@@ -141,8 +141,16 @@ func upgradeGrantRow(t *testing.T, sh string) store.GrantRow {
 	t.Helper()
 	argv := []string{sh, "-c", "exit 0"}
 	pool := upgradeStoredPool{
-		Name: upgradePool, Host: upgradeHost, Cap: 1, Members: []string{upgradeMember},
-		Wake: argv, WakeLimit: time.Minute, Status: argv, StatusLimit: time.Minute, Admit: argv, AdmitLimit: time.Minute,
+		Name:        upgradePool,
+		Host:        upgradeHost,
+		Cap:         1,
+		Members:     []string{upgradeMember},
+		Wake:        argv,
+		WakeLimit:   time.Minute,
+		Status:      argv,
+		StatusLimit: time.Minute,
+		Admit:       argv,
+		AdmitLimit:  time.Minute,
 	}
 	encoded, err := json.Marshal([]upgradeStoredPool{pool})
 	if err != nil {
