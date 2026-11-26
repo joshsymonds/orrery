@@ -37,7 +37,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PendingEvent
+import io.github.joshsymonds.orrery.gen.orrery.v1.QueuedMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import java.util.concurrent.atomic.AtomicInteger
@@ -51,8 +54,9 @@ import org.robolectric.annotation.GraphicsMode
 
 // R4 end to end, on invented hosts with one that does not answer: a pane flagged unreachable, a headless session on that
 // host, an epic and a step on it. Each title row draws the unreachable mark, the grey dashed ring and the word, and never a
-// stopped glyph. A pane's dock on such a host is its one line, `unreachable: <host> does not answer`, with no box, queue
-// or control. A pane on a host that answers draws no mark and keeps its box. The inbox, served the same answers, draws the
+// stopped glyph. A pane's, session's or step's dock on such a host is its one line, `unreachable: <host> does not answer`,
+// with no box, queue or control, though each is working with messages queued, so on a host that answers the same dock
+// offers its queue, Interrupt and More stop. A pane on a host that answers draws no mark. The inbox, served the same answers, draws the
 // pane, session and step rows with the grey ring and the word, and the epic's host with the mark. Checks read semantics
 // only, and every screen runs on the fixed clock NOW.
 @RunWith(RobolectricTestRunner::class)
@@ -104,7 +108,14 @@ class HostsDroidUnreachableTest {
     val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     /** The controls a dock offers an input, a queue or a control with: none of them on a dock that says unreachable. */
-    private val dockControls = listOf("composer", "dock-tray", "dock-interrupt", "dock-resume", "dock-more")
+    private val dockControls = listOf("composer", "dock-tray", "dock-waits", "dock-interrupt", "dock-resume", "dock-more")
+
+    /** Asserts the dock is the one line `unreachable: [host] does not answer`, with no input, queue or control node. */
+    private fun assertDockSaysOnlyUnreachable(host: String) {
+        composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $host does not answer")
+        under(DOCK, textNode).assertCountEquals(1)
+        dockControls.forEach { tag -> assertEquals("no $tag on the dock", 0, countTag(tag)) }
+    }
 
     /** The labels of a pane's quick keys, which post keys to the pane, so are not offered on a host that does not answer. */
     private val quickKeyLabels = listOf("Esc", "Ctrl-C", "Enter", "←", "↑", "↓", "→")
@@ -145,8 +156,9 @@ class HostsDroidUnreachableTest {
             .build()
 
     /**
-     * One pane on [host], flagged unreachable or not, whose stream gives up so the screen polls it. A pane with an empty
-     * [host] reads as the serving host, which its label shows once the Host.Status read has named it.
+     * One working pane on [host], flagged unreachable or not, with a message waiting to be sent, whose stream gives up so
+     * the screen polls it. A pane with an empty [host] reads as the serving host, which its label shows once the
+     * Host.Status read has named it.
      */
     private fun servePane(server: FakeOrreryServer, host: String, unreachable: Boolean) {
         server.route(PANE_STREAM) {
@@ -164,7 +176,7 @@ class HostsDroidUnreachableTest {
                         .setPane(2)
                         .setCwd("/home/user/lighthouse")
                         .setCommand("claude")
-                        .setState("done")
+                        .setState("working")
                         .setLabel("Lamp dimmer")
                         .setChanged(NOW - 120)
                         .setSeen(NOW - 60)
@@ -179,6 +191,7 @@ class HostsDroidUnreachableTest {
                 .setOrigin("synthetic origin")
                 .setGoal(GOAL)
                 .addItems(ConversationItemProto.newBuilder().setKind("reply").setText("synthetic reply").build())
+                .addWaiting(WaitingMessage.newBuilder().setText("synthetic waiting message").setTime(NOW - 10).build())
                 .build(),
         )
         server.respond(PANE_SEEN, MarkSeenResponse.getDefaultInstance())
@@ -194,7 +207,10 @@ class HostsDroidUnreachableTest {
         }
     }
 
-    /** One headless session on [host], whose first delta holds its state and goal, and whose stream stays open. */
+    /**
+     * One working headless session on [host], whose first delta holds its state and goal, a queued message and an event
+     * that waits until the owner speaks, and whose stream stays open.
+     */
     private fun serveSession(server: FakeOrreryServer, host: String) {
         val state = ConversationState.newBuilder()
             .setOrigin("synthetic origin")
@@ -204,17 +220,25 @@ class HostsDroidUnreachableTest {
                     .setId(SESSION_ID)
                     .setDir("/home/user/lighthouse")
                     .setLabel("Lamp dimmer")
-                    .setState("done")
+                    .setState("working")
                     .setChanged(NOW - 120)
                     .setSeen(NOW - 60)
                     .setHost(host),
             )
+            .addPending(PendingEvent.newBuilder().setId("synthetic-event").setKind("question").setWaits("speak"))
             .build()
         val delta = SessionsWatchConversationResponse.newBuilder()
             .setTranscript(SESSION_ID)
             .setSeq(1L)
             .addItems(ConversationItemProto.newBuilder().setKind("reply").setText("synthetic reply").build())
             .setState(state)
+            .addQueued(
+                QueuedMessage.newBuilder()
+                    .setPromptId("synthetic-prompt")
+                    .setText("synthetic queued message")
+                    .setState("queued")
+                    .setWaits("turn"),
+            )
             .build()
         val requests = AtomicInteger()
         server.route(SESSION_STREAM) {
@@ -242,15 +266,15 @@ class HostsDroidUnreachableTest {
         server.respond(HOST_STATUS, hostStatus())
     }
 
-    /** The step screen of a step on [SILENT], which names its host itself, so the title row draws that host. */
-    private fun setStep(server: FakeOrreryServer) {
+    /** The running step screen of a step on [host], which names its host itself, so the title row draws that host. */
+    private fun setStep(server: FakeOrreryServer, host: String) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             MaterialTheme {
                 SessionScreen(
                     SESSION_ID,
                     client,
-                    step = StepMode(held = false, label = STEP_LABEL, host = SILENT),
+                    step = StepMode(held = false, label = STEP_LABEL, host = host),
                     clock = { NOW },
                 )
             }
@@ -268,9 +292,7 @@ class HostsDroidUnreachableTest {
             under(HEAD_TITLE, hasText(UNREACHABLE)).assertCountEquals(1)
             under(HEAD_TITLE, hasContentDescription("stopped")).assertCountEquals(0)
 
-            composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $SILENT does not answer")
-            under(DOCK, textNode).assertCountEquals(1)
-            dockControls.forEach { tag -> assertEquals("no $tag on the dock", 0, countTag(tag)) }
+            assertDockSaysOnlyUnreachable(SILENT)
             quickKeyLabels.forEach { label -> assertEquals("no $label quick key", 0, countText(label)) }
         }
     }
@@ -286,7 +308,7 @@ class HostsDroidUnreachableTest {
             under(HEAD_TITLE, hasText(UNREACHABLE)).assertCountEquals(1)
             under(HEAD_TITLE, hasContentDescription("stopped")).assertCountEquals(0)
 
-            composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $SILENT does not answer")
+            assertDockSaysOnlyUnreachable(SILENT)
         }
     }
 
@@ -294,14 +316,40 @@ class HostsDroidUnreachableTest {
     fun aStepOnAHostThatDoesNotAnswerDrawsTheMarkInItsTitleRowAndItsDockSaysUnreachable() {
         FakeOrreryServer().use { server ->
             serveStep(server)
-            setStep(server)
+            setStep(server, SILENT)
 
             composeRule.awaitExactlyOne(hasTestTag(HOST_UNREACHABLE))
             assertEquals(listOf(OrreryTokens.Ink.three), ringColours(hasTestTag(HOST_UNREACHABLE)))
             under(HOST_UNREACHABLE, hasText(UNREACHABLE)).assertCountEquals(1)
             composeRule.onAllNodes(hasContentDescription("stopped"), useUnmergedTree = true).assertCountEquals(0)
 
-            composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $SILENT does not answer")
+            assertDockSaysOnlyUnreachable(SILENT)
+        }
+    }
+
+    @Test
+    fun aSessionOnAHostThatAnswersOffersItsQueueInterruptAndMoreStop() {
+        FakeOrreryServer().use { server ->
+            serveSession(server, host = SERVING)
+            setSession(server)
+
+            composeRule.awaitExactlyOne(hasTestTag("dock-tray"))
+            assertEquals(0, countTag(HOST_UNREACHABLE))
+            listOf("composer", "dock-waits", "dock-interrupt", "dock-more").forEach { tag ->
+                assertEquals("the $tag on a host that answers", 1, countTag(tag))
+            }
+        }
+    }
+
+    @Test
+    fun aStepOnAHostThatAnswersOffersInterruptAndMoreStop() {
+        FakeOrreryServer().use { server ->
+            serveStep(server)
+            setStep(server, SERVING)
+
+            composeRule.awaitExactlyOne(hasTestTag("dock-more"))
+            assertEquals(0, countTag(HOST_UNREACHABLE))
+            assertEquals(1, countTag("dock-interrupt"))
         }
     }
 
@@ -357,16 +405,19 @@ class HostsDroidUnreachableTest {
     }
 
     @Test
-    fun aPaneOnAHostThatAnswersDrawsNoMarkAndKeepsItsDockBox() {
+    fun aPaneOnAHostThatAnswersDrawsNoMarkAndOffersItsBoxQueueAndInterrupt() {
         FakeOrreryServer().use { server ->
             // The pane names no host, so its label, and with it the host's reach, waits for the Host.Status read.
             servePane(server, host = "", unreachable = false)
             setPane(server)
 
             composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL) and hasAnyAncestor(hasTestTag(HEAD_TITLE)))
+            composeRule.awaitExactlyOne(hasTestTag("dock-tray"))
             assertEquals(0, countTag(HOST_UNREACHABLE))
-            composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("done")
-            assertEquals(1, countTag("composer"))
+            composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("working")
+            listOf("composer", "dock-interrupt").forEach { tag ->
+                assertEquals("the $tag on a host that answers", 1, countTag(tag))
+            }
             assertEquals("the Esc quick key on a host that answers", 1, countText("Esc"))
         }
     }
