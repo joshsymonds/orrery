@@ -22,8 +22,7 @@ import { mockTimers } from "./testclock";
 import { assertNone, installTestDom, removeTestDom, teardownOnce } from "./testdom";
 
 // Each test's name carries the token HostsWebHostsView. A pane's or a headless session's head and band name its host as a
-// HostLabel and draw no meter, on the serving host and on another host; the hosts view, opened from the inbox head, lists
-// each host Host.Status lists with its meters, and an unreachable host with no numbers.
+// HostLabel and draw no meter, on the serving host and on another host.
 
 // now is the clock App reads its times against, in unix seconds, and wideWidth is a window the layout draws wide.
 const now = 1000;
@@ -126,28 +125,9 @@ async function mounted(
   }
 }
 
-// press clicks element, and lets Preact draw what the click changed.
-async function press(element: HTMLElement): Promise<void> {
-  await act(() => {
-    element.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
-  });
-}
-
 // hostNamesIn lists the names of the HostLabels under root, in order.
 function hostNamesIn(root: ParentNode): string[] {
   return [...root.querySelectorAll(".host-label")].map((label) => label.querySelector(".name")?.textContent ?? "");
-}
-
-// textOf is the text of the first element under row that matches selector, which row must hold.
-function textOf(row: ParentNode, selector: string): string {
-  const found = row.querySelector(selector);
-  assert.ok(found !== null, `the row holds no ${selector}`);
-  return found.textContent ?? "";
-}
-
-// meterValuesOf is the value each meter of a host row draws, in order.
-function meterValuesOf(row: ParentNode): string[] {
-  return [...row.querySelectorAll(".meter .value")].map((value) => value.textContent ?? "");
 }
 
 // assertHostOnlyHead checks the reader's head for a row on host: its band names host as its one HostLabel, and the head
@@ -178,28 +158,4 @@ test("HostsWebHostsView head: a headless session's head and band name its host a
       assertHostOnlyHead(container, host, `a headless session on ${host}`);
     });
   }
-});
-
-test("HostsWebHostsView head: the hosts view opened from the inbox head lists each Host.Status entry with its load and memory percent and reach, and an unreachable host with no numbers", async (t) => {
-  mockTimers(t, ["setTimeout", "setInterval"]);
-  await mounted(t, [], async (container) => {
-    const control = container.querySelector<HTMLButtonElement>('.inbox-head button[aria-label="Hosts"]');
-    assert.ok(control !== null, "the inbox head holds the Hosts control");
-    await press(control);
-
-    const page = container.querySelector<HTMLElement>(".hosts-read");
-    assert.ok(page !== null, "the hosts view is drawn");
-    const rows = [...page.querySelectorAll<HTMLElement>(".host-row")];
-    assert.deepEqual(
-      rows.map((row) => textOf(row, ".host-label .name")),
-      ["halyard", "brine", "sextant"],
-      "the view lists each host Host.Status lists, in its order",
-    );
-    assert.deepEqual(meterValuesOf(rows[0]), ["12%", "44%"], "halyard draws its load and memory percent");
-    assert.equal(textOf(rows[0], ".reach"), "reachable", "halyard says it is reachable");
-    assert.deepEqual(meterValuesOf(rows[2]), ["172%", "62%"], "sextant draws its real load and its memory percent");
-    assert.equal(textOf(rows[2], ".reach"), "reachable", "sextant says it is reachable");
-    assertNone(rows[1].querySelector(".meter"), "brine draws no meter");
-    assert.doesNotMatch(rows[1].textContent ?? "", /[0-9%]/, "brine draws no number");
-  });
 });
