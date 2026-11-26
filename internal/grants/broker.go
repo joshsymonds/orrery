@@ -330,10 +330,10 @@ func (b *Broker) lasts(pid int, start int64, holder string) bool {
 // host reports its client or its holder alive. A host that does not answer keeps the grant, and so does a host that
 // Config.Hosts does not name.
 func (b *Broker) lastsOf(ctx context.Context, host string, pid int, start int64, holder string) bool {
-	processes, remote := b.remoteHost(host)
-	if !remote {
+	if !b.remoteHost(host) {
 		return b.lasts(pid, start, holder)
 	}
+	processes := b.hosts[host]
 	if processes == nil {
 		return true
 	}
@@ -347,19 +347,17 @@ func (b *Broker) lastsOf(ctx context.Context, host string, pid int, start int64,
 	}
 	held, err := processes.HolderAlive(ctx, holder)
 	if err != nil {
-		b.logger.WarnContext(ctx, "host did not answer for holder; grant kept", "host", host, "holder", holder, "err", err)
+		b.logger.WarnContext(ctx, "host did not answer for holder; grant kept",
+			"host", host, "holder", holder, "err", err)
 		return true
 	}
 	return held
 }
 
-// remoteHost reports whether a grant of host follows another host's processes, and returns those processes. It returns nil
-// processes when Config.Hosts does not name host. A grant of this broker's host, or of no host, is not remote.
-func (b *Broker) remoteHost(host string) (HostProcesses, bool) {
-	if host == "" || host == b.host {
-		return nil, false
-	}
-	return b.hosts[host], true
+// remoteHost reports whether a grant of host follows another host's processes, which the broker asks through b.hosts. A
+// grant of this broker's host, or of no host, is not remote.
+func (b *Broker) remoteHost(host string) bool {
+	return host != "" && host != b.host
 }
 
 // reclaims reports whether req, a reclaim, names the grant that held is: it names the client pid the grant lasts with,
@@ -433,11 +431,11 @@ func (b *Broker) watchLocked(ctx context.Context, entry *waiter) {
 // broker's host, or of no host, watches the client through the OS. A grant of another host polls that host's processes,
 // and a host that Config.Hosts does not name is not watched.
 func (b *Broker) clientWatchOf(ctx context.Context, entry *waiter) (<-chan struct{}, func()) {
-	processes, remote := b.remoteHost(entry.req.Host)
-	switch {
-	case !remote:
+	if !b.remoteHost(entry.req.Host) {
 		return b.watchClient(entry.req.ClientPID, entry.clientStart)
-	case processes == nil:
+	}
+	processes := b.hosts[entry.req.Host]
+	if processes == nil {
 		return nil, func() {}
 	}
 	return remoteClientWatch(ctx, b.logger, b.afterFunc, processes, entry.req.ClientPID, entry.clientStart)
@@ -445,11 +443,11 @@ func (b *Broker) clientWatchOf(ctx context.Context, entry *waiter) (<-chan struc
 
 // holderWatchOf starts the exit watch of entry's holder, the same way clientWatchOf starts its client's.
 func (b *Broker) holderWatchOf(ctx context.Context, entry *waiter) (<-chan struct{}, func()) {
-	processes, remote := b.remoteHost(entry.req.Host)
-	switch {
-	case !remote:
+	if !b.remoteHost(entry.req.Host) {
 		return b.watchHolder(entry.req.Holder)
-	case processes == nil:
+	}
+	processes := b.hosts[entry.req.Host]
+	if processes == nil {
 		return nil, func() {}
 	}
 	return remoteHolderWatch(ctx, b.logger, b.afterFunc, processes, entry.req.Holder)

@@ -1185,7 +1185,6 @@ func startSessions(
 			CronWake:    host.cron.Wake, PutOffs: st, Panes: controllerPaneQuestions(opts, router),
 			EventWake: host.callerEvents.Wake, Hosts: holderHosts(clients),
 		})
-		host.grantHosts = grantHosts(clients)
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
@@ -1945,6 +1944,8 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 // newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
 // calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
 // The caller-event delivery wakes a pane on a remote host through the clients of the hosts file, by way of paneWaiters.
+// It also sets the processes the grants broker follows for the grants of each of those hosts (see grantHosts), which
+// startBroker hands the broker.
 func (h *sessionHost) newWakes(
 	st *store.Store,
 	opts options,
@@ -1952,6 +1953,7 @@ func (h *sessionHost) newWakes(
 	router enginehost.Router,
 	logger *slog.Logger,
 ) {
+	h.grantHosts = grantHosts(clients)
 	opts.paneAgents = paneWaiters(clients)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)

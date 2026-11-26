@@ -41,7 +41,10 @@ func remoteClientWatch(
 	return pollWatch(ctx, logger, afterFunc, fmt.Sprintf("client process %d", pid),
 		func(askCtx context.Context) (bool, error) {
 			alive, err := processes.ProcessAlive(askCtx, pid, start)
-			return !alive, err
+			if err != nil {
+				return false, fmt.Errorf("ask host whether client process %d lives: %w", pid, err)
+			}
+			return !alive, nil
 		})
 }
 
@@ -57,7 +60,10 @@ func remoteHolderWatch(
 	return pollWatch(ctx, logger, afterFunc, "holder directory "+dir,
 		func(askCtx context.Context) (bool, error) {
 			alive, err := processes.HolderAlive(askCtx, dir)
-			return !alive, err
+			if err != nil {
+				return false, fmt.Errorf("ask host whether holder %s lives: %w", dir, err)
+			}
+			return !alive, nil
 		})
 }
 

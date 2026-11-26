@@ -432,9 +432,9 @@ func (c *Captures) resumeRunning(ctx context.Context, capture store.Capture) err
 func (c *Captures) runFresh(
 	ctx context.Context, host hostexec.Host, repo string, capture store.Capture, item evidence.Item,
 ) {
-	hostName, err := c.store.EpicHost(ctx, capture.Epic)
-	if err != nil {
-		c.settle(ctx, capture, store.EvidenceCapture{}, fmt.Errorf("host of epic %s: %w", capture.Epic, err), false)
+	hostName, hostErr := c.store.EpicHost(ctx, capture.Epic)
+	if hostErr != nil {
+		c.settle(ctx, capture, store.EvidenceCapture{}, fmt.Errorf("host of epic %s: %w", capture.Epic, hostErr), false)
 		return
 	}
 	launched := false
