@@ -42,8 +42,8 @@ type StepSession struct {
 	Observer StepObserver
 	// Host is the orrery name of the host the step runs on, where empty means the controller.
 	Host string
-	// Files is the host the step's agent folders, settings and plugin files are read through, the host its epic runs on.
-	// Nil reads them through the manager's own controller host (see Manager.files).
+	// Files is the file system of the step's host, the host its epic runs on, which the step's agent folders, settings
+	// and plugin files are read through. Nil reads them through the manager's own controller host (see Manager.files).
 	Files hostexec.Files
 }
 
