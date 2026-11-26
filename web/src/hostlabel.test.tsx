@@ -23,7 +23,7 @@ import { InboxRow, type RowMore } from "./inboxrow";
 import { ProjectPage } from "./projectpage";
 import { PaneStrip } from "./strip";
 import { type Row, rowsFrom } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { TitleRow } from "./titlerow";
 import { buildTree, type Project } from "./tree";
 
@@ -244,7 +244,7 @@ test("HostsWebHostLabel: a headless session keeps the host it runs on, and its t
   assert.equal(onBrine.host, "brine", "the headless session's row keeps its host");
   await withDrawn(<PaneStrip host={stripHost(onBrine, status)} band />, (container) => {
     assert.deepEqual(hostNames(container, ".pane-strip-host .host-label"), ["brine"], "the strip names the row's host");
-    assert.equal(container.querySelector(".meter"), null, "a row on another host draws no stats");
+    assertNone(container.querySelector(".meter"), "a row on another host draws no stats");
   });
   const onServing = onlyRow(rowsFrom([], [], [headless("sess-2", serving, "/srv/app")]));
   await withDrawn(<PaneStrip host={stripHost(onServing, status)} band />, (container) => {

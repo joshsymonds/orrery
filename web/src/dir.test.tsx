@@ -7,7 +7,7 @@ import { render } from "preact";
 import { Dir } from "./dir";
 import { shippedSlices } from "./fixtures/slices";
 import { rowsFrom, type Row } from "./rows";
-import { installTestDom, removeTestDom } from "./testdom";
+import { assertNone, installTestDom, removeTestDom } from "./testdom";
 import { styleDeclaration } from "./teststyle";
 import type { Convo, Project } from "./tree";
 
@@ -91,7 +91,7 @@ test("InboxTree Dir: the head names the host its project runs on once, as a head
     assert.equal(textOf(container, ".dir-head .host-label.heading .name"), "halyard", "a project on the serving host names it too");
   });
   await withDir({ project: makeProject({ host: "" }) }, (container) => {
-    assert.equal(container.querySelector(".host-label"), null, "a project with no host draws a host label");
+    assertNone(container.querySelector(".host-label"), "a project with no host draws a host label");
   });
 });
 
