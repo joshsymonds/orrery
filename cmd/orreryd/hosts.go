@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostfollow"
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
@@ -119,6 +120,21 @@ func hostClients(
 		})
 	}
 	return clients
+}
+
+// routedHosts returns the hostexec.Map that startSessions resolves each host's work through, and the node.Client of each
+// hosts.toml host by the host's name. The controller's own Local is under hostName, and each client's RemoteHost is under
+// its host's name, each passed through opts.wrapHost. A hosts file that does not load leaves the map with the controller
+// alone and no clients (see hostClients).
+func routedHosts(
+	ctx context.Context, opts options, hostName string, getenv func(string) string, logger *slog.Logger,
+) (hostexec.Map, map[string]*node.Client) {
+	clients := hostClients(ctx, getenv, logger, opts.fleetSecret)
+	routed := hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}
+	for name, client := range clients {
+		routed[name] = opts.wrapHost(name, node.NewRemoteHost(client))
+	}
+	return routed, clients
 }
 
 // holderHosts returns the holderhost.Host of each client, by the host's name. The session manager starts a session on a

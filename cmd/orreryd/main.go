@@ -1159,11 +1159,7 @@ func startSessions(
 	// The controller's host is the one this machine runs as hostName, and every epic and contract the controller serves
 	// resolves its host through hosts. Each hosts.toml host's name resolves to its RemoteHost, which its agent serves, so
 	// work whose host is that name runs on that machine.
-	clients := hostClients(ctx, getenv, logger, opts.fleetSecret)
-	hosts := hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}
-	for name, client := range clients {
-		hosts[name] = opts.wrapHost(name, node.NewRemoteHost(client))
-	}
+	hosts, clients := routedHosts(ctx, opts, hostName, getenv, logger)
 	if st != nil {
 		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
@@ -1171,8 +1167,7 @@ func startSessions(
 		}
 		host.newWriter(opts, st, logger)
 		host.newCron(opts, st, logger)
-		opts.paneAgents = paneWaiters(clients)
-		host.newWakes(st, opts, router, logger)
+		host.newWakes(st, opts, clients, router, logger)
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
@@ -1936,14 +1931,15 @@ func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
 
 // newWakes builds the caller-event delivery and the limit notices over st, the two loops the Steps engine's stored wake
 // calls (see storedWake). They are built before the Steps engine, so the wake reaches both from the first stored hold.
-// The caller-event delivery wakes a pane on a remote host through the agents of opts.paneAgents, which startSessions sets
-// from the hosts file's clients (see paneWaiters).
+// The caller-event delivery wakes a pane on a remote host through the clients of the hosts file, by way of paneWaiters.
 func (h *sessionHost) newWakes(
 	st *store.Store,
 	opts options,
+	clients map[string]*node.Client,
 	router enginehost.Router,
 	logger *slog.Logger,
 ) {
+	opts.paneAgents = paneWaiters(clients)
 	h.newCallerEvents(st, opts, logger)
 	h.newLimitNotices(st, router, logger)
 }
@@ -2024,11 +2020,11 @@ func (h *sessionHost) newCallerEvents(st *store.Store, opts options, logger *slo
 
 // wrapHost returns host as the hostWrap seam wraps it under name, or host itself when no seam is set. startSessions
 // passes each host of its hostexec.Map through it.
-func (o options) wrapHost(name string, host hostexec.Host) hostexec.Host {
-	if o.hostWrap == nil {
+func (opts options) wrapHost(name string, host hostexec.Host) hostexec.Host {
+	if opts.hostWrap == nil {
 		return host
 	}
-	return o.hostWrap(name, host)
+	return opts.hostWrap(name, host)
 }
 
 // startCallerEvents runs h.callerEvents until shutdown, on one goroutine. Its Run makes one round at its start, then

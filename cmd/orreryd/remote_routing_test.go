@@ -257,7 +257,7 @@ func worktreePath(args []string) string {
 func startRoutingAgent(
 	t *testing.T, env routingEnv, name string, ln net.Listener, log *routingLog,
 	planned func(ctx context.Context) error,
-) string {
+) {
 	t.Helper()
 	stateDir := filepath.Join(env.root, "agent-"+name)
 	if err := os.Mkdir(stateDir, 0o700); err != nil {
@@ -287,7 +287,6 @@ func startRoutingAgent(
 			t.Errorf("serve agent %s: %v", name, err)
 		}
 	})
-	return stateDir
 }
 
 // routingFixture is the controller and its two agents, all in this process over real listeners. recorders holds the
@@ -376,8 +375,8 @@ func newRoutingFixture(t *testing.T) *routingFixture {
 	}
 	secretFile := relaySecretFile(t)
 
-	f.repo, f.base = f.routingRepo(t, filepath.Join(env.home, "repo"), routingHostB)
-	f.localRepo, f.localBase = f.routingRepo(t, filepath.Join(env.home, "local-repo"), routingController)
+	f.repo, f.base = f.routingRepo(t, filepath.Join(env.home, "repo"))
+	f.localRepo, f.localBase = f.routingRepo(t, filepath.Join(env.home, "local-repo"))
 	f.storePath = mustStorePath(t, getenv)
 	f.store = openPaneStore(t, f.storePath)
 	f.seedEpic(t, routingEpic, routingHostB, f.repo, f.base, true)
@@ -452,10 +451,10 @@ func writeRoutingFile(t *testing.T, path, content string) {
 }
 
 // routingRepo makes a repository at dir with one commit, and returns its path and that commit. Its project file declares
-// the pool of its gate on host, which owns the pool: the gate's grant is the controller's, and the gate runs on host. The
-// repository has a bare origin, since a release reads it. The fake claude writes its files into the worktrees, so the
-// repository excludes them.
-func (f *routingFixture) routingRepo(t *testing.T, dir, host string) (string, string) {
+// the pool of its gate on the controller, which owns the pool: the gate's grant is the controller's, and the gate runs on
+// the host that the epic names. The repository has a bare origin, since a release reads it. The fake claude writes its
+// files into the worktrees, so the repository excludes them.
+func (f *routingFixture) routingRepo(t *testing.T, dir string) (string, string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make repository: %v", err)
@@ -712,42 +711,45 @@ func routingUnder(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
-// routingFileOps are the calls that read a file or a directory on a host.
-var routingFileOps = []string{"ReadFile", "ReadRooted", "Stat", "Lstat", "ReadDir"}
-
-// routingFileCalls reports whether calls holds a call that reads a path under dir.
+// routingFileCalls reports whether calls holds a call that reads a file or a directory under dir.
 func routingFileCalls(calls []hostexectest.Call, dir string) bool {
+	fileOps := []string{"ReadFile", "ReadRooted", "Stat", "Lstat", "ReadDir"}
 	return slices.ContainsFunc(calls, func(call hostexectest.Call) bool {
-		return slices.Contains(routingFileOps, call.Op) && routingUnder(call.Path, dir)
+		return slices.Contains(fileOps, call.Op) && routingUnder(call.Path, dir)
 	})
 }
 
-// routingLocalSites lists the lines of the NewLocal grep that the test allows. Each names the file a line is in, a
-// snippet of its text, and the controller-only work the line serves. A line is matched by its text, so an edit that moves
-// it keeps its entry.
-var routingLocalSites = []struct {
+// routingSite is a line of the NewLocal grep that the test allows: the file the line is in, a snippet of its text, and the
+// controller-only work the line serves.
+type routingSite struct {
 	file, snippet, work string
-}{
-	{
-		file:    "cmd/orreryd/main.go",
-		snippet: "hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}",
-		work:    "the controller's own host, which serves the work whose host is the controller",
-	},
-	{
-		file:    "cmd/orreryd/main.go",
-		snippet: "hostexec.NewLocal(), os.Environ(), stateDir,",
-		work:    "the controller's probe of the Gradle environment its own children build under",
-	},
-	{
-		file:    "internal/enginehost/contractstates.go",
-		snippet: "fetchOriginMain(ctx, hostexec.NewLocal(), repository)",
-		work:    "the contract stage's fetch of origin, which runs on the controller",
-	},
-	{
-		file:    "internal/enginehost/manager.go",
-		snippet: "hostexec.NewLocal(), // serves the controller's own work",
-		work:    "the files that the controller's own sessions read agents from",
-	},
+}
+
+// routingLocalSites returns the lines of the NewLocal grep that the test allows. A line is matched by its text, so an
+// edit that moves it keeps its entry.
+func routingLocalSites() []routingSite {
+	return []routingSite{
+		{
+			file:    "cmd/orreryd/hosts.go",
+			snippet: "routed := hostexec.Map{hostName: opts.wrapHost(hostName, hostexec.NewLocal())}",
+			work:    "the controller's own host, which serves the work whose host is the controller",
+		},
+		{
+			file:    "cmd/orreryd/main.go",
+			snippet: "hostexec.NewLocal(), os.Environ(), stateDir,",
+			work:    "the controller's probe of the Gradle environment its own children build under",
+		},
+		{
+			file:    "internal/enginehost/contractstates.go",
+			snippet: "fetchOriginMain(ctx, hostexec.NewLocal(), repository)",
+			work:    "the contract stage's fetch of origin, which runs on the controller",
+		},
+		{
+			file:    "internal/enginehost/manager.go",
+			snippet: "hostexec.NewLocal(), // serves the controller's own work",
+			work:    "the files that the controller's own sessions read agents from",
+		},
+	}
 }
 
 // routingNewLocalLines returns the lines that the NewLocal grep prints, each as its file and its text.
@@ -918,21 +920,24 @@ func TestRemoteRouting(t *testing.T) {
 	})
 	t.Run("NewLocal grep prints only the lines the test names", func(t *testing.T) {
 		files, texts := routingNewLocalLines(t)
-		printed := make([]bool, len(routingLocalSites))
+		sites := routingLocalSites()
+		printed := make([]bool, len(sites))
 		for i, file := range files {
 			matched := false
-			for j, site := range routingLocalSites {
+			for j, site := range sites {
 				if file == site.file && strings.Contains(texts[i], site.snippet) {
 					matched, printed[j] = true, true
 				}
 			}
 			if !matched {
-				t.Errorf("the NewLocal grep prints %s: %s, which the test does not name", file, strings.TrimSpace(texts[i]))
+				t.Errorf("the NewLocal grep prints %s: %s, which the test does not name",
+					file, strings.TrimSpace(texts[i]))
 			}
 		}
-		for j, site := range routingLocalSites {
+		for j, site := range sites {
 			if !printed[j] {
-				t.Errorf("the test names %s: %s (%s), which the grep no longer prints", site.file, site.snippet, site.work)
+				t.Errorf("the test names %s: %s (%s), which the grep no longer prints",
+					site.file, site.snippet, site.work)
 			}
 		}
 	})
