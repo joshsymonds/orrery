@@ -34,7 +34,8 @@ func TestDefaultHostUnknownFailsStartup(t *testing.T) {
 		}
 	})
 	t.Run("the orrery name", func(t *testing.T) {
-		getenv, _ := hostMigrationEnv(t, "name = \""+hostMigrationFileName+"\"\ndefault = \""+hostMigrationFileName+"\"\n")
+		getenv, _ := hostMigrationEnv(t,
+			"name = \""+hostMigrationFileName+"\"\ndefault = \""+hostMigrationFileName+"\"\n")
 		_, orrery, _, err := controllerHost(options{host: hostMigrationName}, getenv)
 		if err != nil {
 			t.Fatalf("controllerHost with the default the orrery name: %v", err)

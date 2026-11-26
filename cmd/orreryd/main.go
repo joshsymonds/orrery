@@ -1253,18 +1253,31 @@ func startSessions(
 			return nil, host.abortStart(err)
 		}
 	}
-	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
-	if err != nil {
-		host.shutdown()
-		return nil, fmt.Errorf("session socket: %w", err)
-	}
 	cfg := host.serveConfig(
 		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, placement,
 		serveOpts(opts, st, logger))
-	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
+	return host.listenSessions(ctx, opts, st, cfg, getenv, logger)
+}
+
+// listenSessions opens the session socket and serves cfg on it, as startSessionSocket does. A socket that does not open
+// shuts the host down and fails the start.
+func (h *sessionHost) listenSessions(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) (*sessionHost, error) {
+	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
+	if err != nil {
+		h.shutdown()
+		return nil, fmt.Errorf("session socket: %w", err)
+	}
+	if err := h.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
 		return nil, err
 	}
-	return host, nil
+	return h, nil
 }
 
 // startSessionSocket serves cfg on ln in the background until stop, and opens the relay beside it when startRelay opens

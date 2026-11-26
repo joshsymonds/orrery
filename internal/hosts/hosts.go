@@ -138,7 +138,8 @@ func checkDefault(path string, file File) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("hosts file %s: default %q names neither the name %q nor a listed host", path, file.Default, file.Name)
+	return fmt.Errorf(
+		"hosts file %s: default %q names neither the name %q nor a listed host", path, file.Default, file.Name)
 }
 
 // validName reports whether name is non-empty and made only of lowercase letters, digits and hyphens.

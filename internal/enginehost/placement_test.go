@@ -163,17 +163,15 @@ func TestPlacementDefaultHostNoDefaultPlacesController(t *testing.T) {
 // TestPlacementDefaultHostIgnoresLoad shows that the default is placed whatever the load: host b reports 100% load and
 // host a 0%, and Place("") still places b.
 func TestPlacementDefaultHostIgnoresLoad(t *testing.T) {
-	hosts := map[string]Reacher{
-		placementHostA: fakePlacementHost{reachable: true, load: 0},
-		placementHostB: fakePlacementHost{reachable: true, load: 100},
-	}
-	if load := hosts[placementHostB].(fakePlacementHost).Load(); load != 100 {
+	a := fakePlacementHost{reachable: true, load: 0}
+	b := fakePlacementHost{reachable: true, load: 100}
+	if load := b.Load(); load != 100 {
 		t.Fatalf("fake %s load = %v, want 100", placementHostB, load)
 	}
-	if load := hosts[placementHostA].(fakePlacementHost).Load(); load != 0 {
+	if load := a.Load(); load != 0 {
 		t.Fatalf("fake %s load = %v, want 0", placementHostA, load)
 	}
-	p := placementWith(placementHostB, hosts)
+	p := placementWith(placementHostB, map[string]Reacher{placementHostA: a, placementHostB: b})
 	got, err := p.Place("")
 	if err != nil {
 		t.Fatalf("Place(\"\"): %v", err)
