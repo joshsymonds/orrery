@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,10 +12,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
+	"time"
+
+	"connectrpc.com/connect"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostload"
@@ -30,6 +39,9 @@ import (
 // nodeClaude is the claude binary that the agent's sessions and summaries run, as orreryd's --claude default names it.
 const nodeClaude = "claude"
 
+// seenTimeout bounds one seen report's call to the controller, which goes through sessions.sock.
+const seenTimeout = 10 * time.Second
+
 // nodeConfig is the command line of orrery node, as parseNode reads it, with the seams that tests set. Production
 // leaves every seam zero.
 type nodeConfig struct {
@@ -40,10 +52,12 @@ type nodeConfig struct {
 	secretFile  string
 	holderScope string
 	roots       listFlag
-	// daemonSocket is the global --socket, beside which sessions.sock lies when serveSessions is set.
+	// daemonSocket is the global --socket, which names the daemon socket that the local sockets lie beside when
+	// serveSessions is set.
 	daemonSocket string
-	// serveSessions is whether the node binds the sessions.sock beside daemonSocket and forwards it to relay. runNode
-	// sets it. A node without it, as the tests that start one directly are, serves no sessions.sock.
+	// serveSessions is whether the node binds the daemon socket, the notices.sock and the sessions.sock beside it, and
+	// forwards sessions.sock to relay. runNode sets it. A node without it, as the tests that start one directly are,
+	// binds none of them.
 	serveSessions bool
 	seams         nodeSeams
 }
@@ -61,8 +75,8 @@ type nodeSeams struct {
 }
 
 // runNode runs `orrery node`, which serves node.v1 to the controller its flags name, until SIGINT or SIGTERM. The tmux
-// server named by the global flags is the one its panes are of. It also serves sessions.sock beside the daemon socket
-// the global --socket names, and forwards it to --relay.
+// server named by the global flags is the one its panes are of. It also serves the daemon socket that the global
+// --socket names, the notices.sock beside it, and the sessions.sock beside it, which forwards to --relay.
 func runNode(ctx context.Context, opts globals, args []string, stderr io.Writer, getenv func(string) string) error {
 	cfg, err := parseNode(args)
 	if err != nil {
@@ -121,9 +135,9 @@ func parseNode(args []string) (nodeConfig, error) {
 }
 
 // serveNode serves node.v1 as cfg describes. It reads the fleet secret first, so a secret file that is refused starts
-// nothing. It builds the agent, binds the sessions.sock when cfg serves one, listens on cfg's address, and serves until
-// SIGINT or SIGTERM. The sessions.sock is bound before the address is listened on, so a listener that reports its
-// address has a sessions.sock beside it. Its panes run alongside the agent, and a failure of any of them ends all.
+// nothing. It builds the agent, binds the local sockets when cfg serves them, listens on cfg's address, and serves
+// until SIGINT or SIGTERM. The local sockets are bound before the address is listened on, so a listener that reports
+// its address has them beside it. Its panes run alongside the agent, and a failure of any of them ends all.
 func serveNode(ctx context.Context, cfg nodeConfig, stderr io.Writer, getenv func(string) string) error {
 	secret, err := node.ReadSecret(cfg.secretFile)
 	if err != nil {
@@ -136,15 +150,15 @@ func serveNode(ctx context.Context, cfg nodeConfig, stderr io.Writer, getenv fun
 	if err != nil {
 		return err
 	}
-	var sessions net.Listener
+	var local localSockets
 	if cfg.serveSessions {
-		if sessions, err = listenSessions(cfg.daemonSocket, getenv); err != nil {
+		if local, err = listenLocal(cfg, logger, getenv); err != nil {
 			return err
 		}
 	}
 	ln, err := listenNode(ctx, cfg)
 	if err != nil {
-		return errors.Join(err, closeSessions(sessions))
+		return errors.Join(err, local.close())
 	}
 	fwd := hostrelay.ForwardConfig{
 		Address: cfg.relay,
@@ -152,33 +166,58 @@ func serveNode(ctx context.Context, cfg nodeConfig, stderr io.Writer, getenv fun
 		Secret:  secret,
 		Logger:  logger,
 	}
-	return serveAgent(ctx, agent, host, ln, sessions, fwd)
+	return serveAgent(ctx, agent, host, ln, local, fwd)
 }
 
-// listenSessions binds the sessions.sock beside the daemon socket that protocol.SocketPath resolves from daemonSocket
-// and getenv. The socket is mode 0600, and a stale socket file is replaced only when nothing answers on it, as
-// enginehost.Listen does for the daemon's sessions socket. It fails when no daemon socket is named.
-func listenSessions(daemonSocket string, getenv func(string) string) (net.Listener, error) {
-	socket, err := protocol.SocketPath(daemonSocket, getenv)
-	if err != nil {
-		return nil, fmt.Errorf("node: %w", err)
-	}
-	ln, err := enginehost.Listen(protocol.SessionSocketPath(socket))
-	if err != nil {
-		return nil, fmt.Errorf("node: sessions socket: %w", err)
-	}
-	return ln, nil
+// localSockets are the sockets that serve this host's verbs: the daemon socket that protocol.SocketPath resolves, the
+// notices.sock beside it, and the sessions.sock beside them, which forwards to the relay. The zero value binds none of
+// them. The calls that the daemon socket and the notices socket make to the controller go through sessions.sock, as the
+// CLI's calls do, so each reaches the relay as this host.
+type localSockets struct {
+	daemon   net.Listener
+	notices  net.Listener
+	sessions net.Listener
+	// fleet is the controller's Fleet service, which each call reaches through sessions.sock.
+	fleet  enginev1connect.FleetClient
+	logger *slog.Logger
 }
 
-// closeSessions closes sessions, the listener that listenSessions bound, and does nothing when it bound none.
-func closeSessions(sessions net.Listener) error {
-	if sessions == nil {
-		return nil
+// listenLocal binds the local sockets beside the daemon socket that protocol.SocketPath resolves from cfg.daemonSocket
+// and getenv. It binds the notices socket, then the sessions.sock, then the daemon socket, so a client that finds the
+// daemon socket finds the others listening. Each socket is mode 0600, and a stale socket file is replaced only when
+// nothing answers on it. A failure closes what was bound and names the socket that failed.
+func listenLocal(cfg nodeConfig, logger *slog.Logger, getenv func(string) string) (localSockets, error) {
+	socket, err := protocol.SocketPath(cfg.daemonSocket, getenv)
+	if err != nil {
+		return localSockets{}, fmt.Errorf("node: %w", err)
 	}
-	if err := sessions.Close(); err != nil {
-		return fmt.Errorf("node: close the sessions socket: %w", err)
+	local := localSockets{logger: logger}
+	if local.notices, err = daemon.Listen(deskstream.SocketPath(socket)); err != nil {
+		return localSockets{}, fmt.Errorf("node: notices socket: %w", err)
 	}
-	return nil
+	if local.sessions, err = enginehost.Listen(protocol.SessionSocketPath(socket)); err != nil {
+		return localSockets{}, errors.Join(fmt.Errorf("node: sessions socket: %w", err), local.close())
+	}
+	if local.daemon, err = daemon.Listen(socket); err != nil {
+		return localSockets{}, errors.Join(fmt.Errorf("node: daemon socket: %w", err), local.close())
+	}
+	sessionsHTTP := cli.SessionHTTPClient(protocol.SessionSocketPath(socket))
+	local.fleet = enginev1connect.NewFleetClient(sessionsHTTP, cli.SessionBaseURL)
+	return local, nil
+}
+
+// close closes each local socket that is bound, and returns the errors of those that fail to close.
+func (l localSockets) close() error {
+	var errs []error
+	for _, ln := range []net.Listener{l.daemon, l.notices, l.sessions} {
+		if ln == nil {
+			continue
+		}
+		if err := ln.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("node: close a local socket: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // listenNode binds cfg's listen address, through the listen seam when a test sets one. A failure names the address.
@@ -292,36 +331,40 @@ func nodePanes(cfg nodeConfig, claude string, logger *slog.Logger, getenv func(s
 	return host, nil
 }
 
-// serveAgent runs host's panes, forwards sessions to the relay as fwd describes, and serves agent on ln until ctx ends.
-// A failure of any of them ends the others too, and the error of each is returned. The listener is closed on return,
-// unless the agent has already closed it. Forward closes sessions.
+// serveAgent runs host's panes, forwards sessions to the relay as fwd describes, serves the local sockets, and serves
+// agent on ln until ctx ends. A failure of any of them ends the others too, and the error of each is returned. The
+// listener is closed on return, unless the agent has already closed it. Forward closes sessions, and the local sockets
+// close once ctx ends.
 func serveAgent(
-	ctx context.Context, agent *node.Agent, host *panehost.Host, ln, sessions net.Listener, fwd hostrelay.ForwardConfig,
+	ctx context.Context, agent *node.Agent, host *panehost.Host, ln net.Listener, local localSockets,
+	fwd hostrelay.ForwardConfig,
 ) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	panesErr := make(chan error, 1)
-	go func() {
-		err := host.Run(ctx)
-		if err != nil {
-			cancel()
-		}
-		panesErr <- err
-	}()
-	forwardErr := make(chan error, 1)
-	go func() {
-		err := forwardSessions(ctx, sessions, fwd)
-		if err != nil {
-			cancel()
-		}
-		forwardErr <- err
-	}()
+	panesErr := goServe(cancel, func() error { return host.Run(ctx) })
+	forwardErr := goServe(cancel, func() error { return forwardSessions(ctx, local.sessions, fwd) })
+	daemonErr := goServe(cancel, func() error { return local.serveDaemon(ctx) })
+	noticesErr := goServe(cancel, func() error { return local.serveDeskStream(ctx) })
 	serveErr := agent.Serve(ctx, ln)
 	cancel()
 	if err := ln.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 		serveErr = errors.Join(serveErr, fmt.Errorf("node: close the listener: %w", err))
 	}
-	return errors.Join(serveErr, <-panesErr, <-forwardErr)
+	return errors.Join(serveErr, <-panesErr, <-forwardErr, <-daemonErr, <-noticesErr)
+}
+
+// goServe runs run on a goroutine of its own and returns the channel that receives its error. A run that fails calls
+// cancel, so that the others stop too.
+func goServe(cancel context.CancelFunc, run func() error) <-chan error {
+	errs := make(chan error, 1)
+	go func() {
+		err := run()
+		if err != nil {
+			cancel()
+		}
+		errs <- err
+	}()
+	return errs
 }
 
 // forwardSessions forwards sessions to the relay as fwd describes until ctx ends. A node that binds no sessions.sock,
@@ -332,6 +375,133 @@ func forwardSessions(ctx context.Context, sessions net.Listener, fwd hostrelay.F
 	}
 	if err := hostrelay.Forward(ctx, sessions, fwd); err != nil {
 		return fmt.Errorf("node: forward the sessions socket: %w", err)
+	}
+	return nil
+}
+
+// serveDaemon serves the daemon socket until ctx ends, with the answers of a node. A sessions question is answered on,
+// since a node runs sessions. Each seen report goes to the controller's Fleet.ReportSeen. Each read or input report is
+// logged and dropped, since a host runs no engine, and serve sends those reports on every read and input. A nil daemon
+// socket serves nothing.
+func (l localSockets) serveDaemon(ctx context.Context) error {
+	if l.daemon == nil {
+		return nil
+	}
+	err := daemon.Serve(ctx, l.daemon, daemon.Config{
+		Sessions: true,
+		Seen:     func(report daemon.SeenReport) { l.reportSeen(ctx, report) },
+		Read: func(report daemon.ReadReport) {
+			l.logger.DebugContext(ctx, "drop read report", "pane", report.PaneID)
+		},
+		Viewing: func(report daemon.ViewReport) {
+			l.logger.DebugContext(ctx, "drop input report", "input", report.Input)
+		},
+		Logger: l.logger,
+	})
+	if err != nil {
+		return fmt.Errorf("node: serve the daemon socket: %w", err)
+	}
+	return nil
+}
+
+// reportSeen sends a seen report to the controller's Fleet.ReportSeen through sessions.sock. The hook that wrote the
+// report has gone by then, so a call that fails is logged, not returned.
+func (l localSockets) reportSeen(ctx context.Context, report daemon.SeenReport) {
+	callCtx, cancel := context.WithTimeout(ctx, seenTimeout)
+	defer cancel()
+	_, err := l.fleet.ReportSeen(callCtx, connect.NewRequest(&v1.FleetReportSeenRequest{
+		Pane: report.PaneID,
+		Seen: report.Seen,
+	}))
+	if err != nil {
+		l.logger.WarnContext(ctx, "report seen", "pane", report.PaneID, "error", err)
+	}
+}
+
+// serveDeskStream serves the notices socket until ctx ends: each connection gets its own desk stream, and the listener
+// closes once ctx ends. A nil notices socket serves nothing.
+func (l localSockets) serveDeskStream(ctx context.Context) error {
+	if l.notices == nil {
+		return nil
+	}
+	var conns sync.WaitGroup
+	defer conns.Wait()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	context.AfterFunc(ctx, func() {
+		if err := l.notices.Close(); err != nil {
+			l.logger.ErrorContext(ctx, "close the notices socket", "error", err)
+		}
+	})
+	for {
+		conn, err := l.notices.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("node: accept on the notices socket: %w", err)
+		}
+		conns.Add(1)
+		go func() {
+			defer conns.Done()
+			l.streamDesk(ctx, conn)
+		}()
+	}
+}
+
+// streamDesk writes the controller's desk stream to conn until the stream or conn ends. Each message of the stream is
+// written as the deskstream JSON line that a desk reads. The lines the desk sends back are read and discarded, as the
+// deskstream hub does, and the desk's end of the connection ends the stream.
+func (l localSockets) streamDesk(ctx context.Context, conn net.Conn) {
+	defer func() {
+		if err := conn.Close(); err != nil {
+			l.logger.DebugContext(ctx, "close the notices stream", "error", err)
+		}
+	}()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		defer cancel()
+		if _, err := io.Copy(io.Discard, conn); err != nil {
+			l.logger.DebugContext(ctx, "read the notices stream", "error", err)
+		}
+	}()
+	stream, err := l.fleet.WatchDesk(ctx, connect.NewRequest(&v1.FleetWatchDeskRequest{}))
+	if err != nil {
+		l.logger.WarnContext(ctx, "watch desk", "error", err)
+		return
+	}
+	defer func() {
+		if err := stream.Close(); err != nil {
+			l.logger.DebugContext(ctx, "close the desk stream", "error", err)
+		}
+	}()
+	for stream.Receive() {
+		if err := writeDeskLine(conn, stream.Msg()); err != nil {
+			l.logger.DebugContext(ctx, "write the notices stream", "error", err)
+			return
+		}
+	}
+	if err := stream.Err(); err != nil && ctx.Err() == nil {
+		l.logger.WarnContext(ctx, "watch desk", "error", err)
+	}
+}
+
+// writeDeskLine writes msg to out as the deskstream JSON line that a desk reads, newline included.
+func writeDeskLine(out io.Writer, msg *v1.FleetWatchDeskResponse) error {
+	line, err := json.Marshal(deskstream.Line{
+		Kind:  msg.GetKind(),
+		Host:  msg.GetHost(),
+		State: msg.GetState(),
+		Title: msg.GetTitle(),
+		Body:  msg.GetBody(),
+		Quiet: msg.GetQuiet(),
+	})
+	if err != nil {
+		return fmt.Errorf("encode desk line: %w", err)
+	}
+	if _, err = out.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("write desk line: %w", err)
 	}
 	return nil
 }
