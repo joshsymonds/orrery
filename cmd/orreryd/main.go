@@ -217,7 +217,8 @@ type options struct {
 	// startSessions directly leaves it "", which names no host.
 	orrery string
 	// fleet is the Fleet service's router and desk. serve sets it to the notice router and desk hub it builds, and
-	// startSessions serves it on the relay and the session socket. A test that calls startSessions directly leaves it nil.
+	// startSessionSocket serves it on the relay and the session socket. A test that calls startSessions directly
+	// leaves it nil.
 	fleet *enginehost.Fleet
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
@@ -708,7 +709,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	router := hub.router
 	// The Fleet service records each host's seen panes on the router and streams the desk's lines.
 	opts.fleet = &enginehost.Fleet{Router: router, Desk: desk}
-	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// callerWake holds the caller-event wake once startSessions has returned the host, so the pane observer does nothing
 	// until then.
 	var callerWake atomic.Pointer[func()]
@@ -720,9 +720,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		DefaultServer: opts.defaultServer,
 		Home:          home,
 		Sessions:      opts.sessions,
-		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
-			router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
-		}, hub.viewer), callerWakeOnDone(&callerWake)},
+		Observers: []daemon.Observer{
+			func(transition daemon.Transition) { hub.observe(ctx, transition) },
+			autoseen.New(time.Now, logger, func(pane string, seen int64) {
+				router.Seen(ctx, notice.Key{Pane: pane, Host: opts.orrery}, seen)
+			}, hub.viewer),
+			callerWakeOnDone(&callerWake),
+		},
 		Seen:      hookSeen(ctx, router, opts.orrery),
 		Input:     desk.Input,
 		Viewing:   func(report daemon.ViewReport) { viewing.note(report.Input, report.View) },
@@ -1225,8 +1229,7 @@ func startSessions(
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
 	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, opts.fleet, hostName, opts.orrery, hosts,
-		serveOpts(opts, st, logger))
+		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
 	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
 		return nil, err
 	}
@@ -1244,6 +1247,8 @@ func (h *sessionHost) startSessionSocket(
 	getenv func(string) string,
 	logger *slog.Logger,
 ) error {
+	// The relay and the session socket serve the same cfg, so the Fleet service is served on both.
+	cfg.Fleet = opts.fleet
 	if err := h.startRelay(ctx, opts, st, cfg, getenv, logger); err != nil {
 		h.shutdown()
 		return errors.Join(err, ln.Close())
@@ -1338,15 +1343,14 @@ func adoptSessionState(
 }
 
 // serveConfig returns what the session socket serves: the services the host holds, and the given commands, evidence,
-// notices, crons and fleet, with handlerOpts on each handler, hostName as the host each epic is stamped with, and
-// callerHost as the orrery name of the host whose panes the socket's calls come from.
+// notices and crons, with handlerOpts on each handler, hostName as the host each epic is stamped with, and callerHost
+// as the orrery name of the host whose panes the socket's calls come from.
 func (h *sessionHost) serveConfig(
 	commands enginehost.Commands,
 	steps enginehost.StepCommands,
 	evidence enginehost.EvidenceCommands,
 	notices enginehost.NoticeSource,
 	crons enginehost.CronCommands,
-	fleet *enginehost.Fleet,
 	hostName string,
 	callerHost string,
 	hosts hostexec.Hosts,
@@ -1367,7 +1371,6 @@ func (h *sessionHost) serveConfig(
 		Stage:      h.stage,
 		Accounts:   h.accounts,
 		PaneSends:  h.paneSends,
-		Fleet:      fleet,
 		Host:       hostName,
 		CallerHost: callerHost,
 		Hosts:      hosts,
