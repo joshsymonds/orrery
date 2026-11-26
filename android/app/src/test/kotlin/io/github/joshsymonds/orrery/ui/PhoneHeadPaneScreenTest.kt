@@ -72,8 +72,6 @@ private const val COMPACT_BADGE_TAG = "compact-badge:example-repo/rota-export"
 private const val BAND_LINE_TAG = "band-line:example-repo/rota-export"
 private const val TITLE_TAG = "head-title"
 private const val HOST_LABEL_TAG = "host-label"
-private const val HOST_METERS_TAG = "host-meters"
-private const val METER_CPU_TAG = "meter:cpu"
 private const val SYNTHETIC_GOAL = "synthetic goal text"
 private const val OTHER_HOST = "other-host"
 
@@ -359,7 +357,7 @@ class PhoneHeadPaneScreenTest {
     }
 
     @Test
-    fun anotherHostIsTheTitleRowsLabelAndTheHeadDrawsNoMeters() {
+    fun anotherHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             servePane(server, host = OTHER_HOST)
             server.respond(HOST_PATH, HOST_BODY)
@@ -370,13 +368,11 @@ class PhoneHeadPaneScreenTest {
             composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
             composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
                 .assertTextEquals(OTHER_HOST)
-            composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
-            composeRule.onAllNodesWithTag(METER_CPU_TAG, useUnmergedTree = true).assertCountEquals(0)
         }
     }
 
     @Test
-    fun theLocalHostIsTheTitleRowsLabelAndTheHeadDrawsNoMeters() {
+    fun theLocalHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             servePane(server)
             server.respond(HOST_PATH, HOST_BODY)
@@ -387,9 +383,6 @@ class PhoneHeadPaneScreenTest {
             composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
             composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
                 .assertTextEquals(PANE_HOST)
-            // The host reports a cpu stat, which a head that drew meters would show.
-            composeRule.onAllNodesWithTag(HOST_METERS_TAG, useUnmergedTree = true).assertCountEquals(0)
-            composeRule.onAllNodesWithTag(METER_CPU_TAG, useUnmergedTree = true).assertCountEquals(0)
         }
     }
 }

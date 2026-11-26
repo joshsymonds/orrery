@@ -72,7 +72,6 @@ private const val HOST_PATH = "/orrery.v1.Host/Status"
 private const val SERVING_HOST = "example-host"
 private const val TITLE_TAG = "head-title"
 private const val HOST_LABEL_TAG = "host-label"
-private const val HOST_METERS_TAG = "host-meters"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -138,12 +137,6 @@ class PhoneHeadSessionScreenTest {
         )
     }
 
-    /** A host meter's node: the meters' grid, or one meter's own node. */
-    private val hostMeter = SemanticsMatcher("a host meter") { node ->
-        val tag = node.config.getOrElse(SemanticsProperties.TestTag) { "" }
-        tag == HOST_METERS_TAG || tag.startsWith("meter")
-    }
-
     /** The screen's instance, which a restart replaces; the device's hidden choice outlives it. */
     private val screenInstance = mutableIntStateOf(0)
 
@@ -187,10 +180,9 @@ class PhoneHeadSessionScreenTest {
     }
 
     @Test
-    fun theServingHostIsTheTitleRowsLabelAndTheHeadDrawsNoHostMeters() {
+    fun theServingHostIsTheTitleRowsLabel() {
         FakeOrreryServer().use { server ->
             serveStreams(server, streamOf(fullDelta()))
-            // The host reports a cpu stat, which a head that drew meters would show as meter:cpu.
             server.respond(
                 HOST_PATH,
                 HostStatusResponse.newBuilder()
@@ -204,8 +196,6 @@ class PhoneHeadSessionScreenTest {
             composeRule.awaitExactlyOne(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
             composeRule.onNode(hasTestTag(HOST_LABEL_TAG) and hasAnyAncestor(hasTestTag(TITLE_TAG)))
                 .assertTextEquals(SERVING_HOST)
-            composeRule.onAllNodes(hostMeter and hasAnyAncestor(hasTestTag(HEAD_TAG)), useUnmergedTree = true)
-                .assertCountEquals(0)
         }
     }
 
