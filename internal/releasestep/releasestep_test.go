@@ -24,6 +24,13 @@ func updateParams() Params {
 		Units: []string{"orreryd", "orrery-serve"}}
 }
 
+// hostsParams are the parameters of a well-formed hosts step: the run argv of the project file, with {host} and
+// {target}.
+func hostsParams() Params {
+	return Params{Flake: "/home/owner/nix-config", Run: []string{"nixos-rebuild", "switch", "--flake", ".#{host}",
+		"--target-host", "{target}", "--sudo"}, Units: []string{"orrery-node"}}
+}
+
 // TestProblemAcceptsEachKindAndAgentStep: an agent step with no parameters and each kind with exactly its own
 // parameters are well formed.
 func TestProblemAcceptsEachKindAndAgentStep(t *testing.T) {
@@ -34,6 +41,7 @@ func TestProblemAcceptsEachKindAndAgentStep(t *testing.T) {
 		KindTag:      {Prefix: "v"},
 		KindPinFlake: pinParams(),
 		KindUpdate:   updateParams(),
+		KindHosts:    hostsParams(),
 	}
 	for kind, params := range cases {
 		if field, reason := Problem(kind, params); field != "" || reason != "" {
@@ -77,6 +85,7 @@ func TestProblemRefusesEachMalformedStep(t *testing.T) {
 		{"blank run element", KindUpdate, withUpdate(func(p *Params) { p.Run = []string{"update", " "} }), ParamRun,
 			reasonBlank},
 		{"blank unit", KindUpdate, withUpdate(func(p *Params) { p.Units = []string{""} }), ParamUnits, reasonBlank},
+		{"hosts with no run", KindHosts, Params{Flake: "/f", Units: []string{"orrery-node"}}, ParamRun, "missing"},
 	}
 	for _, c := range cases {
 		field, reason := Problem(c.kind, c.params)
@@ -101,6 +110,8 @@ func TestArgvNamesEachKindsFlags(t *testing.T) {
 			"orrery", "-url", "github:joshsymonds/orrery/{tag}"}},
 		KindUpdate: {updateParams(), []string{"-branch", "main", "-flake", "/home/owner/nix-config", "-unit",
 			"orreryd", "-unit", "orrery-serve", "--", "update"}},
+		KindHosts: {hostsParams(), []string{"-flake", "/home/owner/nix-config", "-unit", "orrery-node", "--",
+			"nixos-rebuild", "switch", "--flake", ".#{host}", "--target-host", "{target}", "--sudo"}},
 	}
 	for kind, c := range cases {
 		got := Argv("/bin/orrery", kind, c.params, "abc123", "the change")
@@ -120,6 +131,7 @@ func TestParseArgsReadsWhatArgvWrites(t *testing.T) {
 		KindTag:      {Prefix: "v"},
 		KindPinFlake: pinParams(),
 		KindUpdate:   updateParams(),
+		KindHosts:    hostsParams(),
 	}
 	for kind, params := range cases {
 		inv, err := parseArgs(Argv("orrery", kind, params, "abc123", "a title")[2:])
@@ -154,6 +166,7 @@ func TestMainRefusesMalformedCommandLineWithUsageStatus(t *testing.T) {
 		{KindTag, "-candidate", "abc", "-prefix", "v*"},
 		{KindPushMain, "-candidate", "abc", "-branch", "main", "extra"},
 		{KindUpdate, "-candidate", "abc", "-branch", "main", "-flake", "/f", "-unit", "orreryd"},
+		{KindHosts, "-candidate", "abc", "-branch", "main", "-flake", "/f", "-unit", "orrery-node", "--", "update"},
 	}
 	for _, args := range cases {
 		if _, err := parseArgs(args); !errors.Is(err, errUsage) {
