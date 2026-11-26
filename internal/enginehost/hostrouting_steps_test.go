@@ -2,11 +2,13 @@ package enginehost
 
 import (
 	"log/slog"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/holderhost"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -40,6 +42,21 @@ func newHostRoutingFixture(t *testing.T) hostRoutingFixture {
 	}); err != nil {
 		t.Fatalf("CreateEpic: %v", err)
 	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("find sh: %v", err)
+	}
+	stateB := holderRoot(t)
+	t.Cleanup(func() { clearHolderDirs(t, stateB) })
+	b := holderhost.NewLocal(holderhost.LocalConfig{
+		Shell: sh, Claude: fakeClaudePath(t), Environ: rig.environ, StateDir: stateB, CronHook: true,
+	})
+	m := NewManager(Config{
+		Shell: sh, Claude: fakeClaudePath(t), Environ: rig.environ, StateDir: rig.root, HostName: "a",
+		Hosts: map[string]holderhost.Host{"b": b}, Writer: writer, Now: fixedClock, AfterFunc: stepHostNoTimer,
+		Notifier: &fakeSink{}, Store: rig.store, HolderScope: fakeSystemdRunPath(t),
+	})
+	t.Cleanup(m.Close)
 	f := hostRoutingFixture{
 		repo:      repo,
 		worktrees: rig.worktrees,
@@ -49,7 +66,7 @@ func newHostRoutingFixture(t *testing.T) hostRoutingFixture {
 	clock := &watchLoopClock{at: watchEpoch()}
 	timers := &stepDeadlineTimers{}
 	f.steps = NewSteps(StepsConfig{
-		Sessions:     rig.manager,
+		Sessions:     m,
 		Store:        rig.store,
 		Writer:       writer,
 		Worktrees:    rig.worktrees,
