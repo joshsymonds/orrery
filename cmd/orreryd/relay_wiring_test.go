@@ -34,13 +34,15 @@ address = "` + relayAgentFQDN + `:7443"
 // relaySecret is the fleet secret that the test relay admits calls by, and that the test client sends with each call.
 const relaySecret = "synthetic-fleet-secret"
 
-// secretInterceptor sets relaySecret as the fleet secret of each call, as an agent's forwarder sets it.
-var secretInterceptor = connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		req.Header().Set(protocol.HeaderSecret, relaySecret)
-		return next(ctx, req)
-	}
-})
+// secretOption makes a client send relaySecret as the fleet secret of each call, as an agent's forwarder does.
+func secretOption() connect.ClientOption {
+	return connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			req.Header().Set(protocol.HeaderSecret, relaySecret)
+			return next(ctx, req)
+		}
+	}))
+}
 
 // relaySecretFile writes relaySecret to a file that only its owner can read, which --fleet-secret names, and returns
 // the file's path.
@@ -115,7 +117,7 @@ func TestRelayAuthOrrerydServesListedAgent(t *testing.T) {
 	startHostMigrationServe(t, getenv, opts)
 
 	client := enginev1connect.NewEpicsClient(relayHTTP(t, relayAddr), "http://epics.invalid",
-		connect.WithInterceptors(secretInterceptor))
+		secretOption())
 	if _, err := client.ListEpics(t.Context(), connect.NewRequest(&v1.ListEpicsRequest{})); err != nil {
 		t.Fatalf("ListEpics through the relay at %s: %v", relayAddr, err)
 	}

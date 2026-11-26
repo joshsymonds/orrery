@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -27,19 +28,23 @@ func ReadSecret(path string) (string, error) {
 // readOwnerOnly returns the contents of the file at path, and refuses a file whose mode grants any permission bit to
 // its group or to other. It checks the mode of the file it opens, so the mode it checks is the one it reads.
 func readOwnerOnly(path string) (data []byte, err error) {
-	f, err := os.Open(path)
+	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open: %w", err)
 	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-	info, err := f.Stat()
+	defer func() { err = errors.Join(err, file.Close()) }()
+	info, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stat: %w", err)
 	}
 	if mode := info.Mode().Perm(); mode&0o077 != 0 {
 		return nil, fmt.Errorf("mode %v grants group or other a permission bit", mode)
 	}
-	return io.ReadAll(f)
+	data, err = io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return data, nil
 }
 
 // SecretMatches reports whether got is the fleet secret want. It compares the two with crypto/subtle.ConstantTimeCompare,
