@@ -2,6 +2,8 @@ package enginehost
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 
 	"github.com/joshsymonds/orrery/internal/node"
 )
@@ -56,12 +58,43 @@ func NewPlacement(cfg PlacementConfig) *Placement {
 // Compile-time check that *Placement is a HostPlacer.
 var _ HostPlacer = (*Placement)(nil)
 
-// Place returns the orrery name of the host that work naming named runs on. It is not implemented yet.
-func (p *Placement) Place(_ string) (string, error) {
-	return "", errors.ErrUnsupported
+// Place returns the orrery name of the host that work naming named runs on. Work that names no host takes the default,
+// or the controller when none is set. The controller and its aliases place the controller. A listed host places its
+// name when its Reacher reports it reachable, and otherwise fails with an error matching ErrUnreachableHost; a name that
+// is none of these fails with an error matching ErrUnknownHost. A default that is unreachable fails the same way, and
+// nothing falls back to another host. Placement reads no load and no memory.
+func (p *Placement) Place(named string) (string, error) {
+	if named == "" {
+		named = p.cfg.Default
+	}
+	if named == "" || p.isController(named) {
+		return p.cfg.Controller, nil
+	}
+	reacher, ok := p.cfg.Hosts[named]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrUnknownHost, named)
+	}
+	if reachable, _ := reacher.Reach(); !reachable {
+		return "", fmt.Errorf("%w: %s", ErrUnreachableHost, named)
+	}
+	return named, nil
 }
 
-// Default returns the orrery name of the default host, as the config names it.
+// Default returns the orrery name of the default host that Place places work naming no host on. A default that is the
+// controller or one of its aliases is the controller's name. Empty means no default is set. Default does not check
+// that the host is reachable.
 func (p *Placement) Default() string {
-	return p.cfg.Default
+	switch {
+	case p.cfg.Default == "":
+		return ""
+	case p.isController(p.cfg.Default):
+		return p.cfg.Controller
+	default:
+		return p.cfg.Default
+	}
+}
+
+// isController reports whether name is the controller's name or one of its aliases.
+func (p *Placement) isController(name string) bool {
+	return name == p.cfg.Controller || slices.Contains(p.cfg.Aliases, name)
 }

@@ -396,9 +396,10 @@ func hostName(seam string) (string, error) {
 // controllerHost returns the controller's host name, which hostName gives, its orrery name, and the fleet secret that
 // the --fleet-secret file of opts holds, which the controller's clients of the hosts file's agents send. The orrery name
 // is the top-level name of the hosts file that getenv locates when the file sets one, and the host name otherwise. A
-// host name that is empty, a hosts file that does not load, and a hosts file that lists a host with no usable fleet
-// secret are errors. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to locate, so the controller is
-// named by its host name, as it is without a hosts file.
+// host name that is empty, a hosts file that does not load, a hosts file whose default names neither the host, the
+// orrery name nor a listed host, and a hosts file that lists a host with no usable fleet secret are errors. With neither
+// XDG_CONFIG_HOME nor HOME set there is no hosts file to locate, so the controller is named by its host name, as it is
+// without a hosts file.
 func controllerHost(opts options, getenv func(string) string) (string, string, string, error) {
 	host, err := hostName(opts.host)
 	if err != nil {
@@ -415,14 +416,20 @@ func controllerHost(opts options, getenv func(string) string) (string, string, s
 		}
 		file = loaded
 	}
+	orrery := host
+	if file.Name != "" {
+		orrery = file.Name
+	}
+	if file.Default != "" && file.Default != host && file.Default != orrery && !listsHost(file, file.Default) {
+		return "", "", "", fmt.Errorf(
+			"hosts file default %q names neither the controller's host %q, its orrery name %q, nor a listed host",
+			file.Default, host, orrery)
+	}
 	secret, err := fleetSecretOf(file, opts.fleetSecret)
 	if err != nil {
 		return "", "", "", err
 	}
-	if file.Name != "" {
-		return host, file.Name, secret, nil
-	}
-	return host, host, secret, nil
+	return host, orrery, secret, nil
 }
 
 // nameUnhosted names the rows of st that have no host as name, once the store is open: the session rows, and the
@@ -1167,6 +1174,10 @@ func startSessions(
 	// resolves its host through hosts. Each hosts.toml host's name resolves to its RemoteHost, which its agent serves, so
 	// work whose host is that name runs on that machine.
 	hosts, clients := routedHosts(ctx, opts, hostName, getenv, logger)
+	placement, err := hostPlacement(hostName, getenv, clients)
+	if err != nil {
+		return nil, err
+	}
 	if st != nil {
 		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
@@ -1208,7 +1219,7 @@ func startSessions(
 			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts, getenv),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
-			Host: hostName, Hosts: hosts,
+			Host: hostName, Hosts: hosts, Placement: placement,
 		})
 		host.steps = steps
 		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
@@ -1216,7 +1227,7 @@ func startSessions(
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
 			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
-		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
+		host.designs = &enginehost.Designs{Store: st, Now: time.Now, Placement: placement}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1242,17 +1253,31 @@ func startSessions(
 			return nil, host.abortStart(err)
 		}
 	}
+	cfg := host.serveConfig(
+		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, placement,
+		serveOpts(opts, st, logger))
+	return host.listenSessions(ctx, opts, st, cfg, getenv, logger)
+}
+
+// listenSessions opens the session socket and serves cfg on it, as startSessionSocket does. A socket that does not open
+// shuts the host down and fails the start.
+func (h *sessionHost) listenSessions(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) (*sessionHost, error) {
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
-		host.shutdown()
+		h.shutdown()
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
-	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
-	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
+	if err := h.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
 		return nil, err
 	}
-	return host, nil
+	return h, nil
 }
 
 // startSessionSocket serves cfg on ln in the background until stop, and opens the relay beside it when startRelay opens
@@ -1373,6 +1398,7 @@ func (h *sessionHost) serveConfig(
 	hostName string,
 	callerHost string,
 	hosts hostexec.Hosts,
+	placement enginehost.HostPlacer,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
 	cfg := enginehost.ServeConfig{
@@ -1393,6 +1419,7 @@ func (h *sessionHost) serveConfig(
 		Host:       hostName,
 		CallerHost: callerHost,
 		Hosts:      hosts,
+		Placement:  placement,
 		Options:    handlerOpts,
 	}
 	// A nil *Captures in the interface would not refuse CaptureEvidence as unavailable, so it stays unset without a store.
