@@ -33,6 +33,28 @@ type StepPrompt struct {
 	Loop     *store.StepLoop
 }
 
+// fileContinuer is a stepSessions that continues a step with the host its agent files are read through named. Manager
+// is one: a step it respawns to take a prompt reads its agents through that host, not the manager's own.
+type fileContinuer interface {
+	continueWithFiles(ctx context.Context, id string, prompt StepPrompt, files hostexec.Files) error
+}
+
+// hostSessions is the stepSessions a run on host drives. Its Continue names host as the files a respawned step reads
+// its agents through, so a step under an epic stored on host reads its agents there, and never on the controller. A
+// stepSessions that cannot name files is continued with its own Continue.
+type hostSessions struct {
+	stepSessions
+	host hostexec.Host
+}
+
+// Continue sends prompt to the session as its next message, through the run's host when the session names files.
+func (h hostSessions) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	if fc, ok := h.stepSessions.(fileContinuer); ok {
+		return fc.continueWithFiles(ctx, id, prompt, h.host)
+	}
+	return h.stepSessions.Continue(ctx, id, prompt)
+}
+
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
 // stops. Manager satisfies it.
 type stepSessions interface {
@@ -259,6 +281,9 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 		cfg.countLines = func(ctx context.Context, dir, start, commit string) (store.StepLines, error) {
 			return stepGitLines(ctx, host, dir, start, commit)
 		}
+	}
+	if cfg.sessions != nil {
+		cfg.sessions = hostSessions{stepSessions: cfg.sessions, host: cfg.host}
 	}
 	start := cfg.now()
 	return &stepRun{

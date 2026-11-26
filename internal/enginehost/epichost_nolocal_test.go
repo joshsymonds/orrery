@@ -55,6 +55,14 @@ func epicHostReadsPools(calls []hostexectest.Call) bool {
 	})
 }
 
+// epicHostReadsAgents reports whether calls hold a read of an agent folder, which a step's agent resolves through its
+// host.
+func epicHostReadsAgents(calls []hostexectest.Call) bool {
+	return slices.ContainsFunc(calls, func(call hostexectest.Call) bool {
+		return call.Op == "ReadDir" && strings.HasSuffix(call.Path, filepath.Join(".claude", "agents"))
+	})
+}
+
 // epicHostNoLocalCalls fails t for each call the controller's local host recorded. Under an epic stored on b, none is made
 // there.
 func epicHostNoLocalCalls(t *testing.T, local *hostexectest.Recorder) {
@@ -192,10 +200,48 @@ func TestEpicHostNoLocalStepRun(t *testing.T) {
 	if !hostRoutingGitCall(calls, wt, "--no-optional-locks", "status") {
 		t.Errorf("host b recorded no checkout status of %s: %v", wt, calls)
 	}
-	if !slices.ContainsFunc(calls, func(call hostexectest.Call) bool {
-		return call.Op == "ReadDir" && strings.HasSuffix(call.Path, filepath.Join(".claude", "agents"))
-	}) {
+	if !epicHostReadsAgents(calls) {
 		t.Errorf("host b recorded no read of the agent folder: %v", calls)
+	}
+	if err = f.steps.Stop(t.Context(), id); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	epicHostNoLocalCalls(t, f.a)
+}
+
+// TestEpicHostNoLocalStepRespawn releases a read-only step under an epic stored on b, then continues it through its
+// run. The respawned step reads its agent folder on b, and the controller's local host records no call.
+func TestEpicHostNoLocalStepRespawn(t *testing.T) {
+	t.Parallel()
+	f := newHostRoutingFixture(t)
+	start := stepStartReadOnly(f.repo, "")
+	start.Epic = hostRoutingEpic
+	start.Prompt = "STALL"
+	id, err := f.steps.Start(t.Context(), start)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	m, ok := f.steps.sessions.(*Manager)
+	if !ok {
+		t.Fatalf("steps sessions are %T, want the Manager", f.steps.sessions)
+	}
+	if err = m.Release(t.Context(), id); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	f.steps.mu.Lock()
+	run := f.steps.runs[id]
+	f.steps.mu.Unlock()
+	if run == nil {
+		t.Fatalf("step %s has no run", id)
+	}
+	before := len(f.b.Calls())
+	if err = run.do(t.Context(), func(ctx context.Context) error {
+		return run.continueStep(ctx, StepPrompt{Text: "again", Sender: store.PromptSenderOwner})
+	}); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if calls := f.b.Calls()[before:]; !epicHostReadsAgents(calls) {
+		t.Errorf("host b recorded no read of the agent folder on respawn: %v", calls)
 	}
 	if err = f.steps.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
