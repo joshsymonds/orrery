@@ -237,8 +237,11 @@ func (c *Client) call(parent context.Context, req Request) (Response, error) {
 }
 
 // request sends req on a new connection, and returns the Response that answers it. Dial, answer and the connection's
-// close are all bounded by Bound on the clock.
+// close are all bounded by Bound on the clock, except the answer to a git op, which requestGit describes.
 func (c *Client) request(parent context.Context, req Request) (Response, error) {
+	if req.Op == OpGit {
+		return c.requestGit(parent, req)
+	}
 	ctx, cancel := c.bound(parent)
 	defer cancel()
 	conn, err := c.dial(ctx)
@@ -251,6 +254,53 @@ func (c *Client) request(parent context.Context, req Request) (Response, error) 
 	}
 	c.closeConn(conn)
 	return resp, nil
+}
+
+// requestGit sends the git op req on a new connection, and returns the Response that answers it. Dial and the send of req
+// are bounded by Bound on the clock, as the other ops are. The answer is not: git runs as long as its work takes, and Local
+// waits for git as long as ctx lives, so the answer waits under parent alone. A parent that ends closes the connection,
+// and returns its error. A connection lost before the answer is unreachable, so the call is sent again.
+func (c *Client) requestGit(parent context.Context, req Request) (Response, error) {
+	ctx, cancel := c.bound(parent)
+	defer cancel()
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return Response{}, c.fail(parent, req, err)
+	}
+	if err = c.send(ctx, conn, req); err != nil {
+		return Response{}, c.fail(parent, req, err)
+	}
+	stop := context.AfterFunc(parent, func() { c.closeConn(conn) })
+	resp, err := readAnswer(conn, req.Op)
+	stop()
+	c.closeConn(conn)
+	switch {
+	case err == nil:
+		return resp, nil
+	case parent.Err() != nil:
+		return Response{}, c.opErr(req, parent.Err())
+	default:
+		return Response{}, c.fail(parent, req, err)
+	}
+}
+
+// send writes req on conn, as the first line of the exchange, and closes conn when the write fails. Once ctx ends, a write
+// still in progress fails at once, through a write deadline. A deadline leaves the connection's reads alone, so an answer
+// is never cut short by a ctx that ends after the request was written.
+func (c *Client) send(ctx context.Context, conn net.Conn, req Request) error {
+	req.Secret = c.cfg.Secret
+	stop := context.AfterFunc(ctx, func() {
+		if err := conn.SetWriteDeadline(time.Now()); err != nil {
+			c.cfg.Logger.DebugContext(ctx, "node: bound the write", "host", c.cfg.Name, "err", err)
+		}
+	})
+	err := writeLine(conn, req)
+	stop()
+	if err != nil {
+		c.closeConn(conn)
+		return err
+	}
+	return nil
 }
 
 // bound returns a context that ends once Bound has passed on the clock, or once parent ends, and the func that releases
@@ -332,17 +382,30 @@ func (c *Client) link(id string) *nodeLink {
 
 // roundTrip writes req as the one line a controller sends, and reads the one line that answers it.
 func roundTrip(conn net.Conn, req Request) (Response, error) {
+	if err := writeLine(conn, req); err != nil {
+		return Response{}, err
+	}
+	return readAnswer(conn, req.Op)
+}
+
+// writeLine writes req as the one line a controller sends.
+func writeLine(conn net.Conn, req Request) error {
 	//nolint:gosec // G117: the Secret is marshaled on purpose, to the agent that checks it over the tailnet.
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return Response{}, fmt.Errorf("send %s: %w", req.Op, err)
+		return fmt.Errorf("send %s: %w", req.Op, err)
 	}
+	return nil
+}
+
+// readAnswer reads the one line that answers a request of op, and decodes it.
+func readAnswer(conn net.Conn, op Op) (Response, error) {
 	line, err := readLine(conn)
 	if err != nil {
-		return Response{}, fmt.Errorf("read the %s response: %w", req.Op, err)
+		return Response{}, fmt.Errorf("read the %s response: %w", op, err)
 	}
 	var resp Response
 	if err = json.Unmarshal(line, &resp); err != nil {
-		return Response{}, fmt.Errorf("decode the %s response: %w", req.Op, err)
+		return Response{}, fmt.Errorf("decode the %s response: %w", op, err)
 	}
 	return resp, nil
 }

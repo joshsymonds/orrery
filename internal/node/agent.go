@@ -230,7 +230,8 @@ func (a *Agent) admit(ctx context.Context, conn net.Conn, login string) error {
 // dispatch answers req, which an admitted peer sent on conn. Its version is checked first. Attach splices conn onto
 // the session's holder, gate-attach onto a gate's holder, gone streams the holder's spool after its Response, and end
 // answers once the holder has ended. Panes serves the agent's HostPanes over HTTP on conn, and watch-panes streams its
-// events, as servePanes and watchPanes describe. Every other op is answered with one Response, as answer gives it.
+// events, as servePanes and watchPanes describe. A git op runs as gitRun describes. Every other op is answered with one
+// Response, as answer gives it.
 func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reader, req Request) {
 	if req.Version != Version {
 		a.reply(ctx, conn, Response{
@@ -252,9 +253,26 @@ func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reade
 		a.servePanes(ctx, conn, reader)
 	case OpWatchPanes:
 		a.watchPanes(ctx, conn, reader)
+	case OpGit:
+		a.gitRun(ctx, conn, reader, req)
 	default:
 		a.reply(ctx, conn, a.answer(ctx, req))
 	}
+}
+
+// gitRun answers the git op req with the run that Agent.git makes. The controller sends nothing after its Request line, so
+// a read of reader that ends, with EOF or an error, is the controller's connection closing. That ends the run's ctx, which
+// kills git as Local's ctx does, so a run whose controller has gone does not outlive it.
+func (a *Agent) gitRun(ctx context.Context, conn net.Conn, reader *bufio.Reader, req Request) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		defer cancel()
+		if _, err := io.Copy(io.Discard, reader); err != nil {
+			a.cfg.Logger.DebugContext(ctx, "node: git's controller", "remote", conn.RemoteAddr().String(), "err", err)
+		}
+	}()
+	a.reply(ctx, conn, a.git(runCtx, req.Git))
 }
 
 // answer returns the one Response to req, for the ops that carry no stream. An op this agent does not serve gets a
@@ -287,8 +305,6 @@ func (a *Agent) answer(ctx context.Context, req Request) Response {
 // failure that says so.
 func (a *Agent) answerHostOp(ctx context.Context, req Request) Response {
 	switch req.Op {
-	case OpGit:
-		return a.git(ctx, req.Git)
 	case OpFile:
 		return a.file(ctx, req.File)
 	case OpGateLaunch:

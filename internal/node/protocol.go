@@ -58,7 +58,9 @@ const (
 	// OpWakePane types the request's Text into pane Pane of the tmux server Server when the pane is idle, and answers in
 	// the Response's Woke whether it did.
 	OpWakePane Op = "wake-pane"
-	// OpGit runs the request's Git as git -C Dir with its argv, env and stdin, and answers with the run's Git result.
+	// OpGit runs the request's Git as git -C Dir with its argv, env and stdin, and answers with the run's Git result. The
+	// controller sends nothing after the request, so the run ends with the connection: the agent kills git once the
+	// controller's connection closes, as Local kills git when its ctx ends.
 	OpGit Op = "git"
 	// OpFile runs the one file-system method the request's File names, and answers with its File result.
 	OpFile Op = "file"
@@ -161,6 +163,8 @@ type GitSpec struct {
 	Stdin []byte   `json:"stdin,omitempty"`
 	// Remote marks a run that reaches a remote, as hostexec.GitCall.Remote does.
 	Remote bool `json:"remote,omitempty"`
+	// WaitDelay is the bound on the run's wait after its ctx ends, as hostexec.GitCall.WaitDelay is. Zero is no bound.
+	WaitDelay time.Duration `json:"waitDelay,omitempty"`
 }
 
 // FileSpec is the file-system method that a file op calls. Op names the method, and the other fields are the arguments

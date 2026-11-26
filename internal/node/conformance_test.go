@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holder"
@@ -27,6 +29,9 @@ type conformanceEnv struct {
 	state string
 	// launched holds the session directories that a case launched through host, so runCase clears them while host serves.
 	launched *[]string
+	// passBound lets the Bound of the call in flight pass, so a case can hold a call past it. Local has no Bound, so its
+	// passBound does nothing.
+	passBound func(t *testing.T)
 }
 
 // conformanceCase is one case of the table. Each case runs once against hostexec.NewLocal and once against a RemoteHost, on
@@ -42,6 +47,8 @@ func conformanceCaseTable() []conformanceCase {
 		{"git success", caseGitSuccess},
 		{"git failure", caseGitFailure},
 		{"git that cannot start", caseGitCannotStart},
+		{"git with a wait delay", caseGitWaitDelay},
+		{"git past the bound", caseGitPastBound},
 		{"read file", caseReadFile},
 		{"read rooted", caseReadRooted},
 		{"stat and lstat", caseStatAndLstat},
@@ -67,10 +74,11 @@ func conformanceCaseTable() []conformanceCase {
 func localEnv(t *testing.T) conformanceEnv {
 	t.Helper()
 	return conformanceEnv{
-		host:     hostexec.NewLocal(),
-		root:     t.TempDir(),
-		state:    gatesDir(t, shortStateDir(t)),
-		launched: new([]string),
+		host:      hostexec.NewLocal(),
+		root:      t.TempDir(),
+		state:     gatesDir(t, shortStateDir(t)),
+		launched:  new([]string),
+		passBound: func(*testing.T) {},
 	}
 }
 
@@ -106,6 +114,10 @@ func remoteEnv(t *testing.T) conformanceEnv {
 		root:     dirs.root,
 		state:    gatesDir(t, dirs.state),
 		launched: new([]string),
+		passBound: func(t *testing.T) {
+			t.Helper()
+			clock.await(testBound).fire()
+		},
 	}
 }
 
@@ -182,10 +194,10 @@ func writeConformanceFile(t *testing.T, path, contents string) {
 	}
 }
 
-// conformanceRepo makes an empty git repository named name under env's root, and returns its path.
-func conformanceRepo(t *testing.T, env conformanceEnv, name string) string {
+// conformanceRepo makes an empty git repository named repo under env's root, and returns its path.
+func conformanceRepo(t *testing.T, env conformanceEnv) string {
 	t.Helper()
-	dir := filepath.Join(env.root, name)
+	dir := filepath.Join(env.root, "repo")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -196,7 +208,7 @@ func conformanceRepo(t *testing.T, env conformanceEnv, name string) string {
 // caseGitSuccess runs git through the host. The stdout of a run is untrimmed, and the env and the stdin of a run reach git.
 func caseGitSuccess(t *testing.T, env conformanceEnv) {
 	t.Helper()
-	repo := conformanceRepo(t, env, "repo")
+	repo := conformanceRepo(t, env)
 	ctx := t.Context()
 	top, err := env.host.Git(ctx, hostexec.GitCall{Dir: repo, Args: []string{"rev-parse", "--show-toplevel"}})
 	if err != nil {
@@ -237,7 +249,7 @@ func caseGitSuccess(t *testing.T, env conformanceEnv) {
 // wrote, and the arguments it ran with, and the stdout that Git returns is the GitError's.
 func caseGitFailure(t *testing.T, env conformanceEnv) {
 	t.Helper()
-	repo := conformanceRepo(t, env, "repo")
+	repo := conformanceRepo(t, env)
 	before := filepath.Join(env.root, "before")
 	after := filepath.Join(env.root, "after")
 	writeConformanceFile(t, before, "a\n")
@@ -271,7 +283,7 @@ func caseGitFailure(t *testing.T, env conformanceEnv) {
 // Local's is not.
 func caseGitCannotStart(t *testing.T, env conformanceEnv) {
 	t.Helper()
-	repo := conformanceRepo(t, env, "repo")
+	repo := conformanceRepo(t, env)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := env.host.Git(ctx, hostexec.GitCall{Dir: repo, Args: []string{"status"}})
@@ -282,6 +294,100 @@ func caseGitCannotStart(t *testing.T, env conformanceEnv) {
 	if errors.As(err, &gitErr) {
 		t.Fatalf("Git error = %v, want an error that is not a *GitError", err)
 	}
+}
+
+// caseGitWaitDelay runs git with a WaitDelay, and the run returns git's stdout, as Local's does.
+func caseGitWaitDelay(t *testing.T, env conformanceEnv) {
+	t.Helper()
+	repo := conformanceRepo(t, env)
+	out, err := env.host.Git(t.Context(), hostexec.GitCall{
+		Dir:       repo,
+		Args:      []string{"hash-object", "--stdin"},
+		Stdin:     []byte("hello\n"),
+		WaitDelay: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("git with a WaitDelay: %v", err)
+	}
+	if string(out) != v2HelloBlob {
+		t.Fatalf("git with a WaitDelay = %q, want %q", out, v2HelloBlob)
+	}
+}
+
+// caseGitPastBound holds a git run past the client's Bound, then releases it. The run answers with git's stdout, and git ran
+// once: the Bound passes while git runs, and the answer still arrives, with no second run. Local has no Bound, and runs the
+// same case.
+func caseGitPastBound(t *testing.T, env conformanceEnv) {
+	t.Helper()
+	repo := conformanceRepo(t, env)
+	g := newV2Gate(t)
+	runs := filepath.Join(env.root, "runs")
+	// The alias appends a line to runs at each run of git. The first run holds git until the release FIFO is written, then
+	// prints out. A run after the first prints again and ends at once, so a second run fails the case rather than holding it.
+	hold := `!echo run >> "$RUNS"; [ "$(wc -l < "$RUNS")" -eq 1 ] || { echo again; exit 0; }; ` +
+		`echo ready > "$STARTED"; read -r _ < "$RELEASE"; echo out`
+	type answer struct {
+		out []byte
+		err error
+	}
+	answered := make(chan answer, 1)
+	go func() {
+		out, err := env.host.Git(t.Context(), hostexec.GitCall{
+			Dir:  repo,
+			Args: []string{"-c", "alias.hold=" + hold, "hold"},
+			Env:  v2GitEnv("RUNS="+runs, "STARTED="+g.started, "RELEASE="+g.release),
+		})
+		answered <- answer{out: out, err: err}
+	}()
+	g.awaitStarted(t)
+	env.passBound(t)
+	g.releaseChild(t)
+	got := <-answered
+	if got.err != nil {
+		t.Fatalf("git past the bound: %v", got.err)
+	}
+	if string(got.out) != "out\n" {
+		t.Fatalf("git past the bound = %q, want %q", got.out, "out\n")
+	}
+	if lines := v2ReadLines(t, runs); len(lines) != 1 {
+		t.Fatalf("git ran %d times, want once", len(lines))
+	}
+}
+
+// TestNodeGitRunEndsWithController holds a git run open through the agent, then closes the controller's connection while the
+// run is held. The agent ends the run with the connection, so the process group of git is killed, and the shell git runs
+// is gone though nothing released it.
+func TestNodeGitRunEndsWithController(t *testing.T) {
+	addr, dirs := startV2Agent(t)
+	repo := filepath.Join(dirs.root, "repo")
+	if err := os.Mkdir(repo, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", repo, err)
+	}
+	v2InitRepo(t, repo)
+	g := newV2Gate(t)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	hold := `!echo $$ > "$PID"; echo ready > "$STARTED"; read -r _ < "$RELEASE"; echo out`
+	conn := dialController(t, addr)
+	req := Request{
+		Version: Version,
+		Secret:  testSecret,
+		Op:      OpGit,
+		Git: &GitSpec{
+			Dir:    repo,
+			Args:   []string{"-c", "alias.hold=" + hold, "hold"},
+			Env:    v2GitEnv("PID="+pidFile, "STARTED="+g.started, "RELEASE="+g.release),
+			Remote: true,
+		},
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		t.Fatalf("send the git request: %v", err)
+	}
+	g.awaitStarted(t)
+	pid := v2ReadPID(t, pidFile)
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close the controller's connection: %v", err)
+	}
+	v2WaitExit(t, pid)
 }
 
 // caseReadFile reads a file, and reads a missing one, which fails matching fs.ErrNotExist.

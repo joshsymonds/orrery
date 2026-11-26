@@ -39,13 +39,17 @@ func (c *Client) HolderAlive(ctx context.Context, dir string) (bool, error) {
 
 // hostGit runs the git run call describes on the remote machine, and returns git's stdout untrimmed, as Local does. A run
 // that git ended with a non-zero exit or a kill returns a *hostexec.GitError with the stdout and stderr git wrote. A git
-// that could not start returns an error that is not one. A call that names a WaitDelay fails before the agent is asked,
-// since the agent's run has no way to take one.
+// that could not start returns an error that is not one. The call's WaitDelay travels in the spec, and the agent's run takes
+// it, as Local does.
 func (c *Client) hostGit(ctx context.Context, call hostexec.GitCall) ([]byte, error) {
-	if call.WaitDelay != 0 {
-		return nil, fmt.Errorf("node: git on %s: a WaitDelay is not carried to a remote host", c.cfg.Name)
+	spec := GitSpec{
+		Dir:       call.Dir,
+		Args:      call.Args,
+		Env:       call.Env,
+		Stdin:     call.Stdin,
+		Remote:    call.Remote,
+		WaitDelay: call.WaitDelay,
 	}
-	spec := GitSpec{Dir: call.Dir, Args: call.Args, Env: call.Env, Stdin: call.Stdin, Remote: call.Remote}
 	resp, err := c.hostCall(ctx, Request{Version: Version, Op: OpGit, Git: &spec})
 	if err != nil {
 		return nil, err
