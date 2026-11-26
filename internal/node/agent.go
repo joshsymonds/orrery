@@ -19,6 +19,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/holderhost"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 )
 
 // whoIsTimeout bounds each WhoIs that an agent asks of tailscaled, so that a hung tailscaled holds only the connection
@@ -54,6 +55,15 @@ type AgentConfig struct {
 	// Roots are the absolute directories whose folders the agent reports and checks. Each root's folders are reported
 	// together, and a folder is admitted when it lies under any one of them. Empty serves none.
 	Roots []string
+	// ConfigDir is the orrery config directory, ~/.config/orrery or $XDG_CONFIG_HOME/orrery. The git, file, gate and
+	// leftover ops may name paths under it, as they may under Roots and StateDir. Empty allows none.
+	ConfigDir string
+	// ClaudeDir is Claude's directory, ~/.claude, where the Claude agent definitions live. The git, file, gate and
+	// leftover ops may name paths under it. Empty allows none.
+	ClaudeDir string
+	// Local is this machine's hostexec.Local, which the git, file, gate and leftover ops act on. Nil takes
+	// hostexec.NewLocal().
+	Local *hostexec.Local
 	// Secret is the fleet secret that the agent checks each Request's Secret against, as SecretMatches compares them.
 	Secret string
 	// WakePane types text into pane of the tmux server column server when the pane is idle, and reports whether it did.
@@ -92,6 +102,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.Local == nil {
+		cfg.Local = hostexec.NewLocal()
 	}
 	return &Agent{cfg: cfg, keepers: make(map[string]*keeper), splices: make(map[string]int)}, nil
 }
@@ -215,13 +228,13 @@ func (a *Agent) admit(ctx context.Context, conn net.Conn, login string) error {
 }
 
 // dispatch answers req, which an admitted peer sent on conn. Its version is checked first. Attach splices conn onto
-// the session's holder, gone streams the holder's spool after its Response, and end answers once the holder has ended.
-// Panes serves the agent's HostPanes over HTTP on conn, and watch-panes streams its events, as servePanes and
-// watchPanes describe. Every other op is answered with one Response, as answer gives it.
+// the session's holder, gate-attach onto a gate's holder, gone streams the holder's spool after its Response, and end
+// answers once the holder has ended. Panes serves the agent's HostPanes over HTTP on conn, and watch-panes streams its
+// events, as servePanes and watchPanes describe. Every other op is answered with one Response, as answer gives it.
 func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reader, req Request) {
 	if req.Version != Version {
 		a.reply(ctx, conn, Response{
-			Code:    CodeFailed,
+			Code:    CodeVersion,
 			Message: fmt.Sprintf("node: agent serves %s, not %s", Version, req.Version),
 		})
 		return
@@ -229,6 +242,8 @@ func (a *Agent) dispatch(ctx context.Context, conn net.Conn, reader *bufio.Reade
 	switch req.Op {
 	case OpAttach:
 		a.splice(ctx, conn, reader, req.Session)
+	case OpGateAttach:
+		a.gateAttach(ctx, conn, reader, req)
 	case OpGone:
 		a.gone(ctx, conn, req)
 	case OpEnd:
@@ -262,6 +277,34 @@ func (a *Agent) answer(ctx context.Context, req Request) Response {
 		return a.folder(req)
 	case OpWakePane:
 		return a.wakePane(ctx, req)
+	default:
+		return a.answerHostOp(ctx, req)
+	}
+}
+
+// answerHostOp returns the one Response to req, for the git, file, gate, leftover and liveness ops, which act on this
+// machine through the agent's Local and are confined to its allowed directories. An op this agent does not serve gets a
+// failure that says so.
+func (a *Agent) answerHostOp(ctx context.Context, req Request) Response {
+	switch req.Op {
+	case OpGit:
+		return a.git(ctx, req.Git)
+	case OpFile:
+		return a.file(ctx, req.File)
+	case OpGateLaunch:
+		return a.gateLaunch(ctx, req.Gate)
+	case OpGateStop:
+		return a.gateStop(ctx, req.HolderDir)
+	case OpGateClear:
+		return a.gateClear(ctx, req.HolderDir)
+	case OpExitRecord:
+		return a.exitRecord(req.HolderDir)
+	case OpKillLeftovers:
+		return a.killLeftovers(req.HolderDir)
+	case OpHolderAlive:
+		return a.holderAlive(req.HolderDir)
+	case OpProcessAlive:
+		return Response{Alive: processAlive(req.PID, req.Start)}
 	default:
 		return Response{Code: CodeFailed, Message: fmt.Sprintf("node: agent does not serve op %s", req.Op)}
 	}
@@ -588,8 +631,14 @@ func (a *Agent) splice(ctx context.Context, conn net.Conn, reader *bufio.Reader,
 		a.reply(ctx, conn, failed(err))
 		return
 	}
-	a.beginSplice(id)
-	defer a.endSplice(ctx, id)
+	a.spliceHolder(ctx, conn, reader, id, dir)
+}
+
+// spliceHolder splices conn onto the holder socket of dir, as splice does, and keys the splice by key: the session whose
+// keeper must not attach while the splice is open.
+func (a *Agent) spliceHolder(ctx context.Context, conn net.Conn, reader *bufio.Reader, key, dir string) {
+	a.beginSplice(key)
+	defer a.endSplice(ctx, key)
 	holderConn, err := a.dialHolder(ctx, dir)
 	if err != nil {
 		a.reply(ctx, conn, failed(err))

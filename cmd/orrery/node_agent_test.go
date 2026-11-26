@@ -536,3 +536,52 @@ func TestNodeAgentServeNeedsItsFlagsAndSecretFile(t *testing.T) {
 		})
 	}
 }
+
+// TestNodeV2OpsHostDirs gives the agent the config directory and Claude's directory its file ops may name. The config
+// directory is $XDG_CONFIG_HOME/orrery when XDG_CONFIG_HOME is set, and $HOME/.config/orrery otherwise. Claude's directory
+// is $HOME/.claude, and it is empty without a HOME. With neither HOME nor XDG_CONFIG_HOME there is no config directory,
+// which is an error.
+func TestNodeV2OpsHostDirs(t *testing.T) {
+	const home = "/home/tester"
+	cases := []struct {
+		name    string
+		env     map[string]string
+		config  string
+		claude  string
+		wantErr bool
+	}{
+		{
+			name:   "xdg config home",
+			env:    map[string]string{"HOME": home, "XDG_CONFIG_HOME": "/cfg"},
+			config: "/cfg/orrery", claude: home + "/.claude",
+		},
+		{
+			name:   "home only",
+			env:    map[string]string{"HOME": home},
+			config: home + "/.config/orrery", claude: home + "/.claude",
+		},
+		{
+			name:   "no home",
+			env:    map[string]string{"XDG_CONFIG_HOME": "/cfg"},
+			config: "/cfg/orrery",
+		},
+		{name: "neither", env: map[string]string{}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			config, claude, err := nodeHostDirs(envFrom(tc.env))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("nodeHostDirs = %q, %q, nil; want an error", config, claude)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("nodeHostDirs: %v", err)
+			}
+			if config != tc.config || claude != tc.claude {
+				t.Fatalf("nodeHostDirs = %q, %q; want %q, %q", config, claude, tc.config, tc.claude)
+			}
+		})
+	}
+}
