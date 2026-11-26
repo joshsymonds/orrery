@@ -38,8 +38,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * The inbox head after round 6's phone head: the mark and the name, then Search, the Notices bell with its count, Pools,
- * Settings and New, with whatever does not fit folded into More. Native graphics, so text is measured in the app's font.
+ * The inbox head after round 6's phone head: the mark and the name, then Search, the Notices bell with its count, Hosts,
+ * Pools, Settings and New, with whatever does not fit folded into More. Native graphics, so text is measured in the app's
+ * font.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -51,8 +52,8 @@ class InboxHeadTest {
         const val UNREAD = "notices-unread"
         const val SETTINGS = "Settings"
 
-        /** Every action of the head by its name, in round 6's order. */
-        val ACTIONS = listOf("Search sessions and epics", "Notices", "Pools", SETTINGS, "New")
+        /** Every action of the head by its name, in round 6's order, with Hosts before Pools. */
+        val ACTIONS = listOf("Search sessions and epics", "Notices", "Hosts", "Pools", SETTINGS, "New")
 
         /** How far, in pixels, a bound may stray from the bar for rounding. */
         const val SLACK = 0.5f
@@ -188,16 +189,17 @@ class InboxHeadTest {
     }
 
     @Test
-    fun atFourHundredTwelveEveryActionSitsWholeInTheBarInRoundSixOrder() {
+    fun atFourHundredTwelveHostsPoolsAndSettingsFoldIntoMoreAndTheRestSitWholeInTheBar() {
         FakeOrreryServer().use { server ->
             setScreen(server, unread = 20)
 
             val folded = assertTheHeadFits()
 
-            assertEquals("nothing folds at 412", emptyList<String>(), folded)
-            assertEquals(0, nodes(hasContentDescription("More") and inBar).size)
-            val lefts = ACTIONS.map { checkNotNull(shownAction(it)).boundsInRoot.left }
-            assertEquals("Search, Notices, Pools, Settings, New from left to right", lefts.sorted(), lefts)
+            assertEquals("Hosts, Pools and Settings fold together at 412", listOf("Hosts", "Pools", SETTINGS), folded)
+            assertEquals(1, nodes(hasContentDescription("More") and inBar).size)
+            val shown = ACTIONS - folded.toSet()
+            val lefts = shown.map { checkNotNull(shownAction(it)).boundsInRoot.left }
+            assertEquals("Search, Notices and New from left to right", lefts.sorted(), lefts)
         }
     }
 
