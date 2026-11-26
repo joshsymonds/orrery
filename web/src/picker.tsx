@@ -307,7 +307,8 @@ function StartForm({
     }
     setStarting(true);
     setError("");
-    void actions.start(clients, folder.dir, message, startId).then(
+    // The serving host is named by "", which Control.Start reads as the controller's.
+    void actions.start(clients, folder.dir, message, startId, "").then(
       (session) => {
         setStarting(false);
         onStarted(session);
