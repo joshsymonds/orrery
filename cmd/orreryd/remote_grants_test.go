@@ -861,7 +861,7 @@ func TestRemoteGrants(t *testing.T) {
 		}
 	})
 
-	t.Run("gate of b started through Steps kept across a restart while b reports its holder live, freed once b reports it gone",
+	t.Run("gate of b through Steps kept across a restart while its holder lives, freed once b reports it gone",
 		func(t *testing.T) {
 			f := newGateStepFixture(t, "sleep 3600")
 			f.returnDone(t, f.start(t))
@@ -915,56 +915,55 @@ func TestRemoteGrants(t *testing.T) {
 		}
 	})
 
-	t.Run("grant asked through the relay as host b kept across a restart while b reports the client alive, freed when it ends",
-		func(t *testing.T) {
-			rig := newRemoteGrantRig(t)
-			st := remoteGrantStore(t)
-			pool := remoteGrantPoolOf(rig.sh)
-			client, clientStdin := startClient(t)
+	t.Run("relayed grant of b kept across restart, freed when its client ends", func(t *testing.T) {
+		rig := newRemoteGrantRig(t)
+		st := remoteGrantStore(t)
+		pool := remoteGrantPoolOf(rig.sh)
+		client, clientStdin := startClient(t)
 
-			first := remoteGrantBroker(t, rig, st, true)
-			addr, stopRelay := startRelay(t, first)
-			granted := make(chan string, 1)
-			result := make(chan error, 1)
-			relayed := make(chan struct{})
-			go func() {
-				defer close(relayed)
-				result <- relayAcquire(t.Context(), addr, pool, client.Process.Pid, func(id string) {
-					select {
-					case granted <- id:
-					default:
-					}
-				})
-			}()
-			id := fireUntil(t, rig.clock, granted, relayed)
-			remoteGrantRowOf(t, st, id)
+		first := remoteGrantBroker(t, rig, st, true)
+		addr, stopRelay := startRelay(t, first)
+		granted := make(chan string, 1)
+		result := make(chan error, 1)
+		relayed := make(chan struct{})
+		go func() {
+			defer close(relayed)
+			result <- relayAcquire(t.Context(), addr, pool, client.Process.Pid, func(id string) {
+				select {
+				case granted <- id:
+				default:
+				}
+			})
+		}()
+		id := fireUntil(t, rig.clock, granted, relayed)
+		remoteGrantRowOf(t, st, id)
 
-			// The controller restarts: its broker and its relay close, so the relayed call ends.
-			first.Close()
-			if err := <-result; err == nil {
-				t.Fatal("relayed Acquire ended without an error when its broker closed")
-			}
-			stopRelay()
-			second := remoteGrantBroker(t, rig, st, true)
-			if err := second.Restore(t.Context()); err != nil {
-				t.Fatalf("restore: %v", err)
-			}
-			if heldBy(second) == "" {
-				t.Fatal("restored grant freed while b reports its client alive")
-			}
-			fireUntilArmed(t, rig.clock)
-			if heldBy(second) == "" {
-				t.Fatal("grant freed by a poll that found its client alive")
-			}
+		// The controller restarts: its broker and its relay close, so the relayed call ends.
+		first.Close()
+		if err := <-result; err == nil {
+			t.Fatal("relayed Acquire ended without an error when its broker closed")
+		}
+		stopRelay()
+		second := remoteGrantBroker(t, rig, st, true)
+		if err := second.Restore(t.Context()); err != nil {
+			t.Fatalf("restore: %v", err)
+		}
+		if heldBy(second) == "" {
+			t.Fatal("restored grant freed while b reports its client alive")
+		}
+		fireUntilArmed(t, rig.clock)
+		if heldBy(second) == "" {
+			t.Fatal("grant freed by a poll that found its client alive")
+		}
 
-			endClient(t, client, clientStdin)
-			probe := startAcquire(t, second, remoteGrantRequest(pool, os.Getpid(), ""))
-			fireUntil(t, rig.clock, probe.granted, probe.done)
-			probe.cancel()
-			if err := <-probe.result; !errors.Is(err, context.Canceled) {
-				t.Fatalf("probe ended with %v, want context.Canceled after its grant", err)
-			}
-		})
+		endClient(t, client, clientStdin)
+		probe := startAcquire(t, second, remoteGrantRequest(pool, os.Getpid(), ""))
+		fireUntil(t, rig.clock, probe.granted, probe.done)
+		probe.cancel()
+		if err := <-probe.result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("probe ended with %v, want context.Canceled after its grant", err)
+		}
+	})
 }
 
 // fireUntilArmed fires the next timer the broker's watches arm, and waits until the watch arms another, so the poll that
