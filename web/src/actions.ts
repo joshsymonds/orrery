@@ -3,7 +3,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { conversationAsk, type AskTarget } from "./askmodel";
 import type { createClients } from "./client";
 import type { Conversation } from "./conversation";
-import type { PickerRow } from "./gen/orrery/v1/orrery_pb";
+import type { PickerRow, StartProposal } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 
 export type Clients = ReturnType<typeof createClients>;
@@ -181,9 +181,16 @@ export function newStartId(): string {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
-// start sends the folder, the message and the start id to Control.Start, with no model, and resolves the session id the
-// reply carries.
-export async function start(clients: Clients, dir: string, message: string, id: string): Promise<string> {
-  const reply = await clients.control.start({ dir, prompt: message, id });
+// propose sends the prompt to Picker.Propose and resolves the host and folder proposals the server ranks for it, best
+// first.
+export async function propose(clients: Clients, text: string): Promise<StartProposal[]> {
+  const reply = await clients.picker.propose({ text });
+  return reply.proposals;
+}
+
+// start sends the folder, the message, the start id and the host to Control.Start, with no model, and resolves the
+// session id the reply carries. An empty host is the controller's own.
+export async function start(clients: Clients, dir: string, message: string, id: string, host: string): Promise<string> {
+  const reply = await clients.control.start({ dir, prompt: message, id, host });
   return reply.id;
 }
