@@ -16,9 +16,12 @@ import (
 )
 
 // Schema is the JSON schema of the planner turn's return. It uses only the keywords the step schema check accepts. A
-// task's evidence and depends_on are strings the engine reads as JSON, as args is, because the API refuses a schema
-// whose compiled grammar is too large: with evidence as an object, a depends_on property is refused
-// (TestPlannerSchemaIsTheOneTheAPIAccepted).
+// task's evidence and depends_on, and the return's unresolvable and question_calls, are strings the engine reads as
+// JSON, as args is, because the API refuses a schema whose compiled grammar is too large: with evidence as an object, a
+// depends_on property is refused (TestPlannerSchemaIsTheOneTheAPIAccepted). An object holds at most one property it
+// does not require, and that property comes last, since the model emits no optional property that another property
+// follows (TestPlannerSchemaPutsEachOptionalPropertyLast): question_calls is required, and is "" when no question is
+// open, and unresolvable is the return's last property.
 const Schema = `{
 	"type": "object",
 	"properties": {
@@ -88,25 +91,39 @@ const Schema = `{
 				"additionalProperties": false
 			}
 		},
-		"unresolvable": {"type": "string"},
-		"outcome": {"type": "string", "enum": ["work", "wait", "complete"]}
+		"question_calls": {"type": "string"},
+		"outcome": {"type": "string", "enum": ["work", "wait", "complete"]},
+		"unresolvable": {"type": "string"}
 	},
-	"required": ["status", "decisions", "tasks", "outline", "questions", "actions", "outcome"],
+	"required": ["status", "decisions", "tasks", "outline", "questions", "actions", "question_calls", "outcome"],
 	"additionalProperties": false
 }`
 
 // Return is the planner turn's return. Unresolvable is read by Parse from the key unresolvable, a JSON array written as a
 // string, as args is; UnresolvableError is why that string did not read as an array, and check.go refuses it.
+// QuestionCalls is read the same way from the key question_calls, and QuestionCallsError is why that string did not
+// read.
 type Return struct {
-	Status            string         `json:"status"`
-	Decisions         []string       `json:"decisions"`
-	Tasks             []Task         `json:"tasks"`
-	Outline           string         `json:"outline"`
-	Questions         []Question     `json:"questions"`
-	Actions           []EngineAction `json:"actions"`
-	Unresolvable      []Unresolvable `json:"-"`
-	UnresolvableError string         `json:"-"`
-	Outcome           string         `json:"outcome"`
+	Status             string         `json:"status"`
+	Decisions          []string       `json:"decisions"`
+	Tasks              []Task         `json:"tasks"`
+	Outline            string         `json:"outline"`
+	Questions          []Question     `json:"questions"`
+	Actions            []EngineAction `json:"actions"`
+	Unresolvable       []Unresolvable `json:"-"`
+	UnresolvableError  string         `json:"-"`
+	QuestionCalls      []QuestionCall `json:"-"`
+	QuestionCallsError string         `json:"-"`
+	Outcome            string         `json:"outcome"`
+}
+
+// QuestionCall is the planner's call on one open question a planner turn asked: the question as Q<n>, the call,
+// store.CallStands when the question still waits on its answer or store.CallOvertaken when the epic went on without it,
+// and the reason for the call.
+type QuestionCall struct {
+	Question string `json:"question"`
+	Call     string `json:"call"`
+	Reason   string `json:"reason"`
 }
 
 // Unresolvable is one gap of a gap trigger the planner cannot resolve without the owner: the gap's key, the reason the
@@ -359,11 +376,13 @@ func decodeEvidence(text string) (evidence.Item, string) {
 	return item, ""
 }
 
-// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON, an unresolvable that is not a
-// string, a task's depends_on that is not a string, and a task's evidence that is neither a string nor an object. A
+// Parse decodes a planner return from raw JSON. It refuses input that is not valid JSON, an unresolvable or a
+// question_calls that is not a string, a task's depends_on that is not a string, and a task's evidence that is neither a
+// string nor an object. A
 // task's test_changes is read by its key, as the schema spells it, since the package's JSON tags are camel case. Its
 // depends_on is read by its key and then by readDependsOn, and its evidence by Task.UnmarshalJSON. Each action's fields
-// are read from its args (readArgs), and the unresolvable list from its string (readUnresolvable).
+// are read from its args (readArgs), the unresolvable list from its string (readUnresolvable), and the question calls
+// from theirs (readQuestionCalls).
 func Parse(raw json.RawMessage) (Return, error) {
 	var ret Return
 	if err := json.Unmarshal(raw, &ret); err != nil {
@@ -405,7 +424,45 @@ func Parse(raw json.RawMessage) (Return, error) {
 		}
 		readUnresolvable(&ret, text)
 	}
+	if err := readQuestionCallsKey(&ret, raw); err != nil {
+		return Return{}, err
+	}
 	return ret, nil
+}
+
+// readQuestionCallsKey reads the question_calls key of raw, a planner return, into ret as readQuestionCalls reads its
+// string. The key is read by its name, as the schema spells it, since the package's JSON tags are camel case. A return
+// without the key has no calls, and a key that is not a string is an error of the whole return.
+func readQuestionCallsKey(ret *Return, raw json.RawMessage) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return fmt.Errorf("planner return: %w", err)
+	}
+	value, ok := keys["question_calls"]
+	if !ok {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return fmt.Errorf("planner return: question_calls: %w", err)
+	}
+	readQuestionCalls(ret, text)
+	return nil
+}
+
+// readQuestionCalls fills ret's QuestionCalls from text, the question_calls string of a return, a JSON array of objects
+// with question, call and reason. Blank text reads as no calls. Text that is not such an array leaves the calls empty and
+// sets QuestionCallsError, why it did not read.
+func readQuestionCalls(ret *Return, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	calls, err := decodeArray[QuestionCall](text)
+	if err != nil {
+		ret.QuestionCallsError = err.Error()
+		return
+	}
+	ret.QuestionCalls = calls
 }
 
 // readUnresolvable fills ret's Unresolvable from text, the unresolvable string of a return, a JSON array of objects with
@@ -415,7 +472,7 @@ func readUnresolvable(ret *Return, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	entries, err := decodeUnresolvable(text)
+	entries, err := decodeArray[Unresolvable](text)
 	if err != nil {
 		ret.UnresolvableError = err.Error()
 		return
@@ -461,12 +518,12 @@ func readDependsOn(task *Task, text string) {
 	}
 }
 
-// decodeUnresolvable decodes text as one JSON array of objects whose only keys are gap, reason and recommended, each
-// holding a string. A null, or any value that is not an array, is refused.
-func decodeUnresolvable(text string) ([]Unresolvable, error) {
+// decodeArray decodes text as one JSON array of objects of type E, whose only keys are those E's tags name. A null, any
+// value that is not an array, and data after the array are refused.
+func decodeArray[E any](text string) ([]E, error) {
 	decoder := json.NewDecoder(strings.NewReader(text))
 	decoder.DisallowUnknownFields()
-	var entries []Unresolvable
+	var entries []E
 	if err := decoder.Decode(&entries); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}

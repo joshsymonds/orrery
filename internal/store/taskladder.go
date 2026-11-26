@@ -172,7 +172,9 @@ func ClimbedBuild(from TaskBuild, rung int64, failure string) TaskBuild {
 // applied by decision's id, and decision, when not nil, is appended to the epic's decisions, with its refused files
 // stored as refused by its id. A target at or below RungOf(from), a to that is not on the target capped at GapRung,
 // and a move whose MovedBy is not one of the MovedBy values are errors that write nothing. A task that is not open, or
-// whose stored build is not from, is ErrTaskMoved and writes nothing.
+// whose stored build is not from, is ErrTaskMoved and writes nothing. When from holds an orchestrator's question still
+// open and to does not, the question is overtaken in the same write (overtakeAsk), since the climb moves the task on
+// without its answer.
 func (s *Store) ClimbTask(
 	ctx context.Context,
 	epic string,
@@ -195,7 +197,9 @@ func (s *Store) ClimbTask(
 // its task in the write that carries it out. It does not run checkClimb, which the caller runs first. The stored build
 // moves from from to to before anything else is written, so a task that is not open, or whose stored build is not from,
 // is ErrTaskMoved, and the caller's write carries that error out with nothing stored. The rest is as ClimbTask gives
-// it: move's needs files, the rungs of the climb, what the climb onto to ends, and version and decision when not nil.
+// it: move's needs files, the rungs of the climb, what the climb onto to ends, version and decision when not nil, and
+// the overtaking of the open question that from holds and to does not (overtakeAsk), why
+// `T<seq> moved on without its answer: it climbed to rung <n>`, or `it ended as a gap` for a climb onto GapRung.
 func climbTask(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -209,6 +213,11 @@ func climbTask(
 ) error {
 	if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 		return err
+	}
+	if to.Question != from.Question {
+		if err := overtakeAsk(ctx, queries, epic, seq, from, climbedHow(to.Attempt), at); err != nil {
+			return err
+		}
 	}
 	if err := setTaskNeedsFiles(ctx, queries, epic, seq, move.NeedsFiles); err != nil {
 		return err
@@ -242,6 +251,15 @@ func climbTask(
 	}
 	_, err := appendDecision(ctx, queries, epic, decision.ID, decision.Text, 0, Maker{By: MakerOrreryd}, "", at)
 	return err
+}
+
+// climbedHow says how a climb onto rung moved its task on, for the question it overtakes: it ended as a gap on
+// GapRung, and it climbed to the rung otherwise.
+func climbedHow(rung int64) string {
+	if rung >= GapRung {
+		return "it ended as a gap"
+	}
+	return fmt.Sprintf("it climbed to rung %d", rung)
 }
 
 // checkClimb returns an error when a climb from from with move cannot land as it names: when its target rung is not

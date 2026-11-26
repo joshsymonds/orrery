@@ -308,11 +308,16 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	return openTaskSteps(ctx, queries, action.Epic, action.Task)
 }
 
+// reopenedHow says how a reopen moved its task on, for the question it overtakes (overtakeAsk).
+const reopenedHow = "it was reopened at implement on rung 1"
+
 // reopenTask reopens the done task a send_back or a batch that left it out names, in the caller's write. Its status is
 // open and its build is a fresh build on implement at attempt 1, built on base, with reason as its failure
 // (sentBackBuild). Its batch claim is cleared, its ladder restarts at rung 1 moved by send_back (restartLadder), and a
-// version of source send_back records the reopen as decision and reason (insertSendBackVersion). The epic's candidate
-// is left to the caller.
+// version of source send_back records the reopen as decision and reason (insertSendBackVersion). An orchestrator's
+// question the old build held, still open, is overtaken as `T<seq> moved on without its answer: it was reopened at
+// implement on rung 1`, since the fresh build waits on no answer (overtakeAsk). The epic's candidate is left to the
+// caller.
 func reopenTask(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -327,6 +332,9 @@ func reopenTask(
 		return err
 	}
 	if err := moveTask(ctx, queries, epic, task.Seq, from, sentBackBuild(from, base, cause)); err != nil {
+		return err
+	}
+	if err := overtakeAsk(ctx, queries, epic, task.Seq, from, reopenedHow, at); err != nil {
 		return err
 	}
 	if err := queries.ClearEpicTaskBatch(ctx, sqlcgen.ClearEpicTaskBatchParams{Epic: epic, Seq: task.Seq}); err != nil {
@@ -598,7 +606,8 @@ func openTaskSteps(ctx context.Context, queries *sqlcgen.Queries, epic string, s
 // park it answers, a decision holds the refusal and the planner's reason, and for amend_evidence the Requirement's item
 // and the item the action asked for, and then either the held planner park is sent to the owner as retry_bound, when it
 // waits on the planner's call or its chain holds boundRefusals refusals (boundHeldPark), or a pending trigger whose cause
-// names the action and the refusal is added.
+// names the action and the refusal is added. An epic in a final phase gets no trigger, since no planner turn runs for it
+// (checkClaimable): an action a planner close left behind it is refused with its decision and wakes no one.
 func refuseAction(
 	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, refusal RefusalError, at time.Time,
 ) error {
@@ -640,7 +649,7 @@ func refuseLinkedAction(
 		return err
 	}
 	bound, err := boundHeldPark(ctx, queries, action.Epic, head, at)
-	if err != nil || bound {
+	if err != nil || bound || FinalPhase(head.Phase) {
 		return err
 	}
 	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{

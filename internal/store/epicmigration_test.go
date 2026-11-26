@@ -138,6 +138,8 @@ func epicTableColumns() map[string][]string {
 			// The escalation of a question, from 00085_question_escalation.sql.
 			"escalated", "escalation_reason", "escalation_maker", "escalation_session", "escalation_told",
 		},
+		// The call each planner turn made on an open question a planner turn asked, from 00123_epic_question_calls.sql.
+		"epic_question_calls":  {"epic", "question", "turn", "call", "reason"},
 		"epic_reviews":         {"epic", "frozen", "clean"},
 		"epic_review_verdicts": {"epic", "position", "reviewer", "step", "verdict", "reason"},
 		"epic_ledger": {

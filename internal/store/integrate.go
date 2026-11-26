@@ -502,10 +502,15 @@ func unreportedEndPhase(phase string) bool {
 // setEpicPhase stores phase as the phase of epic in the caller's write, at as the time it was set. A phase that epic
 // already has keeps the time it was set. A phase ListUnreportedEpics reports marks the statement for OnEpicEnded. An
 // epic that moves into a final phase (FinalPhase) overtakes each of its open questions in the same write, before the
-// phase is stored, since it ends there for good without their answers (overtakeAtFinalPhase). Every write that ends an
-// epic for good sets its phase here, so none leaves a question open behind it.
+// phase is stored, since it ends there for good without their answers (overtakeAtFinalPhase). A write that sets a final
+// phase also consumes every pending trigger of the epic, those the write added before it included, since no planner turn
+// runs for the epic there (consumeAtFinalPhase). Every write that ends an epic for good sets its phase here, so none
+// leaves a question open or a trigger pending behind it.
 func setEpicPhase(ctx context.Context, queries *sqlcgen.Queries, epic, phase string, at time.Time) error {
 	if err := overtakeAtFinalPhase(ctx, queries, epic, phase, at); err != nil {
+		return err
+	}
+	if err := consumeAtFinalPhase(ctx, queries, epic, phase); err != nil {
 		return err
 	}
 	statement := withEpicEvent(ctx)

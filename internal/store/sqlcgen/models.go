@@ -575,6 +575,14 @@ type EpicQuestion struct {
 	EscalationTold    int64
 }
 
+type EpicQuestionCall struct {
+	Epic     string
+	Question int64
+	Turn     int64
+	Call     string
+	Reason   string
+}
+
 type EpicReleaseRun struct {
 	Epic     string
 	Part     string

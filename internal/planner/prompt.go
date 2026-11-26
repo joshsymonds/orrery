@@ -421,7 +421,8 @@ func newNoteLines(decisions []store.EpicDecision, last store.EpicTurn, found boo
 }
 
 // questionLines returns each open question as its questionHead, then each declared choice as its choiceLine, then its
-// recommendation as `  recommended: id (confidence): why` when it recommends one.
+// recommendation as `  recommended: id (confidence): why` when it recommends one, then, for a question a planner turn
+// asked, which takes a call each turn (takesCall), its lastCallLine.
 func questionLines(questions []store.EpicQuestion) []string {
 	lines := make([]string, 0, len(questions))
 	for _, question := range questions {
@@ -436,8 +437,21 @@ func questionLines(questions []store.EpicQuestion) []string {
 			lines = append(lines, fmt.Sprintf("  recommended: %s (%s): %s",
 				question.Recommended, question.Confidence, question.Why))
 		}
+		if takesCall(question) {
+			lines = append(lines, lastCallLine(question.Calls))
+		}
 	}
 	return lines
+}
+
+// lastCallLine returns the last of calls, a question's calls in turn order, as `  last call: call at turn n: reason`,
+// and `  last call: none` when the question has none.
+func lastCallLine(calls []store.QuestionCall) string {
+	if len(calls) == 0 {
+		return "  last call: none"
+	}
+	last := calls[len(calls)-1]
+	return fmt.Sprintf("  last call: %s at turn %d: %s", last.Call, last.Turn, last.Reason)
 }
 
 // choiceLine returns a declared choice as `  id: does`, or as `  id: does (closes a, b)` when choosing it closes the

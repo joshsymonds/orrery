@@ -345,6 +345,7 @@ func TestSendBackRefusedWhileAClaimingRunIsParked(t *testing.T) {
 }
 
 // TestSendBackRefusedForAnEndedEpic checks that a send_back on an epic in an ended phase is refused and writes nothing.
+// done is a final phase, where no planner turn runs, so the refusal adds no trigger.
 func TestSendBackRefusedForAnEndedEpic(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -357,7 +358,7 @@ func TestSendBackRefusedForAnEndedEpic(t *testing.T) {
 
 	sendBackCarry(t, s, action)
 
-	requireRefusedAction(t, s, action, "send back task 1", "epic "+sendBackEpic+" is done, an ended phase")
+	requireRefusedWithoutTrigger(t, s, action, "send back task 1", "epic "+sendBackEpic+" is done, an ended phase")
 	if task := sendBackTask(t, s, 1); task.Status != "done" || len(task.Rungs) != 0 {
 		t.Errorf("task 1 = status %q rungs %+v, want done with no rung", task.Status, task.Rungs)
 	}
