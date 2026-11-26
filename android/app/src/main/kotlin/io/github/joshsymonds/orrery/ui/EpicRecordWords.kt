@@ -195,10 +195,7 @@ fun askingOf(detail: EpicDetail): Asking? {
     }
 }
 
-/**
- * The running steps of the epic as rows of Now, in the order they ran. A step with no host of its own names its epic's,
- * the one its record carries.
- */
+/** The running steps of the epic as rows of Now, in the order they ran. */
 fun stepLinesOf(detail: EpicDetail): List<StepLine> = runningOf(detail).map { step ->
     StepLine(
         id = step.id,
@@ -211,7 +208,7 @@ fun stepLinesOf(detail: EpicDetail): List<StepLine> = runningOf(detail).map { st
         task = step.task,
         doing = doingOf(step),
         since = if (step.stageStarted != 0L) step.stageStarted else step.started,
-        host = step.host.ifEmpty { detail.epic.host },
+        host = step.host,
     )
 }
 

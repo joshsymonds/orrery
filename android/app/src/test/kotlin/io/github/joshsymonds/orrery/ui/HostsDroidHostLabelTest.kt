@@ -5,18 +5,16 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import io.github.joshsymonds.orrery.api.EpicDetail
-import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Reply
-import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.ContractsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
@@ -54,6 +52,7 @@ class HostsDroidHostLabelTest {
         const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
         const val EPICS_LIST = "/orrery.v1.Epics/List"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
+        const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
         const val HOST_STATUS = "/orrery.v1.Host/Status"
         const val SERVING_SESSION = "10000000000000000000000000000001"
@@ -203,13 +202,13 @@ class HostsDroidHostLabelTest {
     /** A card's heading: the host and folder its key carries. */
     private fun headTag(host: String, dir: String): String = "card-host:$host|$dir"
 
-    private fun cardTag(host: String, dir: String): String = "project:$host|$dir"
-
     private fun convoTag(key: String): String = "convo:$key"
 
     private fun hungTag(key: String): String = "hung:$key"
 
     private fun stepTag(id: String): String = "step:$id"
+
+    private fun stepRowTag(id: String): String = "step-row:$id"
 
     @Test
     fun twoHostsInboxNamesEachCardsHostOnItsHeadOnceAndEachRowsHostInline() {
@@ -236,7 +235,6 @@ class HostsDroidHostLabelTest {
             assertEquals(1, namedUnder(headTag(SERVING, ALPHA), SERVING))
             assertEquals(1, namedUnder(headTag(REMOTE, ALPHA), REMOTE))
             assertEquals(1, namedUnder(headTag(SERVING, BETA), SERVING))
-            assertEquals(1, namedUnder(cardTag(REMOTE, ALPHA), REMOTE))
 
             // A session row under a card names no host of its own: a pane's, and a headless session's on either host.
             assertEquals(0, namedUnder(convoTag("pane:$SERVING:%1"), SERVING))
@@ -362,36 +360,37 @@ class HostsDroidHostLabelTest {
     }
 
     @Test
-    fun aNowStepWithNoHostOfItsOwnNamesItsEpicsHost() {
-        val epic = EpicRow(
-            id = REMOTE_EPIC,
-            repository = REPOSITORY,
-            slug = "remote-epic",
-            outcome = "",
-            changed = NOW,
-            live = true,
-            runningSteps = emptyList(),
-            endedSteps = 0,
-            host = REMOTE,
-        )
-        val running = StepRow(
-            id = REMOTE_STEP,
-            task = "synthetic-task",
-            agent = "synthetic-agent",
-            end = "",
-            status = "",
-            held = false,
-            started = NOW - 300,
-            ended = 0L,
-            doing = "synthetic doing",
-            checks = emptyList(),
-            reason = "",
-        )
-        val detail = EpicDetail(
-            epic = epic,
-            steps = listOf(running.copy(host = ""), running.copy(id = SERVING_STEP, host = SERVING)),
-        )
+    fun theEpicPageNowStepsNameTheirOwnHostAndAnEmptyOneTheServingHost() {
+        FakeOrreryServer().use { server ->
+            server.respond(HOST_STATUS, HostStatusResponse.newBuilder().setHost(SERVING).build())
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epic(REMOTE_EPIC, REMOTE, ALPHA, steering = ""))
+                    .addSteps(step(EMPTY_STEP, ""))
+                    .addSteps(step(REMOTE_STEP, REMOTE))
+                    .build(),
+            )
+            server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
+            val client = OrreryClient(server.baseUrl)
+            composeRule.setContent {
+                EpicScreen(
+                    client = client,
+                    epicId = REMOTE_EPIC,
+                    onBack = {},
+                    onOpenStep = {},
+                    onOpenContract = {},
+                    onTalk = {},
+                    listedSteerer = { null },
+                    now = { NOW },
+                )
+            }
+            // The serving host is read on its own call, so the empty step's name waits for it.
+            composeRule.awaitUntil { namedUnder(stepRowTag(EMPTY_STEP), SERVING) > 0 }
 
-        assertEquals(listOf(REMOTE, SERVING), stepLinesOf(detail).map { it.host })
+            assertEquals(1, namedUnder(stepRowTag(EMPTY_STEP), SERVING))
+            assertEquals(1, namedUnder(stepRowTag(REMOTE_STEP), REMOTE))
+            assertEquals(0, namedUnder(stepRowTag(REMOTE_STEP), SERVING))
+        }
     }
 }
