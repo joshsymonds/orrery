@@ -60,10 +60,11 @@ func ensure(ctx context.Context, host hostexec.Host, roots RootLister, req Reque
 	}
 	checkout := findCheckout(ctx, host, rootDirs, req)
 	if checkout == "" {
-		if checkout, err = cloneCheckout(ctx, host, rootDirs[0], req); err != nil {
-			return "", err
-		}
-	} else if err = fetchOrigin(ctx, host, checkout); err != nil {
+		checkout, err = cloneCheckout(ctx, host, rootDirs[0], req)
+	} else {
+		err = fetchOrigin(ctx, host, checkout)
+	}
+	if err != nil {
 		return "", err
 	}
 	if req.Base != "" {
@@ -149,7 +150,7 @@ func fetchOrigin(ctx context.Context, host hostexec.Host, checkout string) error
 func cloneCheckout(ctx context.Context, host hostexec.Host, root string, req Request) (string, error) {
 	name := filepath.Base(req.Preferred)
 	if req.Preferred == "" || name == "." || name == ".." || name == string(filepath.Separator) {
-		return "", fmt.Errorf("clone %s: preferred %q names no directory of its own to clone into", req.Origin, req.Preferred)
+		return "", fmt.Errorf("clone %s: preferred %q names no directory to clone into", req.Origin, req.Preferred)
 	}
 	args := []string{"clone", "--", req.Origin, name}
 	if _, err := host.Git(ctx, hostexec.GitCall{Dir: root, Args: args, Remote: true}); err != nil {

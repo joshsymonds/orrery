@@ -221,7 +221,8 @@ func TestRepoOnHostFetchFailureNamesHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Ensure(t.Context(), f.Hosts["b"], f.Clients["b"], Request{Host: "b", Origin: f.Origin, Preferred: checkout})
+	req := Request{Host: "b", Origin: f.Origin, Preferred: checkout}
+	_, err := Ensure(t.Context(), f.Hosts["b"], f.Clients["b"], req)
 	wantGitStderr(t, err)
 }
 
