@@ -138,9 +138,11 @@ func (m *Manager) Release(ctx context.Context, id string) error {
 	}
 	live.idleStopped = true
 	delete(m.sessions, id)
+	m.beginStopLocked(live)
 	m.mu.Unlock()
 	stopErr := live.sess.Stop()
 	waitErr := m.waitPump(ctx, live)
+	m.endStop(live)
 	if err := errors.Join(stopErr, waitErr); err != nil {
 		return fmt.Errorf("release session %s: %w", id, err)
 	}

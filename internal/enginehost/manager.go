@@ -312,9 +312,9 @@ type Manager struct {
 	mu sync.Mutex
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
-	// stopping holds the retired sessions, by id, until their pump has ended and their stop has returned (see
-	// stopRetired). A Say or Continue that finds no live session waits for the one held here, so its old holder's
-	// directory is gone when it resumes (see awaitStopping).
+	// stopping holds the retired sessions, and the sessions Release or an idle stop is stopping, by id, until their pump has
+	// ended and their stop has returned (see stopRetired and beginStopLocked). A Say or Continue that finds no live session
+	// waits for the one held here, so its old holder's directory is gone when it resumes (see awaitStopping).
 	stopping map[string]*liveSession
 	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
 	// to the same observer.
@@ -2000,9 +2000,9 @@ func (m *Manager) Close() {
 	m.pumps.Wait()
 	// Each host watcher ends at once, since Close cancelled it (see watchHost), and none starts after the close.
 	m.watchers.Wait()
-	// A session retired before the close is still being stopped on its own goroutine (stopRetired), and its holder's
-	// directory is removed only once that stop returns. Close waits for those stops too, so no stop of this manager
-	// still touches a holder directory once Close returns.
+	// A session retired before the close, or released or idle-stopped (see beginStopLocked), is still being stopped, and its
+	// holder's directory is removed only once that stop returns. Close waits for those stops too, so no stop of this
+	// manager still touches a holder directory once Close returns.
 	m.mu.Lock()
 	retired := make([]*liveSession, 0, len(m.stopping))
 	for _, live := range m.stopping {
@@ -2084,6 +2084,7 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	live.held = false
 	delete(m.sessions, id)
 	m.disarmIdleLocked(live)
+	m.beginStopLocked(live)
 	m.mu.Unlock()
 	if err := live.sess.Stop(); err != nil {
 		m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
@@ -2093,6 +2094,7 @@ func (m *Manager) stopIdle(ctx context.Context, id string, now time.Time) {
 	if err := m.waitPump(ctx, live); err != nil {
 		m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
 	}
+	m.endStop(live)
 	if held {
 		m.settleIdleHeld(ctx, live)
 	}
@@ -2780,6 +2782,21 @@ func (m *Manager) stopRetired(live *liveSession) {
 		m.logger.Warn("stop drained session", "session", live.id, "err", err)
 	}
 	<-live.done
+	m.endStop(live)
+}
+
+// beginStopLocked registers live, which Release or stopIdle has just taken out of the live set, as stopping until endStop
+// is called once its stop has returned. Until then Close waits for live.stopped, and awaitStopping waits for the holder's
+// directory, so no stop of this manager is left touching a holder directory that a new holder takes. The caller holds the
+// lock.
+func (m *Manager) beginStopLocked(live *liveSession) {
+	live.stopped = make(chan struct{})
+	m.stopping[live.id] = live
+}
+
+// endStop takes live out of m.stopping and closes live.stopped, once live's stop has returned, so the holder's directory is
+// gone. It serves a retired session (see stopRetired) and a session begun with beginStopLocked.
+func (m *Manager) endStop(live *liveSession) {
 	m.mu.Lock()
 	if m.stopping[live.id] == live {
 		delete(m.stopping, live.id)
