@@ -150,11 +150,12 @@ internal class TreeData(
  * at the foot, whose Undo reads the tree again. An answer that moved rows shows its move notice in that same place, which
  * names the moved rows and their places, with Show and Undo. New opens the picker as a bottom sheet; a
  * run it answers opens that pane through [onOpenPaneId], and a start it answers opens that session through
- * [onStartedSession]. The Pools button opens the pools view through [onOpenPools]. The bell counts the unread notices,
- * read on start and every minute while started, and opens the notices through [onOpenNotices]. Under the head, the usage
- * band shows the accounts the usage reads hold, when they hold one; a tap on it opens the accounts sheet, whose Accounts
- * and routes calls [onOpenAccounts]. A Use on that sheet opens the confirm sheet, whose Move makes the moves; a move that
- * lands shows the move toast, whose Undo moves the contexts back.
+ * [onStartedSession]. The Hosts button opens the hosts view through [onOpenHosts], and the Pools button the pools view
+ * through [onOpenPools]. The bell counts the unread notices, read on start and every minute while started, and opens the
+ * notices through [onOpenNotices]. Under the head, the usage band shows the accounts the usage reads hold, when they hold
+ * one; a tap on it opens the accounts sheet, whose Accounts and routes calls [onOpenAccounts]. A Use on that sheet opens
+ * the confirm sheet, whose Move makes the moves; a move that lands shows the move toast, whose Undo moves the contexts
+ * back.
  *
  * Until the first answer the inbox says it is loading. A read that fails, the panes, a headless or archived list, or an
  * epic or its detail, shows that the server did not answer, and reads again after [RETRY_DELAY_MILLIS] or at once on
@@ -174,6 +175,7 @@ fun PaneListScreen(
     onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenHosts: () -> Unit = {},
     onOpenPools: () -> Unit = {},
     onOpenNotices: () -> Unit = {},
     onOpenAccounts: () -> Unit = {},
@@ -261,6 +263,7 @@ fun PaneListScreen(
                 unread = notices.unread,
                 onSearch = { state.search = state.search ?: "" },
                 onNotices = onOpenNotices,
+                onHosts = onOpenHosts,
                 onPools = onOpenPools,
                 onSettings = onOpenSettings,
                 onNew = { picking = true },
