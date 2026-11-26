@@ -207,18 +207,6 @@ func readDeskLine(t *testing.T, lines *bufio.Scanner) deskstream.Line {
 	return line
 }
 
-// buildLocalOrrery builds orrery into a directory of its own, and returns the path of the binary. The desk runs its own
-// orrery as a process, which a test binary cannot stand in for, so the desk test runs this binary.
-func buildLocalOrrery(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "orrery")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "github.com/joshsymonds/orrery/cmd/orrery")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build orrery: %v\n%s", err, out)
-	}
-	return bin
-}
-
 // TestNodeLocalVerbsSocketsAreOwnerOnly checks that agent b's daemon socket and notices.sock exist as sockets that only
 // their owner can use, as sessions.sock does.
 func TestNodeLocalVerbsSocketsAreOwnerOnly(t *testing.T) {
@@ -383,7 +371,10 @@ func TestNodeLocalVerbsDeskNamesController(t *testing.T) {
 	t.Parallel()
 	ctrl := startLocalController(t)
 	daemonSocket := startNodeForwardAgent(t, ctrl.relayAddr)
-	orrery := buildLocalOrrery(t)
+	orrery, err := exec.LookPath("orrery")
+	if err != nil {
+		t.Fatalf("find orrery on PATH: %v", err)
+	}
 	cmd := exec.CommandContext(t.Context(), orrery, "--socket", daemonSocket, "desk",
 		"--sound", filepath.Join(t.TempDir(), "sound.wav"), "--host", localControllerName)
 	cmd.Env = []string{"PATH=" + t.TempDir()}

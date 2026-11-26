@@ -5,8 +5,6 @@ import (
 	"context"
 	"io"
 	"net"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,19 +32,6 @@ while IFS= read -r line; do
   esac
 done
 `
-
-// nodeRestartOrrery builds orrery and puts it first on PATH, since each session the agent launches runs under orrery
-// holder. The package's TestMain builds it only for the tests it names, so a restart test builds it for itself.
-func nodeRestartOrrery(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	build := exec.CommandContext(t.Context(), "go", "install", "github.com/joshsymonds/orrery/cmd/orrery")
-	build.Env = append(os.Environ(), "GOBIN="+dir)
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build orrery: %v\n%s", err, out)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
 
 // nodeRestartLog is the stderr of an agent in these tests. It sends on kept each record that reports a keeper's attach,
 // so that a test waits on the attach and never sleeps.
@@ -185,7 +170,6 @@ func nodeRestartClaude(t *testing.T) string {
 // session's holder is ended when the test ends.
 func nodeRestartStart(t *testing.T) (string, *nodeRestartRun, *holder.Process, *nodeRestartStdout) {
 	t.Helper()
-	nodeRestartOrrery(t)
 	stateDir := shortStateDir(t)
 	dir := sessionDirOf(t, stateDir, nodeRestartSession)
 	t.Cleanup(func() {
