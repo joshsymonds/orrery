@@ -8,6 +8,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -28,7 +29,8 @@ type StepObserver interface {
 
 // StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs, the JSON
 // object of inline agent definitions claude is started with, the JSON schema its result must match, the engine ops
-// written with its row, and the observer of its hand-offs. A nil Observer receives nothing.
+// written with its row, and the observer of its hand-offs. A nil Observer receives nothing. Host and Files are the host
+// the step runs on and that host's file system, which its agent is resolved through.
 type StepSession struct {
 	ID       string
 	Dir      string
@@ -40,6 +42,8 @@ type StepSession struct {
 	Observer StepObserver
 	// Host is the orrery name of the host the step runs on, where empty means the controller.
 	Host string
+	// Files is the file system of the step's host. A nil Files reads this machine's files.
+	Files hostexec.Files
 }
 
 // ErrBadAgent reports a StartStep whose agent is empty or is not 1 to 64 bytes of letters, digits and . _ - [ ] : that
@@ -59,11 +63,13 @@ func (r stepRefusedError) Unwrap() error { return r.err }
 
 // StartStep starts the step session step as step describes. It checks step, that claude would resolve its agent and
 // that the manager is open, records the row as working with its Ops in one write, spawns claude with its agent, inline
-// agents and schema, then records and sends its prompt. A step always runs on the controller, so its row stores the
-// controller's host name. A step is listed as a step, never as a session, and sends no notice. A step refused before
-// anything is stored, for a bad step, an agent that does not resolve or a closed manager, returns its error and stores
-// nothing. A failure after the row is written, a record, spawn or send failure, records the row failed and returns the
-// error.
+// agents and schema, then records and sends its prompt. A step runs on the host step.Host names (see resolveHost): an
+// empty name, or the controller's own, runs it on the controller. Its process is launched through that host's
+// holderhost.Host, its row stores that host's name, and its agent is resolved through step.Files. A step whose host is
+// unknown is refused before anything is stored. A step is listed as a step, never as a session, and sends no notice. A
+// step refused before anything is stored, for a bad step, an unknown host, an agent that does not resolve or a closed
+// manager, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
+// records the row failed and returns the error.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	defer m.calls.enter()()
 	if err := checkStep(step); err != nil {
@@ -75,14 +81,18 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := m.checkOpen(); err != nil {
 		return stepRefusedError{err}
 	}
-	add := store.EngineAdd{
-		ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep, Host: m.hostName,
+	place, err := m.resolveHost(step.Host)
+	if err != nil {
+		return stepRefusedError{err}
 	}
-	if err := m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
+	add := store.EngineAdd{
+		ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep, Host: place.name,
+	}
+	if err = m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
 	live, err := m.spawnLive(ctx, step.ID, step.Dir, spawnSpec{agent: step.Agent, agents: step.Agents,
-		schema: step.Schema, step: true, observer: step.Observer, host: m.local})
+		schema: step.Schema, step: true, observer: step.Observer, host: place.host})
 	if err != nil {
 		recordErr := m.writeFailed(ctx, step.ID, err)
 		return fmt.Errorf("start step %s: %w", step.ID, errors.Join(err, recordErr))
@@ -156,9 +166,9 @@ func checkStep(step StepSession) error {
 // resolveStepAgent returns an error unless claude would resolve the agent of step for its directory under the manager's
 // environment. An agent that step's Agents defines resolves, except web-fetch, which claude never runs as a step's
 // agent. Any other agent is resolved as claude reads agents under the HOME and CLAUDE_CONFIG_DIR of that environment and
-// under the managed root. An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve
-// refuses. The error names the agent and each place checked, and an Agents that is not a JSON object of definitions is
-// refused with an error matching ErrBadAgents.
+// under the managed root, through step.Files, the file system of the step's host. An unset CLAUDE_CONFIG_DIR is "" and
+// takes the default, and an unset HOME is "", which Resolve refuses. The error names the agent and each place checked,
+// and an Agents that is not a JSON object of definitions is refused with an error matching ErrBadAgents.
 func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error {
 	defined, err := inlineAgents(step.Agents)
 	if err != nil {
@@ -169,7 +179,9 @@ func (m *Manager) resolveStepAgent(ctx context.Context, step StepSession) error 
 	}
 	home, _ := environValue(m.environ, "HOME")
 	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
-	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
+	where := agents.Where{
+		Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir, Files: step.Files,
+	}
 	if err = agents.Resolve(ctx, step.Agent, where); err != nil {
 		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
