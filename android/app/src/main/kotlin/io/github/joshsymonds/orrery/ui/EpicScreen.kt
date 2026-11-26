@@ -38,10 +38,12 @@ import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicHistoryRow
 import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.EpicUsageSession
+import io.github.joshsymonds.orrery.api.HostEntry
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.StepCallResult
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.api.reachableOf
 import io.github.joshsymonds.orrery.ui.theme.OrreryTokens
 import io.github.joshsymonds.orrery.ui.theme.inLabelCase
 import kotlinx.coroutines.Dispatchers
@@ -79,10 +81,17 @@ class EpicOpening(val section: String)
 /**
  * The epic page's title row: back and the orrery crumb, then the epic's slug, state and blocker pills at [now] and its
  * host labelled inline, once [detail] is read. While the epic loads, [detail] is null and the slug, pills and host are
- * left out. An epic with no host of its own reads as [servingHost].
+ * left out. An epic with no host of its own reads as [servingHost]. An [unreachable] host's label carries the
+ * unreachable mark.
  */
 @Composable
-internal fun EpicTitleRow(detail: EpicDetail?, now: Long, servingHost: String, onBack: () -> Unit) {
+internal fun EpicTitleRow(
+    detail: EpicDetail?,
+    now: Long,
+    servingHost: String,
+    onBack: () -> Unit,
+    unreachable: Boolean = false,
+) {
     val statePill = detail?.let { statePillOf(it, now) }
     val blockerPill = detail?.let { blockerPillOf(it, now) }
     TitleRow(
@@ -93,6 +102,7 @@ internal fun EpicTitleRow(detail: EpicDetail?, now: Long, servingHost: String, o
         blocker = blockerPill?.word.orEmpty(),
         blockerTone = blockerPill?.tone,
         host = detail?.let { it.epic.host.ifEmpty { servingHost } }.orEmpty(),
+        unreachable = unreachable,
     )
 }
 
@@ -133,8 +143,13 @@ fun EpicScreen(
     // The serving host's name, which an epic or step with no host of its own reads as. Read whether or not the title row
     // is drawn, since the body's Now steps name it too.
     var servingHost by remember(client) { mutableStateOf("") }
+    // The hosts the status lists with their reach, so the title row marks an epic on a host that does not answer.
+    var hosts by remember(client) { mutableStateOf<List<HostEntry>>(emptyList()) }
     LaunchedEffect(client) {
-        fetchHost(client)?.let { servingHost = it.host }
+        fetchHost(client)?.let {
+            servingHost = it.host
+            hosts = it.hosts
+        }
     }
     val scope = rememberCoroutineScope()
     val releaseCall = remember(client, epicId) { OwnerCall() }
@@ -254,9 +269,17 @@ fun EpicScreen(
         }
     }
     val nowAt = now()
+    // An epic on a host that does not answer draws unreachable in its title row, as the inbox draws it.
+    val unreachable = detail?.let { !reachableOf(hosts, it.epic.host.ifEmpty { servingHost }) } == true
     Column(modifier = modifier.fillMaxSize()) {
         if (titled) {
-            EpicTitleRow(detail = detail, now = nowAt, servingHost = servingHost, onBack = onBack)
+            EpicTitleRow(
+                detail = detail,
+                now = nowAt,
+                servingHost = servingHost,
+                onBack = onBack,
+                unreachable = unreachable,
+            )
         }
         if (notice.isNotEmpty()) {
             Text(

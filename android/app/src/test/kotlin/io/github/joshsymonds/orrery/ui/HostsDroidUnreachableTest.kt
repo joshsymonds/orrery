@@ -26,6 +26,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.DesignsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostEntry as HostEntryProto
@@ -48,7 +50,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 // R4 end to end, on invented hosts with one that does not answer: a pane flagged unreachable, a headless session on that
-// host, and a step on it. Each title row draws the unreachable mark, the grey dashed ring and the word, and never a
+// host, an epic and a step on it. Each title row draws the unreachable mark, the grey dashed ring and the word, and never a
 // stopped glyph. A pane's dock on such a host is its one line, `unreachable: <host> does not answer`, with no box, queue
 // or control. A pane on a host that answers draws no mark and keeps its box. The inbox, served the same answers, draws the
 // pane, session and step rows with the grey ring and the word, and the epic's host with the mark. Checks read semantics
@@ -68,6 +70,8 @@ class HostsDroidUnreachableTest {
         const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
         const val SESSIONS_LIST = "/orrery.v1.Sessions/List"
         const val EPICS_LIST = "/orrery.v1.Epics/List"
+        const val EPICS_GET = "/orrery.v1.Epics/Get"
+        const val EPICS_HISTORY = "/orrery.v1.Epics/History"
         const val CONTRACTS_LIST = "/orrery.v1.Contracts/List"
         const val DESIGNS_LIST = "/orrery.v1.Designs/List"
         const val CONVO_ID = "synthetic-convo"
@@ -298,6 +302,57 @@ class HostsDroidUnreachableTest {
             composeRule.onAllNodes(hasContentDescription("stopped"), useUnmergedTree = true).assertCountEquals(0)
 
             composeRule.onNodeWithTag(DOCK_WORD).assertTextEquals("unreachable: $SILENT does not answer")
+        }
+    }
+
+    /** A live epic on [SILENT] with no steps, so the epic's host is the only host mark its screen draws: its title row's. */
+    private fun serveEpic(server: FakeOrreryServer) {
+        val epic = EpicsGetResponse.newBuilder()
+            .setEpic(
+                Epic.newBuilder()
+                    .setId(INBOX_EPIC_ID)
+                    .setRepository("lighthouse")
+                    .setSlug("silent-epic")
+                    .setChanged(NOW - 30)
+                    .setLive(true)
+                    .setSource("orreryd")
+                    .setHost(SILENT),
+            )
+            .build()
+        server.respond(EPICS_GET, epic)
+        server.respond(EPICS_HISTORY, EpicsHistoryResponse.getDefaultInstance())
+        server.respond(HOST_STATUS, hostStatus())
+    }
+
+    /** Mounts the epic screen of [INBOX_EPIC_ID] on a client of [server], on the fixed clock. */
+    private fun setEpic(server: FakeOrreryServer) {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme {
+                EpicScreen(
+                    client = client,
+                    epicId = INBOX_EPIC_ID,
+                    onBack = {},
+                    onOpenStep = {},
+                    onOpenContract = {},
+                    onTalk = {},
+                    listedSteerer = { null },
+                    now = { NOW },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun anEpicOnAHostThatDoesNotAnswerDrawsTheMarkInItsTitleRowNeverStopped() {
+        FakeOrreryServer().use { server ->
+            serveEpic(server)
+            setEpic(server)
+
+            composeRule.awaitExactlyOne(hasTestTag(HOST_UNREACHABLE))
+            assertEquals(listOf(OrreryTokens.Ink.three), ringColours(hasTestTag(HOST_UNREACHABLE)))
+            under(HOST_UNREACHABLE, hasText(UNREACHABLE)).assertCountEquals(1)
+            composeRule.onAllNodes(hasContentDescription("stopped"), useUnmergedTree = true).assertCountEquals(0)
         }
     }
 
