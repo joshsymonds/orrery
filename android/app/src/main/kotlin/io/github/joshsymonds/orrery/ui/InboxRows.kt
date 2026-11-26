@@ -222,8 +222,9 @@ private fun NewDot(unseen: Boolean) {
 
 // A hung epic or contract: an epic's mark or a contract's mark, then three lines: its name with its count at the end (a
 // contract's count sits at the row's end, its version), its words, and its blocker in attention, else its newest
-// sentence. An epic also draws its running steps. Under a design ([inDesign]) the name and the steps are in regular
-// weight: the design's name is the only bold one in its block.
+// sentence, then, for an epic, the host it runs on as a HostLabel. An epic also draws its running steps, each naming
+// its own host. Under a design ([inDesign]) the name and the steps are in regular weight: the design's name is the only
+// bold one in its block.
 @Composable
 internal fun HungRow(
     hung: Hung,
@@ -274,6 +275,10 @@ internal fun HungRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+                // An epic names its own host on its row: it may run on another host than the conversation steering it.
+                if (hung is EpicNode && hung.host.isNotEmpty()) {
+                    HostLabel(name = hung.host)
                 }
             }
             if (contract && words.count.isNotEmpty()) {
@@ -335,6 +340,9 @@ private fun StepLine(step: StepRow, cells: List<CellTone>, onOpen: (String) -> U
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (step.host.isNotEmpty()) {
+                HostLabel(name = step.host)
+            }
         }
         if (step.task.isNotEmpty()) {
             Pips(cells = cells)

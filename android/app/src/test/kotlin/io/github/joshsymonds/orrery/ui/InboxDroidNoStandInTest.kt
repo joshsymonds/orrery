@@ -44,9 +44,9 @@ class InboxDroidNoStandInTest {
     private companion object {
         const val NOW = 1_700_000_000L
         const val ALPHA = "/home/user/alpha"
-        const val ALPHA_KEY = "|$ALPHA"
-        const val PROJECT_TAG = "project:$ALPHA_KEY"
         const val HOST = "example-host"
+        const val ALPHA_KEY = "$HOST|$ALPHA"
+        const val PROJECT_TAG = "project:$ALPHA_KEY"
         const val REPOSITORY = "example-repo"
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val SESSIONS_LIST = "/orrery.v1.Sessions/List"

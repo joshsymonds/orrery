@@ -70,7 +70,7 @@ class InboxTreeScreenTest {
         const val BETA_SESSION = "00000000000000000000000000000002"
         const val IDLE_SESSION = "00000000000000000000000000000003"
         const val ENDED_SESSION = "00000000000000000000000000000004"
-        const val ALPHA_KEY = "|$ALPHA"
+        const val ALPHA_KEY = "$HOST|$ALPHA"
         const val STEP_ID = "example-step"
         const val EMPTY_HINT = "Start a session in a directory and it shows here, grouped by that directory."
         const val SEARCH_LABEL = "Search sessions and epics"
@@ -84,7 +84,7 @@ class InboxTreeScreenTest {
     private var openedEpic: String? = null
     private var backOwner: OnBackPressedDispatcherOwner? = null
 
-    private fun projectTag(dir: String): String = "project:|$dir"
+    private fun projectTag(dir: String): String = "project:$HOST|$dir"
 
     private fun convoTag(paneId: String): String = "convo:pane:$HOST:$paneId"
 
@@ -391,13 +391,13 @@ class InboxTreeScreenTest {
             setScreen(server)
             awaitNode(hasTestTag(convoTag("%1")))
 
-            composeRule.onNodeWithTag("fold:|$ALPHA").performClick()
+            composeRule.onNodeWithTag("fold:$HOST|$ALPHA").performClick()
 
             assertEquals(0, countNodes(hasTestTag(convoTag("%1"))))
             assertEquals(0, countNodes(hasTestTag(convoTag("%2"))))
             assertEquals(1, countNodes(hasText("1 waiting")))
 
-            composeRule.onNodeWithTag("fold:|$ALPHA").performClick()
+            composeRule.onNodeWithTag("fold:$HOST|$ALPHA").performClick()
 
             assertEquals(1, countNodes(hasTestTag(convoTag("%1"))))
             assertEquals(0, countNodes(hasText("1 waiting")))

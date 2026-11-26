@@ -51,7 +51,7 @@ enum class StepGlyph { WORKING, HELD, LIMITED }
 
 /**
  * One running step as a row of Now: its [glyph], [label] (the step's purpose, else its task, else its role), [task], what
- * it [doing], and the unix second it [since].
+ * it [doing], the unix second it [since], and the [host] it runs on, which the row names; empty when none is known.
  */
 data class StepLine(
     val id: String,
@@ -60,6 +60,7 @@ data class StepLine(
     val task: String,
     val doing: String,
     val since: Long,
+    val host: String = "",
 )
 
 private val STAGE_NAMES = listOf("Contract", "Build", "Review", "Release", "Report")
@@ -207,6 +208,7 @@ fun stepLinesOf(detail: EpicDetail): List<StepLine> = runningOf(detail).map { st
         task = step.task,
         doing = doingOf(step),
         since = if (step.stageStarted != 0L) step.stageStarted else step.started,
+        host = step.host,
     )
 }
 
