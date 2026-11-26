@@ -151,8 +151,10 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool,
 	return []Tool{
 		{
 			Name: "step_start",
-			Description: "Start a step: an agent working in a workspace. Returns the step id and next. " +
-				"The step's end arrives in this conversation as an orrery-event of kind step_end.",
+			Description: "Start a step: an agent working in a workspace. Returns the step id and next. host names " +
+				"the host the step runs on: omitted, hosts.toml's default, else the controller; an unknown or " +
+				"unreachable host is refused. A step of an epic keeps the epic's host, so a host that names another " +
+				"is refused. The step's end arrives in this conversation as an orrery-event of kind step_end.",
 			InputSchema: startInput,
 			Handler:     startHandler(steps, clock),
 		},
@@ -228,6 +230,7 @@ type startArgs struct {
 	Epic       string          `json:"epic,omitempty"`
 	Task       string          `json:"task,omitempty"`
 	Purpose    string          `json:"purpose,omitempty"`
+	Host       string          `json:"host,omitempty"     jsonschema:"the host the step runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; a step of an epic keeps the epic's host"`
 }
 
 // idArgs is the arguments of a tool that takes one id, the step tools and the epic tools alike.
@@ -363,6 +366,7 @@ func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) ToolH
 				Epic:       args.Epic,
 				Task:       args.Task,
 				Purpose:    args.Purpose,
+				Host:       args.Host,
 			}))
 			return errors.Join(callErr)
 		})

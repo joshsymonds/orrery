@@ -15,8 +15,9 @@ const designUnavailableText = "orrery design tools have no orreryd connection"
 
 // designCreateArgs is the arguments of design_create, described for its input schema.
 type designCreateArgs struct {
-	ID    string `json:"id"    jsonschema:"the id the new design takes: no contract or design may hold it"`
-	Title string `json:"title" jsonschema:"the design's title, on one line"`
+	ID    string `json:"id"             jsonschema:"the id the new design takes: no contract or design may hold it"`
+	Title string `json:"title"          jsonschema:"the design's title, on one line"`
+	Host  string `json:"host,omitempty" jsonschema:"the host the design runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused"`
 }
 
 // designGetArgs is the arguments of design_get, described for its input schema.
@@ -55,9 +56,10 @@ func designTools(designs enginev1connect.DesignsClient) ([]Tool, error) {
 	return []Tool{
 		{
 			Name: "design_create",
-			Description: "Create a design under id with title. A design holds the contracts one conversation works, " +
-				"in the order they start, and starts with none: contract_propose adds one with its design argument. " +
-				"Returns the design with its contracts and state.",
+			Description: "Create a design under id with title. host names the host the design runs on: omitted, " +
+				"hosts.toml's default, else the controller; an unknown or unreachable host is refused. A design " +
+				"holds the contracts one conversation works, in the order they start, and starts with none: " +
+				"contract_propose adds one with its design argument. Returns the design with its contracts and state.",
 			InputSchema: create,
 			Handler:     designCreateHandler(designs),
 		},
@@ -101,7 +103,7 @@ func designCreateHandler(designs enginev1connect.DesignsClient) ToolHandler {
 			return designUnavailable(), nil
 		}
 		created, err := designs.CreateDesign(ctx, connect.NewRequest(&v1.CreateDesignRequest{
-			Id: args.ID, Title: args.Title,
+			Id: args.ID, Title: args.Title, Host: args.Host,
 		}))
 		if err != nil {
 			return toolFailure(err), nil
