@@ -195,8 +195,8 @@ func (c *Client) hostLaunch(ctx context.Context, cfg hostexec.Launch) (hostexec.
 	if err != nil {
 		return nil, fmt.Errorf("node: launch of %s on %s: %w", cfg.Session, c.cfg.Name, err)
 	}
-	if err := c.hostClear(ctx, dir); err != nil {
-		return nil, err
+	if clearErr := c.hostClear(ctx, dir); clearErr != nil {
+		return nil, clearErr
 	}
 	spec := GateSpec{
 		Scope:    cfg.Scope,
