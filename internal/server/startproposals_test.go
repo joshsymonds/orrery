@@ -76,7 +76,7 @@ func startProposeAgent(t *testing.T, host, root string, load node.Load) *node.Cl
 		Controller: routingController,
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: host},
 		Holders:    routingHolders{},
-		Root:       root,
+		Roots:      []string{root},
 		Panes:      statusPanes{routingPanes: routingPanes{handler: http.NotFoundHandler()}, load: load},
 	})
 	if err != nil {

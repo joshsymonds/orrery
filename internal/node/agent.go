@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -50,8 +51,11 @@ type AgentConfig struct {
 	// Panes is this machine's panes, which the pane ops serve. Nil means the agent serves no panes, and each pane op
 	// answers CodeFailed.
 	Panes HostPanes
-	// Root is the absolute directory whose folders the agent reports and checks. Empty serves none.
-	Root string
+	// Roots are the absolute directories whose folders the agent reports and checks. Each root's folders are reported
+	// together, and a folder is admitted when it lies under any one of them. Empty serves none.
+	Roots []string
+	// Secret is the fleet secret that the agent checks each Request's Secret against, as SecretMatches compares them.
+	Secret string
 	// WakePane types text into pane of the tmux server column server when the pane is idle, and reports whether it did.
 	// Nil wakes no pane.
 	WakePane func(ctx context.Context, server, pane, text string) (bool, error)
@@ -265,30 +269,41 @@ func (a *Agent) load(ctx context.Context) Response {
 	return Response{Load: &load}
 }
 
-// noRoot returns the Response that a folders or folder op gets from an agent with no Root.
+// noRoot returns the Response that a folders or folder op gets from an agent with no Roots.
 func noRoot() Response {
 	return Response{Code: CodeFailed, Message: "agent has no root"}
 }
 
-// folders answers with the directories that rootFolders lists under the agent's Root.
+// folders answers with the directories that rootFolders lists under each of the agent's Roots, sorted by path.
 func (a *Agent) folders() Response {
-	if a.cfg.Root == "" {
+	if len(a.cfg.Roots) == 0 {
 		return noRoot()
 	}
-	return Response{Folders: rootFolders(a.cfg.Root)}
+	var folders []string
+	for _, root := range a.cfg.Roots {
+		folders = append(folders, rootFolders(root)...)
+	}
+	slices.Sort(folders)
+	return Response{Folders: folders}
 }
 
-// folder answers with the resolved path of req.Dir, when checkFolder admits it under the agent's Root. A dir that it
-// refuses is answered with CodeFailed and the reason.
+// folder answers with the resolved path of req.Dir, when checkFolder admits it under any of the agent's Roots. A dir
+// that no root admits is answered with CodeFailed and the reason that the first root gave.
 func (a *Agent) folder(req Request) Response {
-	if a.cfg.Root == "" {
+	if len(a.cfg.Roots) == 0 {
 		return noRoot()
 	}
-	resolved, err := checkFolder(a.cfg.Root, req.Dir)
-	if err != nil {
-		return Response{Code: CodeFailed, Message: err.Error()}
+	var refusal error
+	for _, root := range a.cfg.Roots {
+		resolved, err := checkFolder(root, req.Dir)
+		if err == nil {
+			return Response{Folder: resolved}
+		}
+		if refusal == nil {
+			refusal = err
+		}
 	}
-	return Response{Folder: resolved}
+	return Response{Code: CodeFailed, Message: refusal.Error()}
 }
 
 // wakePane types req.Text into pane req.Pane of the tmux server req.Server, through the agent's WakePane, and answers

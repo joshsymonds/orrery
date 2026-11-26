@@ -18,6 +18,8 @@ type ForwardConfig struct {
 	Address string
 	// Dial connects to Address over the tailnet, as net.Dialer.DialContext does.
 	Dial func(ctx context.Context, network, address string) (net.Conn, error)
+	// Secret is the fleet secret that Forward sets as HeaderSecret on each request it relays to Address.
+	Secret string
 	// Logger receives the forwarder's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }

@@ -54,6 +54,8 @@ type Config struct {
 	Sessions SessionHosts
 	// Handler serves the session-service calls that the relay admits.
 	Handler http.Handler
+	// Secret is the fleet secret that the relay admits a call by, as the call's HeaderSecret must match it.
+	Secret string
 	// Logger receives the relay's diagnostics. Nil discards them.
 	Logger *slog.Logger
 }
