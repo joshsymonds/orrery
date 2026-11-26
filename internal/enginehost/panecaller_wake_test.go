@@ -40,6 +40,7 @@ const (
 	wakeController = "ctl"
 	wakeHostB      = "b"
 	wakeLogin      = "owner@example.com"
+	wakeSecret     = "fleet-secret-for-wake-tests"
 	wakeEpicID     = "synthetic-repo-0a1b2c3/epic-wake"
 	// wakeTmux is the TMUX of the tmux socket the pane callers run in, and wakeColumn is the server column of the pane
 	// rows that socket's panes have.
@@ -330,6 +331,7 @@ func startWakeAgent(t *testing.T, wake func(context.Context, string, string, str
 		Holders:    holderhost.NewLocal(holderhost.LocalConfig{StateDir: dir}),
 		StateDir:   dir,
 		WakePane:   wake,
+		Secret:     wakeSecret,
 	})
 	if err != nil {
 		t.Fatalf("new agent of %s: %v", wakeHostB, err)
@@ -348,6 +350,7 @@ func startWakeAgent(t *testing.T, wake func(context.Context, string, string, str
 		Address: ln.Addr().String(),
 		Dial:    (&net.Dialer{}).DialContext,
 		Clock:   wakeNeverClock{},
+		Secret:  wakeSecret,
 	})
 }
 

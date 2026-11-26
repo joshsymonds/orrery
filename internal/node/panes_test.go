@@ -126,6 +126,7 @@ func startPanesAgent(t *testing.T, panes HostPanes) string {
 		WhoIs:      peerWhoIs{own: ln.Addr().String()},
 		Holders:    &fakeHost{},
 		Panes:      panes,
+		Secret:     testSecret,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -151,6 +152,7 @@ func newTestClient(addr string) *Client {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   newManualClock(),
+		Secret:  testSecret,
 	})
 }
 
@@ -256,6 +258,7 @@ func TestNodePanesBound(t *testing.T) {
 				Dial:    (&net.Dialer{}).DialContext,
 				Bound:   testBound,
 				Clock:   clock,
+				Secret:  testSecret,
 			})
 			errs := make(chan error, 1)
 			go func() { errs <- tc.call(t.Context(), client) }()
@@ -276,7 +279,7 @@ func TestNodePanesBound(t *testing.T) {
 func TestNodePanesPipelined(t *testing.T) {
 	addr := startPanesAgent(t, &fakeHostPanes{})
 	conn := dialController(t, addr)
-	line, err := json.Marshal(Request{Version: Version, Op: OpPanes})
+	line, err := json.Marshal(Request{Version: Version, Secret: testSecret, Op: OpPanes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +361,7 @@ func TestNodePanesHeadersBound(t *testing.T) {
 		Dial:    (&net.Dialer{}).DialContext,
 		Bound:   testBound,
 		Clock:   clock,
+		Secret:  testSecret,
 	})
 	errs := make(chan error, 1)
 	go func() {
@@ -386,7 +390,7 @@ func TestNodePanesNone(t *testing.T) {
 	addr := startPanesAgent(t, nil)
 	for _, op := range []Op{OpPanes, OpWatchPanes, OpLoad} {
 		t.Run(string(op), func(t *testing.T) {
-			resp := ask(t, addr, Request{Version: Version, Op: op})
+			resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: op})
 			if resp.Code != CodeFailed || resp.Message != "agent serves no panes" {
 				t.Fatalf("%s = code %q message %q, want code %q message %q",
 					op, resp.Code, resp.Message, CodeFailed, "agent serves no panes")

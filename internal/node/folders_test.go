@@ -18,6 +18,7 @@ func startConfiguredAgent(t *testing.T, cfg AgentConfig) string {
 	cfg.Controller = testController
 	cfg.WhoIs = peerWhoIs{own: ln.Addr().String()}
 	cfg.Holders = &fakeHost{}
+	cfg.Secret = testSecret
 	agent, err := NewAgent(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +59,7 @@ func TestAgentFoldersListsRootDirs(t *testing.T) {
 	}
 	addr := startConfiguredAgent(t, AgentConfig{Roots: []string{root}})
 
-	resp := ask(t, addr, Request{Version: Version, Op: OpFolders})
+	resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpFolders})
 	if resp.Code != "" {
 		t.Fatalf("folders: %+v", resp)
 	}
@@ -79,7 +80,7 @@ func TestAgentFoldersListsRootDirs(t *testing.T) {
 func TestAgentFoldersWithoutRootRefused(t *testing.T) {
 	addr := startConfiguredAgent(t, AgentConfig{})
 
-	resp := ask(t, addr, Request{Version: Version, Op: OpFolders})
+	resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpFolders})
 	if resp.Code != CodeFailed || resp.Message != "agent has no root" {
 		t.Fatalf("folders with no root = %+v, want code %q and message %q", resp, CodeFailed, "agent has no root")
 	}
@@ -107,7 +108,7 @@ func TestAgentFolderResolvesUnderRoot(t *testing.T) {
 		{name: "symlink", dir: filepath.Join(root, "alias"), want: filepath.Join(realRoot, "a", "b")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := ask(t, addr, Request{Version: Version, Op: OpFolder, Dir: tc.dir})
+			resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpFolder, Dir: tc.dir})
 			if resp.Code != "" {
 				t.Fatalf("folder of %s: %+v", tc.dir, resp)
 			}
@@ -136,7 +137,7 @@ func TestAgentFolderRefusesOutsideRoot(t *testing.T) {
 		{name: "relative", dir: "a", reason: "is not an absolute path"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := ask(t, addr, Request{Version: Version, Op: OpFolder, Dir: tc.dir})
+			resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpFolder, Dir: tc.dir})
 			if resp.Code != CodeFailed || !strings.Contains(resp.Message, tc.reason) {
 				t.Fatalf("folder of %s = %+v, want code %q with %q", tc.dir, resp, CodeFailed, tc.reason)
 			}
@@ -160,7 +161,7 @@ func TestAgentFolderRefusesMissing(t *testing.T) {
 		{name: "file", dir: filepath.Join(root, "file.txt"), reason: "is not a directory"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := ask(t, addr, Request{Version: Version, Op: OpFolder, Dir: tc.dir})
+			resp := ask(t, addr, Request{Version: Version, Secret: testSecret, Op: OpFolder, Dir: tc.dir})
 			if resp.Code != CodeFailed || !strings.Contains(resp.Message, tc.reason) {
 				t.Fatalf("folder of %s = %+v, want code %q with %q", tc.dir, resp, CodeFailed, tc.reason)
 			}

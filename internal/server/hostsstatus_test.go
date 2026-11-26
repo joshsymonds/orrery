@@ -84,6 +84,7 @@ func startStatusAgent(t *testing.T, host string, load node.Load) string {
 		WhoIs:      routingWhoIs{own: ln.Addr().String(), host: host},
 		Holders:    routingHolders{},
 		Panes:      statusPanes{routingPanes: routingPanes{handler: http.NotFoundHandler()}, load: load},
+		Secret:     routingSecret,
 	})
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
@@ -152,6 +153,7 @@ func statusClients(file hosts.File, clockOf func(host string) holder.Clock) []*n
 			Address: host.Address,
 			Dial:    dialer.DialContext,
 			Clock:   clockOf(host.Name),
+			Secret:  routingSecret,
 		}))
 	}
 	return clients
