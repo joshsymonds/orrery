@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,8 +15,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/fleettest"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostrepo"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -108,6 +111,41 @@ func (fx designHostFixture) createDesign(t *testing.T, host string) {
 	}
 }
 
+// designHostWriter is the id of the headless session the design host tests create a design from.
+const designHostWriter = "design-host-writer"
+
+// createDefaultDesign creates the design designHostID through orreryd's Designs service, from a headless session,
+// naming no host, with the controller's Placement listing host b and taking b as its default. It checks that the stored
+// design holds b.
+func (fx designHostFixture) createDefaultDesign(t *testing.T) {
+	t.Helper()
+	writer := store.EngineAdd{ID: designHostWriter, Dir: "/work/engine"}
+	if err := fx.store.ApplyEngine(t.Context(), []store.EngineOp{writer}, stageResearchNow()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	placement := enginehost.NewPlacement(enginehost.PlacementConfig{
+		Controller: fx.fleet.Controller, Default: "b",
+		Hosts: map[string]enginehost.Reacher{"b": fx.fleet.Clients["b"]},
+	})
+	server := httptest.NewServer(enginehost.NewHandler(enginehost.ServeConfig{
+		Designs: &enginehost.Designs{Store: fx.store, Now: stageResearchNow, Placement: placement},
+	}))
+	t.Cleanup(server.Close)
+	req := connect.NewRequest(&v1.CreateDesignRequest{Id: designHostID, Title: "Design one"})
+	req.Header().Set(protocol.HeaderSession, designHostWriter)
+	designs := enginev1connect.NewDesignsClient(server.Client(), server.URL)
+	if _, err := designs.CreateDesign(t.Context(), req); err != nil {
+		t.Fatalf("CreateDesign: %v", err)
+	}
+	record, err := fx.store.Design(t.Context(), designHostID)
+	if err != nil {
+		t.Fatalf("Design: %v", err)
+	}
+	if record.Host != "b" {
+		t.Errorf("stored host of a design that names no host = %q, want the default b", record.Host)
+	}
+}
+
 // proposeDesignHostContract proposes a contract on designHostID, in the controller's repository, at version 1.
 func (fx designHostFixture) proposeDesignHostContract(t *testing.T) {
 	t.Helper()
@@ -153,12 +191,12 @@ func (fx designHostFixture) wantStepOn(t *testing.T, step, host string) {
 	}
 }
 
-// TestDesignHostResearchStartsOnDesignHost checks that a research step of a design on host b starts on b, at the HEAD
-// commit of the controller's repository, which b's checkout holds.
+// TestDesignHostResearchStartsOnDesignHost checks that a design that names no host stores the default b, and that its
+// research step starts on b, at the HEAD commit of the controller's repository, which b's checkout holds.
 func TestDesignHostResearchStartsOnDesignHost(t *testing.T) {
 	t.Parallel()
 	fx := newDesignHostFixture(t, "b")
-	fx.createDesign(t, "b")
+	fx.createDefaultDesign(t)
 	reply, err := fx.service.Research(t.Context(), connect.NewRequest(&v1.ResearchRequest{
 		Design: designHostID, Repository: fx.repo, Question: "Does Foo call Bar?",
 	}))
