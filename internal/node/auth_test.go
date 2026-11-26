@@ -215,8 +215,8 @@ func TestNodeAuthServesControllerUnderMyLogin(t *testing.T) {
 		dialFrom(t, wrongVersion, ln.Addr().String()),
 		Request{Version: "node.v0", Secret: testSecret, Op: OpSessions},
 	)
-	if resp.Code != CodeFailed {
-		t.Fatalf("a request naming another version got code %q, want %q", resp.Code, CodeFailed)
+	if resp.Code != CodeVersion {
+		t.Fatalf("a request naming another version got code %q, want %q", resp.Code, CodeVersion)
 	}
 	if n := host.calls.Load(); n != 1 {
 		t.Fatalf("Host got %d calls after a request naming another version, want 1", n)

@@ -277,6 +277,10 @@ func newNodeAgent(
 	if err != nil {
 		return nil, nil, err
 	}
+	configDir, claudeDir, err := nodeHostDirs(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
 	whoIs := cfg.seams.whoIs
 	if whoIs == nil {
 		whoIs = node.Tailnet()
@@ -289,6 +293,9 @@ func newNodeAgent(
 		Scope:      cfg.holderScope,
 		Panes:      panes,
 		Roots:      cfg.roots,
+		ConfigDir:  configDir,
+		ClaudeDir:  claudeDir,
+		Local:      hostexec.NewLocal(),
 		Secret:     secret,
 		WakePane:   cli.WakePane,
 		Logger:     logger,
@@ -504,6 +511,25 @@ func writeDeskLine(out io.Writer, msg *v1.FleetWatchDeskResponse) error {
 		return fmt.Errorf("write desk line: %w", err)
 	}
 	return nil
+}
+
+// nodeHostDirs returns the orrery config directory, $XDG_CONFIG_HOME/orrery or else $HOME/.config/orrery, and Claude's
+// directory, $HOME/.claude. The agent's git, file, gate and leftover ops may name paths under them, beside its roots and
+// its state directory. The Claude directory is empty when HOME is not set. It fails when neither XDG_CONFIG_HOME nor HOME
+// is set, since then there is no config directory.
+func nodeHostDirs(getenv func(string) string) (configDir, claudeDir string, err error) {
+	home := getenv("HOME")
+	configHome := getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		if home == "" {
+			return "", "", errors.New("node: neither XDG_CONFIG_HOME nor HOME is set, so there is no config directory")
+		}
+		configHome = filepath.Join(home, ".config")
+	}
+	if home != "" {
+		claudeDir = filepath.Join(home, ".claude")
+	}
+	return filepath.Join(configHome, "orrery"), claudeDir, nil
 }
 
 // nodeStateDir returns the absolute directory that the store file lies in, which is the state directory orreryd's
