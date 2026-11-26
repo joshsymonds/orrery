@@ -1027,6 +1027,7 @@ type Grant struct {
 	Granted     int64
 	Command     string
 	Holder      string
+	Host        string
 }
 
 type GrantMember struct {

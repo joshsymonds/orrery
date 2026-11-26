@@ -5309,8 +5309,8 @@ func (q *Queries) InsertGateTriage(ctx context.Context, arg InsertGateTriagePara
 }
 
 const insertGrant = `-- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGrantParams struct {
@@ -5322,6 +5322,7 @@ type InsertGrantParams struct {
 	Command     string
 	Granted     int64
 	Holder      string
+	Host        string
 }
 
 func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error {
@@ -5334,6 +5335,7 @@ func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error 
 		arg.Command,
 		arg.Granted,
 		arg.Holder,
+		arg.Host,
 	)
 	return err
 }
@@ -10424,7 +10426,7 @@ func (q *Queries) ListGrantMembers(ctx context.Context) ([]GrantMember, error) {
 }
 
 const listGrants = `-- name: ListGrants :many
-SELECT id, project, client_pid, client_start, pools, granted, command, holder FROM grants ORDER BY granted, id
+SELECT id, project, client_pid, client_start, pools, granted, command, holder, host FROM grants ORDER BY granted, id
 `
 
 func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
@@ -10445,6 +10447,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 			&i.Granted,
 			&i.Command,
 			&i.Holder,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}

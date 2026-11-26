@@ -457,8 +457,8 @@ UPDATE steps SET purpose = ? WHERE id = ? AND purpose = '';
 UPDATE steps SET lines_counted = ?, lines_files = ?, lines_added = ?, lines_removed = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder, host)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertGrantMember :exec
 INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?);

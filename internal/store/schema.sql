@@ -73,7 +73,7 @@ CREATE TABLE grants (
     client_start INTEGER NOT NULL,
     pools TEXT NOT NULL,
     granted INTEGER NOT NULL
-, command TEXT NOT NULL DEFAULT '[]', holder TEXT NOT NULL DEFAULT '');
+, command TEXT NOT NULL DEFAULT '[]', holder TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '');
 CREATE TABLE grant_members (
     member TEXT PRIMARY KEY,
     grant_id TEXT NOT NULL,
@@ -1257,6 +1257,7 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (12,11,
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,119,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (122,121,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (123,122,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);
