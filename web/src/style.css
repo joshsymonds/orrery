@@ -326,6 +326,8 @@ button.link.notices-more { justify-self: end; padding: 0 var(--o-space-12); colo
 .host-label .icon { color: var(--o-ink-4); }
 .host-label.heading { color: var(--o-ink-3); font-weight: var(--o-font-weight-regular); }
 .host-label + .unreach { margin-left: var(--o-space-8); color: var(--o-ink-3); font: var(--o-type-small); white-space: nowrap; }
+/* The word unreachable in a row, an epic or a step on a host that does not answer, in grey ink wherever it stands. */
+.unreach { color: var(--o-ink-3); }
 .tr .strong > .host-label { margin-left: var(--o-space-8); }
 
 /* Pips: a task's phases, one cell each, in the cell's tone. */

@@ -4,6 +4,7 @@ import { Fragment } from "preact";
 import { Dir } from "./dir";
 import { FilterChip } from "./filterchip";
 import { Icon } from "./glyphs";
+import { type HostReach, hostDown } from "./hostreach";
 import { noticesTip } from "./inboxrail";
 import { Mark } from "./mark";
 import type { Convo, Project, View } from "./tree";
@@ -50,6 +51,9 @@ export interface InboxProps {
   notes?: ComponentChildren;
   // band is the usage band, drawn right under the head, as round 8 draws it. The inbox draws it only when given.
   band?: ComponentChildren;
+  // reach is each listed host's reach: a card whose host does not answer draws the word unreachable beside its host.
+  // Absent reads every host as reachable.
+  reach?: HostReach;
 }
 
 // Inbox draws the web's inbox column as round 6 draws it: the head with the mark, the name, search, the Hosts control when
@@ -88,6 +92,7 @@ export function Inbox({
   moving,
   notes,
   band,
+  reach = new Map(),
 }: InboxProps): JSX.Element {
   // The chips count the drawn tree, so they draw only while it is drawn: not while loading or after a failed read, as on
   // Android's home.
@@ -202,6 +207,7 @@ export function Inbox({
           onNew={onNew}
           onOpenProject={onOpenProject}
           moving={moving}
+          reach={reach}
         />
       </div>
       <footer class="inbox-foot">
@@ -267,11 +273,13 @@ interface BodyProps {
   onNew: () => void;
   onOpenProject?: (key: string) => void;
   moving?: ReadonlySet<string>;
+  reach: HostReach;
 }
 
 // Body draws the inbox's rows: loading, the error with Try now, the nothing-running state with New, the nothing-matches
 // state with the words searched, or each project as a card. With no projects, no search and no narrowing it is the
-// nothing-running state. Narrowed with no projects and no search words, it draws nothing.
+// nothing-running state. Narrowed with no projects and no search words, it draws nothing. A card whose host reach marks
+// down draws the word unreachable beside its host.
 function Body({
   view,
   state,
@@ -288,6 +296,7 @@ function Body({
   onNew,
   onOpenProject,
   moving,
+  reach,
 }: BodyProps): JSX.Element | null {
   if (state === "loading") {
     return (
@@ -350,6 +359,7 @@ function Body({
           onEnded={() => onEnded(project.key)}
           onOpen={onOpenProject}
           moving={moving?.has(project.key) ?? false}
+          down={hostDown(reach, project.host)}
           ended={project.ended.map((convo) => <Fragment key={convo.key}>{renderConvo(convo)}</Fragment>)}
         >
           {project.convos.map((convo) => (
