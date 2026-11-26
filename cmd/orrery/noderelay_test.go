@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -35,16 +34,21 @@ const (
 	nodeStepC    = "step-on-c"
 )
 
-// nodeWhoIs names each peer by its address, as tailscaled's WhoIs names a connection's peer. An address with no answer
-// fails.
-type nodeWhoIs map[string]*apitype.WhoIsResponse
+// nodeWhoIs names each peer of the test relay, as tailscaled's WhoIs names a connection's peer: the relay's own address
+// is the controller, and every other address is agent b, since agent b's forwarder makes every connection to the relay a
+// test opens. The forwarder dials from whatever port the kernel gives it. Dialing from one fixed port made a second
+// connection reuse the address pair of the first, which the kernel holds in TIME_WAIT for 60 seconds.
+type nodeWhoIs struct {
+	relayAddr string
+	relay     *apitype.WhoIsResponse
+	peer      *apitype.WhoIsResponse
+}
 
 func (w nodeWhoIs) WhoIs(_ context.Context, addr string) (*apitype.WhoIsResponse, error) {
-	resp, ok := w[addr]
-	if !ok {
-		return nil, errors.New("fake WhoIs: no peer at " + addr)
+	if addr == w.relayAddr {
+		return w.relay, nil
 	}
-	return resp, nil
+	return w.peer, nil
 }
 
 // nodeAnswer is the WhoIs answer for a peer whose node is node, signed in as the owner.
@@ -134,27 +138,15 @@ func freeNodeAddr(t *testing.T) string {
 	return addr
 }
 
-// nodeDialFrom returns a dialer that connects from the local address from, so that the relay names the connection's
-// peer by that address.
-func nodeDialFrom(t *testing.T, from string) func(context.Context, string, string) (net.Conn, error) {
-	t.Helper()
-	local, err := net.ResolveTCPAddr("tcp", from)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dialer := net.Dialer{LocalAddr: local}
-	return dialer.DialContext
-}
-
 // startNodeRelay starts the test controller's relay, which serves a handler of recording fakes, and agent b's
-// sessions.sock, which forwards to the relay from b's address. Both run until the test ends.
+// sessions.sock, which forwards to the relay as agent b. Both run until the test ends.
 func startNodeRelay(t *testing.T) *nodeRelay {
 	t.Helper()
 	relayAddr := freeNodeAddr(t)
-	bAddr := freeNodeAddr(t)
 	whois := nodeWhoIs{
-		relayAddr: nodeAnswer(&tailcfg.Node{ComputedName: "orreryd-box"}),
-		bAddr: nodeAnswer(&tailcfg.Node{
+		relayAddr: relayAddr,
+		relay:     nodeAnswer(&tailcfg.Node{ComputedName: "orreryd-box"}),
+		peer: nodeAnswer(&tailcfg.Node{
 			Name:         "b.tail1234.ts.net.",
 			ComputedName: "b",
 		}),
@@ -195,7 +187,7 @@ func startNodeRelay(t *testing.T) *nodeRelay {
 		t.Fatal(err)
 	}
 	forwardCtx, cancelForward := context.WithCancel(t.Context())
-	forwardCfg := hostrelay.ForwardConfig{Address: relayAddr, Dial: nodeDialFrom(t, bAddr)}
+	forwardCfg := hostrelay.ForwardConfig{Address: relayAddr, Dial: (&net.Dialer{}).DialContext}
 	forwarded := make(chan error, 1)
 	go func() { forwarded <- hostrelay.Forward(forwardCtx, ln, forwardCfg) }()
 	t.Cleanup(func() {
