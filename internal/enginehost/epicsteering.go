@@ -23,12 +23,14 @@ type steeringSessions interface {
 // EpicSteeringConfig configures EpicSteering. Manager starts and stops the steering sessions. Sessions reads the row
 // of a session once it is started, so Start can tell a session whose spawn failed. Render returns the contract and log
 // lines of an epic, which Start puts in the session's first prompt. Hosts resolves host names to the Hosts that run an epic's git,
-// as ServeConfig's does; nil resolves every name to this machine.
+// as ServeConfig's does; nil resolves every name to this machine. Host is the name the controller's epics are stamped
+// with, which is what Steps.Host is; an epic that names it, or no host, runs its session on the controller.
 type EpicSteeringConfig struct {
 	Manager  *Manager
 	Sessions steeringSessions
 	Render   func(store.EpicRow) ([]string, error)
 	Hosts    hostexec.Hosts
+	Host     string
 }
 
 // EpicSteering starts and stops the steering session of an epic: the one headless session that answers the epic's
@@ -37,11 +39,12 @@ type EpicSteering struct {
 	manager  *Manager
 	sessions steeringSessions
 	render   func(store.EpicRow) ([]string, error)
+	host     string
 }
 
 // NewEpicSteering returns the EpicSteering that cfg configures.
 func NewEpicSteering(cfg EpicSteeringConfig) *EpicSteering {
-	return &EpicSteering{manager: cfg.Manager, sessions: cfg.Sessions, render: cfg.Render}
+	return &EpicSteering{manager: cfg.Manager, sessions: cfg.Sessions, render: cfg.Render, host: cfg.Host}
 }
 
 // SteeringPrompt returns the first prompt of a steering session of the epic with id: the instruction line, the line
@@ -50,18 +53,25 @@ func SteeringPrompt(id string, lines []string) string {
 	return strings.Join(append([]string{steeringInstruction, "Epic: " + id}, lines...), "\n")
 }
 
-// Start starts the steering session of the epic row in the row's repository and returns its id. The first prompt is
-// SteeringPrompt of the row's id and the lines Render returns for the row. A Render error is returned and starts
-// nothing. A session whose spawn fails returns an error that names the session and the reason it failed, and no id. A started session
-// whose row cannot be read is stopped, even when ctx has ended, since no caller gets its id to stop it, and the read
-// error is returned with no id.
+// Start starts the steering session of the epic row in the row's repository and returns its id. The session runs on the
+// row's host: an empty row host, or the controller's own (see EpicSteeringConfig.Host), runs it on the controller, and
+// any other host runs it there, in the row's repository on that host. The first prompt is SteeringPrompt of the row's
+// id and the lines Render returns for the row. A Render error is returned and starts nothing. A session whose spawn
+// fails returns an error that names the session and the reason it failed, and no id. A started session whose row cannot
+// be read is stopped, even when ctx has ended, since no caller gets its id to stop it, and the read error is returned
+// with no id.
 func (s *EpicSteering) Start(ctx context.Context, row store.EpicRow) (string, error) {
 	lines, err := s.render(row)
 	if err != nil {
 		return "", fmt.Errorf("render steering prompt of epic %s: %w", row.ID, err)
 	}
 	prompt := SteeringPrompt(row.ID, lines)
-	id, err := s.manager.Start(ctx, StartRequest{Dir: row.Repository, Prompt: prompt})
+	// The controller's epics name no host, so the manager runs them on the controller's Local, as Steps does for its own.
+	host := row.Host
+	if row.Host == "" || row.Host == s.host {
+		host = ""
+	}
+	id, err := s.manager.Start(ctx, StartRequest{Dir: row.Repository, Prompt: prompt, Host: host})
 	if err != nil {
 		return "", fmt.Errorf("start steering session of epic %s: %w", row.ID, err)
 	}
