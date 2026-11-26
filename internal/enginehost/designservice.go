@@ -53,7 +53,8 @@ func (s *designService) ready() error {
 }
 
 // CreateDesign stores a design with no contracts, at the clock's time, with the conversation of the sessions row the
-// caller resolves to. The id and the title must not be blank. The reply is the stored design read back.
+// caller resolves to and the host its steps run on, as the Placement places the host the request names. The id and the
+// title must not be blank. The reply is the stored design read back.
 func (s *designService) CreateDesign(
 	ctx context.Context,
 	req *connect.Request[v1.CreateDesignRequest],
@@ -68,12 +69,16 @@ func (s *designService) CreateDesign(
 	if isBlank(title) {
 		return nil, refuseBlank("title")
 	}
+	host, err := s.placeHost(req.Msg.GetHost())
+	if err != nil {
+		return nil, err
+	}
 	conversation, err := s.writerSession(ctx, req.Header())
 	if err != nil {
 		return nil, err
 	}
 	err = s.designs.Store.CreateDesign(ctx, store.Design{
-		ID: id, Title: title, Conversation: conversation, Created: s.designs.Now(),
+		ID: id, Title: title, Conversation: conversation, Host: host, Created: s.designs.Now(),
 	})
 	if errors.Is(err, store.ErrDesignExists) {
 		return nil, refuseEpic(
@@ -154,6 +159,29 @@ func (s *designService) OrderDesign(
 	return connect.NewResponse(&v1.OrderDesignResponse{Design: stored}), nil
 }
 
+// placeHost returns the orrery name of the host a design that names named runs its steps on: the name the Placement
+// places it on. With no Placement a design names no host, so it stores "" when it names none, and a named host is
+// refused as unknown. A host the Placement refuses is InvalidArgument when it is unknown and FailedPrecondition when it
+// is unreachable, and the message names the host.
+func (s *designService) placeHost(named string) (string, error) {
+	if s.designs.Placement == nil {
+		if named != "" {
+			return "", refuseEpic(connect.CodeInvalidArgument, fmt.Sprintf("host: %v: %s", ErrUnknownHost, named))
+		}
+		return "", nil
+	}
+	host, err := s.designs.Placement.Place(named)
+	switch {
+	case errors.Is(err, ErrUnknownHost):
+		return "", refuseEpic(connect.CodeInvalidArgument, "host: "+err.Error())
+	case errors.Is(err, ErrUnreachableHost):
+		return "", refuseEpic(connect.CodeFailedPrecondition, "host: "+err.Error())
+	case err != nil:
+		return "", epicStoreError(err)
+	}
+	return host, nil
+}
+
 // writerSession returns the sessions row a design is written by, resolved as a contract's writer is. A caller that
 // resolves to no session is refused, since only a session writes a design.
 func (s *designService) writerSession(ctx context.Context, header http.Header) (string, error) {
@@ -212,6 +240,7 @@ func storedDesignOf(record store.DesignRecord) *v1.StoredDesign {
 		OfOne:        record.OfOne,
 		State:        record.State,
 		Contracts:    epicMap(record.Contracts, storedDesignContractOf),
+		Host:         record.Host,
 	}
 }
 
