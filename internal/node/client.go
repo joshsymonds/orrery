@@ -196,6 +196,34 @@ func (c *Client) act(ctx context.Context, op Op, id string) error {
 	return err
 }
 
+// hostCall sends req, and returns the Response unless the agent's answer carries an error code. While the agent cannot be
+// reached, it sends req again after each retry interval, until the agent answers or ctx ends. So a host op fails only for
+// a failure the agent gave, or for the end of ctx.
+func (c *Client) hostCall(ctx context.Context, req Request) (Response, error) {
+	for {
+		resp, err := c.call(ctx, req)
+		if !errors.Is(err, holderhost.ErrUnreachable) {
+			return resp, err
+		}
+		if pauseErr := c.pause(ctx); pauseErr != nil {
+			return Response{}, errors.Join(err, pauseErr)
+		}
+	}
+}
+
+// pause waits one retry interval on the clock, and returns nil. It returns ctx's error instead when ctx has ended.
+func (c *Client) pause(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("node: retry of the agent: %w", err)
+	}
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("node: retry of the agent: %w", ctx.Err())
+	case <-c.cfg.Clock.After(c.cfg.Bound / retriesPerBound):
+		return nil
+	}
+}
+
 // call sends req, and returns the Response unless the agent's answer carries an error code.
 func (c *Client) call(parent context.Context, req Request) (Response, error) {
 	resp, err := c.request(parent, req)
@@ -209,8 +237,11 @@ func (c *Client) call(parent context.Context, req Request) (Response, error) {
 }
 
 // request sends req on a new connection, and returns the Response that answers it. Dial, answer and the connection's
-// close are all bounded by Bound on the clock.
+// close are all bounded by Bound on the clock, except the answer to a git op, which requestGit describes.
 func (c *Client) request(parent context.Context, req Request) (Response, error) {
+	if req.Op == OpGit {
+		return c.requestGit(parent, req)
+	}
 	ctx, cancel := c.bound(parent)
 	defer cancel()
 	conn, err := c.dial(ctx)
@@ -223,6 +254,53 @@ func (c *Client) request(parent context.Context, req Request) (Response, error) 
 	}
 	c.closeConn(conn)
 	return resp, nil
+}
+
+// requestGit sends the git op req on a new connection, and returns the Response that answers it. Dial and the send of req
+// are bounded by Bound on the clock, as the other ops are. The answer is not: git runs as long as its work takes, and Local
+// waits for git as long as ctx lives, so the answer waits under parent alone. A parent that ends closes the connection,
+// and returns its error. A connection lost before the answer is unreachable, so the call is sent again.
+func (c *Client) requestGit(parent context.Context, req Request) (Response, error) {
+	ctx, cancel := c.bound(parent)
+	defer cancel()
+	conn, err := c.dial(ctx)
+	if err != nil {
+		return Response{}, c.fail(parent, req, err)
+	}
+	if err = c.send(ctx, conn, req); err != nil {
+		return Response{}, c.fail(parent, req, err)
+	}
+	stop := context.AfterFunc(parent, func() { c.closeConn(conn) })
+	resp, err := readAnswer(conn, req.Op)
+	stop()
+	c.closeConn(conn)
+	switch {
+	case err == nil:
+		return resp, nil
+	case parent.Err() != nil:
+		return Response{}, c.opErr(req, parent.Err())
+	default:
+		return Response{}, c.fail(parent, req, err)
+	}
+}
+
+// send writes req on conn, as the first line of the exchange, and closes conn when the write fails. Once ctx ends, a write
+// still in progress fails at once, through a write deadline. A deadline leaves the connection's reads alone, so an answer
+// is never cut short by a ctx that ends after the request was written.
+func (c *Client) send(ctx context.Context, conn net.Conn, req Request) error {
+	req.Secret = c.cfg.Secret
+	stop := context.AfterFunc(ctx, func() {
+		if err := conn.SetWriteDeadline(time.Now()); err != nil {
+			c.cfg.Logger.DebugContext(ctx, "node: bound the write", "host", c.cfg.Name, "err", err)
+		}
+	})
+	err := writeLine(conn, req)
+	stop()
+	if err != nil {
+		c.closeConn(conn)
+		return err
+	}
+	return nil
 }
 
 // bound returns a context that ends once Bound has passed on the clock, or once parent ends, and the func that releases
@@ -304,17 +382,30 @@ func (c *Client) link(id string) *nodeLink {
 
 // roundTrip writes req as the one line a controller sends, and reads the one line that answers it.
 func roundTrip(conn net.Conn, req Request) (Response, error) {
+	if err := writeLine(conn, req); err != nil {
+		return Response{}, err
+	}
+	return readAnswer(conn, req.Op)
+}
+
+// writeLine writes req as the one line a controller sends.
+func writeLine(conn net.Conn, req Request) error {
 	//nolint:gosec // G117: the Secret is marshaled on purpose, to the agent that checks it over the tailnet.
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return Response{}, fmt.Errorf("send %s: %w", req.Op, err)
+		return fmt.Errorf("send %s: %w", req.Op, err)
 	}
+	return nil
+}
+
+// readAnswer reads the one line that answers a request of op, and decodes it.
+func readAnswer(conn net.Conn, op Op) (Response, error) {
 	line, err := readLine(conn)
 	if err != nil {
-		return Response{}, fmt.Errorf("read the %s response: %w", req.Op, err)
+		return Response{}, fmt.Errorf("read the %s response: %w", op, err)
 	}
 	var resp Response
 	if err = json.Unmarshal(line, &resp); err != nil {
-		return Response{}, fmt.Errorf("decode the %s response: %w", req.Op, err)
+		return Response{}, fmt.Errorf("decode the %s response: %w", op, err)
 	}
 	return resp, nil
 }
@@ -382,6 +473,14 @@ func (c *Client) setUnreachable(unreachable bool) {
 type nodeLink struct {
 	client *Client
 	id     string
+	// holderDir is the directory of a gate's holder, and scope the systemd-run path it was launched under. A link with a
+	// holderDir attaches that holder by its directory, through gate-attach. Empty means the link attaches the session's
+	// holder by its id.
+	holderDir string
+	scope     string
+	// lost receives each time a connection that Dial returned for a gate's holder closes, so the end watch of a gate's
+	// holder asks whether the holder has ended. It is nil for a session's link.
+	lost chan struct{}
 	// watch starts the end watch, on the first call of Done.
 	watch sync.Once
 	// done closes once the holder has ended, and exit and found are set before it closes.
@@ -396,7 +495,7 @@ var _ holder.Link = (*nodeLink)(nil)
 // returned connection stays open after ctx ends.
 func (l *nodeLink) Dial(parent context.Context) (net.Conn, error) {
 	client := l.client
-	req := Request{Version: Version, Op: OpAttach, Session: l.id}
+	req := l.attachRequest()
 	ctx, cancel := client.bound(parent)
 	defer cancel()
 	conn, err := client.dial(ctx)
@@ -411,12 +510,31 @@ func (l *nodeLink) Dial(parent context.Context) (net.Conn, error) {
 		client.closeConn(conn)
 		return nil, client.opErr(req, err)
 	}
+	if l.lost != nil {
+		return &gateConn{Conn: conn, lost: l.lost}, nil
+	}
 	return conn, nil
 }
 
-// Done returns the channel that closes once the holder has ended. The first call starts the end watch.
+// attachRequest returns the request that attaches the link's holder: gate-attach for a gate's holder by its directory, and
+// attach for a session's holder by its id.
+func (l *nodeLink) attachRequest() Request {
+	if l.holderDir != "" {
+		return Request{Version: Version, Op: OpGateAttach, HolderDir: l.holderDir, Scope: l.scope}
+	}
+	return Request{Version: Version, Op: OpAttach, Session: l.id}
+}
+
+// Done returns the channel that closes once the holder has ended. The first call starts the end watch: the gate end watch
+// for a gate's holder, and the end op's watch for a session's.
 func (l *nodeLink) Done() <-chan struct{} {
-	l.watch.Do(func() { go l.watchEnd() })
+	l.watch.Do(func() {
+		if l.holderDir != "" {
+			go l.watchGateEnd()
+			return
+		}
+		go l.watchEnd()
+	})
 	return l.done
 }
 

@@ -21,8 +21,8 @@ import (
 const startTimeIndex = 22 - 3
 
 // git answers with the result of the git run that spec describes, which the agent's Local runs inside its allowed
-// directories. A run that git ends with a non-zero exit, or a kill, answers with git's exit code, stdout and stderr. A git
-// that could not start answers with Started false, and Message says why.
+// directories, with spec's WaitDelay. A run that git ends with a non-zero exit, or a kill, answers with git's exit code,
+// stdout and stderr. A git that could not start answers with Started false, and Message says why.
 func (a *Agent) git(ctx context.Context, spec *GitSpec) Response {
 	if spec == nil {
 		return Response{Code: CodeFailed, Message: "node: git op names no git run"}
@@ -31,11 +31,12 @@ func (a *Agent) git(ctx context.Context, spec *GitSpec) Response {
 		return refusal(err)
 	}
 	out, err := a.cfg.Local.Git(ctx, hostexec.GitCall{
-		Dir:    spec.Dir,
-		Args:   spec.Args,
-		Env:    spec.Env,
-		Stdin:  spec.Stdin,
-		Remote: spec.Remote,
+		Dir:       spec.Dir,
+		Args:      spec.Args,
+		Env:       spec.Env,
+		Stdin:     spec.Stdin,
+		Remote:    spec.Remote,
+		WaitDelay: spec.WaitDelay,
 	})
 	var gitErr *hostexec.GitError
 	switch {
