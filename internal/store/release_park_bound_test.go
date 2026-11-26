@@ -89,7 +89,7 @@ func TestReplanRerunsStepsParkOutsideChainBound(t *testing.T) {
 		requireReleasePark(t, s, reason)
 		answerPark(t, s, retryEpicAction("the release runs again from the round's tip"))
 		if epic := closeRow(t, s, claimEpic); epic.Parked != "" {
-			t.Fatalf("park of epic after retry %d = %q %q, want none: the retry is taken", n, epic.ParkClass, epic.Parked)
+			t.Fatalf("park after retry %d = %q %q, want none: the retry is taken", n, epic.ParkClass, epic.Parked)
 		}
 	}
 	if got := questionsOf(t, s); len(got) != 0 {
@@ -151,8 +151,9 @@ func TestReplanRerunsStepsParkRefusalsNotBound(t *testing.T) {
 	if got := questionsOf(t, s); len(got) != 0 {
 		t.Errorf("questions after two refusals = %+v, want none: the planner answers a release stop", got)
 	}
-	if want := []string{"planner retry epic refused: " + releaseFailedRefusal}; !reflect.DeepEqual(pendingCauses(t, s), want) {
-		t.Errorf("pending triggers after two refusals = %v, want %v", pendingCauses(t, s), want)
+	want := []string{"planner retry epic refused: " + releaseFailedRefusal}
+	if got := pendingCauses(t, s); !reflect.DeepEqual(got, want) {
+		t.Errorf("pending triggers after two refusals = %v, want %v", got, want)
 	}
 	if chain := boundChainOf(t, s); chain.Seq != 0 {
 		t.Errorf("bound chain after two refusals = %+v, want none: a release stop is outside the park bound", chain)
