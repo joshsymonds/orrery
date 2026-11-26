@@ -59,14 +59,6 @@ func watchDesk(
 	return stream
 }
 
-// assertFleetCode fails the test unless err carries the connect code want.
-func assertFleetCode(t *testing.T, err error, want connect.Code) {
-	t.Helper()
-	if got := connect.CodeOf(err); got != want {
-		t.Errorf("code = %v, want %v (err %v)", got, want, err)
-	}
-}
-
 func TestFleetServiceReportSeen(t *testing.T) {
 	t.Parallel()
 	t.Run("seen report keyed with caller host b", func(t *testing.T) {
@@ -89,7 +81,7 @@ func TestFleetServiceReportSeen(t *testing.T) {
 		client := fleetClient(t, &Fleet{Router: router})
 		req := connect.NewRequest(&v1.FleetReportSeenRequest{Pane: "%3", Seen: 1700000000})
 		_, err := client.ReportSeen(t.Context(), req)
-		assertFleetCode(t, err, connect.CodeInvalidArgument)
+		wantConnectError(t, err, connect.CodeInvalidArgument, "the Orrery-Host header names no host")
 		if got := router.reports(); len(got) != 0 {
 			t.Errorf("reports = %+v, want none", got)
 		}
@@ -100,7 +92,7 @@ func TestFleetServiceReportSeen(t *testing.T) {
 		req := connect.NewRequest(&v1.FleetReportSeenRequest{Pane: "%3", Seen: 1700000000})
 		req.Header().Set(protocol.HeaderHost, "b")
 		_, err := client.ReportSeen(t.Context(), req)
-		assertFleetCode(t, err, connect.CodeUnavailable)
+		wantConnectError(t, err, connect.CodeUnavailable, "notice router unavailable")
 	})
 	t.Run("no fleet unavailable", func(t *testing.T) {
 		t.Parallel()
@@ -108,7 +100,7 @@ func TestFleetServiceReportSeen(t *testing.T) {
 		req := connect.NewRequest(&v1.FleetReportSeenRequest{Pane: "%3", Seen: 1700000000})
 		req.Header().Set(protocol.HeaderHost, "b")
 		_, err := client.ReportSeen(t.Context(), req)
-		assertFleetCode(t, err, connect.CodeUnavailable)
+		wantConnectError(t, err, connect.CodeUnavailable, "notice router unavailable")
 	})
 }
 
@@ -174,7 +166,7 @@ func TestFleetServiceWatchDesk(t *testing.T) {
 		if stream.Receive() {
 			t.Errorf("line with no hub = %v, want none", stream.Msg())
 		}
-		assertFleetCode(t, stream.Err(), connect.CodeUnavailable)
+		wantConnectError(t, stream.Err(), connect.CodeUnavailable, "desk unavailable")
 	})
 	t.Run("no fleet unavailable", func(t *testing.T) {
 		t.Parallel()
@@ -182,6 +174,6 @@ func TestFleetServiceWatchDesk(t *testing.T) {
 		if stream.Receive() {
 			t.Errorf("line with no fleet = %v, want none", stream.Msg())
 		}
-		assertFleetCode(t, stream.Err(), connect.CodeUnavailable)
+		wantConnectError(t, stream.Err(), connect.CodeUnavailable, "desk unavailable")
 	})
 }

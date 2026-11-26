@@ -22,6 +22,12 @@ type Fleet struct {
 	Desk   *deskstream.Hub
 }
 
+// routerUnavailableMessage is the message ReportSeen is refused with when there is no notice router.
+const routerUnavailableMessage = "notice router unavailable"
+
+// deskUnavailableMessage is the message WatchDesk is refused with when there is no desk hub.
+const deskUnavailableMessage = "desk unavailable"
+
 // fleetService implements the Fleet RPCs over fleet. A nil fleet refuses every RPC as unavailable.
 type fleetService struct {
 	fleet *Fleet
@@ -35,14 +41,11 @@ func (s *fleetService) ReportSeen(
 	req *connect.Request[v1.FleetReportSeenRequest],
 ) (*connect.Response[v1.FleetReportSeenResponse], error) {
 	if s.fleet == nil || s.fleet.Router == nil {
-		return nil, fleetUnavailable()
+		return nil, refuseFleet(connect.CodeUnavailable, routerUnavailableMessage)
 	}
 	host := req.Header().Get(protocol.HeaderHost)
 	if host == "" {
-		return nil, errors.Join(connect.NewError(
-			connect.CodeInvalidArgument,
-			fmt.Errorf("the %s header names no host", protocol.HeaderHost),
-		))
+		return nil, refuseFleet(connect.CodeInvalidArgument, "the "+protocol.HeaderHost+" header names no host")
 	}
 	s.fleet.Router.Seen(ctx, notice.Key{Pane: req.Msg.GetPane(), Host: host}, req.Msg.GetSeen())
 	return connect.NewResponse(&v1.FleetReportSeenResponse{}), nil
@@ -56,7 +59,7 @@ func (s *fleetService) WatchDesk(
 	stream *connect.ServerStream[v1.FleetWatchDeskResponse],
 ) error {
 	if s.fleet == nil || s.fleet.Desk == nil {
-		return fleetUnavailable()
+		return refuseFleet(connect.CodeUnavailable, deskUnavailableMessage)
 	}
 	sub := s.fleet.Desk.Subscribe()
 	defer sub.Close()
@@ -86,7 +89,7 @@ func (s *fleetService) WatchDesk(
 	}
 }
 
-// fleetUnavailable returns the refusal every Fleet RPC gets when there is no router or desk to serve it from.
-func fleetUnavailable() error {
-	return errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(unavailableMessage)))
+// refuseFleet returns the Connect error with code and message that a Fleet RPC is refused with.
+func refuseFleet(code connect.Code, message string) error {
+	return errors.Join(connect.NewError(code, errors.New(message)))
 }
