@@ -16,8 +16,8 @@ import (
 // streamPath is the path that the forwarder tests request.
 const streamPath = "/stream"
 
-// startForward serves Forward on a unix socket in a temporary directory, relaying to address, until the test ends. It
-// returns the socket's path. The test fails when Forward returns an error.
+// startForward serves Forward on a unix socket in a temporary directory, relaying to address with the test fleet
+// secret, until the test ends. It returns the socket's path. The test fails when Forward returns an error.
 func startForward(t *testing.T, address string) string {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "sessions.sock")
@@ -27,7 +27,7 @@ func startForward(t *testing.T, address string) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	forwarded := make(chan error, 1)
-	go func() { forwarded <- Forward(ctx, ln, ForwardConfig{Address: address}) }()
+	go func() { forwarded <- Forward(ctx, ln, ForwardConfig{Address: address, Secret: testSecret}) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-forwarded; err != nil {

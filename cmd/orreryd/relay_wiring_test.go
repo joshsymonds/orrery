@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -29,6 +30,28 @@ name = "` + relayAgentName + `"
 address = "` + relayAgentFQDN + `:7443"
 `
 )
+
+// relaySecret is the fleet secret that the test relay admits calls by, and that the test client sends with each call.
+const relaySecret = "synthetic-fleet-secret"
+
+// secretInterceptor sets relaySecret as the fleet secret of each call, as an agent's forwarder sets it.
+var secretInterceptor = connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		req.Header().Set(protocol.HeaderSecret, relaySecret)
+		return next(ctx, req)
+	}
+})
+
+// relaySecretFile writes relaySecret to a file that only its owner can read, which --fleet-secret names, and returns
+// the file's path.
+func relaySecretFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fleet-secret")
+	if err := os.WriteFile(path, []byte(relaySecret), 0o600); err != nil {
+		t.Fatalf("write the fleet secret file: %v", err)
+	}
+	return path
+}
 
 // relayWhoIs is the WhoIs seam of the relay. It names the relay's own address as the controller's node, and every other
 // address as the peer node, and signs both in as relayOwnerLogin.
@@ -82,7 +105,8 @@ func relayHTTP(t *testing.T, addr string) *http.Client {
 func TestRelayAuthOrrerydServesListedAgent(t *testing.T) {
 	getenv, root := hostMigrationEnv(t, relayHostsFile)
 	relayAddr := relayFreeAddr(t)
-	args := append(hostMigrationSessionArgs(t, filepath.Join(root, "orreryd.sock")), "--relay-listen", relayAddr)
+	args := append(hostMigrationSessionArgs(t, filepath.Join(root, "orreryd.sock")),
+		"--relay-listen", relayAddr, "--fleet-secret", relaySecretFile(t))
 	opts, err := parseFlags(args, getenv)
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
@@ -90,7 +114,8 @@ func TestRelayAuthOrrerydServesListedAgent(t *testing.T) {
 	opts.relayWhoIs = relayWhoIs{own: relayAddr, peer: &tailcfg.Node{Name: relayAgentFQDN + "."}}
 	startHostMigrationServe(t, getenv, opts)
 
-	client := enginev1connect.NewEpicsClient(relayHTTP(t, relayAddr), "http://epics.invalid")
+	client := enginev1connect.NewEpicsClient(relayHTTP(t, relayAddr), "http://epics.invalid",
+		connect.WithInterceptors(secretInterceptor))
 	if _, err := client.ListEpics(t.Context(), connect.NewRequest(&v1.ListEpicsRequest{})); err != nil {
 		t.Fatalf("ListEpics through the relay at %s: %v", relayAddr, err)
 	}
