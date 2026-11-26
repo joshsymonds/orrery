@@ -19,6 +19,8 @@ export interface Row {
   label: string;
   // The directory the row runs in, which its title draws as the last element of its path. Empty for a Sessions.List row.
   project: string;
+  // The host the row runs on: a pane's host, or a headless session's, serving host included. Empty for a Sessions.List row,
+  // which carries no host.
   host: string;
   state: string;
   summary: string;
@@ -138,7 +140,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[], headless: HeadlessS
       kind: "session",
       label: session.headline,
       project: session.dir,
-      host: "",
+      host: session.host,
       state: session.state,
       summary: session.summary,
       question: session.question,

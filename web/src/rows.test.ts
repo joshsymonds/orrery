@@ -345,3 +345,16 @@ test("WaitsOnYou: the same pane read again with putOff false, for a new question
 
   assert.deepEqual([...before.map(waitsOnYou), ...after.map(waitsOnYou)], [false, true]);
 });
+
+test("a headless session row takes the host the session runs on, and a session row from Sessions.List has none", () => {
+  const rows = rowsFrom(
+    [],
+    [makeSession({ id: "sess-list", pane: "", state: "done" })],
+    [makeHeadless({ id: "sess-head", host: "brine", dir: "/srv/app", headline: "work", state: "done" })],
+  );
+
+  assert.deepEqual(rows.map((row) => [row.id, row.host]), [
+    ["sess-list", ""],
+    ["sess-head", "brine"],
+  ]);
+});

@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 
 import type { ConversationContext, HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
-import { Icon } from "./glyphs";
+import { HostLabel } from "./hostlabel";
 import { Meter } from "./meter";
 import { context } from "./tokens/rules";
 
@@ -29,10 +29,10 @@ export interface ContextFigure {
   band: "ok" | "warn" | "crit";
 }
 
-// PaneStrip is a page's strip, drawn under its title row: the host's name with each of its stats, and a pane
-// conversation's context. With no host it draws no host part, and a context with no tokens or no window draws no context
-// part. A strip with neither draws nothing. As a band, it is a conversation head's machine band, its own row under the
-// title row, and the host's name is marked with the host icon.
+// PaneStrip is a page's strip, drawn under its title row: the host's name as a HostLabel with each of its stats, and a
+// pane conversation's context. With no host it draws no host part, and a context with no tokens or no window draws no
+// context part. A strip with neither draws nothing. As a band, it is a conversation head's machine band, its own row under
+// the title row.
 export function PaneStrip({
   host,
   context,
@@ -51,8 +51,7 @@ export function PaneStrip({
     <div class={band ? "pane-strip machine-band" : "pane-strip"}>
       {host !== null && (
         <span class="pane-strip-host">
-          {band && <Icon name="host" />}
-          {host.host}
+          <HostLabel name={host.host} />
         </span>
       )}
       {host?.other === true && <span class="other">on another host: no meters</span>}

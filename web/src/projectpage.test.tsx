@@ -170,13 +170,15 @@ test("ProjectPage draws no New session here for a project with no directory", as
   });
 });
 
-test("ProjectPage draws its path, and its host after a dot when the host is another", async () => {
+test("ProjectPage draws its path, and its host as a label on the serving host and on another host", async () => {
   await withDom((container) => {
     const project = projectOfTree();
     draw(container, <ProjectPage project={project} now={now} narrow={false} {...handlersOf([])} />);
     assert.equal(one(container, ".proj-head .path").textContent, directory);
+    assert.equal(one(container, ".proj-head .host-label .name").textContent, serving);
     draw(container, <ProjectPage project={{ ...project, host: "brine" }} now={now} narrow={false} {...handlersOf([])} />);
-    assert.equal(one(container, ".proj-head .path").textContent, `${directory} · on brine`);
+    assert.equal(one(container, ".proj-head .path").textContent, directory);
+    assert.equal(one(container, ".proj-head .host-label .name").textContent, "brine");
   });
 });
 
