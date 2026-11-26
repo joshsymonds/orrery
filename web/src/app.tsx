@@ -28,7 +28,7 @@ import { type Followed, follow } from "./follow";
 import type { RouteRegistry } from "./gen/orrery/v1/accounts_pb";
 import type { Contract } from "./gen/orrery/v1/contracts_pb";
 import { type Design, DesignSchema } from "./gen/orrery/v1/designs_pb";
-import type { Epic, EpicHistoryEntry, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import type { Epic, EpicHistoryEntry, EpicsGetResponse, EpicStep } from "./gen/orrery/v1/epics_pb";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
 import type { HostStatusResponse } from "./gen/orrery/v1/orrery_pb";
 import type { UsageSessionTotal } from "./gen/orrery/v1/usage_pb";
@@ -37,6 +37,7 @@ import { type HeadStore, memoryHeadStore } from "./headfold";
 import { type HeldMove, type HeldThing, heldMove } from "./held";
 import { HeldCard, HeldSheet } from "./heldcard";
 import { KeyList } from "./helppanel";
+import { HostLabel } from "./hostlabel";
 import { Inbox } from "./inbox";
 import { InboxRail } from "./inboxrail";
 import { ageText, InboxRow, type RowMore } from "./inboxrow";
@@ -3071,6 +3072,9 @@ export function App({
       ? middleRow
       : null;
   const readerStep = pageDrawn && !noticesPage && shownProject === null && !accountsOpen ? cursorStep : null;
+  // stepPageStrip is the strip under the reader column's step title row, which the column asks for only while it shows a
+  // step: the step's host.
+  const stepPageStrip = () => (readerStep === null ? undefined : stepStrip(readerStep.step));
   // The design records a drawn conversation needs: each design its items name is read once, and read again when a new design
   // item for it arrives, since the count of its items moves then. A conversation that is not drawn names none.
   const drawnDesigns = useMemo(
@@ -3255,7 +3259,7 @@ export function App({
       conversation={cursorConversation}
       rows={visited}
       interrupts={interrupts}
-      pageStrip={pageStrip}
+      pageStrip={stepPageStrip}
       head={(row, conversation) => headOf(row, conversation, true)}
       narrow={!wide}
       hidden={headHidden}
@@ -3834,6 +3838,16 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
   }
   const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
+}
+
+// stepStrip is the strip under a step's title row: the host the step runs on, as a HostLabel, and none for a step with no
+// host. The step's host replaces the serving host's strip there, since the step is the thing the page names.
+export function stepStrip(step: EpicStep): JSX.Element | null {
+  return step.host === "" ? null : (
+    <div class="pane-strip">
+      <HostLabel name={step.host} />
+    </div>
+  );
 }
 
 // stripHost is the host a page's strip names. A pane row on another host names that host alone, with no stats. Any
