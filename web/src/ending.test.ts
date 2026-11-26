@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 
-import { isUndoNone, releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
+import { releaseOf, replacementsOf, reportOf, reviewOf } from "./ending";
 import {
   type Epic,
   EpicClosureSchema,
@@ -262,62 +262,6 @@ test("ReleaseTable: the Then line is drawn only when the contract names one", ()
   );
   assert.equal(withThen?.then, "Then: announce it");
   assert.equal(releaseOf(epicIn("clean", { releaseSteps: steps }))?.then, "");
-});
-
-test("isUndoNone: only none, trimmed and ignoring case, is an undo that cannot be taken back", () => {
-  assert.equal(isUndoNone("none"), true);
-  assert.equal(isUndoNone("  NONE "), true);
-  assert.equal(isUndoNone("none once someone has fetched the tag"), false);
-  assert.equal(isUndoNone("revert the tag"), false);
-  assert.equal(isUndoNone(""), false);
-});
-
-test("ReleaseFrom: offered for the first unpassed step when it failed with no undo in a stopped epic", () => {
-  const view = releaseOf(
-    epicIn("stopped", {
-      releaseSteps: [
-        proof(1, "tag", "passed", "none"),
-        proof(2, "push", "failed", "none", { reason: "push refused" }),
-        proof(3, "announce", "waiting", "none"),
-      ],
-    }),
-  );
-  assert.equal(view?.offer, 2);
-});
-
-test("ReleaseFrom: no offer for a step that has an undo, or whose undo is none once someone has fetched the tag", () => {
-  const withUndo = releaseOf(epicIn("stopped", { releaseSteps: [proof(1, "push", "failed", "revert the push")] }));
-  assert.equal(withUndo?.offer, 0);
-  const fetched = releaseOf(
-    epicIn("stopped", { releaseSteps: [proof(1, "push", "failed", "none once someone has fetched the tag")] }),
-  );
-  assert.equal(fetched?.offer, 0);
-});
-
-test("ReleaseFrom: no offer for a waiting or running first unpassed step, and never for a passed step", () => {
-  const waiting = releaseOf(epicIn("stopped", { releaseSteps: [proof(1, "push", "waiting", "none")] }));
-  assert.equal(waiting?.offer, 0);
-  const running = releaseOf(epicIn("stopped", { releaseSteps: [proof(1, "push", "running", "none")] }));
-  assert.equal(running?.offer, 0);
-  const passedOnly = releaseOf(
-    epicIn("stopped", { releaseSteps: [proof(1, "tag", "passed", "none"), proof(2, "push", "waiting", "none")] }),
-  );
-  assert.equal(passedOnly?.offer, 0);
-});
-
-test("ReleaseFrom: no other step is offered, even one that failed with no undo, when the first unpassed step has an undo", () => {
-  const view = releaseOf(
-    epicIn("stopped", {
-      releaseSteps: [proof(1, "push", "failed", "revert the push"), proof(2, "announce", "failed", "none")],
-    }),
-  );
-  assert.equal(view?.offer, 0);
-});
-
-test("ReleaseFrom: no offer outside the stopped phase", () => {
-  const steps = [proof(1, "push", "failed", "none")];
-  assert.equal(releaseOf(epicIn("releasing", { releaseSteps: steps }))?.offer, 0);
-  assert.equal(releaseOf(epicIn("released", { releaseSteps: steps }))?.offer, 0);
 });
 
 test("EpicReport: each outcome has its sentence when the report is set", () => {

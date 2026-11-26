@@ -30,17 +30,16 @@ import { TitleRow } from "./titlerow";
 import { Track } from "./track";
 
 // EpicCommands are the epic's commands: pause, resume, stop and retry, and the answer to one open question: the choice
-// the owner picked, which is a declared choice's id or other, and its text. release runs the epic's release, with the
-// undo-none steps named by their positions run again; close closes the epic as chosen, superseded by the epic named.
-// Each of release and close is sent once and resolves its outcome. reread reads the epic again and resolves true when
-// the read answers.
+// the owner picked, which is a declared choice's id or other, and its text. release runs the epic's release; close closes
+// the epic as chosen, superseded by the epic named. Each of release and close is sent once and resolves its outcome.
+// reread reads the epic again and resolves true when the read answers.
 export interface EpicCommands {
   pause: () => void;
   resume: () => void;
   stop: () => void;
   retry: () => void;
   answer: (questionId: string, choice: string, text: string) => Promise<string>;
-  release: (undoNone: number[]) => Promise<CallOutcome>;
+  release: () => Promise<CallOutcome>;
   close: (kind: "superseded" | "shipped" | "abandoned", by: string) => Promise<CallOutcome>;
   reread: () => Promise<boolean>;
 }
@@ -360,12 +359,7 @@ export function EpicPage(props: {
             <span class="name">Release</span>
             <span class="n">{releaseView.words}</span>
           </div>
-          <ReleaseTable
-            view={releaseView}
-            narrow={narrow}
-            onRelease={commands.release}
-            reread={commands.reread}
-          />
+          <ReleaseTable view={releaseView} />
         </section>
       )}
       {reportView !== null && (

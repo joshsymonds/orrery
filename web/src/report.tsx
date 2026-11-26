@@ -20,7 +20,7 @@ export function EpicReport(props: {
   slug: string;
   narrow: boolean;
   replacements: { id: string; slug: string }[];
-  onRelease: (undoNone: number[]) => Promise<CallOutcome>;
+  onRelease: () => Promise<CallOutcome>;
   onClose: (kind: CloseKind, by: string) => Promise<CallOutcome>;
   reread: () => Promise<boolean>;
 }): JSX.Element {
@@ -128,7 +128,7 @@ export function EpicReport(props: {
     </div>
   );
   const releaseLine = "Its gaps stay, and its release steps run.";
-  const confirmRelease = () => call.confirm(() => onRelease([]));
+  const confirmRelease = () => call.confirm(onRelease);
   const confirmClose = () => {
     if (closePick === null) {
       return;

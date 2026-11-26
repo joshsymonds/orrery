@@ -4252,7 +4252,7 @@ export function epicCommands(
         () => "",
         (error: unknown) => (error instanceof Error && error.message !== "" ? error.message : answerFailedText),
       ),
-    release: (undoNone) => sendOnce(() => clients.epics.release({ id: epicId, undoNone })),
+    release: () => sendOnce(() => clients.epics.release({ id: epicId })),
     close: (kind, by) => sendOnce(() => clients.epics.close({ id: epicId, kind, by })),
     reread,
   };

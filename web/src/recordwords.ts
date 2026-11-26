@@ -317,13 +317,9 @@ function askedWord(word: string, question: EpicQuestion, now: number): string {
   return asked > 0 ? `${word} · ${durationText(Math.max(0, now - asked))}` : word;
 }
 
-// The blocker pill of an orreryd epic that waits on the owner's release or close: a stopped release's step with no undo,
-// or an epic that ended with gaps. Null for every other epic.
+// The blocker pill of an orreryd epic that waits on the owner's release or close: an epic that ended with gaps. Null for
+// every other epic.
 function endingPillOf(detail: EpicsGetResponse): Pill | null {
-  const release = releaseOf(detail);
-  if (release !== null && release.offer !== 0) {
-    return { word: `step ${release.offer} failed and cannot be undone`, tone: "attention" };
-  }
   if (phaseOf(detail) === "ended_with_gaps") {
     return { word: "release it anyway, or close it", tone: "attention" };
   }
@@ -372,9 +368,6 @@ function releaseSentenceOf(detail: EpicsGetResponse): string | null {
       const release = releaseOf(detail);
       if (release === null) {
         return "The release stopped.";
-      }
-      if (release.offer !== 0) {
-        return `The release stopped at step ${release.offer}, and that step has no undo. It waits on you.`;
       }
       const at = steps.find((step) => step.state !== "passed");
       return `The release stopped at step ${at === undefined ? steps.length : Number(at.position)}.`;

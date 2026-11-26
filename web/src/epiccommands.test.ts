@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { create } from "@bufbuild/protobuf";
+import { create, type JsonValue, toJson } from "@bufbuild/protobuf";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 
 import { epicCommands, newerDetail } from "./app";
@@ -12,13 +12,14 @@ import {
   EpicSchema,
   EpicsCloseResponseSchema,
   EpicsGetResponseSchema,
+  EpicsReleaseRequestSchema,
   EpicsReleaseResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
 
 // Served is what a test drives: the commands bound to an epic over a router that answers Release and Close, and the
-// request each call reached the server with, in order.
+// request each call reached the server with, in order, as JSON: a field a request leaves unset is absent from it.
 interface Served {
-  releases: { id: string; undoNone: number[] }[];
+  releases: JsonValue[];
   closes: { id: string; kind: string; by: string }[];
   commands: (epicId: string) => EpicCommands;
 }
@@ -31,7 +32,7 @@ function served(failing: { release?: ConnectError; close?: ConnectError } = {}):
   const transport = createRouterTransport((router) => {
     router.service(Epics, {
       release: (request) => {
-        releases.push({ id: request.id, undoNone: [...request.undoNone] });
+        releases.push(toJson(EpicsReleaseRequestSchema, request));
         if (failing.release !== undefined) {
           throw failing.release;
         }
@@ -54,28 +55,6 @@ function served(failing: { release?: ConnectError; close?: ConnectError } = {}):
   };
 }
 
-test("ReleaseFrom: release([2]) sends exactly one Epics.Release with the epic's id and undoNone [2]", async () => {
-  const { releases, commands } = served();
-  assert.deepEqual(await commands("orrery-1").release([2]), { kind: "landed" });
-  assert.deepEqual(releases, [{ id: "orrery-1", undoNone: [2] }]);
-});
-
-test("ReleaseFrom: a release that gets no answer is unanswered, and is sent once, never retried", async () => {
-  const { releases, commands } = served({ release: new ConnectError("orreryd is not answering", Code.Unavailable) });
-  assert.deepEqual(await commands("orrery-1").release([2]), { kind: "unanswered" });
-  assert.equal(releases.length, 1);
-});
-
-test("ReleaseFrom: a release the server refuses is refused with its message, and is sent once", async () => {
-  const refusal = new ConnectError("the release has no undo-none step to run again", Code.FailedPrecondition);
-  const { releases, commands } = served({ release: refusal });
-  assert.deepEqual(await commands("orrery-1").release([]), {
-    kind: "refused",
-    reason: "the release has no undo-none step to run again",
-  });
-  assert.equal(releases.length, 1);
-});
-
 test("EpicClose: close sends exactly one Epics.Close with the epic's id, the kind and the by given", async () => {
   const { closes, commands } = served();
   assert.deepEqual(await commands("orrery-1").close("superseded", "orrery-2"), { kind: "landed" });
@@ -88,10 +67,10 @@ test("EpicClose: a close that gets no answer is unanswered, and is sent once, ne
   assert.equal(closes.length, 1);
 });
 
-test("EpicClose: release([]) sends one Epics.Release with undoNone empty", async () => {
+test("EpicCommands: release sends exactly one Epics.Release carrying the epic's id alone", async () => {
   const { releases, commands } = served();
-  assert.deepEqual(await commands("orrery-1").release([]), { kind: "landed" });
-  assert.deepEqual(releases, [{ id: "orrery-1", undoNone: [] }]);
+  assert.deepEqual(await commands("orrery-1").release(), { kind: "landed" });
+  assert.deepEqual(releases, [{ id: "orrery-1" }]);
 });
 
 test("EpicCommands: reread is the read the binding was given, and resolves its answer", async () => {

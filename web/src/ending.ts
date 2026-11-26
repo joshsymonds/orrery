@@ -41,7 +41,6 @@ export interface ReleaseView {
     runs: string[];
   }[];
   then: string;
-  offer: number;
 }
 
 export interface ReportView {
@@ -70,11 +69,6 @@ const reviewPhases = new Set([
 
 // The phases Release is drawn in, without a release run or a step that has left waiting.
 const releasePhases = new Set(["clean", "releasing", "stopped", "released", "done"]);
-
-// An undo is none when its text, trimmed, is none ignoring case: the store's rule.
-export function isUndoNone(undo: string): boolean {
-  return undo.trim().toLowerCase() === "none";
-}
 
 function phaseOf(detail: EpicsGetResponse): string {
   return detail.epic?.outcome ?? "";
@@ -216,16 +210,6 @@ function releaseWords(phase: string, steps: EpicReleaseProof[]): string {
   }
 }
 
-// The one step Release from step N is offered for: the first unpassed step, when it failed with no undo in a stopped
-// epic. Zero when no step is offered.
-function offerOf(phase: string, steps: EpicReleaseProof[]): number {
-  const step = firstUnpassed(steps);
-  if (phase !== "stopped" || step === undefined || step.state !== "failed" || !isUndoNone(step.undo)) {
-    return 0;
-  }
-  return Number(step.position);
-}
-
 // The Release section of an orreryd epic with release steps, reached in a release phase or once a step or run is in
 // view. Null when the page does not reach it.
 export function releaseOf(detail: EpicsGetResponse): ReleaseView | null {
@@ -242,7 +226,6 @@ export function releaseOf(detail: EpicsGetResponse): ReleaseView | null {
     words: releaseWords(phase, steps),
     rows: steps.map((step) => rowOf(step, detail.releases)),
     then: then === "" ? "" : `Then: ${then}`,
-    offer: offerOf(phase, steps),
   };
 }
 
