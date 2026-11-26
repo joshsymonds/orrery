@@ -13,6 +13,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/pools"
+	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
 // PoolCommands is the set of pool operations the pools service answers with. Broker satisfies it.
@@ -48,7 +49,7 @@ func (s *poolService) Acquire(
 			fmt.Errorf("client pid %d is below 1", req.Msg.GetClientPid()),
 		))
 	}
-	grant, err := grantRequest(req.Msg)
+	grant, err := grantRequest(req.Msg, req.Header().Get(protocol.HeaderHost))
 	if err != nil {
 		return errors.Join(connect.NewError(connect.CodeInvalidArgument, err))
 	}
@@ -116,8 +117,9 @@ func poolsUnavailable() error {
 	return errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(unavailableMessage)))
 }
 
-// grantRequest returns the broker request that msg names.
-func grantRequest(msg *v1.AcquireRequest) (grants.Request, error) {
+// grantRequest returns the broker request that msg names, for a caller on host: host is the orrery name of the host the
+// call comes from, empty for this controller's own callers.
+func grantRequest(msg *v1.AcquireRequest, host string) (grants.Request, error) {
 	defs := make([]pools.Pool, 0, len(msg.GetPools()))
 	for _, def := range msg.GetPools() {
 		pool, err := poolOf(def)
@@ -137,6 +139,7 @@ func grantRequest(msg *v1.AcquireRequest) (grants.Request, error) {
 		ClientPID: int(msg.GetClientPid()),
 		GrantID:   msg.GetGrantId(),
 		Command:   msg.GetCommand(),
+		Host:      host,
 	}, nil
 }
 

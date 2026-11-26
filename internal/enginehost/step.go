@@ -305,7 +305,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	start, gate, err := s.resolveStart(ctx, host, start)
+	start, gate, err := s.resolveStart(ctx, hostName, host, start)
 	if err != nil {
 		return "", err
 	}
@@ -469,11 +469,13 @@ func (s *Steps) hostNamed(name string) (hostexec.Host, error) {
 	return host, nil
 }
 
-// resolveStart resolves start's gate on host and returns start as the step runs it, with the gate. An agent gate sets
-// start's agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its error and no
-// start.
-func (s *Steps) resolveStart(ctx context.Context, host hostexec.Host, start StepStart) (StepStart, stepGate, error) {
-	gate, err := s.resolveStepGate(ctx, host, start)
+// resolveStart resolves start's gate on host, the Host named hostName, and returns start as the step runs it, with the gate.
+// An agent gate sets start's agent, schema and prompt, and the schema is checked whatever set it. A refusal returns its
+// error and no start.
+func (s *Steps) resolveStart(
+	ctx context.Context, hostName string, host hostexec.Host, start StepStart,
+) (StepStart, stepGate, error) {
+	gate, err := s.resolveStepGate(ctx, hostName, host, start)
 	if err != nil {
 		return StepStart{}, stepGate{}, err
 	}
@@ -715,10 +717,13 @@ type stepGate struct {
 // returns here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace
 // declares loaded with it, on host. It is refused with an error matching ErrBadGate when GatesFile is not absolute,
 // when the name does not resolve, when the pool files do not load, and when a need is for a pool no pool file declares.
-// The resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
-func (s *Steps) resolveStepGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
+// The resolved argv is used as the gate's definition gives it; nothing is looked up on PATH. A gate's grant names hostName,
+// the name of host, as its host.
+func (s *Steps) resolveStepGate(
+	ctx context.Context, hostName string, host hostexec.Host, start StepStart,
+) (stepGate, error) {
 	if start.CommandGate != nil {
-		return s.dataCommandGate(ctx, host, start)
+		return s.dataCommandGate(ctx, hostName, host, start)
 	}
 	if start.AgentGate != nil {
 		return dataAgentGate(start)
@@ -743,7 +748,7 @@ func (s *Steps) resolveStepGate(ctx context.Context, host hostexec.Host, start S
 		}, nil
 	}
 	grant, err := stepGrant(
-		ctx, host, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv,
+		ctx, hostName, host, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv,
 	)
 	if err != nil {
 		return stepGate{}, err
@@ -761,7 +766,9 @@ const stepGateSourceData = "data"
 // an error matching ErrBadGate when start also sets AgentGate, GateName or GatesFile, when start is read-only, and when
 // the gate has no name, no argv, an agent or assertions, or a limit under a second. Its needs are granted from the pools
 // the workspace's pool files declare, as a named gate's are, and a need for a pool no pool file declares is refused.
-func (s *Steps) dataCommandGate(ctx context.Context, host hostexec.Host, start StepStart) (stepGate, error) {
+func (s *Steps) dataCommandGate(
+	ctx context.Context, hostName string, host hostexec.Host, start StepStart,
+) (stepGate, error) {
 	gate := *start.CommandGate
 	switch {
 	case start.AgentGate != nil || start.GateName != "" || start.GatesFile != "":
@@ -782,7 +789,7 @@ func (s *Steps) dataCommandGate(ctx context.Context, host hostexec.Host, start S
 			"%w: command gate %s limit %s is under a second", ErrBadGate, gate.Name, gate.Limit,
 		)
 	}
-	grant, err := stepGrant(ctx, host, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
+	grant, err := stepGrant(ctx, hostName, host, start.Workspace, gate.Name, gate.Argv, gateGrantNeeds(gate.Needs),
 		stepGetenv(s.environ))
 	if err != nil {
 		return stepGate{}, err
@@ -822,11 +829,12 @@ func dataAgentGate(start StepStart) (stepGate, error) {
 }
 
 // stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool
-// file for workspace declares on host, with needs and argv as the command. It is refused with an error matching
-// ErrBadGate when the pool files do not load, or when a need is for a pool no pool file declares, which the error names
-// gateName for.
+// file for workspace declares on host, with needs and argv as the command. The request names hostName, the name of host,
+// as its host, so the broker follows that host's processes for the grant. It is refused with an error matching ErrBadGate
+// when the pool files do not load, or when a need is for a pool no pool file declares, which the error names gateName for.
 func stepGrant(
 	ctx context.Context,
+	hostName string,
 	host hostexec.Host,
 	workspace, gateName string,
 	argv []string,
@@ -844,7 +852,9 @@ func stepGrant(
 			)
 		}
 	}
-	return grants.Request{Project: project, Pools: defs, Needs: needs, ClientPID: os.Getpid(), Command: argv}, nil
+	return grants.Request{
+		Project: project, Pools: defs, Needs: needs, ClientPID: os.Getpid(), Command: argv, Host: hostName,
+	}, nil
 }
 
 // agentGateStart returns start as the step of gate runs it when gate is an agent gate: the gate's agent, the verdict
