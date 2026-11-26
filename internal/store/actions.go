@@ -216,8 +216,8 @@ func takeAction(ctx context.Context, queries *sqlcgen.Queries, action PlannerAct
 	if IsClosedPhase(head.Phase) {
 		return nil, RefusalError(fmt.Sprintf("epic %s is closed", action.Epic))
 	}
-	if err = refuseOwnerStop(ctx, queries, action, head); err != nil {
-		return nil, err
+	if refusal := refuseOwnerStop(ctx, queries, action, head); refusal != nil {
+		return nil, refusal
 	}
 	retries := action.Kind == ActionRetryNode || (action.Kind == ActionRetryEpic && head.Phase != PhaseStopped)
 	if retries && head.Parked != "" && ParkClass(head.ParkClass).OpensQuestion() {
@@ -296,12 +296,9 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 	if err != nil {
 		return nil, err
 	}
-	release, stopped, err := parkedStoppedRelease(ctx, queries, head)
+	release, stopped, err := sendBackRelease(ctx, queries, action, head)
 	if err != nil {
 		return nil, err
-	}
-	if EndedPhase(head.Phase) && !stopped {
-		return nil, RefusalError(fmt.Sprintf("epic %s is %s, an ended phase", action.Epic, head.Phase))
 	}
 	runs, err := readNodeRuns(ctx, queries, action.Epic)
 	if err != nil {
@@ -323,11 +320,27 @@ func sendBack(ctx context.Context, queries *sqlcgen.Queries, action PlannerActio
 		}
 	}
 	if stopped {
-		if err = replanStoppedRelease(ctx, queries, action.Epic, release, at); err != nil {
-			return nil, err
+		if replanErr := replanStoppedRelease(ctx, queries, action.Epic, release, at); replanErr != nil {
+			return nil, replanErr
 		}
 	}
 	return openTaskSteps(ctx, queries, action.Epic, action.Task)
+}
+
+// sendBackRelease returns the parked release run of head that a send_back of action replans, and true when head is in
+// phase stopped and holds one. An epic in an ended phase other than that stop is a RefusalError, and nothing is read or
+// written for it.
+func sendBackRelease(
+	ctx context.Context, queries *sqlcgen.Queries, action PlannerAction, head sqlcgen.Epic,
+) (NodeRun, bool, error) {
+	release, stopped, err := parkedStoppedRelease(ctx, queries, head)
+	if err != nil {
+		return NodeRun{}, false, err
+	}
+	if EndedPhase(head.Phase) && !stopped {
+		return NodeRun{}, false, RefusalError(fmt.Sprintf("epic %s is %s, an ended phase", action.Epic, head.Phase))
+	}
+	return release, stopped, nil
 }
 
 // reopenTask reopens the done task a send_back or a batch that left it out names, in the caller's write. Its status is
@@ -455,15 +468,7 @@ func reopenDesign(ctx context.Context, queries *sqlcgen.Queries, action PlannerA
 	if err != nil {
 		return fmt.Errorf("test changes of task %d of epic %s: %w", seq, action.Epic, err)
 	}
-	head, err := epicHead(ctx, queries, action.Epic)
-	if err != nil {
-		return err
-	}
-	release, stopped, err := parkedStoppedRelease(ctx, queries, head)
-	if err != nil || !stopped {
-		return err
-	}
-	return replanStoppedRelease(ctx, queries, action.Epic, release, at)
+	return replanStoppedEpic(ctx, queries, action.Epic, at)
 }
 
 // changeApproach stores the change-of-approach version of the task action names: its deliverable is the action's, its

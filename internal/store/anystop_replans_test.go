@@ -137,7 +137,8 @@ func requireReplanned(t *testing.T, s *Store, epic string, cause anyStopCause) {
 		t.Errorf("park of epic %s = %q %q, want none", epic, flow.Epic.ParkClass, flow.Epic.Parked)
 	}
 	if flow.Epic.Phase != PhaseStopped {
-		t.Errorf("phase of epic %s = %q, want %q until the release kind replans it", epic, flow.Epic.Phase, PhaseStopped)
+		t.Errorf("phase of epic %s = %q, want %q until the release kind replans it",
+			epic, flow.Epic.Phase, PhaseStopped)
 	}
 }
 
@@ -270,8 +271,13 @@ func TestAnyStopReplansRefusesPlannerOnOwnerStop(t *testing.T) {
 			summary: "send back task 1",
 		},
 		{
-			name:    "reopen_design",
-			input:   EpicActionInput{Kind: ActionReopenDesign, Task: 1, Deliverable: reopenDeliverable, Reason: reopenReason},
+			name: "reopen_design",
+			input: EpicActionInput{
+				Kind:        ActionReopenDesign,
+				Task:        1,
+				Deliverable: reopenDeliverable,
+				Reason:      reopenReason,
+			},
 			summary: "reopen design of task 1",
 		},
 	}

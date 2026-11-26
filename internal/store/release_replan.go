@@ -217,6 +217,21 @@ func replanStoppedRelease(
 	return endPark(ctx, queries, epic)
 }
 
+// replanStoppedEpic replans the stopped release of epic in the caller's write, as retryStoppedRelease does, when epic is
+// in phase stopped and holds a parked release run. An epic that is not stopped, or holds no parked release run, changes
+// nothing.
+func replanStoppedEpic(ctx context.Context, queries *sqlcgen.Queries, epic string, at time.Time) error {
+	head, err := epicHead(ctx, queries, epic)
+	if err != nil {
+		return err
+	}
+	release, stopped, err := parkedStoppedRelease(ctx, queries, head)
+	if err != nil || !stopped {
+		return err
+	}
+	return replanStoppedRelease(ctx, queries, epic, release, at)
+}
+
 // stopStart returns the release tip a stop at attempt came from, as the replan of the stop records it: the start of the
 // blocked round of the release integrator at attempt, else the candidate a release reviewer refused at attempt, which is its
 // start or, when it has none, its head. It returns "" when runs hold neither at attempt.
