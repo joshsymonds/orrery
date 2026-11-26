@@ -272,6 +272,9 @@ class HostsDroidHostLabelTest {
             assertEquals(1, namedUnder(headTag(SERVING, ALPHA), SERVING))
             assertEquals(1, namedUnder("card:epic:$REMOTE_EPIC", REMOTE))
             assertEquals(0, namedUnder("project-convo:pane:$SERVING:%1", SERVING))
+            // The headless session's row is not under an inbox card, so it names its host inline; an empty host reads as the
+            // page's.
+            assertEquals(1, namedUnder("project-convo:session:$EMPTY_HEADLESS", SERVING))
         }
     }
 
