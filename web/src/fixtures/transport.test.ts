@@ -196,8 +196,7 @@ function dockBackground(root: HTMLElement): boolean {
   );
 }
 
-// The words of the New session stories, which a prompt row's start form takes as its first message, and the ask
-// failure the 90-second story draws.
+// The words of the New session stories, which the finder asks for, and the ask failure the 90-second story draws.
 const rosterWords = "roster page tidepool";
 const askFailure = "The search did not finish: the server did not answer in 90 seconds.";
 
@@ -209,6 +208,14 @@ function newPanel(root: HTMLElement): HTMLElement | null {
 // fieldText is the text in New session's field, or null when the panel is not open.
 function fieldText(root: HTMLElement): string | null {
   return newPanel(root)?.querySelector<HTMLInputElement>('input[aria-label="New session"]')?.value ?? null;
+}
+
+// starterFolder is the folder in the Starter's Folder field, or null when the Starter is not open.
+function starterFolder(root: HTMLElement): string | null {
+  return (
+    root.querySelector<HTMLInputElement>('[role="dialog"][aria-label="Start a session"] input[aria-label="Folder"]')
+      ?.value ?? null
+  );
 }
 
 // assertNoFailure fails unless the story drew no failure element, so no call it made was refused.
@@ -2239,17 +2246,15 @@ test("FixtureTransport: page/new-results draws the four results, each with its w
   );
 });
 
-test("FixtureTransport: page/new-form draws the start form for the directory, its first message the words asked", (t) => {
+test("FixtureTransport: page/new-form closes the finder and opens the Starter with the directory typed", (t) => {
   mockTimers(t, ["setTimeout"]);
   return withStory(
     t,
     Page["new-form"],
-    (root) => newPanel(root)?.querySelector<HTMLTextAreaElement>('textarea[aria-label="message"]')?.value === rosterWords,
+    (root) => starterFolder(root) === "/home/owner/code/tidepool",
     (root) => {
       assertNoFailure(root);
-      const panel = newPanel(root);
-      assert.equal(panel?.querySelector<HTMLInputElement>('input[aria-label="Directory"]')?.value, "/home/owner/code/tidepool");
-      assert.equal(panel?.querySelector(".pick-row"), null, "the results give way to the form");
+      assert.equal(newPanel(root), null, "the finder closes");
     },
   );
 });
