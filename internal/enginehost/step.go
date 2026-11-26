@@ -57,8 +57,9 @@ const stepDefaultModelLimit = 60 * time.Minute
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
 // Caller is the session or pane that started the step, which the step is stored with (see store.StepAdd). A non-zero
 // Caller that names no sessions row is refused with ErrNoCaller, and a zero Caller is an in-process start.
-// Host is the orrery name of the host the caller arrived as, which the Steps service sets from the call's host header.
-// A start that names no stored Epic runs on Host, and an empty Host runs it on the Steps' own host (see startHost).
+// Host is the orrery name of the host the start names, which the Steps service sets from the call's host field. Arrived
+// is the orrery name of the host the call arrived as, which the service sets from its host header. A start runs on the
+// host startHost picks from its epic, Host, the default host, Arrived and the Steps' own host, in that order.
 //
 // ID, when set, is the step's id in place of a fresh one. It must be 32 lowercase hex digits, the form a fresh id has,
 // or the start is refused with ErrBadStepID. A start under an id that a stored step already has, or that another start
@@ -191,10 +192,11 @@ type StepsConfig struct {
 	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	Stored       func()
 	EpicWake     func(epic string)
-	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
+	// Host is the Steps' own host name, which a start runs on when no epic, host, default or arrived host names another.
 	Host  string
 	Hosts hostexec.Hosts
-	// Placement places each step that names no host on the host it is placed on.
+	// Placement places the host each start names, and names the default host that a start naming none takes. A nil
+	// Placement resolves a named host as hostNamed does, and has no default.
 	Placement HostPlacer
 }
 
@@ -231,6 +233,7 @@ type Steps struct {
 	epicWake     func(epic string)
 	host         string
 	hosts        hostexec.Hosts
+	placement    HostPlacer
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -277,6 +280,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 		epicWake:     cfg.EpicWake,
 		host:         cfg.Host,
 		hosts:        cfg.Hosts,
+		placement:    cfg.Placement,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
@@ -433,28 +437,50 @@ func (s *Steps) startPlace(ctx context.Context, host hostexec.Host, start StepSt
 	return commit, nil
 }
 
-// startHost returns the name of the host start runs on, and the Host of that name. The epic's stored host names it when
-// start names an epic that is stored. Otherwise start.Host, the host the caller arrived as, names it, and a start with an
-// empty Host takes the Steps' own host name. Any other read error is returned wrapped.
+// startHost returns the name of the host start runs on, and the Host of that name (see startHostName). A name that
+// resolves to no Host is returned wrapped with the name.
 func (s *Steps) startHost(ctx context.Context, start StepStart) (string, hostexec.Host, error) {
-	name := start.Host
-	if name == "" {
-		name = s.host
-	}
-	if start.Epic != "" {
-		stored, err := s.store.EpicHost(ctx, start.Epic)
-		if err != nil && !errors.Is(err, store.ErrNoEpic) {
-			return "", nil, fmt.Errorf("read host of epic %s: %w", start.Epic, err)
-		}
-		if err == nil {
-			name = stored
-		}
+	name, err := s.startHostName(ctx, start)
+	if err != nil {
+		return "", nil, err
 	}
 	host, err := s.hostNamed(name)
 	if err != nil {
 		return "", nil, err
 	}
 	return name, host, nil
+}
+
+// startHostName returns the orrery name of the host start runs on, in this order: the host of start's epic when start
+// names a stored epic, which a start.Host that differs from refuses; start.Host, placed by Placement; the default host,
+// when Placement names one; start.Arrived when it is set; else the Steps' own host. A nil Placement places nothing, so
+// start.Host is taken as it is named and has no default. Any other read error is returned wrapped.
+func (s *Steps) startHostName(ctx context.Context, start StepStart) (string, error) {
+	if start.Epic != "" {
+		stored, err := s.store.EpicHost(ctx, start.Epic)
+		if err != nil && !errors.Is(err, store.ErrNoEpic) {
+			return "", fmt.Errorf("read host of epic %s: %w", start.Epic, err)
+		}
+		if err == nil {
+			if start.Host != "" && start.Host != stored {
+				return "", fmt.Errorf("step names host %s, but epic %s runs on host %s", start.Host, start.Epic, stored)
+			}
+			return stored, nil
+		}
+	}
+	if start.Host != "" {
+		if s.placement == nil {
+			return start.Host, nil
+		}
+		return s.placement.Place(start.Host)
+	}
+	if s.placement != nil && s.placement.Default() != "" {
+		return s.placement.Place("")
+	}
+	if start.Arrived != "" {
+		return start.Arrived, nil
+	}
+	return s.host, nil
 }
 
 // hostNamed returns the Host named name on the Steps' Hosts. A Steps with no Hosts, which a Steps built without

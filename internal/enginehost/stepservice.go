@@ -61,8 +61,9 @@ func (s *stepService) StartStep(
 	if !ok {
 		return nil, stepCommandError(fmt.Errorf("%w: the call carries no caller headers", ErrNoCaller))
 	}
-	// The host the call arrived as is the one hostrelay admitted its connection as. A call with no host header, such as
-	// a call that did not come through the relay, leaves Host empty, and the Steps' own host takes it.
+	// The host the call arrived as is the one hostrelay admitted its connection as, and the host the request names is its
+	// host field. A call that names no host and arrived as none leaves both empty, and the epic, the default or the
+	// Steps' own host takes it.
 	id, err := s.steps.Start(ctx, StepStart{
 		Agent:      req.Msg.GetAgent(),
 		Prompt:     req.Msg.GetPrompt(),
@@ -79,7 +80,8 @@ func (s *stepService) StartStep(
 		Task:       req.Msg.GetTask(),
 		Purpose:    req.Msg.GetPurpose(),
 		Caller:     caller,
-		Host:       req.Header().Get(protocol.HeaderHost),
+		Host:       req.Msg.GetHost(),
+		Arrived:    req.Header().Get(protocol.HeaderHost),
 	})
 	if err != nil {
 		return nil, stepCommandError(err)
