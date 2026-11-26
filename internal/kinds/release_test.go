@@ -1,6 +1,7 @@
 package kinds
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -847,6 +848,88 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 				},
 			},
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 2")}, Items: []string{"release 2", "step-1"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}
+
+// TestReplanRerunsStepsWalkFromStepOne: a replan starts the release steps over, so the steps passed at attempt 0,
+// before the replan, do not count. At attempt 1, with a candidate passed at that attempt and its reviews held, the first
+// step starts from the candidate, and each later step starts from the head of the step before it once that has passed
+// at attempt 1.
+func TestReplanRerunsStepsWalkFromStepOne(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{
+		releaseStep("build the image", "rollback"),
+		releaseStep("push the tag", "rollback"),
+		releaseStep("publish the release", "rollback"),
+	}
+	passedAt := func(position, attempt int64, head string) store.ReleaseRun {
+		return store.ReleaseRun{
+			Part: store.ReleasePartStep, Position: position, Attempt: attempt, Head: head, Passed: true,
+		}
+	}
+	before := []store.ReleaseRun{
+		candidateRun(0, "cand-0"),
+		passedAt(1, 0, "old-1"),
+		passedAt(2, 0, "old-2"),
+		passedAt(3, 0, "old-3"),
+		{Part: store.ReleasePartReplan, Attempt: 0, Reason: "the candidate needs a change"},
+	}
+	rows := func(after ...store.ReleaseRun) Rows {
+		return Rows{Epic: releaseReviewed(true, steps...), Releases: append(slices.Clone(before), after...)}
+	}
+	reviewed := []store.ReleaseRun{candidateRun(1, "cand-1"), releaseReviewRun(true, "")}
+	cases := []decideCase{
+		{
+			"after a replan the first step starts again from the candidate passed at this attempt",
+			releaseNode(1, "", ""),
+			rows(reviewed...),
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 1")}, Items: []string{"release 1", "cand-1"}},
+		},
+		{
+			"step 1 passed at this attempt starts step 2 from its head, the steps before the replan not counting",
+			releaseNode(1, "", ""),
+			rows(append(slices.Clone(reviewed), passedAt(1, 1, "new-1"))...),
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 2")}, Items: []string{"release 2", "new-1"}},
+		},
+		{
+			"steps 1 and 2 passed at this attempt start step 3 from the head of step 2",
+			releaseNode(1, "", ""),
+			rows(append(slices.Clone(reviewed), passedAt(1, 1, "new-1"), passedAt(2, 1, "new-2"))...),
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(1, "release 3")}, Items: []string{"release 3", "new-2"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}
+
+// TestReplanRerunsStepsPassedAfterReplanStays: a step passed at an attempt after the last replan stays passed. With a
+// replan at attempt 0, step 1 passed at attempt 1, so at attempt 2 the release starts step 2 from step 1's head and
+// does not run step 1 again. Both steps passed at attempt 0, before the replan, so they run again, and the judge is
+// not reached.
+func TestReplanRerunsStepsPassedAfterReplanStays(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{
+		releaseStep("build the image", "rollback"),
+		releaseStep("push the tag", "rollback"),
+	}
+	rows := Rows{
+		Epic: releasingEpic(steps...),
+		Releases: []store.ReleaseRun{
+			candidateRun(0, "cand-0"),
+			{Part: store.ReleasePartStep, Position: 1, Attempt: 0, Head: "old-1", Passed: true},
+			{Part: store.ReleasePartStep, Position: 2, Attempt: 0, Head: "old-2", Passed: true},
+			{Part: store.ReleasePartReplan, Attempt: 0, Reason: "the candidate needs a change"},
+			candidateRun(1, "cand-1"),
+			{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Head: "new-1", Passed: true},
+		},
+	}
+	cases := []decideCase{
+		{
+			"step 1 passed after the replan stays passed, so step 2 starts from its head at the next attempt",
+			releaseNode(2, "", ""),
+			rows,
+			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 2")}, Items: []string{"release 2", "new-1"}},
 		},
 	}
 	checkDecisions(t, Release{}, cases)

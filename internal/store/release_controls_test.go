@@ -444,3 +444,30 @@ func TestStopEpicReleaseRefusesAnEpicWithNoRunningTurn(t *testing.T) {
 	}
 	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
 }
+
+// TestReplanRerunsStepsResumeAtStepOne checks that a release stopped after a replan resumes at its first step, since a
+// replan starts the steps over: the steps passed before the replan do not count, so the tell names step 1.
+func TestReplanRerunsStepsResumeAtStepOne(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runs := []store.ReleaseRun{
+		{
+			Part: store.ReleasePartStep, Position: 1, Attempt: 0, Step: "push tag", Evidence: "run-step-1",
+			Passed: true, At: releaseRunAt(),
+		},
+		{
+			Part: store.ReleasePartStep, Position: 2, Attempt: 0, Step: "publish", Evidence: "run-step-2",
+			Passed: true, At: releaseRunAt(),
+		},
+		{Part: store.ReleasePartReplan, Attempt: 0, Reason: "the candidate needs a change", At: releaseRunAt()},
+	}
+	s, raw := stoppedRelease(t, runs...)
+	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
+		t.Fatalf("ReleaseEpic: %v", err)
+	}
+	if want := []string{"release resumed at step 1, push tag"}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+		t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
+	}
+	requireReleaseRuns(t, s, resumeEpic, inReadOrder(runs))
+	requirePhase(t, s, resumeEpic, store.PhaseReleasing)
+}

@@ -508,9 +508,10 @@ func (r *Runner) failJudge(ctx context.Context, epic store.EpicRow, act Action, 
 }
 
 // releaseJudgePrompt returns the prompt of a release judge: the release's promise, how a postcondition that names the
-// released commit is read (releaseHeldRule), the step, commits and evidence of each agent step of steps that passed,
-// and the step and evidence of each step that names a kind and passed, whose postcondition code checked and found held,
-// so the judge takes it as met. The judge decides from that and from read-only checks of the repository.
+// released commit is read (releaseHeldRule), the step, commits and evidence of each agent step of steps that passed
+// after the last replan, and the step and evidence of each such step that names a kind, whose postcondition code
+// checked and found held, so the judge takes it as met. The judge decides from that and from read-only checks of the
+// repository.
 func releaseJudgePrompt(then string, steps []store.EpicReleaseStep, runs []store.ReleaseRun) string {
 	var prompt strings.Builder
 	prompt.WriteString(
@@ -519,8 +520,9 @@ func releaseJudgePrompt(then string, steps []store.EpicReleaseStep, runs []store
 	)
 	fmt.Fprintf(&prompt, "The release promised:\n%s\n\n%s\n\n", then, releaseHeldRule)
 	var agentRuns, kindRuns []store.ReleaseRun
+	since := store.LastReplan(runs)
 	for _, run := range runs {
-		if run.Part != store.ReleasePartStep || !run.Passed {
+		if run.Part != store.ReleasePartStep || !run.Passed || run.Attempt <= since {
 			continue
 		}
 		if run.Position >= 1 && run.Position <= int64(len(steps)) && steps[run.Position-1].Kind != "" {
