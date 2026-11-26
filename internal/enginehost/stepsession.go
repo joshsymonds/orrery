@@ -88,7 +88,7 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	add := store.EngineAdd{
 		ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep, Host: place.name,
 	}
-	if err := m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
+	if err = m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
 	live, err := m.spawnLive(ctx, step.ID, step.Dir, spawnSpec{agent: step.Agent, agents: step.Agents,
