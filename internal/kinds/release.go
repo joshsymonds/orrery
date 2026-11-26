@@ -389,17 +389,12 @@ func releaseReviewGate(run store.NodeRun, rows Rows, candidate string) (Action, 
 // reviewRefused decides the release whose reviewer, whose step is row, recorded review failed for candidate. A reviewer
 // that refused the candidate with findings (ReleaseRefusalClaims) sends the release back to planning as ActReplan: its
 // output and reason are the review's reason, and its items name the epic's branch tip the candidate was made from as the
-// replan's head. Once per tip: when an earlier replan already recorded that tip, the planner left the branch where it was,
-// and the release stops with the review's reason and a note saying so. Any other failed review stops it with its reason.
+// replan's head. Every such refusal replans, even one of a candidate made from a tip an earlier replan already recorded:
+// no rule stops a repeat, and the planner judges what the change is. Any other failed review stops it with its reason.
 func reviewRefused(rows Rows, row store.StepRow, review store.ReleaseRun, candidate string) Action {
 	tip, ok := CandidateTip(rows.Releases, candidate)
 	if !ok || len(ReleaseRefusalClaims(row)) == 0 {
 		return Action{Kind: ActStop, Output: review.Reason}
-	}
-	if _, replanned := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
-		return r.Part == store.ReleasePartReplan && r.Head == tip
-	}); replanned {
-		return Action{Kind: ActStop, Output: review.Reason + "; the epic's branch has not moved since the last replan"}
 	}
 	return Action{
 		Kind: ActReplan, Output: review.Reason, Reason: review.Reason,

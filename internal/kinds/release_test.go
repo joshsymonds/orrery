@@ -670,10 +670,39 @@ func TestReleaseStepOneRunsUnderItsGeneration(t *testing.T) {
 	checkDecisions(t, Release{}, cases)
 }
 
+// TestAnyStopReplansAgainOnRefusalAtSameTip: a release reviewer that refuses a candidate with findings replans even when
+// an earlier replan already recorded the branch tip the candidate was made from, since no rule stops a repeat: the planner
+// judges the change.
+func TestAnyStopReplansAgainOnRefusalAtSameTip(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{releaseStep("build the image", "rollback")}
+	const refusal = "the release reviewer refused the candidate: a tag would overwrite a published release"
+	tipped := candidateRun(1, "cand-1")
+	tipped.Start = "tip-1"
+	review := attemptWorkID(1, "review release")
+	cases := []decideCase{
+		{
+			"refusal of a candidate made from the tip an earlier replan recorded replans again",
+			releaseNode(1, "", ""),
+			Rows{
+				Epic: releaseReviewed(true, steps...),
+				Releases: []store.ReleaseRun{
+					{Part: store.ReleasePartReplan, Attempt: 0, Head: "tip-1"},
+					tipped,
+					releaseReviewRun(false, refusal),
+				},
+				Steps: []store.StepRow{{ID: review, End: "gate_failed", Result: reviewOneFindingReturn}},
+			},
+			Action{Kind: ActReplan, Output: refusal, Reason: refusal, Items: []string{"replan", "tip-1"}},
+		},
+	}
+	checkDecisions(t, Release{}, cases)
+}
+
 // TestReleaseReviewerGatesTheFirstStep: the enabled release reviewers review the candidate once before the first release
 // step starts from it. The first step starts only once every one has held the candidate, a refusal with findings sends
-// the release back to planning once per branch tip the candidate was made from, any other failed review stops the release
-// with its reason, and no review gates a later step or an epic with no enabled release reviewer.
+// the release back to planning, any other failed review stops the release with its reason, and no review gates a later
+// step or an epic with no enabled release reviewer.
 func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 	t.Parallel()
 	steps := []store.EpicReleaseStep{releaseStep("build the image", "rollback")}
@@ -748,20 +777,6 @@ func TestReleaseReviewerGatesTheFirstStep(t *testing.T) {
 				Steps: []store.StepRow{refusedReview},
 			},
 			Action{Kind: ActReplan, Output: refusal, Reason: refusal, Items: []string{"replan", "tip-1"}},
-		},
-		{
-			"release reviewer that refused a candidate made from the tip an earlier replan recorded stops",
-			releaseNode(1, "", ""),
-			Rows{
-				Epic: releaseReviewed(true, steps...),
-				Releases: []store.ReleaseRun{
-					{Part: store.ReleasePartReplan, Attempt: 0, Head: "tip-1"},
-					tipped,
-					releaseReviewRun(false, refusal),
-				},
-				Steps: []store.StepRow{refusedReview},
-			},
-			Action{Kind: ActStop, Output: refusal + "; the epic's branch has not moved since the last replan"},
 		},
 		{
 			"release reviewer whose failed review is not a refusal with findings stops naming its reason",
