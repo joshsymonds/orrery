@@ -224,7 +224,7 @@ Settled with the owner:
 |---|---|
 | Type: the larger scale. | Decided: 12, 13, 15, 18, 28. |
 | Meters: the web's look is right; the phone should match. | Decided: each stat its own colour, then yellow and red, on both clients. Android drops lavender, peach, red. |
-| Host meters stay in the phone's header. | The meters moved to the hosts view on both clients. The head keeps its host, as a HostLabel, and the context; `HostsView` (`hosts`, `hosts-unreachable`) draws each host's load and memory. |
+| Host meters stay in the phone's header. | The meters moved to the hosts view on both clients. On Android, the hosts view, opened from the inbox head, draws each host's load, memory and reach; the head keeps only the HostLabel. `HostsView` (`hosts`, `hosts-unreachable`) draws each host's load and memory. |
 | Release and close need public calls. | Decided. The engine has them (`ReleaseEpic`, `CloseEpic` in `internal/enginehost/epicservice.go`); the public service passes them through. |
 | Verify stays a word under review. | Decided, as drawn. |
 | A contract must be a real record you can go back to, not part of a conversation. | A contract is kept from the moment it is proposed. It has versions, each with its time, its writer and what changed; a state (proposed, accepted, set aside); and the conversation that wrote it. It is found under its project, in its conversation's Work, and from its epic once accepted. `contract-versions`, `contract-set-aside`, `project` |
@@ -501,7 +501,7 @@ Drawn, and not available from the server today.
 | Release from step 2; Release it anyway; Close as… | No public call. The engine does them from a session or the CLI. |
 | A contract as a record: proposed, its versions, accepted or set aside; Accept, Keep, Strike and the decision on it | Decided (revision 5), not built. Today Gambit's brainstorm settles these in the conversation and writes the contract only once accepted. It needs a contract record the brainstorm writes to when it proposes and at each change (body, time, writing session, what changed), calls to accept, set aside and reopen, and `epic_create` to take an accepted contract. |
 | A contract Block in a conversation | No item kind marks a contract. |
-| A session's meters on another host | Every host's load, memory and reach comes from `Host.Status`'s per-host list (orrery-host-surfaces R4, unchecked). Today `Host.Status` answers for the serving host only. |
+| A session's meters on another host | Every host's load, memory and reach comes from `Host.Status`'s per-host list (orrery-host-surfaces R4, unchecked). `Host.Status`'s per-host list is served, and the Android hosts view draws it. |
 | Interrupting, with a clock | `interrupting` is a bare flag with no time. |
 | Notices by day, read and unread | `Notices.Watch` is a stream of what is current; nothing lists what has passed. The client can keep what it has seen while it is open. |
 | Open in a new window | The web has no address per page. The routes epic in flight gives it one. |
