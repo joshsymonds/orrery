@@ -249,7 +249,8 @@ test("HostsWebUnreachable: a pane with Pane.unreachable, and a session, epic and
   const epic = epicOn(den, [step("lamp", den, "lamp")]);
   await drawn(
     <>
-      <InboxRow row={paneRow("%5", den, true)} now={now} cursor={false} more={more} onOpen={noop} onSeen={noop} reach={reach} />
+      {/* The pane is drawn with no reach, so its Pane.unreachable is the only word that its host does not answer. */}
+      <InboxRow row={paneRow("%5", den, true)} now={now} cursor={false} more={more} onOpen={noop} onSeen={noop} />
       <InboxRow row={sessionRow("s-1", den)} now={now} cursor={false} more={more} onOpen={noop} onSeen={noop} reach={reach} />
       <EpicRow hung={epicNode(epic, reach)} now={now} current={false} onSelect={noop} />
       <NowSection {...sectionProps(detailOf(epic), reach)} />
