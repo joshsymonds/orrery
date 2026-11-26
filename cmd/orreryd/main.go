@@ -1237,7 +1237,7 @@ func startSessions(
 			Host: hostName, Hosts: hosts, Placement: placement,
 		})
 		host.steps = steps
-		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
+		acceptCheck := host.wireStage(st, steps, host.manager, getenv, hosts, hostName, clients)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
 		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
@@ -1898,12 +1898,16 @@ func (r *dueWakeRelay) Wake() {
 
 // wireStage sets the Stage service of h to the service over st, steps and sessions, which reads getenv, and returns the
 // service's AcceptCheck, which an accept of a contract asks before it accepts the contract. sessions starts the session
-// that continues a design's conversation.
+// that continues a design's conversation. hosts resolves the host names a design runs its steps on, controller is the
+// name of the controller's host, and clients holds each remote host's client, whose roots hold the checkouts a design's
+// steps run in.
 func (h *sessionHost) wireStage(
 	st *store.Store, steps *enginehost.Steps, sessions stage.SessionStarter, getenv func(string) string,
+	hosts hostexec.Hosts, controller string, clients map[string]*node.Client,
 ) func(context.Context, string) error {
 	service := stage.NewService(stage.Config{
 		Store: st, Steps: steps, Sessions: sessions, Now: time.Now, Getenv: getenv,
+		Hosts: hosts, Controller: controller, Roots: rootListers(clients),
 	})
 	h.stage = service
 	return service.AcceptCheck
