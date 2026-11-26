@@ -118,7 +118,11 @@ func (s *Service) hostNamed(name string) (hostexec.Host, error) {
 	if s.cfg.Hosts == nil {
 		return nil, fmt.Errorf("no hosts to resolve %s", name)
 	}
-	return s.cfg.Hosts.Host(name)
+	host, err := s.cfg.Hosts.Host(name)
+	if err != nil {
+		return nil, fmt.Errorf("find host %q: %w", name, err)
+	}
+	return host, nil
 }
 
 // hostRefusal returns the refusal of a start that a host the design's steps run on cannot take: a failed precondition
