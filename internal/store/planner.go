@@ -1213,7 +1213,8 @@ func parkEpicQuestion(
 	case class == ParkClassReleaseOwnerStop:
 		return 0, insertTell(ctx, queries, epic, park, at)
 	case class == ParkClassReleaseStep:
-		if err = insertTell(ctx, queries, epic, park, at); err != nil {
+		err = insertTell(ctx, queries, epic, park, at)
+		if err != nil {
 			return 0, err
 		}
 		return 0, insertParkTrigger(ctx, queries, epic, reason, at)

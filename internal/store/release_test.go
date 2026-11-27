@@ -194,7 +194,12 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 		t.Errorf("park class of epic %s = %q, want %q", releaseEpic, class, want)
 	}
 	if got := tellsOf(t, raw, releaseEpic); !reflect.DeepEqual(got, []string{reason}) {
-		t.Errorf("tells of epic %s = %q, want one tell %q: a release_step stop tells its reason", releaseEpic, got, reason)
+		t.Errorf(
+			"tells of epic %s = %q, want one tell %q: a release_step stop tells its reason",
+			releaseEpic,
+			got,
+			reason,
+		)
 	}
 	if got := parkTriggerCauses(t, raw, releaseEpic); !reflect.DeepEqual(got, [][]any{{reason}}) {
 		t.Errorf("park triggers of epic %s = %v, want one with cause %q", releaseEpic, got, reason)

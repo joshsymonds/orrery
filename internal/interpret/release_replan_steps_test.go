@@ -279,7 +279,9 @@ func TestReplanRerunsStepsFivePlannerReplans(t *testing.T) {
 	for n := range fivePlannerReplans {
 		reason := fmt.Sprintf(
 			"release step 1 (target %s) failed:\nlanded: none\nthe step exited 1\nstderr:\nthe push was refused at attempt %d",
-			pushMainStep().Target, n)
+			pushMainStep().Target,
+			n,
+		)
 		w.failCheck(1, fmt.Sprintf("the push was refused at attempt %d\n", n))
 		requireRefusalPlannerPark(t, w.s, reason)
 		w.retryStop()

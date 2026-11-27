@@ -295,7 +295,11 @@ func TestReleaseStepNotDoneStopsRelease(t *testing.T) {
 		t.Fatalf("park reason %q does not name step 1 by number and target %q", epic.GetParked(), named)
 	}
 	if tells := epic.GetTells(); len(tells) != 1 || tells[0].GetText() != epic.GetParked() {
-		t.Fatalf("tells %+v, want the one tell of the park reason %q: the planner answers a release step's stop", tells, epic.GetParked())
+		t.Fatalf(
+			"tells %+v, want the one tell of the park reason %q: the planner answers a release step's stop",
+			tells,
+			epic.GetParked(),
+		)
 	}
 	wantExit(t, daemon.stop(t), 0)
 }

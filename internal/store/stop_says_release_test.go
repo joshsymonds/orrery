@@ -61,7 +61,8 @@ func longFailure() string {
 func stopAtStepFour(t *testing.T, s *Store, steps []EpicReleaseStep, failure string) string {
 	t.Helper()
 	ctx := context.Background()
-	lines := []string{fmt.Sprintf("release step 4 (target %s) failed:", steps[3].Target), "landed:"}
+	lines := make([]string, 0, 5)
+	lines = append(lines, fmt.Sprintf("release step 4 (target %s) failed:", steps[3].Target), "landed:")
 	for i := range 3 {
 		lines = append(lines, landedLine(i+1, steps[i]))
 	}
@@ -119,6 +120,10 @@ func TestStopSaysTriggerCarriesFullText(t *testing.T) {
 	}
 
 	if !slices.Contains(pendingCauses(t, s), stop) {
-		t.Errorf("pending triggers = %v, want one whose cause is the whole stop text of %d bytes", pendingCauses(t, s), len(stop))
+		t.Errorf(
+			"pending triggers = %v, want one whose cause is the whole stop text of %d bytes",
+			pendingCauses(t, s),
+			len(stop),
+		)
 	}
 }

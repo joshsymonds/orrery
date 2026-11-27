@@ -89,7 +89,11 @@ func TestStopSaysOwnerStopOfAStoppedReleaseTellsOnce(t *testing.T) {
 	tells := attentionTellsOf(t, s)
 	if len(tells) != 2 || tells[0].Text != reason || tells[1].Text != reason ||
 		tells[0].Question != nil || tells[1].Question != nil {
-		t.Errorf("tells = %+v, want two untold tells %q that carry no question: the step's, then the owner's", tells, reason)
+		t.Errorf(
+			"tells = %+v, want two untold tells %q that carry no question: the step's, then the owner's",
+			tells,
+			reason,
+		)
 	}
 }
 

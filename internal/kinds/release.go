@@ -336,7 +336,10 @@ func stepStopOutput(rows Rows, position int64, step store.EpicReleaseStep, faile
 	for i, landedStep := range rows.Epic.ReleaseSteps {
 		number := int64(i + 1)
 		if _, ok := stepPassed(rows.Releases, number, since); ok {
-			landed = append(landed, fmt.Sprintf("- step %d (target %s), undo: %s", number, landedStep.Target, landedStep.Undo))
+			landed = append(
+				landed,
+				fmt.Sprintf("- step %d (target %s), undo: %s", number, landedStep.Target, landedStep.Undo),
+			)
 		}
 	}
 	if len(landed) == 0 {

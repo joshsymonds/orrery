@@ -465,7 +465,13 @@ func TestReplanRerunsStepsResumeAtStepOne(t *testing.T) {
 	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
-	if want := []string{resumeStopReason, "release resumed at step 1, push tag"}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+	if want := []string{
+		resumeStopReason,
+		"release resumed at step 1, push tag",
+	}; !reflect.DeepEqual(
+		tellsOf(t, raw, resumeEpic),
+		want,
+	) {
 		t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
 	}
 	requireReleaseRuns(t, s, resumeEpic, inReadOrder(runs))
