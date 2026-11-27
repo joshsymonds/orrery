@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
 )
 
 // moveWip is the ref the move tests keep a worktree's uncommitted work in.
@@ -304,5 +305,38 @@ func TestMoveTaskWorktreeOfAMissingPathMovesNothing(t *testing.T) {
 		context.Background(), hostexec.NewLocal(), filepath.Join(t.TempDir(), "gone"), moveWip, testEpic, 1, "b",
 	); err != nil {
 		t.Errorf("MoveTaskWorktree of a missing path = %v, want nil", err)
+	}
+}
+
+// TestSnapshotWorktreeScratchIsUnderTheGitDirectory snapshots a worktree with uncommitted work through a recording host. Its
+// scratch index folder is made in, and removed from, the repository's common git directory, which exists on whichever host
+// holds the worktree, and is never the host's default temporary directory, which an agent's host does not allow.
+func TestSnapshotWorktreeScratchIsUnderTheGitDirectory(t *testing.T) {
+	t.Parallel()
+	w := newMoveWorld(t)
+	writeFile(t, filepath.Join(w.path, "draft.go"), "package draft\n")
+	recorder := hostexectest.NewRecorder(hostexec.NewLocal())
+	if _, err := snapshotWorktree(t.Context(), recorder, w.path, moveWip); err != nil {
+		t.Fatalf("snapshotWorktree: %v", err)
+	}
+	gitDir := buildRun(t, w.path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	var made, removed []string
+	for _, call := range recorder.Calls() {
+		switch call.Op {
+		case "MkdirTemp":
+			made = append(made, call.Path)
+		case "RemoveAll":
+			removed = append(removed, call.Path)
+		}
+	}
+	if len(made) != 1 || made[0] != gitDir {
+		t.Fatalf("scratch folders made in %v, want one in the git directory %s", made, gitDir)
+	}
+	if len(removed) != 1 || filepath.Dir(removed[0]) != gitDir ||
+		!strings.HasPrefix(filepath.Base(removed[0]), "orrery-move-") {
+		t.Fatalf("scratch folders removed %v, want the one made in %s", removed, gitDir)
+	}
+	if _, err := os.Stat(removed[0]); !os.IsNotExist(err) {
+		t.Errorf("scratch folder %s after the snapshot: stat err = %v, want it removed", removed[0], err)
 	}
 }

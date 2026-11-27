@@ -313,9 +313,14 @@ func refCommit(ctx context.Context, host hostexec.Host, path, ref string) (strin
 
 // snapshotWorktree commits the whole state of the worktree at path on host, untracked files included and ignored files
 // left out, on its HEAD through a scratch index, and creates wip at that commit. Neither the worktree nor its index
-// changes.
+// changes. The scratch index lies in a folder of its own under the repository's common git directory, a place that
+// exists on whichever host holds the worktree.
 func snapshotWorktree(ctx context.Context, host hostexec.Host, path, wip string) (snapshot string, err error) {
-	scratch, err := host.MkdirTemp(ctx, "", "orrery-move-")
+	gitDir, err := runGit(ctx, host, path, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("find the git directory for the scratch index: %w", err)
+	}
+	scratch, err := host.MkdirTemp(ctx, gitDir, "orrery-move-")
 	if err != nil {
 		return "", fmt.Errorf("create scratch index directory: %w", err)
 	}

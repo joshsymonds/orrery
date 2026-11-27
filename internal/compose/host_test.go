@@ -17,12 +17,11 @@ import (
 const hostOverlayRef = "refs/orrery/test/host-overlay"
 
 // TestComposeThroughHost checks that Compose and Overlay run their git in the repository through the Host they are
-// given, and that Overlay makes and removes its scratch directory through it. The Host is a Recorder over the local
-// Host, so a call that bypassed it would leave no record. Each pin is the one update-ref call of its commit. The test
-// is not parallel: it points TMPDIR at its own directory, where Overlay's scratch directory is made.
+// given, and that Overlay makes and removes its scratch directory through it, under the repository's git directory,
+// which exists on whichever host holds the repository. The Host is a Recorder over the local Host, so a call that
+// bypassed it would leave no record. Each pin is the one update-ref call of its commit.
 func TestComposeThroughHost(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
+	t.Parallel()
 	ctx := t.Context()
 	dir := composeRepo(t)
 	base := composeRevision(t, dir, "", "base\n", map[string]string{"a": "one", "b": "bee"}, nil)
@@ -74,8 +73,16 @@ func TestComposeThroughHost(t *testing.T) {
 		t.Fatalf("Overlay's scratch calls = %v, want one MkdirTemp then one RemoveAll", scratch)
 	}
 	made := scratch[1].Path
-	if filepath.Dir(made) != tmp || !strings.HasPrefix(filepath.Base(made), "orrery-overlay-") {
-		t.Errorf("Overlay removed %q, want the scratch directory it made in %s", made, tmp)
+	gitDir, err := filepath.EvalSymlinks(filepath.Join(dir, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	madeIn, err := filepath.EvalSymlinks(filepath.Dir(made))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if madeIn != gitDir || !strings.HasPrefix(filepath.Base(made), "orrery-overlay-") {
+		t.Errorf("Overlay removed %q, want the scratch directory it made in %s", made, gitDir)
 	}
 	if _, err := os.Stat(made); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("scratch directory %s after Overlay: stat err = %v, want it removed", made, err)
