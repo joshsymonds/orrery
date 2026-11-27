@@ -36,6 +36,7 @@ type anyStopCase struct {
 const (
 	ownerStopRefusal = "its owner stopped the release; only the owner retries it"
 	judgeStopPart    = "its release judge found the release short of its postconditions"
+	judgeSteerPart   = "ask the steerer"
 )
 
 // undoNoneKindStep is a release step that names the tag kind and whose undo is none, so no later step undoes it.
@@ -564,8 +565,9 @@ func TestAnyStopReplansRefusesRetryOfOwnerStop(t *testing.T) {
 }
 
 // TestAnyStopReplansRefusesResumeAfterJudgeVerdict: a release its judge stopped with a verdict is not resumed by the
-// planner's resume_release. The action is refused and the release stays stopped at its judge's attempt, and the refusal
-// names the judge's verdict as the reason. The planner's retry_epic of that release replans it, as
+// planner's resume_release. The action is refused with the judge's verdict and a word to ask the steerer, the owner's
+// own conversation on the epic, and the release stays stopped at its judge's attempt. The owner's ReleaseEpic then
+// resumes the release at its next attempt. The planner's retry_epic of that release replans it, as
 // TestAnyStopReplansOnPlannerRetry shows.
 func TestAnyStopReplansRefusesResumeAfterJudgeVerdict(t *testing.T) {
 	t.Parallel()
@@ -578,12 +580,27 @@ func TestAnyStopReplansRefusesResumeAfterJudgeVerdict(t *testing.T) {
 	w.passQuiet()
 
 	if causes := triggerCauses(t, w.s, ""); !slices.ContainsFunc(causes, func(cause string) bool {
-		return strings.Contains(cause, judgeStopPart)
+		return strings.Contains(cause, judgeStopPart) && strings.Contains(cause, judgeSteerPart)
 	}) {
-		t.Errorf("triggers = %q, want the judge's verdict named in the refusal", causes)
+		t.Errorf("triggers = %q, want the judge's verdict and the word to ask the steerer in the refusal", causes)
 	}
 	if still := w.requireStopped("the judge did not release the epic", 0); still != reason {
 		t.Errorf("stop reason = %q after the refusal, want the judge's %q", still, reason)
+	}
+
+	if err := w.s.ReleaseEpic(
+		w.t.Context(), runEpic, store.Maker{By: store.MakerOwner}, runClock(),
+	); err != nil {
+		w.t.Fatalf("ReleaseEpic by the owner: %v", err)
+	}
+	w.passQuiet()
+	flow := w.flowOf(runEpic)
+	if flow.Epic.Phase != store.PhaseReleasing || flow.Epic.Parked != "" {
+		w.t.Fatalf("epic phase %q parked %q after the owner's release, want releasing and unparked",
+			flow.Epic.Phase, flow.Epic.Parked)
+	}
+	if run := runAt(w.t, w.s, releaseNodePath); run.State != store.NodeRunning || run.Attempt != 1 {
+		w.t.Errorf("release run = %+v after the owner's release, want running at attempt 1", run)
 	}
 }
 
