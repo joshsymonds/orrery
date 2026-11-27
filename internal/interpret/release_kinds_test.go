@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,7 +127,7 @@ func TestReleaseKindStepPassesOnExitZero(t *testing.T) {
 }
 
 // TestReleaseKindStepFailureStopsTheRelease: a check of a step that names a kind that exits nonzero records the step
-// failed, with its exit and the last line it wrote to its stderr as the reason, and the release stops at it.
+// failed, with its exit and the newest lines it wrote to its stderr as the reason, and the release stops at it.
 func TestReleaseKindStepFailureStopsTheRelease(t *testing.T) {
 	t.Parallel()
 	w := newKindWorld(t, &recordingEnding{}, pushMainStep(), tagKindStep())
@@ -138,7 +139,7 @@ func TestReleaseKindStepFailureStopsTheRelease(t *testing.T) {
 	w.pass()
 	w.pass()
 
-	wantReason := "the step exited 1: origin refused the tag v0.1.1: it already exists"
+	wantReason := "the step exited 1\nstderr:\nfetched origin's tags\norigin refused the tag v0.1.1: it already exists"
 	runs := releaseRunsOf(w.flowOf(runEpic).Releases, store.ReleasePartStep)
 	if len(runs) != 2 || runs[1].Passed || runs[1].Reason != wantReason || runs[1].End != "failed" {
 		t.Errorf("step runs = %+v, want the second failed with reason %q", runs, wantReason)
@@ -149,7 +150,8 @@ func TestReleaseKindStepFailureStopsTheRelease(t *testing.T) {
 }
 
 // TestKindStepReason: a check that did not run, ran past its limit, or exited nonzero names why, and one that exited 0
-// passes. A nonzero exit names the last line its stderr holds that is not blank.
+// passes. A nonzero exit names its status, then the newest non-blank lines of its stdout and of its stderr under each
+// stream's name, and leaves out a stream with no such line.
 func TestKindStepReason(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -171,7 +173,12 @@ func TestKindStepReason(t *testing.T) {
 		{
 			name:  "exited nonzero",
 			check: store.NodeCheck{Exit: 1, Stderr: "built\nunit orreryd runs an older build\n\n"},
-			want:  "the step exited 1: unit orreryd runs an older build",
+			want:  "the step exited 1\nstderr:\nbuilt\nunit orreryd runs an older build",
+		},
+		{
+			name:  "exited nonzero with stdout and stderr",
+			check: store.NodeCheck{Exit: 3, Stdout: "\nfetched\n", Stderr: "  \nrefused\n"},
+			want:  "the step exited 3\nstdout:\nfetched\nstderr:\nrefused",
 		},
 		{name: "exited nonzero with no stderr", check: store.NodeCheck{Exit: 2}, want: "the step exited 2"},
 	}
@@ -183,6 +190,32 @@ func TestKindStepReason(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestStopSaysKindStepReasonKeepsTails checks that the reason of a check that exited 1 with 30 lines on each of its stdout
+// and its stderr gives the exit, then the newest 20 lines of each stream under the stream's name. The 10 older lines of
+// each are left out.
+func TestStopSaysKindStepReasonKeepsTails(t *testing.T) {
+	t.Parallel()
+	stdout := kindOutputLines("out", 30)
+	stderr := kindOutputLines("err", 30)
+	check := store.NodeCheck{
+		Exit: 1, Stdout: strings.Join(stdout, "\n") + "\n", Stderr: strings.Join(stderr, "\n") + "\n",
+	}
+	want := "the step exited 1\nstdout:\n" + strings.Join(stdout[10:], "\n") +
+		"\nstderr:\n" + strings.Join(stderr[10:], "\n")
+	if got := kindStepReason(check); got != want {
+		t.Errorf("kindStepReason of a check with 30 lines of each stream = %q, want %q", got, want)
+	}
+}
+
+// kindOutputLines returns n lines of output, numbered from 1, each named by prefix.
+func kindOutputLines(prefix string, n int) []string {
+	lines := make([]string, 0, n)
+	for i := 1; i <= n; i++ {
+		lines = append(lines, prefix+" line "+strconv.Itoa(i))
+	}
+	return lines
 }
 
 // TestReleaseOfKindStepsEndsReleasedWithoutJudge: a release whose every step names a kind ends released once its last
@@ -269,7 +302,7 @@ func TestReleaseKindFirstStepAfterOriginMovedPreparesAgain(t *testing.T) {
 	}
 	verify := releaseRunsOf(flow.Releases, store.ReleasePartVerify)
 	if len(verify) != 1 || verify[0].Head != candidate || verify[0].Passed ||
-		!strings.Contains(verify[0].Reason, "the step exited 1: origin's main has moved") {
+		!strings.Contains(verify[0].Reason, "the step exited 1\nstderr:\norigin's main has moved") {
 		t.Errorf("verify runs = %+v, want candidate %s marked stale with the step's reason", verify, candidate)
 	}
 	if flow.Epic.Phase != store.PhaseReleasing {

@@ -156,7 +156,7 @@ func TestStartReleaseLeavesOtherPhasesAndRefusesAnUnknownEpic(t *testing.T) {
 
 // TestStopReleaseParksRunWithOneTellAndStops checks that StopRelease parks the running release run at its path and
 // attempt with outcome failed and the reason as its output, parks the epic with the reason as the release_step class and
-// adds no tell, and moves the epic from releasing to stopped. A repeat changes nothing and adds no tell.
+// adds the reason as its one tell, and moves the epic from releasing to stopped. A repeat changes nothing and adds no tell.
 func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -193,8 +193,8 @@ func TestStopReleaseParksRunWithOneTellAndStops(t *testing.T) {
 	if want := string(store.ParkClassReleaseStep); class != want {
 		t.Errorf("park class of epic %s = %q, want %q", releaseEpic, class, want)
 	}
-	if got := tellsOf(t, raw, releaseEpic); len(got) != 0 {
-		t.Errorf("tells of epic %s = %q, want none: a release_step park is the planner's", releaseEpic, got)
+	if got := tellsOf(t, raw, releaseEpic); !reflect.DeepEqual(got, []string{reason}) {
+		t.Errorf("tells of epic %s = %q, want one tell %q: a release_step stop tells its reason", releaseEpic, got, reason)
 	}
 	if got := parkTriggerCauses(t, raw, releaseEpic); !reflect.DeepEqual(got, [][]any{{reason}}) {
 		t.Errorf("park triggers of epic %s = %v, want one with cause %q", releaseEpic, got, reason)

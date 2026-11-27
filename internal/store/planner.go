@@ -1172,10 +1172,11 @@ func setPark(ctx context.Context, queries *sqlcgen.Queries, epic, park string, c
 
 // parkEpicAs parks epic with reason as class of subject, in the caller's write. A question class opens the park question
 // and adds reason as a tell that carries it, and the epic's steerer is told of the question. A release_owner_stop park
-// opens no question and adds reason as a tell with no question, and no trigger. A planner class opens no question and adds
-// no tell: it adds the pending trigger that wakes the planner, which carries reason as its cause. A planner park that
-// parkPlanner sends to the owner is stored as retry_bound instead: parkPlanner has opened its question and added its
-// tell, so no trigger is added.
+// opens no question and adds reason as a tell with no question, and no trigger. A release_step park adds reason as a
+// tell with no question, and a trigger that wakes the planner with the whole of reason as its cause. A planner class
+// opens no question and adds no tell: it adds the pending trigger that wakes the planner, which carries reason as its
+// cause. A planner park that parkPlanner sends to the owner is stored as retry_bound instead: parkPlanner has opened its
+// question and added its tell, so no trigger is added.
 func parkEpicAs(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1192,7 +1193,8 @@ func parkEpicAs(
 // parkEpicQuestion parks epic as parkEpicAs does, in the caller's write, and returns the seq of the park question it
 // opens: a question class's question, or the retry_bound question of a planner park parkPlanner sends to the owner. It
 // returns 0 when the park opens none, which wakes the planner instead, or, for release_owner_stop, which the owner holds
-// with its tell and no trigger.
+// with its tell and no trigger. A release_step park's tell is cut to TurnReasonMax bytes like its park, but its trigger
+// carries the whole of reason, since the planner's prompt shows a trigger's cause in full.
 func parkEpicQuestion(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -1210,6 +1212,11 @@ func parkEpicQuestion(
 	switch {
 	case class == ParkClassReleaseOwnerStop:
 		return 0, insertTell(ctx, queries, epic, park, at)
+	case class == ParkClassReleaseStep:
+		if err = insertTell(ctx, queries, epic, park, at); err != nil {
+			return 0, err
+		}
+		return 0, insertParkTrigger(ctx, queries, epic, reason, at)
 	case class.OpensQuestion():
 		return question, insertQuestionTell(ctx, queries, epic, park, question, at)
 	case question == 0:

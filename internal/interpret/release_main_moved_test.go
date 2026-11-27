@@ -143,7 +143,7 @@ func TestReleaseMainMoved(t *testing.T) {
 			t.Errorf("step runs = %+v, want the one failed run of step 1 with its reason", runs)
 		}
 		flow := w.flowOf(runEpic)
-		want := "release step 1 (tag the release) failed: step ended returned with status blocked"
+		want := "release step 1 (target main) failed:\nlanded: none\nstep ended returned with status blocked"
 		if flow.Epic.Phase != store.PhaseStopped || flow.Epic.Parked != want {
 			t.Errorf("epic phase = %q and parked = %q, want stopped and parked with %q",
 				flow.Epic.Phase, flow.Epic.Parked, want)

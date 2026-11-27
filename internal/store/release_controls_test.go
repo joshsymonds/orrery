@@ -204,8 +204,8 @@ func TestReleaseEpicRefusesAnUnknownEpic(t *testing.T) {
 }
 
 // TestReleaseEpicResumesAtTheFirstUnfinishedStep checks that a stopped release resumes at its first unfinished step,
-// whatever that step's undo says: its release node run moves to its next attempt, the epic is unparked, one tell says
-// where the release resumed, and no owner decision is recorded.
+// whatever that step's undo says: its release node run moves to its next attempt, the epic is unparked, its stop's tell is
+// followed by one tell that says where the release resumed, and no owner decision is recorded.
 func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -249,7 +249,7 @@ func TestReleaseEpicResumesAtTheFirstUnfinishedStep(t *testing.T) {
 			if got := parkedOf(t, raw, resumeEpic); got != "" {
 				t.Errorf("parked reason of epic %s after ReleaseEpic = %q, want none", resumeEpic, got)
 			}
-			if want := []string{c.tell}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+			if want := []string{resumeStopReason, c.tell}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
 				t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
 			}
 			requireReleaseRuns(t, s, resumeEpic, inReadOrder(c.runs))
@@ -465,7 +465,7 @@ func TestReplanRerunsStepsResumeAtStepOne(t *testing.T) {
 	if err := s.ReleaseEpic(ctx, resumeEpic, store.Maker{}, resumeAt()); err != nil {
 		t.Fatalf("ReleaseEpic: %v", err)
 	}
-	if want := []string{"release resumed at step 1, push tag"}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
+	if want := []string{resumeStopReason, "release resumed at step 1, push tag"}; !reflect.DeepEqual(tellsOf(t, raw, resumeEpic), want) {
 		t.Errorf("tells of epic %s = %q, want %q", resumeEpic, tellsOf(t, raw, resumeEpic), want)
 	}
 	requireReleaseRuns(t, s, resumeEpic, inReadOrder(runs))

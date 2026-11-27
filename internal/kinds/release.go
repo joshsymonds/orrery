@@ -272,15 +272,21 @@ func walkSteps(run store.NodeRun, rows Rows, candidate string) Action {
 	since := store.LastReplan(rows.Releases)
 	for i, step := range rows.Epic.ReleaseSteps {
 		position := int64(i + 1)
-		passed, ok := firstMatch(rows.Releases, func(r store.ReleaseRun) bool {
-			return r.Part == store.ReleasePartStep && r.Position == position && r.Passed && r.Attempt > since
-		})
+		passed, ok := stepPassed(rows.Releases, position, since)
 		if !ok {
 			return stepAction(run, rows, position, step, start)
 		}
 		start = passed.Head
 	}
 	return judgeAction(run, rows, candidate)
+}
+
+// stepPassed returns the run that passed release step position at an attempt above since, the last replan, and false
+// when the step has none: a step passed at or before a replan runs again.
+func stepPassed(runs []store.ReleaseRun, position, since int64) (store.ReleaseRun, bool) {
+	return firstMatch(runs, func(r store.ReleaseRun) bool {
+		return r.Part == store.ReleasePartStep && r.Position == position && r.Passed && r.Attempt > since
+	})
 }
 
 // stepAction decides release step position, which has not passed, from start. It stops on a step that failed at this
@@ -292,10 +298,7 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 		return r.Part == store.ReleasePartStep && r.Position == position && !r.Passed && r.Attempt == run.Attempt
 	})
 	if ok {
-		return Action{
-			Kind:   ActStop,
-			Output: fmt.Sprintf("release step %d (%s) failed: %s", position, step.Step, failed.Reason),
-		}
+		return Action{Kind: ActStop, Output: stepStopOutput(rows, position, step, failed)}
 	}
 	label := fmt.Sprintf("release %d", position)
 	id := store.ReleaseStepWorkID(run, rows.Releases, position)
@@ -320,6 +323,32 @@ func stepAction(run store.NodeRun, rows Rows, position int64, step store.EpicRel
 		}
 	}
 	return Action{Kind: ActStep, IDs: []string{id}, Items: []string{label, start}}
+}
+
+// stepStopOutput is the stop of release step position, whose step is step and whose failed run ended it. Its first line
+// names the step by number and target, not by its text. Then come the steps whose passed run counts at this attempt, one
+// line each with its number, target and undo, or `landed: none`. Then comes the failed run's reason. A cut from the end
+// loses only the reason's output lines.
+func stepStopOutput(rows Rows, position int64, step store.EpicReleaseStep, failed store.ReleaseRun) string {
+	lines := []string{fmt.Sprintf("release step %d (target %s) failed:", position, step.Target)}
+	since := store.LastReplan(rows.Releases)
+	var landed []string
+	for i, landedStep := range rows.Epic.ReleaseSteps {
+		number := int64(i + 1)
+		if _, ok := stepPassed(rows.Releases, number, since); ok {
+			landed = append(landed, fmt.Sprintf("- step %d (target %s), undo: %s", number, landedStep.Target, landedStep.Undo))
+		}
+	}
+	if len(landed) == 0 {
+		lines = append(lines, "landed: none")
+	} else {
+		lines = append(lines, "landed:")
+		lines = append(lines, landed...)
+	}
+	if failed.Reason != "" {
+		lines = append(lines, failed.Reason)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // releaseWork decides the work stored under id for step, and reports whether any is. A step that names a kind runs as a
