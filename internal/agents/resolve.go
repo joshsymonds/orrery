@@ -28,6 +28,10 @@ type Where struct {
 // claudeFolder is the .claude folder that holds agents and settings under a home, a project and the managed root.
 const claudeFolder = ".claude"
 
+// ManagedDir is Claude Code's managed settings root on Linux: its managed-settings.json and .claude/agents are read for
+// every session on the machine.
+const ManagedDir = "/etc/claude-code"
+
 // webFetch is a name that Claude Code does not resolve for --agent, so no file may define it.
 const webFetch = "web-fetch"
 

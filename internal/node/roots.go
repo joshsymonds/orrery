@@ -18,6 +18,9 @@ const maxSymlinks = 40
 // names such a path is refused with CodeRefused, and nothing runs.
 var errOutside = errors.New("node: path lies outside the agent's roots")
 
+// claudeFolderName is the folder Claude Code reads a directory's settings and agents from.
+const claudeFolderName = ".claude"
+
 // refusal returns the Response of an op whose check failed with err: CodeRefused when err names a path outside the
 // agent's allowed directories, and CodeFailed for any other error.
 func refusal(err error) Response {
@@ -53,18 +56,74 @@ func (a *Agent) checkPaths(paths ...string) error {
 		return err
 	}
 	for _, path := range paths {
-		if !filepath.IsAbs(path) {
-			return fmt.Errorf("%w: %q is not absolute", errOutside, path)
-		}
-		resolved, resolveErr := resolvePath(path)
-		if resolveErr != nil {
-			return resolveErr
-		}
-		if !slices.ContainsFunc(allowed, func(dir string) bool { return within(dir, resolved) }) {
-			return fmt.Errorf("%w: %s resolves to %s", errOutside, path, resolved)
+		if checkErr := checkResolved(
+			path,
+			func(resolved string) bool { return underAny(allowed, resolved) },
+		); checkErr != nil {
+			return checkErr
 		}
 	}
 	return nil
+}
+
+// checkRead returns nil when the read-only op may name path. It may name what checkPaths allows, and also the places
+// Claude Code reads its settings and agents from for a process in an allowed directory: each folder above an allowed
+// directory, which the op may stat, lstat or resolve but not read or list; anything under such a folder's .claude; and
+// anything under the agent's ManagedDir. A controller resolving a step's agents and stamp reads these, and none of them
+// is written. Any other path is refused with an error that wraps errOutside.
+func (a *Agent) checkRead(op FileOp, path string) error {
+	allowed, err := a.allowedDirs()
+	if err != nil {
+		return err
+	}
+	var managed string
+	if a.cfg.ManagedDir != "" {
+		if managed, err = resolvePath(a.cfg.ManagedDir); err != nil {
+			return fmt.Errorf("node: resolve the agent's directory %s: %w", a.cfg.ManagedDir, err)
+		}
+	}
+	return checkResolved(path, func(resolved string) bool {
+		return underAny(allowed, resolved) || (managed != "" && within(managed, resolved)) ||
+			claudeAbove(allowed, op, resolved)
+	})
+}
+
+// claudeAbove reports whether the read-only op may name resolved as a place Claude Code reads above one of the allowed
+// dirs: one of the folders above it, when op only stats or resolves, or anything under such a folder's .claude.
+func claudeAbove(allowed []string, op FileOp, resolved string) bool {
+	metadata := op == FileStat || op == FileLstat || op == FileEvalSymlinks
+	for _, dir := range allowed {
+		for above := filepath.Dir(dir); ; above = filepath.Dir(above) {
+			if (metadata && resolved == above) || within(filepath.Join(above, claudeFolderName), resolved) {
+				return true
+			}
+			if above == filepath.Dir(above) {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// checkResolved returns nil when path is absolute and allow admits it once its symlinks resolve. Any other path is
+// refused with an error that wraps errOutside, and a path that cannot be resolved is that error.
+func checkResolved(path string, allow func(resolved string) bool) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%w: %q is not absolute", errOutside, path)
+	}
+	resolved, err := resolvePath(path)
+	if err != nil {
+		return err
+	}
+	if !allow(resolved) {
+		return fmt.Errorf("%w: %s resolves to %s", errOutside, path, resolved)
+	}
+	return nil
+}
+
+// underAny reports whether path lies under one of dirs.
+func underAny(dirs []string, path string) bool {
+	return slices.ContainsFunc(dirs, func(dir string) bool { return within(dir, path) })
 }
 
 // resolvePath returns the absolute path that path names once every symlink in it is followed. It resolves one component

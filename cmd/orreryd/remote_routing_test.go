@@ -17,6 +17,7 @@ import (
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -268,7 +269,7 @@ func startRoutingAgent(
 		Controller: routingNode, WhoIs: routingWhoIs{},
 		Holders:  routingHolders{Local: holders, host: name, log: log, planned: planned},
 		StateDir: stateDir,
-		Roots:    []string{env.root, managedDir}, ConfigDir: env.config, ClaudeDir: env.claudeDir,
+		Roots:    []string{env.root}, ConfigDir: env.config, ClaudeDir: env.claudeDir, ManagedDir: agents.ManagedDir,
 		Local: hostexec.NewLocal(), Secret: env.secret,
 	})
 	if err != nil {

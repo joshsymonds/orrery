@@ -61,6 +61,9 @@ type AgentConfig struct {
 	// ClaudeDir is Claude's directory, ~/.claude, where the Claude agent definitions live. The git, file, gate and
 	// leftover ops may name paths under it. Empty allows none.
 	ClaudeDir string
+	// ManagedDir is Claude Code's managed settings directory, agents.ManagedDir. The file ops that only read may name
+	// paths under it, so a controller can resolve a step's agents here. Empty allows none.
+	ManagedDir string
 	// Local is this machine's hostexec.Local, which the git, file, gate and leftover ops act on. Nil takes
 	// hostexec.NewLocal().
 	Local *hostexec.Local

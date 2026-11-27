@@ -30,6 +30,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/alerts"
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
@@ -81,9 +82,6 @@ const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
 
 // envNotifySocket is the variable systemd sets to the socket that takes READY=1 for a Type=notify unit.
 const envNotifySocket = "NOTIFY_SOCKET"
-
-// managedDir is the managed settings root the session manager runs under and the planner's resolver checks agents in.
-const managedDir = "/etc/claude-code"
 
 const (
 	defaultClaude = "claude"
@@ -1208,7 +1206,7 @@ func startSessions(
 			HolderScope: opts.holderScope,
 			HostName:    opts.orrery,
 			StateDir:    stateDir,
-			ManagedDir:  managedDir,
+			ManagedDir:  agents.ManagedDir,
 			Writer:      host.writer,
 			Notifier:    enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
 			Store:       st,
@@ -1231,7 +1229,7 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts, getenv),
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), agents.ManagedDir, hosts), hosts, getenv),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
 			Host: hostName, Hosts: hosts, Placement: placement,
@@ -1254,7 +1252,7 @@ func startSessions(
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		host.startFlow(
 			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
-			planner.NewResolver(os.Environ(), managedDir, hosts), stateDir, hosts, logger,
+			planner.NewResolver(os.Environ(), agents.ManagedDir, hosts), stateDir, hosts, logger,
 		)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)

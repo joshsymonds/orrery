@@ -18,6 +18,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -295,6 +296,7 @@ func newNodeAgent(
 		Roots:      cfg.roots,
 		ConfigDir:  configDir,
 		ClaudeDir:  claudeDir,
+		ManagedDir: agents.ManagedDir,
 		Local:      hostexec.NewLocal(),
 		Secret:     secret,
 		WakePane:   cli.WakePane,
