@@ -263,7 +263,7 @@ func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string, report
 // claude runs with the stamp's env as its --settings. A stamp that cannot be found or read opens no
 // window.
 func newClaudeWindow(ctx context.Context, client *tmuxctl.Client, session, dir string) error {
-	command, err := claudeCommand(dir)
+	command, err := claudeCommand(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("new claude window: %w", err)
 	}
@@ -278,8 +278,8 @@ func newClaudeWindow(ctx context.Context, client *tmuxctl.Client, session, dir s
 // claudeCommand returns the command a claude window runs in dir: claude with the settings of the
 // context stamp in effect for dir, or claude alone when no stamp applies. The stamp is found under
 // this process's HOME; an empty HOME finds none.
-func claudeCommand(dir string) (string, error) {
-	found, err := stamp.Find(os.Getenv("HOME"), dir)
+func claudeCommand(ctx context.Context, dir string) (string, error) {
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, os.Getenv("HOME"), dir)
 	if err != nil {
 		return "", fmt.Errorf("find context stamp: %w", err)
 	}

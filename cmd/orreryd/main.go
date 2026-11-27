@@ -2960,7 +2960,7 @@ func newRelay(cfg route.Config, hub *relay) *relay {
 func (r *relay) judgeDone(transition daemon.Transition) func(context.Context) (route.Verdict, error) {
 	message := transition.LastMessage
 	return func(ctx context.Context) (route.Verdict, error) {
-		found, err := stamp.Find(r.home, transition.Cwd)
+		found, err := stamp.Find(ctx, stamp.OSFiles{}, r.home, transition.Cwd)
 		if err != nil {
 			return route.Verdict{}, fmt.Errorf("done judge: find context stamp: %w", err)
 		}

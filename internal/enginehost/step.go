@@ -374,7 +374,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	} else {
 		cfg.dir = start.Workspace
 	}
-	if err = s.bindHaiku(&cfg, step.Dir); err != nil {
+	if err = s.bindHaiku(ctx, host, &cfg, step.Dir); err != nil {
 		return s.refuseStart(ctx, id, cfg.cleanup, err)
 	}
 
@@ -556,8 +556,9 @@ func (s *Steps) refuseStart(
 
 // bindHaiku sets cfg's haiku to the caller a step whose folder is folder makes its monitor and judge calls with. With
 // no Haiku it sets none. The stamp in effect for folder, found from the HOME entry of the Steps' environ, which must be
-// an absolute path, sets the env of each call's --settings. With no stamp, the caller is the Steps' Haiku as it is.
-func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
+// an absolute path, sets the env of each call's --settings. folder is on host, the step's host, so the stamp is read
+// through host's files. With no stamp, the caller is the Steps' Haiku as it is.
+func (s *Steps) bindHaiku(ctx context.Context, host hostexec.Files, cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
@@ -565,7 +566,7 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
-	found, err := stamp.Find(home, folder)
+	found, err := stamp.Find(ctx, host, home, folder)
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
@@ -575,6 +576,53 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	}
 	cfg.haiku = s.haiku.withEnv(found.Env)
 	return nil
+}
+
+// bindHaikuLazily sets cfg's haiku, as bindHaiku does, to a caller that reads the stamp of folder through host at its
+// first call rather than now. A step re-adopted at a restart binds this way, so the re-adoption does not wait on a host
+// that is not answering; the first monitor or judge call waits for it instead, as any other call to that host does. The
+// HOME entry of the Steps' environ is checked now, since it needs no host: one that is not an absolute path fails.
+func (s *Steps) bindHaikuLazily(host hostexec.Files, cfg *stepRunConfig, folder string) error {
+	if s.haiku == nil {
+		return nil
+	}
+	if _, err := holderhost.StampHome(s.environ); err != nil {
+		return fmt.Errorf("find step stamp: %w", err)
+	}
+	cfg.haiku = &stampedHaiku{steps: s, host: host, folder: folder}
+	return nil
+}
+
+// stampedHaiku is the Haiku caller of a re-adopted step. Its first call binds the caller of the stamp in effect for
+// folder, read through host as bindHaiku reads it, and each call goes to that caller. A first call whose stamp cannot
+// be read fails, and the next call reads it again.
+type stampedHaiku struct {
+	steps  *Steps
+	host   hostexec.Files
+	folder string
+
+	mu    sync.Mutex
+	bound haikuCaller
+}
+
+// Call binds the caller when no call has bound it yet, then makes the call through it.
+func (h *stampedHaiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
+	h.mu.Lock()
+	bound := h.bound
+	if bound == nil {
+		var cfg stepRunConfig
+		if err := h.steps.bindHaiku(ctx, h.host, &cfg, h.folder); err != nil {
+			h.mu.Unlock()
+			return nil, err
+		}
+		bound, h.bound = cfg.haiku, cfg.haiku
+	}
+	h.mu.Unlock()
+	raw, err := bound.Call(ctx, schema, input)
+	if err != nil {
+		return nil, fmt.Errorf("haiku call from %s: %w", h.folder, err)
+	}
+	return raw, nil
 }
 
 // Status returns the step row with id. It returns an error matching store.ErrNoStep when no step has that id.

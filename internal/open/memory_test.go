@@ -50,7 +50,7 @@ func TestStepMemoryExcluded(t *testing.T) {
 
 	t.Run("a pane launcher's settings carry no claudeMdExcludes", func(t *testing.T) {
 		home, stamped, _ := stampedHome(t)
-		argv, err := stampedArgv(Config{Home: home}, stamped, claudeCommand("claude", ""))
+		argv, err := stampedArgv(t.Context(), Config{Home: home}, stamped, claudeCommand("claude", ""))
 		if err != nil {
 			t.Fatalf("stampedArgv: %v", err)
 		}

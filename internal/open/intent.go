@@ -393,7 +393,7 @@ func openPane(ctx context.Context, cfg Config, dir string, argv []string) (Targe
 	if dir == "" {
 		return Target{}, errors.New("intent: pane needs a directory")
 	}
-	argv, err := stampedArgv(cfg, dir, argv)
+	argv, err := stampedArgv(ctx, cfg, dir, argv)
 	if err != nil {
 		return Target{}, err
 	}

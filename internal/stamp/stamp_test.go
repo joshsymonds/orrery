@@ -54,7 +54,7 @@ func resolved(t *testing.T, path string) string {
 // findStamp runs Find and fails the test when it errors.
 func findStamp(t *testing.T, home, dir string) Stamp {
 	t.Helper()
-	got, err := Find(home, dir)
+	got, err := Find(t.Context(), OSFiles{}, home, dir)
 	if err != nil {
 		t.Fatalf("Find(%q, %q): %v", home, dir, err)
 	}
@@ -277,7 +277,7 @@ func TestFindUnreadableSettingsFileErrors(t *testing.T) {
 			// A directory where the settings file should be exists but cannot be read as a file.
 			makeDir(t, filepath.Join(parent, ".claude", name))
 
-			_, err := Find(home, child)
+			_, err := Find(t.Context(), OSFiles{}, home, child)
 			assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", name))
 		})
 	}
@@ -293,7 +293,7 @@ func TestFindUnreadableGitFileErrors(t *testing.T) {
 		t.Fatalf("write .git: %v", err)
 	}
 
-	_, err := Find(home, worktree)
+	_, err := Find(t.Context(), OSFiles{}, home, worktree)
 	assertErrorNames(t, err, filepath.Join(gitdir, "commondir"))
 }
 
@@ -418,7 +418,7 @@ func TestFindBrokenWorktreeLinkErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			l := makeStampedWorktree(t)
 			want := tc.breakLink(t, l)
-			_, err := Find(l.home, l.worktree)
+			_, err := Find(t.Context(), OSFiles{}, l.home, l.worktree)
 			assertErrorNames(t, err, want)
 		})
 	}
@@ -484,7 +484,7 @@ func TestFindUnusableSettingsFileErrors(t *testing.T) {
 				child := makeDir(t, filepath.Join(parent, "child"))
 				writeSettings(t, parent, name, tc.content)
 
-				_, err := Find(home, child)
+				_, err := Find(t.Context(), OSFiles{}, home, child)
 				assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", name))
 			})
 		}
@@ -501,7 +501,7 @@ func TestFindDanglingSettingsSymlinkErrors(t *testing.T) {
 		t.Fatalf("symlink %s: %v", link, err)
 	}
 
-	_, err := Find(home, child)
+	_, err := Find(t.Context(), OSFiles{}, home, child)
 	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.json"))
 }
 
@@ -521,7 +521,7 @@ func TestFindDanglingClaudeSymlinkErrors(t *testing.T) {
 		child := makeDir(t, filepath.Join(parent, "child"))
 		danglingClaudeLink(t, home, child)
 
-		_, err := Find(home, child)
+		_, err := Find(t.Context(), OSFiles{}, home, child)
 		assertErrorNames(t, err, filepath.Join(resolved(t, child), ".claude"))
 	})
 	t.Run("folder above dir", func(t *testing.T) {
@@ -530,7 +530,7 @@ func TestFindDanglingClaudeSymlinkErrors(t *testing.T) {
 		child := makeDir(t, filepath.Join(parent, "child"))
 		danglingClaudeLink(t, home, parent)
 
-		_, err := Find(home, child)
+		_, err := Find(t.Context(), OSFiles{}, home, child)
 		assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude"))
 	})
 	t.Run("worktree primary", func(t *testing.T) {
@@ -538,7 +538,7 @@ func TestFindDanglingClaudeSymlinkErrors(t *testing.T) {
 		primary := filepath.Join(layout.home, "stamped", "repo")
 		danglingClaudeLink(t, layout.home, primary)
 
-		_, err := Find(layout.home, layout.worktree)
+		_, err := Find(t.Context(), OSFiles{}, layout.home, layout.worktree)
 		assertErrorNames(t, err, filepath.Join(resolved(t, primary), ".claude"))
 	})
 }
@@ -553,7 +553,7 @@ func TestFindDanglingLocalSettingsSymlinkErrors(t *testing.T) {
 		t.Fatalf("symlink %s: %v", link, err)
 	}
 
-	_, err := Find(home, child)
+	_, err := Find(t.Context(), OSFiles{}, home, child)
 	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.local.json"))
 }
 
@@ -569,7 +569,7 @@ func TestFindModeZeroSettingsFileErrors(t *testing.T) {
 				t.Fatalf("chmod %s: %v", path, err)
 			}
 
-			_, err := Find(home, child)
+			_, err := Find(t.Context(), OSFiles{}, home, child)
 			assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", name))
 		})
 	}
