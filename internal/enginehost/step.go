@@ -105,6 +105,10 @@ const stepDefaultModelLimit = 60 * time.Minute
 //
 // Purpose is the step's purpose, stored with it. Empty asks Haiku for one from the step's prompt, when a Haiku caller is
 // configured; the answer is stored once it arrives, and the start does not wait for it (see askStepPurpose).
+//
+// Carry names files on this controller that the step's prompt names by their absolute paths. A step that runs on
+// another host has each copied to the same path there before its session starts, so it reads what the prompt names; a
+// file that cannot be copied refuses the start, and nothing is stored. A step on the controller reads them in place.
 type StepStart struct {
 	ID          string
 	Agent       string
@@ -130,6 +134,7 @@ type StepStart struct {
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
+	Carry       []string
 }
 
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
@@ -312,8 +317,8 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if dirErr := checkDirOn(ctx, host, start.Workspace); dirErr != nil {
-		return "", dirErr
+	if prepErr := s.prepareHost(ctx, hostName, host, start); prepErr != nil {
+		return "", prepErr
 	}
 	start, gate, err := s.resolveStart(ctx, hostName, host, start)
 	if err != nil {
@@ -438,6 +443,25 @@ func (s *Steps) startPlace(ctx context.Context, host hostexec.Host, start StepSt
 		return "", fmt.Errorf("resolve revision %q: %w", revision, err)
 	}
 	return commit, nil
+}
+
+// prepareHost readies host, the host named hostName that start runs on: start's workspace must be a directory there, and
+// a host other than the Steps' own gets a copy of each file start carries, at the same path.
+func (s *Steps) prepareHost(ctx context.Context, hostName string, host hostexec.Host, start StepStart) error {
+	if err := checkDirOn(ctx, host, start.Workspace); err != nil {
+		return err
+	}
+	if hostName == s.host || len(start.Carry) == 0 {
+		return nil
+	}
+	local, err := s.hostNamed(s.host)
+	if err != nil {
+		return err
+	}
+	if err = carryFiles(ctx, local, host, start.Carry); err != nil {
+		return fmt.Errorf("start step on host %s: %w", hostName, err)
+	}
+	return nil
 }
 
 // startHost returns the name of the host start runs on, and the Host of that name (see startHostName). A name that

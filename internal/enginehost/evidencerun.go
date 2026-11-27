@@ -596,11 +596,13 @@ func (e *Evidence) judgeOnce(
 // after judgePrompt's lines, after a blank line. A run with a capture reads the capture, and its prompt has the lines
 // judgeCaptureLines gives after those, after a blank line. A green run that is not a task's reads its epic's runs, and its
 // prompt ends with the lines judgeCarryLines gives, after a blank line. A red run that is not a task's, with no capture,
-// reads no row, and its prompt is judgePrompt's with its facts. Start returns the id of a step whose StartStep failed after
+// reads no row, and its prompt is judgePrompt's with its facts. The start carries each blob the prompt names, so a judge on
+// another host reads them at the same paths there. Start returns the id of a step whose StartStep failed after
 // its row was written, with that row ended failed, so such a judge returns its id and its end gives the reason; the start's
 // error is that end's reason.
 func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
-	prompt, err := judgePrompt(run, e.blobs)
+	blobs, named := e.blobs.naming()
+	prompt, err := judgePrompt(run, blobs)
 	if err != nil {
 		return "", err.Error()
 	}
@@ -621,7 +623,7 @@ func (e *Evidence) startJudge(ctx context.Context, repo string, run store.Eviden
 	if len(lines) > 0 {
 		prompt = strings.Join(lines, "\n") + "\n\n" + prompt
 	}
-	carry, err := e.judgeCarry(ctx, run)
+	carry, err := e.judgeCarry(ctx, run, blobs)
 	if err != nil {
 		return "", err.Error()
 	}
@@ -630,6 +632,7 @@ func (e *Evidence) startJudge(ctx context.Context, repo string, run store.Eviden
 	}
 	start := judgeStart(run, repo, prompt)
 	start.ID = evidenceJudgeID(run.ID, judge)
+	start.Carry = *named
 	step, err := e.steps.Start(ctx, start)
 	if err != nil && step == "" {
 		return "", err.Error()
