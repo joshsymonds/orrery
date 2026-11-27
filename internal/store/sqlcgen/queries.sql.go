@@ -2005,7 +2005,7 @@ func (q *Queries) GetEpicMetAtBase(ctx context.Context, arg GetEpicMetAtBasePara
 }
 
 const getEpicNodeCheck = `-- name: GetEpicNodeCheck :one
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE id = ?
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines, on_controller FROM epic_node_checks WHERE id = ?
 `
 
 func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeCheck, error) {
@@ -2030,6 +2030,7 @@ func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeChec
 		&i.Created,
 		&i.Ended,
 		&i.KeyLines,
+		&i.OnController,
 	)
 	return i, err
 }
@@ -4118,8 +4119,9 @@ func (q *Queries) InsertEpicMetAtBase(ctx context.Context, arg InsertEpicMetAtBa
 }
 
 const insertEpicNodeCheck = `-- name: InsertEpicNodeCheck :exec
-INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended,
+    on_controller)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -4135,6 +4137,7 @@ type InsertEpicNodeCheckParams struct {
 	NotRun       string
 	Created      int64
 	Ended        int64
+	OnController int64
 }
 
 func (q *Queries) InsertEpicNodeCheck(ctx context.Context, arg InsertEpicNodeCheckParams) error {
@@ -4150,6 +4153,7 @@ func (q *Queries) InsertEpicNodeCheck(ctx context.Context, arg InsertEpicNodeChe
 		arg.NotRun,
 		arg.Created,
 		arg.Ended,
+		arg.OnController,
 	)
 	return err
 }
@@ -8209,7 +8213,7 @@ func (q *Queries) ListEpicListings(ctx context.Context) ([]ListEpicListingsRow, 
 }
 
 const listEpicNodeChecks = `-- name: ListEpicNodeChecks :many
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE epic = ? ORDER BY created, id
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines, on_controller FROM epic_node_checks WHERE epic = ? ORDER BY created, id
 `
 
 func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNodeCheck, error) {
@@ -8240,6 +8244,7 @@ func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNo
 			&i.Created,
 			&i.Ended,
 			&i.KeyLines,
+			&i.OnController,
 		); err != nil {
 			return nil, err
 		}
@@ -11455,7 +11460,7 @@ func (q *Queries) ListOpenEpicAmendments(ctx context.Context) ([]EpicAmendment, 
 }
 
 const listOpenEpicNodeChecks = `-- name: ListOpenEpicNodeChecks :many
-SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended, key_lines, on_controller FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
 `
 
 func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, error) {
@@ -11486,6 +11491,7 @@ func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, 
 			&i.Created,
 			&i.Ended,
 			&i.KeyLines,
+			&i.OnController,
 		); err != nil {
 			return nil, err
 		}

@@ -386,3 +386,20 @@ func checkStepAdd(id string) store.StepAdd {
 		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute,
 	}
 }
+
+// TestAddNodeCheckKeepsOnController stores a check that runs on the controller's own host, and it reads back with
+// OnController set, so a restart's Resume runs it on the controller again.
+func TestAddNodeCheckKeepsOnController(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openCheckStore(t)
+	const id = "id-check-on-controller"
+	check := runningCheck(id)
+	check.OnController = true
+	if err := s.AddNodeCheck(ctx, check, checkTime(0)); err != nil {
+		t.Fatalf("AddNodeCheck: %v", err)
+	}
+	want := runningWant(id)
+	want.OnController = true
+	requireNodeCheck(t, s, id, want)
+}

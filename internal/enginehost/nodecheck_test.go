@@ -7,12 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostexec/hostexectest"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -333,5 +337,54 @@ func TestNodeChecksRefusesRunAfterClose(t *testing.T) {
 	}
 	if _, err := f.st.NodeCheck(t.Context(), nodeCheckID); !errors.Is(err, store.ErrNoNodeCheck) {
 		t.Fatalf("stored check after the refusal: err = %v, want ErrNoNodeCheck", err)
+	}
+}
+
+// TestNodeChecksOnControllerRunsOnTheControllerAtARevisionFetchedFromOrigin runs a check marked OnController at a commit
+// only origin holds. The epic's host is never asked; the controller's host fetches origin, so the revision resolves, and
+// the check runs there and exits 0.
+func TestNodeChecksOnControllerRunsOnTheControllerAtARevisionFetchedFromOrigin(t *testing.T) {
+	t.Parallel()
+	f := nodeCheckSetup(t)
+	origin := t.TempDir()
+	stepGitTestRun(t, origin, "clone", "-q", f.repo, ".")
+	stepGitTestWrite(t, origin, "later", "pushed\n")
+	stepGitTestRun(t, origin, "add", "later")
+	stepGitTestRun(t, origin, "commit", "-q", "-m", "later")
+	later := stepGitTestRun(t, origin, "rev-parse", "HEAD")
+	stepGitTestRun(t, f.repo, "remote", "add", releasestep.Remote, origin)
+
+	epicHost := hostexectest.NewRecorder(hostexec.NewLocal())
+	controller := hostexectest.NewRecorder(hostexec.NewLocal())
+	home := t.TempDir()
+	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText("gate"))
+	ended := make(chan error, 4)
+	checks := NewNodeChecks(NodeChecksConfig{
+		Store:        nodeCheckStore{Store: f.st, ended: ended},
+		Hosts:        hostexec.Map{"": epicHost, "ctl": controller},
+		Controller:   "ctl",
+		Pools:        &fakeGatePools{},
+		Environ:      gateEnv("XDG_CONFIG_HOME=" + home),
+		StateDir:     t.TempDir(),
+		GateStateDir: gateShortStateDir(t),
+	})
+	t.Cleanup(checks.Close)
+
+	check := nodeCheckOf(later, 60, "/bin/sh", "-c", "test -f later")
+	check.OnController = true
+	if _, err := checks.Run(t.Context(), check); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	nodeCheckEnded(t, ended)
+	if got := nodeCheckStored(t, f.st); got.NotRun != "" || got.Exit != 0 {
+		t.Fatalf("stored check = %+v, want it run at the fetched revision with exit 0", got)
+	}
+	if calls := epicHost.Calls(); len(calls) != 0 {
+		t.Errorf("the epic's host recorded %v, want no call for a check on the controller", calls)
+	}
+	if !slices.ContainsFunc(controller.Calls(), func(call hostexectest.Call) bool {
+		return call.Op == "Git" && slices.Contains(call.Args, "fetch")
+	}) {
+		t.Errorf("the controller recorded no fetch of origin: %v", controller.Calls())
 	}
 }

@@ -34,7 +34,8 @@ func EnvironmentExited(exit int, timedOut bool) bool {
 // from. State is running until the check ends, and Grant and Holder are the grant and holder it runs under. Created is
 // the second it was added and Ended the second it ended, zero while it runs. Exit, TimedOut, NotRun, Stdout, Stderr and
 // KeyLines are how it ended, and NotRun is the reason it did not run. Stdout and Stderr are the newest NodeOutputMax
-// bytes of each stream, and KeyLines the key lines of the whole output, as keylines.Cap holds them.
+// bytes of each stream, and KeyLines the key lines of the whole output, as keylines.Cap holds them. OnController runs
+// the check on the controller's own host, and false runs it on the host its epic lives on.
 type NodeCheck struct {
 	ID, Epic, Path, Revision string
 	Argv                     []string
@@ -46,6 +47,7 @@ type NodeCheck struct {
 	NotRun, Stdout, Stderr   string
 	KeyLines                 []string
 	Created, Ended           time.Time
+	OnController             bool
 }
 
 // NodeCheckEnd is how a running check ended: its exit, whether it timed out, the reason it did not run, its stdout and
@@ -81,7 +83,7 @@ func (s *Store) AddNodeCheck(ctx context.Context, check NodeCheck, at time.Time)
 		if insertErr := queries.InsertEpicNodeCheck(ctx, sqlcgen.InsertEpicNodeCheckParams{
 			ID: check.ID, Epic: check.Epic, Path: check.Path, Revision: check.Revision, Argv: argv,
 			LimitSeconds: check.Limit, Needs: needs, State: state, NotRun: check.NotRun,
-			Created: at.Unix(), Ended: ended,
+			Created: at.Unix(), Ended: ended, OnController: boolInt(check.OnController),
 		}); insertErr != nil {
 			return fmt.Errorf("insert node check %s: %w", check.ID, insertErr)
 		}
@@ -177,6 +179,7 @@ func nodeCheckOf(stored sqlcgen.EpicNodeCheck) (NodeCheck, error) {
 		Limit: stored.LimitSeconds, Needs: needs, State: stored.State, Grant: stored.GrantID, Holder: stored.Holder,
 		Exit: int(stored.Exit), TimedOut: stored.TimedOut != 0, NotRun: stored.NotRun, Stdout: stored.Stdout,
 		Stderr: stored.Stderr, KeyLines: lines, Created: time.Unix(stored.Created, 0),
+		OnController: stored.OnController != 0,
 	}
 	if stored.Ended != 0 {
 		check.Ended = time.Unix(stored.Ended, 0)

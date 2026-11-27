@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/releasestep"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -32,12 +33,14 @@ type NodeCheckStore interface {
 
 // NodeChecksConfig configures a NodeChecks. Store records the checks, and Pools, Environ, GateStateDir and GateScope
 // run each check's command as an evidence capture runs its gate. StateDir holds the check worktrees. Hosts resolves the
-// host each check's epic is stored on to the Host its git and worktrees run on, and a nil Hosts is hostexec.LocalHosts. A
+// host each check's epic is stored on to the Host its git and worktrees run on, and a nil Hosts is hostexec.LocalHosts.
+// Controller is the name Hosts gives the controller's own host, which a check with OnController runs on. A
 // nil Now is time.Now, and a nil Logger discards. After returns the channel a failed write of a check's end waits on
 // before it is tried again, and nil is time.After.
 type NodeChecksConfig struct {
 	Store        NodeCheckStore
 	Hosts        hostexec.Hosts
+	Controller   string
 	Pools        PoolCommands
 	Environ      []string
 	StateDir     string
@@ -61,6 +64,7 @@ type NodeChecks struct {
 	logger       *slog.Logger
 	after        func(time.Duration) <-chan time.Time
 	hosts        hostexec.Hosts
+	controller   string
 
 	mu      sync.Mutex
 	closed  bool
@@ -99,6 +103,7 @@ func NewNodeChecks(cfg NodeChecksConfig) *NodeChecks {
 		logger:       logger,
 		after:        after,
 		hosts:        hosts,
+		controller:   cfg.Controller,
 		cancels:      map[string]context.CancelCauseFunc{},
 	}
 }
@@ -169,11 +174,11 @@ func (n *NodeChecks) finish(id string) {
 	delete(n.cancels, id)
 }
 
-// drive runs check to its end on the host its epic lives on, and records it (see record), even when ctx has ended. A run
+// drive runs check to its end on its host (see checkHost), and records it (see record), even when ctx has ended. A run
 // that detaches records nothing, and neither does one cut short before its gate launched, so a restart runs the check
-// again. A check whose epic's host cannot be read is left for a restart too.
+// again. A check whose host cannot be read is left for a restart too.
 func (n *NodeChecks) drive(ctx context.Context, repo string, check store.NodeCheck) {
-	host, err := hostOfEpic(ctx, n.store, n.hosts, check.Epic)
+	host, err := n.checkHost(ctx, check)
 	if err != nil {
 		n.logger.InfoContext(ctx, "node check left for a restart", "check", check.ID, "err", err)
 		return
@@ -184,6 +189,32 @@ func (n *NodeChecks) drive(ctx context.Context, repo string, check store.NodeChe
 		return
 	}
 	n.record(ctx, check.ID, end)
+}
+
+// fetchMissingRevision fetches origin into repo on host when repo there does not hold revision. A check on the
+// controller runs at a revision the epic's host made, which reaches the controller's checkout through origin once a
+// release has pushed it.
+func fetchMissingRevision(ctx context.Context, host hostexec.Host, repo, revision string) error {
+	if _, err := stepGitResolve(ctx, host, repo, revision); err == nil {
+		return nil
+	}
+	if _, err := stepGit(ctx, host, repo, "fetch", "--quiet", releasestep.Remote); err != nil {
+		return fmt.Errorf("fetch %s for revision %s: %w", releasestep.Remote, revision, err)
+	}
+	return nil
+}
+
+// checkHost returns the host check runs on: the controller's own host for a check with OnController, and else the host
+// its epic lives on.
+func (n *NodeChecks) checkHost(ctx context.Context, check store.NodeCheck) (hostexec.Host, error) {
+	if !check.OnController {
+		return hostOfEpic(ctx, n.store, n.hosts, check.Epic)
+	}
+	host, err := n.hosts.Host(n.controller)
+	if err != nil {
+		return nil, fmt.Errorf("controller host of node check %s: %w", check.ID, err)
+	}
+	return host, nil
 }
 
 // record stores end as the end of the check with id, retrying a write the store refuses until it lands (see
@@ -206,6 +237,11 @@ func (n *NodeChecks) run(
 	ctx context.Context, host hostexec.Host, repo string, check store.NodeCheck,
 ) (store.NodeCheckEnd, error) {
 	worktree := filepath.Join(n.worktrees, check.ID)
+	if check.OnController {
+		if err := fetchMissingRevision(ctx, host, repo, check.Revision); err != nil {
+			return n.notStarted(ctx, host, repo, worktree, check.ID, err)
+		}
+	}
 	if err := addStepWorktree(ctx, host, repo, worktree, check.Revision); err != nil {
 		return n.notStarted(ctx, host, repo, worktree, check.ID, err)
 	}

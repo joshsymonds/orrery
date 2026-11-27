@@ -33,6 +33,19 @@ func tagKindStep() store.EpicReleaseStep {
 	}
 }
 
+// updateKindStep is a release step that names the update kind, as orrery's own project file names its fourth step.
+func updateKindStep() store.EpicReleaseStep {
+	return store.EpicReleaseStep{
+		Step:   "switch the controller to the pinned build",
+		Target: "the controller's services",
+		Undo:   "unpin and update",
+		Kind:   releasestep.KindUpdate,
+		Params: releasestep.Params{
+			Branch: "main", Flake: "~/nix-config", Run: []string{"update"}, Units: []string{"orreryd"},
+		},
+	}
+}
+
 // newKindWorld returns a release world whose runner runs testOrrery, with origin set up and the epic's branch one
 // commit on main, and with the test epic stored clean with steps as its release steps.
 func newKindWorld(t *testing.T, ending Ending, steps ...store.EpicReleaseStep) *releaseWorld {
@@ -86,6 +99,20 @@ func TestReleaseKindStepStartsAsCheck(t *testing.T) {
 	}
 	if _, err := os.Stat(w.stepWorktree(w.stepID(1))); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("release worktree stat err = %v, want none made for a step that names a kind", err)
+	}
+}
+
+// TestReleaseUpdateStepStartsOnTheController: a release step of a kind that does the controller's work starts as a check
+// that runs on the controller's own host, where a push-main step's check runs on the epic's host.
+func TestReleaseUpdateStepStartsOnTheController(t *testing.T) {
+	t.Parallel()
+	w := newKindWorld(t, &recordingEnding{}, updateKindStep())
+	w.pass()
+	if len(w.fakes.checks.calls) != 1 {
+		t.Fatalf("check starts = %+v, want the one check of the update step", w.fakes.checks.calls)
+	}
+	if got := w.fakes.checks.calls[0]; !got.OnController {
+		t.Errorf("the update step's check = %+v, want it to run on the controller", got)
 	}
 }
 

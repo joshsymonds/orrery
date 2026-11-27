@@ -153,8 +153,9 @@ func (r *Runner) startReleaseStep(ctx context.Context, epic store.EpicRow, act A
 // startKindStep starts the release step at position of epic, which names a kind, as a check of the release run act
 // names, stored under act's id, so the release reads the check as the step's work. The check runs `orrery release-step`
 // with the step's kind and parameters (releasestep.Argv) under a holder, in a worktree of the epic's repository detached
-// at act's start, within the kind's limit (releasestep.Limit). That command carries out the step's mechanics and checks
-// its postcondition in code, and the step passes when it exits 0 (recordKindStep). The command names the epic's title
+// at act's start, within the kind's limit (releasestep.Limit). A kind that does the controller's work runs on the
+// controller's own host (releasestep.OnController), and any other on the epic's host. That command carries out the step's
+// mechanics and checks its postcondition in code, and the step passes when it exits 0 (recordKindStep). The command names the epic's title
 // as the change. A runner given no orrery binary records the step failed at once.
 func (r *Runner) startKindStep(
 	ctx context.Context, epic store.EpicRow, act Action, position int64, step store.EpicReleaseStep, at time.Time,
@@ -165,8 +166,9 @@ func (r *Runner) startKindStep(
 	start := act.Items[1]
 	check := store.NodeCheck{
 		ID: act.IDs[0], Epic: epic.ID, Path: act.Path, Revision: start,
-		Argv:  releasestep.Argv(r.orrery, step.Kind, step.Params, start, epic.Title),
-		Limit: int64(releasestep.Limit(step.Kind) / time.Second),
+		Argv:         releasestep.Argv(r.orrery, step.Kind, step.Params, start, epic.Title),
+		Limit:        int64(releasestep.Limit(step.Kind) / time.Second),
+		OnController: releasestep.OnController(step.Kind),
 	}
 	if _, err := r.checks.Run(ctx, check); err != nil {
 		return fmt.Errorf("start release step %d of epic %s: %w", position, epic.ID, err)

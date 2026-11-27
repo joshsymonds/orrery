@@ -42,6 +42,14 @@ const (
 	KindHosts = "hosts"
 )
 
+// OnController reports whether a step of kind does the controller's work, and so runs on the controller's own host rather
+// than on the host its epic lives on: an update switches the machine it runs on, which is the controller whose services
+// the release names, and a hosts step reads the controller's hosts.toml and switches each host from there. The other
+// kinds push the candidate, which until it is pushed lies only in the epic's host's repository.
+func OnController(kind string) bool {
+	return kind == KindUpdate || kind == KindHosts
+}
+
 // Kinds returns every kind, in the order a release runs them.
 func Kinds() []string {
 	return []string{KindPushMain, KindTag, KindPinFlake, KindUpdate, KindHosts}

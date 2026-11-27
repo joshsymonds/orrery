@@ -1249,7 +1249,7 @@ func startSessions(
 		host.startCron(ctx)
 		host.startEvidence(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		evidence = host.evidence
-		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
+		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, hostName, logger)
 		host.startFlow(
 			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
 			planner.NewResolver(os.Environ(), agents.ManagedDir, hosts), stateDir, hosts, logger,
@@ -1738,7 +1738,7 @@ func (h *sessionHost) startCaptures(
 // startNodeChecks builds the node checks runner over st and the pools, with its check worktrees under stateDir and its
 // gates under stateDir/gates, and takes up the open checks a previous run left. A failure to take them up is logged and
 // serving goes on. Its gates run in environ, under the holder scope and its memory cap that opts name. Its checks run on
-// the hosts of their epics, which hosts resolves.
+// the hosts of their epics, which hosts resolves, and a check on the controller runs on hostName, the controller's own.
 func (h *sessionHost) startNodeChecks(
 	ctx context.Context,
 	st *store.Store,
@@ -1746,11 +1746,13 @@ func (h *sessionHost) startNodeChecks(
 	opts options,
 	environ []string,
 	hosts hostexec.Hosts,
+	hostName string,
 	logger *slog.Logger,
 ) {
 	h.checks = enginehost.NewNodeChecks(enginehost.NodeChecksConfig{
 		Store:        st,
 		Hosts:        hosts,
+		Controller:   hostName,
 		Pools:        h.pools,
 		Environ:      environ,
 		StateDir:     stateDir,

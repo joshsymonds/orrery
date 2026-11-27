@@ -232,3 +232,16 @@ func TestInputURLNeedsExactlyOneLine(t *testing.T) {
 		t.Errorf("setInputURL = %q, %v, want %q", got, err, want)
 	}
 }
+
+// TestOnControllerNamesTheKindsThatDoTheControllersWork: an update switches the machine it runs on and a hosts step reads
+// the controller's hosts.toml, so both run on the controller. The kinds that push the candidate run on the epic's host,
+// whose repository alone holds the candidate until it is pushed.
+func TestOnControllerNamesTheKindsThatDoTheControllersWork(t *testing.T) {
+	t.Parallel()
+	want := map[string]bool{KindPushMain: false, KindTag: false, KindPinFlake: false, KindUpdate: true, KindHosts: true}
+	for _, kind := range Kinds() {
+		if got := OnController(kind); got != want[kind] {
+			t.Errorf("OnController(%q) = %t, want %t", kind, got, want[kind])
+		}
+	}
+}

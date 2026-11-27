@@ -503,6 +503,7 @@ type EpicNodeCheck struct {
 	Created      int64
 	Ended        int64
 	KeyLines     string
+	OnController int64
 }
 
 type EpicNodeRun struct {

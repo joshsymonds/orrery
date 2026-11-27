@@ -1591,8 +1591,9 @@ UPDATE due_resumes SET state = 'done' WHERE id = ?;
 UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?;
 
 -- name: InsertEpicNodeCheck :exec
-INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended,
+    on_controller)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO NOTHING;
 
 -- name: GetEpicNodeCheck :one

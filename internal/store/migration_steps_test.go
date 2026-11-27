@@ -124,6 +124,7 @@ func migrationChecks() map[int64]migrationCheck {
 		121: gateAlwaysNoteDownAndUp(),
 		123: questionCallsDownAndUp(),
 		125: {columnsAtEnd: "planner_actions"},
+		126: nodeCheckOnControllerDownAndUp(),
 	}
 }
 
