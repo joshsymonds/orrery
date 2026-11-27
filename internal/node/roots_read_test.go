@@ -8,13 +8,15 @@ import (
 
 // readAboveRootsFixture is an agent whose one root lies two folders below a home, with a managed settings directory
 // beside the home. Each folder above the root, and the managed directory, holds Claude settings a controller reads when
-// it resolves a step's agents and stamp.
+// it resolves a step's agents and stamp. The home's .claude/agents links into a store outside every allowed directory,
+// as home-manager links it into the nix store, and the root holds a link out of it.
 type readAboveRootsFixture struct {
 	addr    string
 	home    string
 	mid     string // the folder between home and the root
 	root    string
 	managed string
+	store   string // the folder the home's .claude/agents links to
 }
 
 // startReadAboveRoots makes the folders of a readAboveRootsFixture, with a settings file in each .claude and in the
@@ -27,8 +29,10 @@ func startReadAboveRoots(t *testing.T) readAboveRootsFixture {
 		mid:     filepath.Join(base, "home", "Personal"),
 		root:    filepath.Join(base, "home", "Personal", "repos"),
 		managed: filepath.Join(base, "etc", "claude-code"),
+		store:   filepath.Join(base, "store", "agents"),
 	}
-	makeDirs(t, base, "home/.claude", "home/Personal/.claude", "home/Personal/repos", "etc/claude-code/.claude/agents")
+	makeDirs(t, base, "home/.claude", "home/Personal/.claude", "home/Personal/repos", "etc/claude-code/.claude/agents",
+		"store/agents")
 	for path, data := range map[string]string{
 		filepath.Join(f.home, ".claude", "settings.json"):                    "{}",
 		filepath.Join(f.mid, ".claude", "settings.local.json"):               "{}",
@@ -37,8 +41,19 @@ func startReadAboveRoots(t *testing.T) readAboveRootsFixture {
 		filepath.Join(f.home, "private"):                                     "secret",
 		filepath.Join(f.mid, "private"):                                      "secret",
 		filepath.Join(filepath.Dir(f.managed), "elsewhere-managed-settings"): "secret",
+		filepath.Join(f.store, "planner.md"):                                 "agent",
+		filepath.Join(filepath.Dir(f.store), "private"):                      "secret",
+		filepath.Join(base, "outside"):                                       "secret",
 	} {
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{
+		filepath.Join(f.home, ".claude", "agents"): f.store,
+		filepath.Join(f.root, "escape"):            filepath.Join(base, "outside"),
+	} {
+		if err := os.Symlink(target, link); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -47,8 +62,8 @@ func startReadAboveRoots(t *testing.T) readAboveRootsFixture {
 }
 
 // TestNodeV2OpsReadsClaudeSettingsAboveRoots shows that the read-only file ops may name what Claude Code reads for a
-// process under the agent's root: each folder above the root, to stat or resolve; anything in such a folder's .claude;
-// and anything under the managed directory. Those are what a controller reads to resolve a step's agents and stamp on
+// process under the agent's root: each folder above the root, to stat or resolve; anything in such a folder's .claude,
+// through a link that leads out of every allowed directory as well; and anything under the managed directory. Those are what a controller reads to resolve a step's agents and stamp on
 // this host.
 func TestNodeV2OpsReadsClaudeSettingsAboveRoots(t *testing.T) {
 	f := startReadAboveRoots(t)
@@ -64,6 +79,10 @@ func TestNodeV2OpsReadsClaudeSettingsAboveRoots(t *testing.T) {
 		{Op: FileRead, Path: filepath.Join(f.managed, "managed-settings.json")},
 		{Op: FileReadDir, Path: filepath.Join(f.managed, ".claude", "agents")},
 		{Op: FileReadRooted, Root: filepath.Join(f.managed, ".claude", "agents"), Name: "planner.md"},
+		{Op: FileEvalSymlinks, Path: filepath.Join(f.home, ".claude", "agents")},
+		{Op: FileReadDir, Path: filepath.Join(f.home, ".claude", "agents")},
+		{Op: FileStat, Path: filepath.Join(f.home, ".claude", "agents", "planner.md")},
+		{Op: FileRead, Path: filepath.Join(f.home, ".claude", "agents", "planner.md")},
 	} {
 		t.Run(string(spec.Op)+" "+spec.Path+spec.Root, func(t *testing.T) {
 			if resp := v2File(t, f.addr, spec); resp.Code != "" {
@@ -74,8 +93,9 @@ func TestNodeV2OpsReadsClaudeSettingsAboveRoots(t *testing.T) {
 }
 
 // TestNodeV2OpsRefusesAboveRootsBeyondClaudeSettings shows what stays refused above the agent's root: reading or listing
-// a folder above it, or a file in one outside its .claude, reading beside the managed directory, and every op that writes,
-// in a .claude above the root or in the managed directory alike. Nothing a refused write names is made.
+// a folder above it, or a file in one outside its .claude, reading beside the managed directory, reading the store a
+// .claude links to by its own name, a ".." that climbs out of a .claude through its link, a read through a link out of
+// the root, and every op that writes, in a .claude above the root or in the managed directory alike. Nothing a refused write names is made.
 func TestNodeV2OpsRefusesAboveRootsBeyondClaudeSettings(t *testing.T) {
 	f := startReadAboveRoots(t)
 	for _, spec := range []FileSpec{
@@ -85,6 +105,9 @@ func TestNodeV2OpsRefusesAboveRootsBeyondClaudeSettings(t *testing.T) {
 		{Op: FileStat, Path: filepath.Join(f.mid, "private")},
 		{Op: FileReadRooted, Root: f.home, Name: "private"},
 		{Op: FileRead, Path: filepath.Join(filepath.Dir(f.managed), "elsewhere-managed-settings")},
+		{Op: FileRead, Path: filepath.Join(f.store, "planner.md")},
+		{Op: FileRead, Path: filepath.Join(f.home, ".claude", "agents") + "/../private"},
+		{Op: FileRead, Path: filepath.Join(f.root, "escape")},
 	} {
 		t.Run(string(spec.Op)+" "+spec.Path+spec.Root, func(t *testing.T) {
 			v2Refused(t, v2File(t, f.addr, spec))

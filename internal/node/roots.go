@@ -67,42 +67,69 @@ func (a *Agent) checkPaths(paths ...string) error {
 }
 
 // checkRead returns nil when the read-only op may name path. It may name what checkPaths allows, and also the places
-// Claude Code reads its settings and agents from for a process in an allowed directory: each folder above an allowed
-// directory, which the op may stat, lstat or resolve but not read or list; anything under such a folder's .claude; and
-// anything under the agent's ManagedDir. A controller resolving a step's agents and stamp reads these, and none of them
-// is written. Any other path is refused with an error that wraps errOutside.
+// Claude Code and orrery read settings and agents from for a process in an allowed directory, which a controller reads to
+// resolve a step's agents and stamp on this host:
+//
+//   - the config directory, Claude's directory, the agent's ManagedDir, and the .claude of each folder above an allowed
+//     directory, with anything under them. These hold the owner's settings, which a dotfile manager such as
+//     home-manager often links elsewhere (into the nix store), so path is taken as named and its links are followed
+//     wherever they lead. A path with a ".." in it is resolved first, as any other, so it cannot climb out by name.
+//   - each folder above an allowed directory itself, which the op may stat, lstat or resolve but not read or list.
+//
+// The roots and the state directory are still checked once their symlinks resolve, since a repository may hold a link
+// that leads out. Any other path is refused with an error that wraps errOutside.
 func (a *Agent) checkRead(op FileOp, path string) error {
 	allowed, err := a.allowedDirs()
 	if err != nil {
 		return err
 	}
-	var managed string
-	if a.cfg.ManagedDir != "" {
-		if managed, err = resolvePath(a.cfg.ManagedDir); err != nil {
-			return fmt.Errorf("node: resolve the agent's directory %s: %w", a.cfg.ManagedDir, err)
-		}
+	settings, err := a.settingsDirs(allowed)
+	if err != nil {
+		return err
 	}
+	if filepath.IsAbs(path) && !slices.Contains(strings.Split(path, "/"), "..") && underAny(settings, path) {
+		return nil
+	}
+	metadata := op == FileStat || op == FileLstat || op == FileEvalSymlinks
 	return checkResolved(path, func(resolved string) bool {
-		return underAny(allowed, resolved) || (managed != "" && within(managed, resolved)) ||
-			claudeAbove(allowed, op, resolved)
+		return underAny(allowed, resolved) || underAny(settings, resolved) ||
+			(metadata && slices.ContainsFunc(allowed, func(dir string) bool { return isAbove(resolved, dir) }))
 	})
 }
 
-// claudeAbove reports whether the read-only op may name resolved as a place Claude Code reads above one of the allowed
-// dirs: one of the folders above it, when op only stats or resolves, or anything under such a folder's .claude.
-func claudeAbove(allowed []string, op FileOp, resolved string) bool {
-	metadata := op == FileStat || op == FileLstat || op == FileEvalSymlinks
-	for _, dir := range allowed {
+// settingsDirs returns the directories that checkRead lets a read-only op name with its links followed: the config
+// directory, Claude's directory and the agent's ManagedDir, both as configured and resolved, and the .claude of each
+// folder above one of the agent's directories, as configured or as allowed resolves them.
+func (a *Agent) settingsDirs(allowed []string) ([]string, error) {
+	var dirs []string
+	for _, dir := range []string{a.cfg.ConfigDir, a.cfg.ClaudeDir, a.cfg.ManagedDir} {
+		if dir == "" {
+			continue
+		}
+		resolved, err := resolvePath(dir)
+		if err != nil {
+			return nil, fmt.Errorf("node: resolve the agent's directory %s: %w", dir, err)
+		}
+		dirs = append(dirs, dir, resolved)
+	}
+	named := append([]string{a.cfg.StateDir, a.cfg.ConfigDir, a.cfg.ClaudeDir}, a.cfg.Roots...)
+	for _, dir := range append(named, allowed...) {
+		if dir == "" {
+			continue
+		}
 		for above := filepath.Dir(dir); ; above = filepath.Dir(above) {
-			if (metadata && resolved == above) || within(filepath.Join(above, claudeFolderName), resolved) {
-				return true
-			}
+			dirs = append(dirs, filepath.Join(above, claudeFolderName))
 			if above == filepath.Dir(above) {
 				break
 			}
 		}
 	}
-	return false
+	return dirs, nil
+}
+
+// isAbove reports whether folder is a folder above dir: dir lies under it and is not it.
+func isAbove(folder, dir string) bool {
+	return folder != dir && within(folder, dir)
 }
 
 // checkResolved returns nil when path is absolute and allow admits it once its symlinks resolve. Any other path is
