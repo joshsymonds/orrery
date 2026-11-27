@@ -312,6 +312,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if dirErr := checkDirOn(ctx, host, start.Workspace); dirErr != nil {
+		return "", dirErr
+	}
 	start, gate, err := s.resolveStart(ctx, hostName, host, start)
 	if err != nil {
 		return "", err
@@ -695,8 +698,9 @@ func (s *Steps) endLoop(id string) {
 	cancel()
 }
 
-// checkStepStart reports whether start's prompt, id, workspace and owned paths are usable, before anything is stored or
-// any worktree is added. A writing step that is not Unowned needs at least one owned path, because an empty list would
+// checkStepStart reports whether start's prompt, id, workspace path and owned paths are usable, before anything is
+// stored or any worktree is added. The workspace must be absolute here; Start checks that it exists on the step's host
+// once the host is resolved. A writing step that is not Unowned needs at least one owned path, because an empty list would
 // let it change nothing. Start checks the schema once the gate has set it.
 func checkStepStart(start StepStart) error {
 	if start.Prompt == "" {
@@ -705,7 +709,7 @@ func checkStepStart(start StepStart) error {
 	if start.ID != "" && checkID(start.ID) != nil {
 		return fmt.Errorf("%w: %q", ErrBadStepID, start.ID)
 	}
-	if err := checkDir(start.Workspace); err != nil {
+	if err := checkAbsDir(start.Workspace); err != nil {
 		return err
 	}
 	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {

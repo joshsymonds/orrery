@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -157,5 +158,26 @@ func TestReadoptStepStampIsReadAtFirstCall(t *testing.T) {
 	relative := &Steps{haiku: NewHaiku(HaikuConfig{}), environ: []string{"HOME=relative-home"}}
 	if err := relative.bindHaikuLazily(host, &cfg, stepStampRemoteHome+"/stamped/repo"); err == nil {
 		t.Errorf("bindHaikuLazily with a relative HOME = nil, want the HOME refused at once")
+	}
+}
+
+// TestStepDirIsCheckedOnTheStepsHost checks a step's directory through the files of its host: a folder that exists only
+// on that host is usable, one that is missing there is refused with ErrBadDir, and with no files the directory is
+// checked on this machine.
+func TestStepDirIsCheckedOnTheStepsHost(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "work"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	host := stepStampHostFiles{root: root}
+	if err := checkDirOn(t.Context(), host, stepStampRemoteHome+"/work"); err != nil {
+		t.Errorf("checkDirOn of a folder on the host = %v, want nil", err)
+	}
+	if err := checkDirOn(t.Context(), host, stepStampRemoteHome+"/missing"); !errors.Is(err, ErrBadDir) {
+		t.Errorf("checkDirOn of a folder the host lacks = %v, want ErrBadDir", err)
+	}
+	if err := checkDirOn(t.Context(), nil, stepStampRemoteHome+"/work"); !errors.Is(err, ErrBadDir) {
+		t.Errorf("checkDirOn with no files of a folder this machine lacks = %v, want ErrBadDir", err)
 	}
 }

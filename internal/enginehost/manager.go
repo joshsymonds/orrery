@@ -1334,7 +1334,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string, files hostexec.Fil
 	if err != nil {
 		return nil, err
 	}
-	if err = checkDir(row.Dir); err != nil {
+	if err = checkDirOn(ctx, files, row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents, Files: files}
@@ -2308,6 +2308,25 @@ func checkDir(dir string) error {
 		return err
 	}
 	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s is not a directory", ErrBadDir, dir)
+	}
+	return nil
+}
+
+// checkDirOn reports, as checkDir does, whether dir is an absolute path to an existing directory, stat'ed through files,
+// the file system of the host dir is on. A nil files is this machine's, which checkDir stats.
+func checkDirOn(ctx context.Context, files hostexec.Files, dir string) error {
+	if files == nil {
+		return checkDir(dir)
+	}
+	if err := checkAbsDir(dir); err != nil {
+		return err
+	}
+	info, err := files.Stat(ctx, dir)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrBadDir, err)
 	}
