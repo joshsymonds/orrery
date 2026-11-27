@@ -338,7 +338,7 @@ func (s *Summarizer) wantLabel(pane string, exchanges int) bool {
 // the call's URL and env; without a stamp, the job's base URL does. The user CLAUDE.md is excluded, and a call whose
 // path cannot be resolved runs no claude.
 func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
-	found, err := stamp.Find(s.home, job.Dir)
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, s.home, job.Dir)
 	if err != nil {
 		return "", fmt.Errorf("find context stamp: %w", err)
 	}

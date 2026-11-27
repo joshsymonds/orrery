@@ -28,6 +28,10 @@ type Where struct {
 // claudeFolder is the .claude folder that holds agents and settings under a home, a project and the managed root.
 const claudeFolder = ".claude"
 
+// ManagedDir is Claude Code's managed settings root on Linux: its managed-settings.json and .claude/agents are read for
+// every session on the machine.
+const ManagedDir = "/etc/claude-code"
+
 // webFetch is a name that Claude Code does not resolve for --agent, so no file may define it.
 const webFetch = "web-fetch"
 
@@ -100,7 +104,7 @@ func locate(ctx context.Context, files hostexec.Files, where Where) (locations, 
 		places.agentDirs = append(places.agentDirs, filepath.Join(folder, claudeFolder, "agents"))
 	}
 	places.agentDirs = append(places.agentDirs, filepath.Join(places.config, "agents"))
-	project, err := projectSettings(where, root)
+	project, err := projectSettings(ctx, files, where, root)
 	if err != nil {
 		return locations{}, err
 	}
@@ -146,11 +150,11 @@ func hasGitEntry(ctx context.Context, files hostexec.Files, folder string) (bool
 // projectSettings returns the settings files that a project with work-tree root enables plugins from, highest first:
 // the local file at the main checkout's root, which is the primary of a linked worktree and else root, then the
 // shared file at root. With no work-tree root there are none.
-func projectSettings(where Where, root string) ([]string, error) {
+func projectSettings(ctx context.Context, files hostexec.Files, where Where, root string) ([]string, error) {
 	if root == "" {
 		return nil, nil
 	}
-	primary, err := stamp.LinkedWorktreePrimary(where.Home, where.Dir)
+	primary, err := stamp.LinkedWorktreePrimary(ctx, files, where.Home, where.Dir)
 	if err != nil {
 		return nil, fmt.Errorf("agents: find the primary checkout of %s: %w", where.Dir, err)
 	}

@@ -302,13 +302,7 @@ func insertEpic(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) erro
 	if err = insertWorkflowNodes(ctx, queries, row); err != nil {
 		return fmt.Errorf("insert workflow nodes of epic %s: %w", row.ID, err)
 	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
-		Created: row.Created.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
-	}
-	return nil
+	return insertTrigger(ctx, queries, row.ID, createdTriggerID, createdTriggerCause, row.Created)
 }
 
 // The trigger a created epic starts with: id `created` for cause `epic created`.
@@ -929,10 +923,10 @@ func (s *Store) AnswerEpic(
 // *QuestionReplacedError, an overtaken one, which the epic moved on from without its answer, is a
 // *QuestionOvertakenError, and an answered one is ErrQuestionClosed. A choice the question does not offer is ErrNoChoice,
 // other with blank text is ErrOtherNeedsText, and so is correct with blank text to a gaps question. Each refusal
-// writes nothing. Otherwise the question becomes answered with choice, a pending trigger `answer:<id>` is added, the
-// decision is appended with its question, and the epic's changed moves to at. An answer to a park question that is not
-// final also ends the park, as RetryEpic does; a final park offers only other and stays parked. An answer to a gaps
-// question carries out its choice in the same write, as answerGapsQuestion gives.
+// writes nothing. Otherwise the question becomes answered with choice, a pending trigger `answer:<id>` is added unless
+// the epic is in a final phase, the decision is appended with its question, and the epic's changed moves to at. An
+// answer to a park question that is not final also ends the park, as RetryEpic does; a final park offers only other and
+// stays parked. An answer to a gaps question carries out its choice in the same write, as answerGapsQuestion gives.
 func (s *Store) AnswerQuestion(
 	ctx context.Context,
 	epic, id, text string,
@@ -964,11 +958,12 @@ func (s *Store) AnswerQuestion(
 }
 
 // recordQuestionAnswer answers the open question with seq question as decision id with text and choice: the question
-// becomes answered with choice, a pending trigger `answer:<id>` is added, and the decision is appended tied to the
-// question. An answer to a park question for a red run judged holding at base carries out its choice, as
-// answerMetAtBase gives. An answered park question that is not final ends the park in the same write. An answer to a
-// gaps question carries out its choice in the same write, after the decision is appended, as answerGapsQuestion gives.
-// An answer to a held question carries out its choice in the same write too, as answerHeldQuestion gives.
+// becomes answered with choice, a pending trigger `answer:<id>` is added unless the epic is in a final phase
+// (insertTrigger), and the decision is appended tied to the question. An answer to a park question for a red run
+// judged holding at base carries out its choice, as answerMetAtBase gives. An answered park question that is not final
+// ends the park in the same write. An answer to a gaps question carries out its choice in the same write, after the
+// decision is appended, as answerGapsQuestion gives. An answer to a held question carries out its choice in the same
+// write too, as answerHeldQuestion gives.
 func recordQuestionAnswer(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -987,11 +982,9 @@ func recordQuestionAnswer(
 	}); err != nil {
 		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
 	}
-	if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: "answer:" + id, Cause: fmt.Sprintf("answer %s to Q%d", id, question),
-		State: "pending", Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
+	triggerErr := insertTrigger(ctx, queries, epic, "answer:"+id, fmt.Sprintf("answer %s to Q%d", id, question), at)
+	if triggerErr != nil {
+		return EpicDecision{}, triggerErr
 	}
 	owed, err := ownerRecipient(ctx, queries, epic, maker)
 	if err != nil {

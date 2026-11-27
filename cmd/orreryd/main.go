@@ -30,6 +30,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/alerts"
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/build"
@@ -45,6 +46,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/hostexec"
 	"github.com/joshsymonds/orrery/internal/hostrelay"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/hosts"
 	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/interpret"
@@ -80,9 +82,6 @@ const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
 
 // envNotifySocket is the variable systemd sets to the socket that takes READY=1 for a Type=notify unit.
 const envNotifySocket = "NOTIFY_SOCKET"
-
-// managedDir is the managed settings root the session manager runs under and the planner's resolver checks agents in.
-const managedDir = "/etc/claude-code"
 
 const (
 	defaultClaude = "claude"
@@ -396,9 +395,10 @@ func hostName(seam string) (string, error) {
 // controllerHost returns the controller's host name, which hostName gives, its orrery name, and the fleet secret that
 // the --fleet-secret file of opts holds, which the controller's clients of the hosts file's agents send. The orrery name
 // is the top-level name of the hosts file that getenv locates when the file sets one, and the host name otherwise. A
-// host name that is empty, a hosts file that does not load, and a hosts file that lists a host with no usable fleet
-// secret are errors. With neither XDG_CONFIG_HOME nor HOME set there is no hosts file to locate, so the controller is
-// named by its host name, as it is without a hosts file.
+// host name that is empty, a hosts file that does not load, a hosts file whose default names neither the host, the
+// orrery name nor a listed host, and a hosts file that lists a host with no usable fleet secret are errors. With neither
+// XDG_CONFIG_HOME nor HOME set there is no hosts file to locate, so the controller is named by its host name, as it is
+// without a hosts file.
 func controllerHost(opts options, getenv func(string) string) (string, string, string, error) {
 	host, err := hostName(opts.host)
 	if err != nil {
@@ -415,14 +415,20 @@ func controllerHost(opts options, getenv func(string) string) (string, string, s
 		}
 		file = loaded
 	}
+	orrery := host
+	if file.Name != "" {
+		orrery = file.Name
+	}
+	if file.Default != "" && file.Default != host && file.Default != orrery && !listsHost(file, file.Default) {
+		return "", "", "", fmt.Errorf(
+			"hosts file default %q names neither the controller's host %q, its orrery name %q, nor a listed host",
+			file.Default, host, orrery)
+	}
 	secret, err := fleetSecretOf(file, opts.fleetSecret)
 	if err != nil {
 		return "", "", "", err
 	}
-	if file.Name != "" {
-		return host, file.Name, secret, nil
-	}
-	return host, host, secret, nil
+	return host, orrery, secret, nil
 }
 
 // nameUnhosted names the rows of st that have no host as name, once the store is open: the session rows, and the
@@ -438,6 +444,20 @@ func nameUnhosted(ctx context.Context, st *store.Store, name string) error {
 	}
 	if err := st.NameUnhostedPaneRows(context.WithoutCancel(ctx), name); err != nil {
 		return fmt.Errorf("name the controller's pane rows: %w", err)
+	}
+	return nil
+}
+
+// nameUnhostedDesigns names the design rows of st that have no host as host, the controller's host name that the
+// Designs service places a design on, once the store is open. A design stored before its host was known reads host
+// after this. A nil st has no rows to name. The write runs on a context that ctx's cancellation does not reach, for
+// the reason nameUnhosted gives.
+func nameUnhostedDesigns(ctx context.Context, st *store.Store, host string) error {
+	if st == nil {
+		return nil
+	}
+	if _, err := st.NameUnhostedDesigns(context.WithoutCancel(ctx), host); err != nil {
+		return fmt.Errorf("name the controller's designs: %w", err)
 	}
 	return nil
 }
@@ -761,7 +781,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	pageNotices, pageErr := controllerPageNotices(pages, router, opts.orrery, time.Now, getenv)
 	// A row from before the host column has no host until this names it, so every row reads the host it runs on
 	// before the manager reconciles it.
-	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), pageErr)
+	startErr := errors.Join(nameUnhosted(ctx, st, opts.orrery), nameUnhostedDesigns(ctx, st, host), pageErr)
 	attachStore(ctx, st, mirror, notices, router)
 	hub.attachVerdicts(st)
 	// The host follows write each hosts.toml host's panes into the open store, and stop before the store closes.
@@ -1167,6 +1187,10 @@ func startSessions(
 	// resolves its host through hosts. Each hosts.toml host's name resolves to its RemoteHost, which its agent serves, so
 	// work whose host is that name runs on that machine.
 	hosts, clients := routedHosts(ctx, opts, hostName, getenv, logger)
+	placement, err := hostPlacement(hostName, getenv, clients)
+	if err != nil {
+		return nil, err
+	}
 	if st != nil {
 		stateDir, childEnviron, err := adoptSessionState(ctx, st, hostName, getenv)
 		if err != nil {
@@ -1182,7 +1206,7 @@ func startSessions(
 			HolderScope: opts.holderScope,
 			HostName:    opts.orrery,
 			StateDir:    stateDir,
-			ManagedDir:  managedDir,
+			ManagedDir:  agents.ManagedDir,
 			Writer:      host.writer,
 			Notifier:    enginehost.NewNotifier(enginehost.NotifierConfig{Route: router}),
 			Store:       st,
@@ -1205,18 +1229,18 @@ func startSessions(
 			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), managedDir, hosts), hosts, getenv),
+			ReadoptCheck: readoptCheck(st, planner.NewResolver(os.Environ(), agents.ManagedDir, hosts), hosts, getenv),
 			ReadoptGate:  readoptGate(st),
 			Stored:       host.storedWake, EpicWake: host.stepEpicWake,
-			Host: hostName, Hosts: hosts,
+			Host: hostName, Hosts: hosts, Placement: placement,
 		})
 		host.steps = steps
-		acceptCheck := host.wireStage(st, steps, host.manager, getenv)
+		acceptCheck := host.wireStage(st, steps, host.manager, getenv, hosts, hostName, clients)
 		host.wireStore(st)
 		commands, stepCommands = host.manager, host.steps
-		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts),
+		host.epics, host.steering, host.contracts, host.accounts = st, epicSteering(host.manager, st, hosts, hostName),
 			contractsOf(st, hosts, hostName, acceptCheck), &enginehost.Accounts{Store: st, Now: time.Now}
-		host.designs = &enginehost.Designs{Store: st, Now: time.Now}
+		host.designs = &enginehost.Designs{Store: st, Now: time.Now, Placement: placement}
 		crons = enginehost.NewCronAnswers(enginehost.CronAnswersConfig{
 			Store: st, Now: opts.cronNow, Changed: host.cron.Changed})
 		host.startWriter(ctx)
@@ -1228,7 +1252,7 @@ func startSessions(
 		host.startNodeChecks(ctx, st, stateDir, opts, childEnviron, hosts, logger)
 		host.startFlow(
 			ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv,
-			planner.NewResolver(os.Environ(), managedDir, hosts), stateDir, hosts, logger,
+			planner.NewResolver(os.Environ(), agents.ManagedDir, hosts), stateDir, hosts, logger,
 		)
 		host.startLimits(ctx)
 		host.startSummaries(ctx, st, haiku, logger)
@@ -1242,17 +1266,42 @@ func startSessions(
 			return nil, host.abortStart(err)
 		}
 	}
+	cfg := host.serveConfig(
+		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, placement,
+		serveOpts(opts, st, logger))
+	cfg.Roots = rootListers(clients)
+	return host.listenSessions(ctx, opts, st, cfg, getenv, logger)
+}
+
+// rootListers returns each client of a hosts.toml host by the host's name, as the roots its agent lists. A create placed
+// on that host lists the roots there, to ready its checkout under one.
+func rootListers(clients map[string]*node.Client) map[string]hostrepo.RootLister {
+	listers := make(map[string]hostrepo.RootLister, len(clients))
+	for name, client := range clients {
+		listers[name] = client
+	}
+	return listers
+}
+
+// listenSessions opens the session socket and serves cfg on it, as startSessionSocket does. A socket that does not open
+// shuts the host down and fails the start.
+func (h *sessionHost) listenSessions(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	cfg enginehost.ServeConfig,
+	getenv func(string) string,
+	logger *slog.Logger,
+) (*sessionHost, error) {
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
-		host.shutdown()
+		h.shutdown()
 		return nil, fmt.Errorf("session socket: %w", err)
 	}
-	cfg := host.serveConfig(
-		commands, stepCommands, evidence, notices, crons, hostName, opts.orrery, hosts, serveOpts(opts, st, logger))
-	if err := host.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
+	if err := h.startSessionSocket(ctx, opts, st, ln, cfg, getenv, logger); err != nil {
 		return nil, err
 	}
-	return host, nil
+	return h, nil
 }
 
 // startSessionSocket serves cfg on ln in the background until stop, and opens the relay beside it when startRelay opens
@@ -1373,6 +1422,7 @@ func (h *sessionHost) serveConfig(
 	hostName string,
 	callerHost string,
 	hosts hostexec.Hosts,
+	placement enginehost.HostPlacer,
 	handlerOpts []connect.HandlerOption,
 ) enginehost.ServeConfig {
 	cfg := enginehost.ServeConfig{
@@ -1393,6 +1443,7 @@ func (h *sessionHost) serveConfig(
 		Host:       hostName,
 		CallerHost: callerHost,
 		Hosts:      hosts,
+		Placement:  placement,
 		Options:    handlerOpts,
 	}
 	// A nil *Captures in the interface would not refuse CaptureEvidence as unavailable, so it stays unset without a store.
@@ -1406,10 +1457,13 @@ func (h *sessionHost) serveConfig(
 	return cfg
 }
 
-// epicSteering returns the steering sessions of the epics st serves, which manager starts.
-func epicSteering(manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts) *enginehost.EpicSteering {
+// epicSteering returns the steering sessions of the epics st serves, which manager starts. hostName is the name the
+// controller's epics are stamped with, and hosts resolves the hosts that run an epic's git.
+func epicSteering(
+	manager *enginehost.Manager, st *store.Store, hosts hostexec.Hosts, hostName string,
+) *enginehost.EpicSteering {
 	return enginehost.NewEpicSteering(enginehost.EpicSteeringConfig{
-		Manager: manager, Sessions: st, Render: planner.SteeringLines, Hosts: hosts,
+		Manager: manager, Sessions: st, Render: planner.SteeringLines, Hosts: hosts, Host: hostName,
 	})
 }
 
@@ -1845,12 +1899,16 @@ func (r *dueWakeRelay) Wake() {
 
 // wireStage sets the Stage service of h to the service over st, steps and sessions, which reads getenv, and returns the
 // service's AcceptCheck, which an accept of a contract asks before it accepts the contract. sessions starts the session
-// that continues a design's conversation.
+// that continues a design's conversation. hosts resolves the host names a design runs its steps on, controller is the
+// name of the controller's host, and clients holds each remote host's client, whose roots hold the checkouts a design's
+// steps run in.
 func (h *sessionHost) wireStage(
 	st *store.Store, steps *enginehost.Steps, sessions stage.SessionStarter, getenv func(string) string,
+	hosts hostexec.Hosts, controller string, clients map[string]*node.Client,
 ) func(context.Context, string) error {
 	service := stage.NewService(stage.Config{
 		Store: st, Steps: steps, Sessions: sessions, Now: time.Now, Getenv: getenv,
+		Hosts: hosts, Controller: controller, Roots: rootListers(clients),
 	})
 	h.stage = service
 	return service.AcceptCheck
@@ -2900,7 +2958,7 @@ func newRelay(cfg route.Config, hub *relay) *relay {
 func (r *relay) judgeDone(transition daemon.Transition) func(context.Context) (route.Verdict, error) {
 	message := transition.LastMessage
 	return func(ctx context.Context) (route.Verdict, error) {
-		found, err := stamp.Find(r.home, transition.Cwd)
+		found, err := stamp.Find(ctx, stamp.OSFiles{}, r.home, transition.Cwd)
 		if err != nil {
 			return route.Verdict{}, fmt.Errorf("done judge: find context stamp: %w", err)
 		}

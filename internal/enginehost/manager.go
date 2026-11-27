@@ -600,12 +600,14 @@ func (m *Manager) execute(
 
 // start starts the session id as req describes. It checks req, the host req names, that the manager is open and that the host
 // reads reachable, then records the row with the name of its host, then spawns the process on that host and sends the first
-// prompt. A host that reads unreachable refuses the start with ErrHostUnreachable before anything is stored.
+// prompt. The directory of req is stat'ed on this machine only when req names the controller's own host (see
+// checkStart). A host that reads unreachable refuses the start with ErrHostUnreachable before anything is stored.
 func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
-	if err := checkStart(req); err != nil {
+	place, hostErr := m.resolveHost(req.Host)
+	// A name that resolves to no host keeps the controller's directory check, so its refusal is the one a start gave.
+	if err := checkStart(req, hostErr != nil || m.dirHere(place)); err != nil {
 		return "", err
 	}
-	place, hostErr := m.resolveHost(req.Host)
 	if hostErr != nil {
 		return "", hostErr
 	}
@@ -1332,7 +1334,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string, files hostexec.Fil
 	if err != nil {
 		return nil, err
 	}
-	if err = checkDir(row.Dir); err != nil {
+	if err = checkDirOn(ctx, files, row.Dir); err != nil {
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
 	session := StepSession{ID: id, Dir: row.Dir, Agent: step.Agent, Agents: step.Agents, Files: files}
@@ -1756,9 +1758,10 @@ func (m *Manager) hostOf(row store.EngineRow) (placedHost, error) {
 }
 
 // resume starts the process of row, an engine row that is not live, on the host row names, and registers it live. It
-// checks that the manager is open first, then checks the row's host and directory. A row whose host this controller does
-// not run sessions on, or whose host reads unreachable, is refused before anything starts, and so is left as it is. A
-// failed directory check or spawn records the row failed.
+// checks that the manager is open first, then checks the row's host and directory. The directory is stat'ed on this
+// machine only when the row's host is the controller's own Local (see checkHostDir). A row whose host this controller
+// does not run sessions on, or whose host reads unreachable, is refused before anything starts, and so is left as it
+// is. A failed directory check or spawn records the row failed.
 func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
 	if err := m.checkOpen(); err != nil {
 		return nil, err
@@ -1770,7 +1773,7 @@ func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession
 	if !hostReachable(place.host) {
 		return nil, fmt.Errorf("resume session %s on %s: %w", row.ID, place.name, ErrHostUnreachable)
 	}
-	if err := checkDir(row.Dir); err != nil {
+	if err := checkHostDir(row.Dir, m.dirHere(place)); err != nil {
 		return nil, errors.Join(err, m.recordFailed(ctx, row.ID, row.Dir, err))
 	}
 	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, host: place.host})
@@ -2218,9 +2221,11 @@ func (m *Manager) closeRequest(live *liveSession, requestID string) {
 	m.wakeIfNoneOpen(live, open)
 }
 
-// checkStart reports whether a start's directory, prompt and model are usable, before anything is stored.
-func checkStart(req StartRequest) error {
-	if err := checkDir(req.Dir); err != nil {
+// checkStart reports whether a start's directory, prompt and model are usable, before anything is stored. local reports
+// whether the start's host is the controller's own (see checkHostDir), so the directory is checked on this machine only
+// then.
+func checkStart(req StartRequest, local bool) error {
+	if err := checkHostDir(req.Dir, local); err != nil {
 		return err
 	}
 	if req.Prompt == "" {
@@ -2279,11 +2284,28 @@ func isModelByte(c byte) bool {
 	return false
 }
 
+// checkHostDir reports whether dir is a usable session directory on a host. Every host needs an absolute path. On the
+// controller's own host, local, dir must also be an existing directory on this machine (see checkDir). A remote host's
+// directory is not stat'ed here, since that host's launch fails when the directory is missing there. It returns an
+// error wrapping ErrBadDir when dir is not usable.
+func checkHostDir(dir string, local bool) error {
+	if local {
+		return checkDir(dir)
+	}
+	return checkAbsDir(dir)
+}
+
+// dirHere reports whether a session directory on place is checked on this machine, which it is only when place is the
+// controller's own Local.
+func (m *Manager) dirHere(place placedHost) bool {
+	return place.host == holderhost.Host(m.local)
+}
+
 // checkDir reports whether dir is an absolute path to an existing directory. It returns an error wrapping ErrBadDir
 // when it is not.
 func checkDir(dir string) error {
-	if !filepath.IsAbs(dir) {
-		return fmt.Errorf("%w: %q is not absolute", ErrBadDir, dir)
+	if err := checkAbsDir(dir); err != nil {
+		return err
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -2291,6 +2313,33 @@ func checkDir(dir string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%w: %s is not a directory", ErrBadDir, dir)
+	}
+	return nil
+}
+
+// checkDirOn reports, as checkDir does, whether dir is an absolute path to an existing directory, stat'ed through files,
+// the file system of the host dir is on. A nil files is this machine's, which checkDir stats.
+func checkDirOn(ctx context.Context, files hostexec.Files, dir string) error {
+	if files == nil {
+		return checkDir(dir)
+	}
+	if err := checkAbsDir(dir); err != nil {
+		return err
+	}
+	info, err := files.Stat(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBadDir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s is not a directory", ErrBadDir, dir)
+	}
+	return nil
+}
+
+// checkAbsDir reports whether dir is an absolute path. It returns an error wrapping ErrBadDir when it is not.
+func checkAbsDir(dir string) error {
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("%w: %q is not absolute", ErrBadDir, dir)
 	}
 	return nil
 }

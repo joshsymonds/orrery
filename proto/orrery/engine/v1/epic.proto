@@ -1375,6 +1375,9 @@ message CreateEpicRequest {
   // The commit the epic starts from, a name git resolves to a commit of the contract's repository. It takes the place of
   // the base the accepted version's body holds.
   string base = 5;
+
+  // The orrery name of the host the epic runs on. Empty takes hosts.toml's default host, else the controller.
+  string host = 6;
 }
 
 // CreateEpicResponse carries the stored epic and the warnings its contract drew. The epic is stored with them.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +75,8 @@ func releaseClaimEpic(t *testing.T, s *Store, at time.Time) {
 // TestReleaseOvertakesEachOpenQuestionWithADecisionAndATell checks that the write that releases an epic closes its open
 // question as overtaken, leaves its answered question as it is, records orreryd's decision that names the question and
 // why, adds a tell its steerer has not been sent and its owner has not been told, and adds no trigger, since no planner
-// turn takes an answer once the epic is released. A second release changes nothing.
+// turn takes an answer once the epic is released. The answer's trigger, still pending, is consumed in the same write,
+// so the planner lists the released epic no more. A second release changes nothing.
 func TestReleaseOvertakesEachOpenQuestionWithADecisionAndATell(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -132,8 +134,12 @@ func TestReleaseOvertakesEachOpenQuestionWithADecisionAndATell(t *testing.T) {
 			wantMarks,
 		)
 	}
-	if got := triggersOf(t, s); !reflect.DeepEqual(got, triggers) {
-		t.Errorf("triggers after the release = %+v, want them unchanged %+v", got, triggers)
+	consumed := slices.Clone(triggers)
+	for i := range consumed {
+		consumed[i].State = "consumed"
+	}
+	if got := triggersOf(t, s); !reflect.DeepEqual(got, consumed) {
+		t.Errorf("triggers after the release = %+v, want the same triggers, each consumed: %+v", got, consumed)
 	}
 
 	before := answerRowsOf(t, s)

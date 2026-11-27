@@ -259,10 +259,16 @@ func (c *Client) PaneOption(ctx context.Context, paneID, name string) (string, b
 	return strings.TrimSuffix(out, "\n"), true, nil
 }
 
-// List returns every pane of every session on the server, without Host, with the options serve reads.
+// List returns every pane of every session on the server, without Host, with the options serve reads. A running server
+// with no session has no panes and no error: tmux fails list-panes -a there with "no current target", so a failed
+// listing is answered empty when list-sessions then succeeds and names no session.
 func (c *Client) List(ctx context.Context) ([]Listed, error) {
 	out, err := c.Run(ctx, "list-panes", "-a", "-F", listFormat)
 	if err != nil {
+		if sessions, sessionsErr := c.Run(ctx, "list-sessions", "-F", "#{session_id}"); sessionsErr == nil &&
+			strings.TrimSpace(sessions) == "" {
+			return nil, nil
+		}
 		return nil, err
 	}
 

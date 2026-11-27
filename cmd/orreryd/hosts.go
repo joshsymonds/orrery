@@ -139,6 +139,39 @@ func routedHosts(
 	return routed, clients
 }
 
+// listsHost reports whether file lists a remote host named name.
+func listsHost(file hosts.File, name string) bool {
+	for _, host := range file.Hosts {
+		if host.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// hostPlacement returns the enginehost.Placement that places work by the hosts file that getenv locates: the controller
+// is hostName, its alias is the file's top-level name when set, the default is the file's default, and the remote hosts
+// are clients, by their names. A hosts file that does not load is an error, which controllerHost has already refused.
+func hostPlacement(
+	hostName string, getenv func(string) string, clients map[string]*node.Client,
+) (*enginehost.Placement, error) {
+	file, err := loadHostsFile(getenv)
+	if err != nil {
+		return nil, err
+	}
+	var aliases []string
+	if file.Name != "" {
+		aliases = []string{file.Name}
+	}
+	reachers := make(map[string]enginehost.Reacher, len(clients))
+	for name, client := range clients {
+		reachers[name] = client
+	}
+	return enginehost.NewPlacement(enginehost.PlacementConfig{
+		Controller: hostName, Aliases: aliases, Default: file.Default, Hosts: reachers,
+	}), nil
+}
+
 // holderHosts returns the holderhost.Host of each client, by the host's name. The session manager starts a session on a
 // remote host through the holder host of that name.
 func holderHosts(clients map[string]*node.Client) map[string]holderhost.Host {

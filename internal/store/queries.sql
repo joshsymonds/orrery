@@ -1355,6 +1355,12 @@ UPDATE epic_questions SET state = 'replaced', replaced_by = ? WHERE epic = ? AND
 -- name: SetEpicQuestionOvertaken :execrows
 UPDATE epic_questions SET state = 'overtaken' WHERE epic = ? AND seq = ? AND state = 'open';
 
+-- name: InsertEpicQuestionCall :exec
+INSERT INTO epic_question_calls (epic, question, turn, call, reason) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicQuestionCalls :many
+SELECT * FROM epic_question_calls WHERE epic = ? ORDER BY question, turn;
+
 -- name: EscalateEpicQuestion :execrows
 UPDATE epic_questions SET escalated = ?, escalation_reason = ?, escalation_maker = ?, escalation_session = ?
 WHERE epic = ? AND seq = ? AND state = 'open' AND escalated = 0;
@@ -2202,7 +2208,10 @@ ORDER BY states.at, states.contract, states.seq;
 SELECT CAST(COUNT(*) AS INTEGER) FROM designs WHERE id = ?;
 
 -- name: InsertDesign :exec
-INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?);
+INSERT INTO designs (id, title, conversation, created, host) VALUES (?, ?, ?, ?, ?);
+
+-- name: NameUnhostedDesigns :execrows
+UPDATE designs SET host = sqlc.arg(host) WHERE host = '';
 
 -- name: GetDesign :one
 SELECT * FROM designs WHERE id = ?;

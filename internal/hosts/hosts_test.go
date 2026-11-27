@@ -144,3 +144,66 @@ address = "`+address+`"
 		})
 	}
 }
+
+// TestLoadDefaultHostNamesListedHost reads a default that names the controller, and one that names a listed host, and
+// reads each as the default. With no top-level name, a default that names no listed host is accepted too, since Load
+// cannot know the controller's host name.
+func TestLoadDefaultHostNamesListedHost(t *testing.T) {
+	t.Run("the controller's name", func(t *testing.T) {
+		getenv, _ := hostsEnv(t, `name = "desktop"
+default = "desktop"
+`)
+		file, err := hosts.Load(getenv)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if file.Default != "desktop" {
+			t.Errorf("Default = %q, want %q", file.Default, "desktop")
+		}
+	})
+	t.Run("a listed host", func(t *testing.T) {
+		getenv, _ := hostsEnv(t, `name = "desktop"
+default = "workstation"
+
+[[hosts]]
+name = "workstation"
+address = "workstation.example.ts.net:7443"
+`)
+		file, err := hosts.Load(getenv)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if file.Default != "workstation" {
+			t.Errorf("Default = %q, want %q", file.Default, "workstation")
+		}
+	})
+	t.Run("no top-level name", func(t *testing.T) {
+		getenv, _ := hostsEnv(t, `default = "workstation"
+`)
+		file, err := hosts.Load(getenv)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if file.Default != "workstation" {
+			t.Errorf("Default = %q, want %q", file.Default, "workstation")
+		}
+	})
+}
+
+// TestLoadDefaultHostRefusesUnknownName refuses a default that names neither the top-level name nor a listed host, and
+// a default that is not lowercase letters, digits and hyphens. Each refusal's error names the file and the default.
+func TestLoadDefaultHostRefusesUnknownName(t *testing.T) {
+	t.Run("unlisted host", func(t *testing.T) {
+		requireRefused(t, `name = "desktop"
+default = "laptop"
+
+[[hosts]]
+name = "workstation"
+address = "workstation.example.ts.net:7443"
+`, "laptop")
+	})
+	t.Run("bad characters", func(t *testing.T) {
+		requireRefused(t, `default = "Work_station"
+`, "Work_station")
+	})
+}

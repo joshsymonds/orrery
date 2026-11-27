@@ -19,6 +19,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/kinds"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/reviewers"
@@ -96,14 +97,18 @@ type SteeringSessions interface {
 // has no step engine, and StopEpic then stops no step. steering starts the steering session of an epic that no
 // conversation creates; it is nil when Serve has no steering, and a create that needs a start is then refused. hosts
 // resolves host names to the Hosts that run an epic's git; nil resolves every name to this machine. host names the
-// controller's Host: each epic CreateEpic makes is stamped with it, and its create checks run on it.
+// controller's Host: its create checks run on it, and an epic CreateEpic makes with no placement is stamped with it.
+// placement places each create's epic on the host it names; nil places every create on host and refuses any other name.
+// roots lists each remote host's roots by its name, for the checkout a create on that host readies.
 type epicService struct {
-	epics    EpicCommands
-	steps    StepCommands
-	steering SteeringSessions
-	getenv   func(string) string
-	hosts    hostexec.Hosts
-	host     string
+	epics     EpicCommands
+	steps     StepCommands
+	steering  SteeringSessions
+	getenv    func(string) string
+	hosts     hostexec.Hosts
+	host      string
+	placement HostPlacer
+	roots     map[string]hostrepo.RootLister
 }
 
 // resolveHost returns the Host name resolves to under hosts. A nil hosts resolves every name to this machine, as
@@ -131,6 +136,89 @@ func (s *epicService) createEnv() (hostexec.Host, func(string) string, error) {
 		return nil, nil, epicStoreError(fmt.Errorf("controller host: %w", err))
 	}
 	return host, getenv, nil
+}
+
+// createPlace returns the orrery name of the host that a create naming named places its epic on, the controller's Host,
+// and the environment the contract's gates resolve in. It refuses a create with no epic store, and a name the placement
+// refuses.
+func (s *epicService) createPlace(named string) (string, hostexec.Host, func(string) string, error) {
+	if err := s.ready(); err != nil {
+		return "", nil, nil, err
+	}
+	placed, err := s.placeHost(named)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	host, getenv, err := s.createEnv()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return placed, host, getenv, nil
+}
+
+// placeHost returns the orrery name of the host that a create naming named places its epic on. With a placement, the
+// placement places named, and a blank name takes its default. With no placement, a blank name and the controller's own
+// name place the controller's host, and any other name is refused as unknown. A refusal names the host.
+func (s *epicService) placeHost(named string) (string, error) {
+	if s.placement == nil {
+		if named == "" || named == s.host {
+			return s.host, nil
+		}
+		return "", unknownHostRefusal(named)
+	}
+	placed, err := s.placement.Place(named)
+	if err == nil {
+		return placed, nil
+	}
+	name := named
+	if name == "" {
+		name = s.placement.Default()
+	}
+	switch {
+	case errors.Is(err, ErrUnknownHost):
+		return "", unknownHostRefusal(name)
+	case errors.Is(err, ErrUnreachableHost):
+		return "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("host %s is unreachable", name))
+	}
+	return "", epicStoreError(fmt.Errorf("place host %s: %w", name, err))
+}
+
+// unknownHostRefusal returns the refusal of a create that names host, which is not one this controller runs work on.
+func unknownHostRefusal(host string) error {
+	return refuseEpic(connect.CodeInvalidArgument, fmt.Sprintf("host %s is not one this controller runs work on", host))
+}
+
+// readyRepository readies the repository of a create on host placed, and returns the path of its checkout there. A
+// placed host that is the controller's keeps repository as it is. On another host, it reads the origin of repository on
+// controller, then has placed's checkout of that origin fetch it, or clones origin under placed's first root when placed
+// holds no checkout of it. The checkout must hold base after the fetch. A failure is refused as a failed precondition
+// that names placed and carries git's error.
+func (s *epicService) readyRepository(
+	ctx context.Context, controller hostexec.Host, placed, repository, base string,
+) (string, error) {
+	if placed == s.host {
+		return repository, nil
+	}
+	origin, err := hostrepo.OriginURL(ctx, controller, repository)
+	if err != nil {
+		return "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("host %s: %v", placed, err))
+	}
+	host, err := resolveHost(s.hosts, placed)
+	if err != nil {
+		return "", refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("host %s: %v", placed, err))
+	}
+	roots, ok := s.roots[placed]
+	if !ok {
+		return "", refuseEpic(
+			connect.CodeFailedPrecondition, fmt.Sprintf("host %s: no roots to hold a checkout", placed))
+	}
+	checkout, err := hostrepo.Ensure(ctx, host, roots, hostrepo.Request{
+		Host: placed, Origin: origin, Preferred: repository, Base: base,
+	})
+	if err != nil {
+		return "", refuseEpic(connect.CodeFailedPrecondition, err.Error())
+	}
+	return checkout, nil
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -191,6 +279,12 @@ func (s *epicService) controlMaker(ctx context.Context, epic string, header http
 // contract no one holds, one that is not accepted, a reviewer no layer can hold, a project release at the base that
 // does not parse, and a workflow that does not load at the base are refused, and nothing is stored.
 //
+// The epic is placed on the host the request names, through the placement: a blank name takes the default host. Before
+// any steering session starts or anything is stored, an unknown host is refused as invalid, and an unreachable one as a
+// failed precondition, each naming the host. An epic placed on another host than the controller's has its repository
+// readied there, which fetches or clones the contract's origin and holds the base, and its checkout's path is the
+// epic's repository. A readying that fails refuses the create, naming the host and git's error, and stores nothing.
+//
 // The seed decisions are made by the caller. The steerer of the epic is the contract's conversation, the writer of its
 // first version, whichever caller makes the create, when that conversation's sessions row is stored. Otherwise the id
 // of an epic already stored is refused first, and then one steering session is started for the epic. A start that is
@@ -199,10 +293,7 @@ func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
 ) (*connect.Response[v1.CreateEpicResponse], error) {
-	if err := s.ready(); err != nil {
-		return nil, err
-	}
-	host, getenv, err := s.createEnv()
+	placed, host, getenv, err := s.createPlace(req.Msg.GetHost())
 	if err != nil {
 		return nil, err
 	}
@@ -243,12 +334,15 @@ func (s *epicService) CreateEpic(
 	for i := range row.Decisions {
 		row.Decisions[i].Maker = maker
 	}
+	row.Host = placed
+	if row.Repository, err = s.readyRepository(ctx, host, placed, contract.GetRepository(), base); err != nil {
+		return nil, err
+	}
 	steerer, started, err := s.steererOf(ctx, row, conversation)
 	if err != nil {
 		return nil, err
 	}
 	row.Steerer = steerer
-	row.Host = s.host
 	if err = s.epics.CreateContractEpic(ctx, row, version); err != nil {
 		return nil, s.refuseCreate(ctx, row.ID, started, err)
 	}

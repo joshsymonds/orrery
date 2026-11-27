@@ -53,7 +53,7 @@ func (s *Store) WakeStall(ctx context.Context, epic, cause string, mark StallMar
 		if err != nil {
 			return err
 		}
-		return insertNodeTrigger(ctx, queries, epic, NodeTrigger{ID: stallTriggerID(seq), Cause: cause}, at)
+		return insertTriggerOnce(ctx, queries, epic, stallTriggerID(seq), cause, at)
 	})
 }
 
@@ -108,10 +108,8 @@ func insertStallRetryTrigger(ctx context.Context, queries *sqlcgen.Queries, epic
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read latest stall of epic %s: %w", epic, err)
 	}
-	return insertNodeTrigger(ctx, queries, epic, NodeTrigger{
-		ID:    fmt.Sprintf("stall-retry:%d", latest.Seq),
-		Cause: "the stall park was retried, so the planner resumes the epic",
-	}, at)
+	return insertTriggerOnce(ctx, queries, epic, fmt.Sprintf("stall-retry:%d", latest.Seq),
+		"the stall park was retried, so the planner resumes the epic", at)
 }
 
 // stallOf returns the EpicStall row reads as.

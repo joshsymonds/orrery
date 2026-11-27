@@ -83,7 +83,7 @@ func (r *relay) judgeClosure(ctx context.Context, transition daemon.Transition) 
 		r.logger.ErrorContext(ctx, "read closure transcript", "pane", transition.PaneID, "error", err)
 		return
 	}
-	baseURL, env, err := r.closureAccount(transition)
+	baseURL, env, err := r.closureAccount(ctx, transition)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "closure account", "pane", transition.PaneID, "error", err)
 		return
@@ -135,8 +135,8 @@ func closureRecentText(transition daemon.Transition) (string, error) {
 // closureAccount returns the base URL and env the closure call runs under, resolved as the done judge resolves its
 // account: the context stamp in effect for the transition's cwd under the relay's home, or else the transition's base URL,
 // with that URL as the env. A stamp that cannot be read is an error, and no call is made.
-func (r *relay) closureAccount(transition daemon.Transition) (string, map[string]string, error) {
-	found, err := stamp.Find(r.home, transition.Cwd)
+func (r *relay) closureAccount(ctx context.Context, transition daemon.Transition) (string, map[string]string, error) {
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, r.home, transition.Cwd)
 	if err != nil {
 		return "", nil, fmt.Errorf("find context stamp: %w", err)
 	}

@@ -6,7 +6,8 @@
 //
 // The kinds are push-main, which fast-forwards origin's branch to the candidate; tag, which pushes a signed annotated
 // version tag at it; pin-flake, which pins a flake input on the flake repository's origin to that tag; and update,
-// which switches the machine to the flake and checks that its services run a build that holds the candidate.
+// which switches the machine to the flake and checks that its services run a build that holds the candidate, and hosts,
+// which switches each host the controller's hosts file lists to the same build and checks its units run it.
 package releasestep
 
 import (
@@ -35,11 +36,15 @@ const (
 	// machine to it. Its postcondition is that every unit it names is active and runs a build whose commit contains the
 	// candidate.
 	KindUpdate = "update"
+	// KindHosts switches each host the controller's hosts.toml lists to the candidate's build, by running an argv in the
+	// flake repository once for each host. Its postcondition is that every host that answers over ssh runs, in each of
+	// its units, a build whose commit contains the candidate. A host that does not answer is skipped and named.
+	KindHosts = "hosts"
 )
 
 // Kinds returns every kind, in the order a release runs them.
 func Kinds() []string {
-	return []string{KindPushMain, KindTag, KindPinFlake, KindUpdate}
+	return []string{KindPushMain, KindTag, KindPinFlake, KindUpdate, KindHosts}
 }
 
 // Remote is the remote every kind reads and pushes.
@@ -69,16 +74,17 @@ type Params struct {
 	// Prefix is what every version tag starts with, before MAJOR.MINOR.PATCH: the tags a tag step reads and names, and
 	// a pin-flake step pins.
 	Prefix string `json:"prefix,omitempty"`
-	// Flake is the flake repository a pin-flake step pins in and an update step builds: an absolute path, or one that
-	// starts with ~/ for the home directory.
+	// Flake is the flake repository a pin-flake step pins in, and an update or hosts step runs its argv in: an absolute
+	// path, or one that starts with ~/ for the home directory.
 	Flake string `json:"flake,omitempty"`
 	// Input is the flake input a pin-flake step pins.
 	Input string `json:"input,omitempty"`
 	// URL is the url a pin-flake step sets the input to, with TagSlot where the tag goes.
 	URL string `json:"url,omitempty"`
-	// Run is the argv an update step runs in the flake repository to switch the machine to it.
+	// Run is the argv an update step runs in the flake repository to switch the machine to it, or a hosts step runs there
+	// once for each host, with {host} and {target} replaced by the host's name and target.
 	Run []string `json:"run,omitempty"`
-	// Units are the systemd user units an update step checks run a build that contains the candidate.
+	// Units are the systemd user units an update or hosts step checks run a build that contains the candidate.
 	Units []string `json:"units,omitempty"`
 }
 
@@ -105,6 +111,8 @@ func kindParams(kind string) ([]string, bool) {
 		return []string{ParamBranch, ParamPrefix, ParamFlake, ParamInput, ParamURL}, true
 	case KindUpdate:
 		return []string{ParamBranch, ParamFlake, ParamRun, ParamUnits}, true
+	case KindHosts:
+		return []string{ParamFlake, ParamRun, ParamUnits}, true
 	default:
 		return nil, false
 	}
@@ -225,8 +233,8 @@ const (
 
 // Argv returns the argv that carries out a release step of kind with params from candidate, run by the orrery binary
 // at orrery: `orrery release-step <kind> -candidate <candidate>`, then the flags of the kind's parameters, and for an
-// update step its run argv after `--`. title names the change, which a tag step's message carries. A kind Problem
-// refuses has no argv; the caller checks the step first.
+// update or hosts step its run argv after `--`. title names the change, which a tag step's message carries. A kind
+// Problem refuses has no argv; the caller checks the step first.
 func Argv(orrery, kind string, params Params, candidate, title string) []string {
 	argv := []string{orrery, Command, kind, "-" + flagCandidate, candidate}
 	switch kind {
@@ -239,12 +247,21 @@ func Argv(orrery, kind string, params Params, candidate, title string) []string 
 			"-"+flagInput, params.Input, "-"+flagURL, params.URL)
 	case KindUpdate:
 		argv = append(argv, "-"+flagBranch, params.Branch, "-"+flagFlake, params.Flake)
-		for _, unit := range params.Units {
-			argv = append(argv, "-"+flagUnit, unit)
-		}
-		argv = append(append(argv, "--"), params.Run...)
+		argv = appendUnitsRun(argv, params)
+	case KindHosts:
+		argv = append(argv, "-"+flagFlake, params.Flake)
+		argv = appendUnitsRun(argv, params)
 	}
 	return argv
+}
+
+// appendUnitsRun appends the units of params as repeated -unit flags, then its run argv after `--`, as an update or a
+// hosts step takes them.
+func appendUnitsRun(argv []string, params Params) []string {
+	for _, unit := range params.Units {
+		argv = append(argv, "-"+flagUnit, unit)
+	}
+	return append(append(argv, "--"), params.Run...)
 }
 
 // Limit returns how long a step of kind may run before its holder stops it.

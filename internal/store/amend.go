@@ -873,30 +873,13 @@ func finishAmendment(
 	}
 	cause := fmt.Sprintf("evidence of %s amended by the %s (A%d): %s", amendment.Requirement, amendment.Amender,
 		amendment.Seq, outcome)
-	if err := insertAmendmentTrigger(
-		ctx,
-		queries,
-		amendment.Epic,
-		amendmentTriggerID(amendment),
-		cause,
-		at,
-	); err != nil {
+	if err := insertTrigger(ctx, queries, amendment.Epic, amendmentTriggerID(amendment), cause, at); err != nil {
 		return err
 	}
 	if amendment.Amender != AmenderOwner && amendment.Amender != AmenderConversation {
 		return nil
 	}
 	return insertTell(ctx, queries, amendment.Epic, capitalized(cause), at)
-}
-
-// insertAmendmentTrigger adds a pending trigger to epic with id and cause, in the caller's write.
-func insertAmendmentTrigger(ctx context.Context, queries *sqlcgen.Queries, epic, id, cause string, at time.Time) error {
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: id, Cause: cause, State: triggerPending, Turn: 0, Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger %s of epic %s: %w", id, epic, err)
-	}
-	return nil
 }
 
 // settleClosedAmendments settles each open amendment of epic in the caller's write of its close: a checking one is

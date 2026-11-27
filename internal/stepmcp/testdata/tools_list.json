@@ -1,7 +1,7 @@
 [
   {
     "name": "step_start",
-    "description": "Start a step: an agent working in a workspace. Returns the step id and next. The step's end arrives in this conversation as an orrery-event of kind step_end.",
+    "description": "Start a step: an agent working in a workspace. Returns the step id and next. host names the host the step runs on: omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused. A step of an epic keeps the epic's host, so a host that names another is refused. The step's end arrives in this conversation as an orrery-event of kind step_end.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -46,6 +46,10 @@
           "type": "string"
         },
         "purpose": {
+          "type": "string"
+        },
+        "host": {
+          "description": "the host the step runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; a step of an epic keeps the epic's host",
           "type": "string"
         }
       },
@@ -190,7 +194,7 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract, named by id; the epic takes that id and the accepted version's words. base is the commit the epic starts from and is optional: omitted, the epic starts at the base that accepting the contract stored, and a named base that differs from it is recorded as a decision. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Lint findings come back as warnings: a warning line for each, naming its field and reason, and the epic is still stored. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract, named by id; the epic takes that id and the accepted version's words. base is the commit the epic starts from and is optional: omitted, the epic starts at the base that accepting the contract stored, and a named base that differs from it is recorded as a decision. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. host names the host the epic runs on: omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused. Returns a short acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. Lint findings come back as warnings: a warning line for each, naming its field and reason, and the epic is still stored. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -224,6 +228,10 @@
         "workflow": {
           "type": "string",
           "description": "the workflow the epic pins, read at base: a repository file .orrery/workflows/\u003cname\u003e.yaml, else the built-in of that name; omit it to pin epic"
+        },
+        "host": {
+          "description": "the host the epic runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused",
+          "type": "string"
         }
       },
       "required": [
@@ -907,7 +915,7 @@
   },
   {
     "name": "design_create",
-    "description": "Create a design under id with title. A design holds the contracts one conversation works, in the order they start, and starts with none: contract_propose adds one with its design argument. Returns the design with its contracts and state.",
+    "description": "Create a design under id with title. host names the host the design runs on: omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused. A design holds the contracts one conversation works, in the order they start, and starts with none: contract_propose adds one with its design argument. Returns the design with its contracts and state.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -917,6 +925,10 @@
         },
         "title": {
           "description": "the design's title, on one line",
+          "type": "string"
+        },
+        "host": {
+          "description": "the host the design runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused",
           "type": "string"
         }
       },

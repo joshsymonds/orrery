@@ -247,6 +247,27 @@ func TestUnsetPaneOptionRemoves(t *testing.T) {
 	}
 }
 
+// TestListOfServerWithoutSessionsIsEmpty lists a server that keeps running with no session, as a server with
+// exit-empty off does once its last session ends. tmux fails list-panes -a there, and the listing is empty with no
+// error, as on a server that is not running.
+func TestListOfServerWithoutSessionsIsEmpty(t *testing.T) {
+	client := newServer(t)
+	startSession(t, client, "only", t.TempDir())
+	mustRun(t, client, "set-option", "-g", "exit-empty", "off")
+	mustRun(t, client, "kill-session", "-t", "only")
+	if sessions := mustRun(t, client, "list-sessions"); sessions != "" {
+		t.Fatalf("list-sessions = %q, want no session", sessions)
+	}
+	listed, err := client.List(t.Context())
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("List = %v, %v; want no panes and no error", listed, err)
+	}
+	panes, err := client.ListPanes(t.Context())
+	if err != nil || len(panes) != 0 {
+		t.Fatalf("ListPanes = %v, %v; want no panes and no error", panes, err)
+	}
+}
+
 func TestListPanesReturnsEveryPane(t *testing.T) {
 	client := newServer(t)
 	dir := filepath.Join(t.TempDir(), "example dir")

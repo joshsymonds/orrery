@@ -195,11 +195,8 @@ func correctGaps(
 	if maker.By != MakerOwner {
 		cause = "correction of the gaps by " + maker.Phrase() + ": " + text
 	}
-	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
-		Epic: epic, ID: gapsTriggerPrefix + id, Cause: cause, State: triggerPending, Turn: 0,
-		Created: at.Unix(),
-	}); err != nil {
-		return fmt.Errorf("insert trigger of correction %s on epic %s: %w", id, epic, err)
+	if err := insertTrigger(ctx, queries, epic, gapsTriggerPrefix+id, cause, at); err != nil {
+		return err
 	}
 	return setEpicPhase(ctx, queries, epic, phaseCorrecting, at)
 }

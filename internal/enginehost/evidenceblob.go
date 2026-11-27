@@ -28,7 +28,19 @@ var errBlobName = errors.New("enginehost: evidence blob name is not a sha256 has
 
 // evidenceBlobs stores evidence bytes as files named by their sha256 under dir, the evidence/blobs directory of the
 // state directory. A file's name is its hash and an extension, so identical bytes share one file and no file is pruned.
-type evidenceBlobs struct{ dir string }
+// named, when set, collects each path that path returns, so a prompt built from the blobs can carry them to the host
+// its step runs on.
+type evidenceBlobs struct {
+	dir   string
+	named *[]string
+}
+
+// naming returns b with a fresh list that collects each path path returns, and that list.
+func (b evidenceBlobs) naming() (evidenceBlobs, *[]string) {
+	named := &[]string{}
+	b.named = named
+	return b, named
+}
 
 // evidenceExt returns the lowercased extension of path with its dot when it is 1 to 8 characters of [a-z0-9] after
 // lowercasing, and "" otherwise.
@@ -97,7 +109,11 @@ func (b evidenceBlobs) path(name string) (string, error) {
 	if err := checkBlobName(name); err != nil {
 		return "", err
 	}
-	return filepath.Join(b.dir, name), nil
+	file := filepath.Join(b.dir, name)
+	if b.named != nil {
+		*b.named = append(*b.named, file)
+	}
+	return file, nil
 }
 
 // read returns the bytes of the blob named name. The name is checked as path checks it, and the file is read through an

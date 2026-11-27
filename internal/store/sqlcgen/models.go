@@ -138,6 +138,7 @@ type Design struct {
 	Title        string
 	Conversation string
 	Created      int64
+	Host         string
 }
 
 type DesignApproach struct {
@@ -573,6 +574,14 @@ type EpicQuestion struct {
 	EscalationMaker   string
 	EscalationSession string
 	EscalationTold    int64
+}
+
+type EpicQuestionCall struct {
+	Epic     string
+	Question int64
+	Turn     int64
+	Call     string
+	Reason   string
 }
 
 type EpicReleaseRun struct {

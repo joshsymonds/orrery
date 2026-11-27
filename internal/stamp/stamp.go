@@ -3,6 +3,7 @@
 package stamp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,60 @@ import (
 	"strings"
 	"syscall"
 )
+
+// Files is the file system a stamp is read from: the machine the folder is on. Its errors keep the fs semantics of the
+// os function each names, so errors.Is(err, fs.ErrNotExist) holds for a missing path. A hostexec.Files is one, so a
+// folder on another host is read through that host.
+type Files interface {
+	// EvalSymlinks returns path with every symlink in it resolved.
+	EvalSymlinks(ctx context.Context, path string) (string, error)
+	// Lstat describes the file at path without following a final symlink.
+	Lstat(ctx context.Context, path string) (fs.FileInfo, error)
+	// Stat describes the file at path, following symlinks.
+	Stat(ctx context.Context, path string) (fs.FileInfo, error)
+	// ReadFile reads the file at path.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+}
+
+// OSFiles is the Files of this machine: it reads the file system with the os functions Files names, and wraps each
+// error so that errors.Is still matches its fs error.
+type OSFiles struct{}
+
+// EvalSymlinks resolves path with filepath.EvalSymlinks.
+func (OSFiles) EvalSymlinks(_ context.Context, path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("eval symlinks: %w", err)
+	}
+	return resolved, nil
+}
+
+// Lstat describes path with os.Lstat.
+func (OSFiles) Lstat(_ context.Context, path string) (fs.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("lstat: %w", err)
+	}
+	return info, nil
+}
+
+// Stat describes path with os.Stat.
+func (OSFiles) Stat(_ context.Context, path string) (fs.FileInfo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat: %w", err)
+	}
+	return info, nil
+}
+
+// ReadFile reads path with os.ReadFile.
+func (OSFiles) ReadFile(_ context.Context, path string) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return data, nil
+}
 
 // Stamp is the context stamp in effect for a folder: the folder that carries it and the env its settings file sets.
 // The zero value is no stamp.
@@ -33,32 +88,32 @@ func (s Stamp) BaseURL() string {
 // dir, and a dir that is not below home have no stamp. A settings or git file that exists but cannot be read, including
 // a dangling symlink, and a settings file that does not parse or whose env has the wrong shape, are errors that name the
 // file. A worktree link that does not lead to its primary checkout is an error that names the broken path; see
-// LinkedWorktreePrimary.
-func Find(home, dir string) (Stamp, error) {
-	root, ok := resolveHome(home)
+// LinkedWorktreePrimary. Every path is read through files, the file system of the machine dir is on.
+func Find(ctx context.Context, files Files, home, dir string) (Stamp, error) {
+	root, ok := resolveHome(ctx, files, home)
 	if !ok || !filepath.IsAbs(dir) {
 		return Stamp{}, nil
 	}
-	resolvedDir, err := filepath.EvalSymlinks(dir)
+	resolvedDir, err := files.EvalSymlinks(ctx, dir)
 	if err != nil {
 		return Stamp{}, fmt.Errorf("stamp: resolve %s: %w", dir, err)
 	}
 	if !strings.HasPrefix(resolvedDir, root+string(filepath.Separator)) {
 		return Stamp{}, nil
 	}
-	stamp, err := stampFrom(root, resolvedDir)
+	stamp, err := stampFrom(ctx, files, root, resolvedDir)
 	if err != nil || stamp.Folder != "" {
 		return stamp, err
 	}
-	primary, err := LinkedWorktreePrimary(home, dir)
+	primary, err := LinkedWorktreePrimary(ctx, files, home, dir)
 	if err != nil || primary == "" {
 		return Stamp{}, err
 	}
-	resolvedPrimary, err := filepath.EvalSymlinks(primary)
+	resolvedPrimary, err := files.EvalSymlinks(ctx, primary)
 	if err != nil {
 		return Stamp{}, fmt.Errorf("stamp: resolve %s: %w", primary, err)
 	}
-	return stampFrom(root, resolvedPrimary)
+	return stampFrom(ctx, files, root, resolvedPrimary)
 }
 
 // Settings returns the settings document, as JSON, that disables hooks when disableAllHooks is set, sets env, and
@@ -139,12 +194,12 @@ func UserMemory(home, configDir string) (string, error) {
 }
 
 // resolveHome returns home with its symlinks resolved. It reports false for an empty or relative home, for the root
-// directory, and for a home that does not resolve.
-func resolveHome(home string) (string, bool) {
+// directory, and for a home that does not resolve through files.
+func resolveHome(ctx context.Context, files Files, home string) (string, bool) {
 	if !filepath.IsAbs(home) {
 		return "", false
 	}
-	resolved, err := filepath.EvalSymlinks(home)
+	resolved, err := files.EvalSymlinks(ctx, home)
 	if err != nil || resolved == string(filepath.Separator) {
 		return "", false
 	}
@@ -153,10 +208,10 @@ func resolveHome(home string) (string, bool) {
 
 // stampFrom returns the nearest stamp at folder or above it, below root. The walk stops at root, which never counts,
 // and a folder outside root has no stamp.
-func stampFrom(root, folder string) (Stamp, error) {
+func stampFrom(ctx context.Context, files Files, root, folder string) (Stamp, error) {
 	below := root + string(filepath.Separator)
 	for current := folder; strings.HasPrefix(current, below); current = filepath.Dir(current) {
-		stamp, err := folderStamp(current)
+		stamp, err := folderStamp(ctx, files, current)
 		if err != nil || stamp.Folder != "" {
 			return stamp, err
 		}
@@ -170,19 +225,19 @@ func stampFrom(root, folder string) (Stamp, error) {
 // error naming .claude, so the folder refuses rather than being skipped. A settings path that Lstat does not find, or has
 // a component above it that is not a directory, is skipped. One that Lstat finds, including a symlink whose target is
 // missing, must be readable.
-func folderStamp(folder string) (Stamp, error) {
-	if err := danglingClaude(folder); err != nil {
+func folderStamp(ctx context.Context, files Files, folder string) (Stamp, error) {
+	if err := danglingClaude(ctx, files, folder); err != nil {
 		return Stamp{}, err
 	}
 	for _, name := range []string{"settings.local.json", "settings.json"} {
 		path := filepath.Join(folder, ".claude", name)
-		if _, err := os.Lstat(path); err != nil {
+		if _, err := files.Lstat(ctx, path); err != nil {
 			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 				continue
 			}
 			return Stamp{}, fmt.Errorf("stamp: read %s: %w", path, err)
 		}
-		data, err := os.ReadFile(filepath.Clean(path))
+		data, err := files.ReadFile(ctx, filepath.Clean(path))
 		if err != nil {
 			return Stamp{}, fmt.Errorf("stamp: read %s: %w", path, err)
 		}
@@ -200,9 +255,9 @@ func folderStamp(folder string) (Stamp, error) {
 // danglingClaude returns an error naming folder's .claude when it is a symlink whose target cannot be stat'd, a dangling
 // symlink included. A .claude that Lstat does not find, or that is not a directory, is nil, as is any other .claude: the
 // settings reads in folderStamp decide those. Any other Lstat failure is an error naming .claude.
-func danglingClaude(folder string) error {
+func danglingClaude(ctx context.Context, files Files, folder string) error {
 	claude := filepath.Join(folder, ".claude")
-	info, err := os.Lstat(claude)
+	info, err := files.Lstat(ctx, claude)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			return nil
@@ -212,7 +267,7 @@ func danglingClaude(folder string) error {
 	if info.Mode()&fs.ModeSymlink == 0 {
 		return nil
 	}
-	if _, err = os.Stat(claude); err != nil {
+	if _, err = files.Stat(ctx, claude); err != nil {
 		return fmt.Errorf("stamp: read %s: %w", claude, err)
 	}
 	return nil
@@ -270,34 +325,35 @@ func stampsEnv(raw json.RawMessage) (bool, error) {
 // through symlinks: a directory is an ordinary checkout, and any other kind that is not a regular file also ends the
 // search with no worktree. A regular file is a worktree's .git file. An entry that cannot be followed, a dangling
 // symlink included, is an error that names it. It returns "" when no linked worktree is named, including when an
-// empty or relative home, an empty or relative dir, or a dir that is not below home is given.
-func LinkedWorktreePrimary(home, dir string) (string, error) {
-	root, ok := resolveHome(home)
+// empty or relative home, an empty or relative dir, or a dir that is not below home is given. Every path is read through
+// files, the file system of the machine dir is on.
+func LinkedWorktreePrimary(ctx context.Context, files Files, home, dir string) (string, error) {
+	root, ok := resolveHome(ctx, files, home)
 	if !ok || !filepath.IsAbs(dir) {
 		return "", nil
 	}
-	resolved, resolveErr := filepath.EvalSymlinks(dir)
+	resolved, resolveErr := files.EvalSymlinks(ctx, dir)
 	if resolveErr != nil {
 		return "", fmt.Errorf("stamp: resolve %s: %w", dir, resolveErr)
 	}
 	below := root + string(filepath.Separator)
 	for folder := resolved; strings.HasPrefix(folder, below); folder = filepath.Dir(folder) {
 		entry := filepath.Join(folder, ".git")
-		_, err := os.Lstat(entry)
+		_, err := files.Lstat(ctx, entry)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			continue
 		}
 		if err != nil {
 			return "", fmt.Errorf("stamp: read %s: %w", entry, err)
 		}
-		info, err := os.Stat(entry)
+		info, err := files.Stat(ctx, entry)
 		if err != nil {
 			return "", fmt.Errorf("stamp: read %s: %w", entry, err)
 		}
 		if !info.Mode().IsRegular() {
 			return "", nil
 		}
-		return worktreePrimary(entry)
+		return worktreePrimary(ctx, files, entry)
 	}
 	return "", nil
 }
@@ -307,9 +363,9 @@ func LinkedWorktreePrimary(home, dir string) (string, error) {
 // file must be readable, non-empty and name a directory, and the parent of the directory it names is the primary. When
 // it has no commondir, it names no worktree and returns "" if it holds an objects directory, as a submodule's or a
 // separate git directory does; without one it is an error naming the gitdir. A file with no gitdir line is an error
-// naming the file.
-func worktreePrimary(entry string) (string, error) {
-	data, err := os.ReadFile(filepath.Clean(entry))
+// naming the file. Every path is read through files.
+func worktreePrimary(ctx context.Context, files Files, entry string) (string, error) {
+	data, err := files.ReadFile(ctx, filepath.Clean(entry))
 	if err != nil {
 		return "", fmt.Errorf("stamp: read %s: %w", entry, err)
 	}
@@ -321,13 +377,12 @@ func worktreePrimary(entry string) (string, error) {
 	if !filepath.IsAbs(gitdir) {
 		gitdir = filepath.Join(filepath.Dir(entry), gitdir)
 	}
-	gitFS, err := dirFS(gitdir)
-	if err != nil {
-		return "", err
+	if dirErr := requireDir(ctx, files, gitdir); dirErr != nil {
+		return "", dirErr
 	}
 	commonFile := filepath.Join(gitdir, "commondir")
-	if _, err = fs.Lstat(gitFS, "commondir"); errors.Is(err, fs.ErrNotExist) {
-		objects, statErr := fs.Stat(gitFS, "objects")
+	if _, err = files.Lstat(ctx, commonFile); errors.Is(err, fs.ErrNotExist) {
+		objects, statErr := files.Stat(ctx, filepath.Join(gitdir, "objects"))
 		if statErr != nil {
 			return "", fmt.Errorf("stamp: gitdir %s has neither commondir nor objects: %w", gitdir, statErr)
 		}
@@ -336,7 +391,7 @@ func worktreePrimary(entry string) (string, error) {
 		}
 		return "", nil
 	}
-	common, err := fs.ReadFile(gitFS, "commondir")
+	common, err := files.ReadFile(ctx, commonFile)
 	if err != nil {
 		return "", fmt.Errorf("stamp: read %s: %w", commonFile, err)
 	}
@@ -347,28 +402,21 @@ func worktreePrimary(entry string) (string, error) {
 	if !filepath.IsAbs(shared) {
 		shared = filepath.Join(gitdir, shared)
 	}
-	return parentOfDir(shared)
-}
-
-// parentOfDir returns the parent of shared, which must be a directory: a path that does not exist, or that lies below a
-// file, is an error that names it.
-func parentOfDir(shared string) (string, error) {
-	if _, err := dirFS(shared); err != nil {
-		return "", err
+	if dirErr := requireDir(ctx, files, shared); dirErr != nil {
+		return "", dirErr
 	}
 	return filepath.Dir(shared), nil
 }
 
-// dirFS returns the file system rooted at path, which must be a directory once symlinks are followed. A path that does
-// not exist, or that lies below a file, is an error that names it.
-func dirFS(path string) (fs.FS, error) {
-	dir := os.DirFS(path)
-	info, err := fs.Stat(dir, ".")
+// requireDir fails unless path, read through files, is a directory once symlinks are followed. A path that does not
+// exist, or that lies below a file, is an error that names it.
+func requireDir(ctx context.Context, files Files, path string) error {
+	info, err := files.Stat(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("stamp: stat %s: %w", path, err)
+		return fmt.Errorf("stamp: stat %s: %w", path, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("stamp: %s is not a directory", path)
+		return fmt.Errorf("stamp: %s is not a directory", path)
 	}
-	return dir, nil
+	return nil
 }

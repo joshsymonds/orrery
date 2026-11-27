@@ -1684,7 +1684,7 @@ func (q *Queries) GetCronJobByToolUse(ctx context.Context, arg GetCronJobByToolU
 }
 
 const getDesign = `-- name: GetDesign :one
-SELECT id, title, conversation, created FROM designs WHERE id = ?
+SELECT id, title, conversation, created, host FROM designs WHERE id = ?
 `
 
 func (q *Queries) GetDesign(ctx context.Context, id string) (Design, error) {
@@ -1695,6 +1695,7 @@ func (q *Queries) GetDesign(ctx context.Context, id string) (Design, error) {
 		&i.Title,
 		&i.Conversation,
 		&i.Created,
+		&i.Host,
 	)
 	return i, err
 }
@@ -3241,7 +3242,7 @@ func (q *Queries) InsertDeliveredEpicTell(ctx context.Context, arg InsertDeliver
 }
 
 const insertDesign = `-- name: InsertDesign :exec
-INSERT INTO designs (id, title, conversation, created) VALUES (?, ?, ?, ?)
+INSERT INTO designs (id, title, conversation, created, host) VALUES (?, ?, ?, ?, ?)
 `
 
 type InsertDesignParams struct {
@@ -3249,6 +3250,7 @@ type InsertDesignParams struct {
 	Title        string
 	Conversation string
 	Created      int64
+	Host         string
 }
 
 func (q *Queries) InsertDesign(ctx context.Context, arg InsertDesignParams) error {
@@ -3257,6 +3259,7 @@ func (q *Queries) InsertDesign(ctx context.Context, arg InsertDesignParams) erro
 		arg.Title,
 		arg.Conversation,
 		arg.Created,
+		arg.Host,
 	)
 	return err
 }
@@ -4298,6 +4301,29 @@ func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestion
 		arg.Why,
 		arg.Confidence,
 		arg.Replaces,
+	)
+	return err
+}
+
+const insertEpicQuestionCall = `-- name: InsertEpicQuestionCall :exec
+INSERT INTO epic_question_calls (epic, question, turn, call, reason) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicQuestionCallParams struct {
+	Epic     string
+	Question int64
+	Turn     int64
+	Call     string
+	Reason   string
+}
+
+func (q *Queries) InsertEpicQuestionCall(ctx context.Context, arg InsertEpicQuestionCallParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicQuestionCall,
+		arg.Epic,
+		arg.Question,
+		arg.Turn,
+		arg.Call,
+		arg.Reason,
 	)
 	return err
 }
@@ -7201,7 +7227,7 @@ func (q *Queries) ListDesignSteps(ctx context.Context, design string) ([]DesignS
 }
 
 const listDesigns = `-- name: ListDesigns :many
-SELECT id, title, conversation, created FROM designs ORDER BY created, id
+SELECT id, title, conversation, created, host FROM designs ORDER BY created, id
 `
 
 func (q *Queries) ListDesigns(ctx context.Context) ([]Design, error) {
@@ -7218,6 +7244,7 @@ func (q *Queries) ListDesigns(ctx context.Context) ([]Design, error) {
 			&i.Title,
 			&i.Conversation,
 			&i.Created,
+			&i.Host,
 		); err != nil {
 			return nil, err
 		}
@@ -8376,6 +8403,39 @@ func (q *Queries) ListEpicPremises(ctx context.Context, epic string) ([]EpicPrem
 			&i.ID,
 			&i.Text,
 			&i.IfWrong,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicQuestionCalls = `-- name: ListEpicQuestionCalls :many
+SELECT epic, question, turn, call, reason FROM epic_question_calls WHERE epic = ? ORDER BY question, turn
+`
+
+func (q *Queries) ListEpicQuestionCalls(ctx context.Context, epic string) ([]EpicQuestionCall, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicQuestionCalls, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicQuestionCall
+	for rows.Next() {
+		var i EpicQuestionCall
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Question,
+			&i.Turn,
+			&i.Call,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -14154,6 +14214,18 @@ type MoveEpicStoredBaseParams struct {
 func (q *Queries) MoveEpicStoredBase(ctx context.Context, arg MoveEpicStoredBaseParams) error {
 	_, err := q.db.ExecContext(ctx, moveEpicStoredBase, arg.StoredBase, arg.ID)
 	return err
+}
+
+const nameUnhostedDesigns = `-- name: NameUnhostedDesigns :execrows
+UPDATE designs SET host = ?1 WHERE host = ''
+`
+
+func (q *Queries) NameUnhostedDesigns(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, nameUnhostedDesigns, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const nameUnhostedPaneHistory = `-- name: NameUnhostedPaneHistory :execrows

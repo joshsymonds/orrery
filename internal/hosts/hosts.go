@@ -1,10 +1,12 @@
 // Package hosts reads the remote hosts that this controller reaches, from the machine's hosts file. The file is
 // $XDG_CONFIG_HOME/orrery/hosts.toml when XDG_CONFIG_HOME is set, else $HOME/.config/orrery/hosts.toml.
 //
-// The file is TOML. A top-level name is the controller's orrery name. Each entry of the hosts array of tables names one
+// The file is TOML. A top-level name is the controller's orrery name. A top-level default names the host that work
+// naming no host takes: the controller's name or a listed host. Each entry of the hosts array of tables names one
 // remote host with name and address, where address is the host's agent as host:port:
 //
 //	name = "desktop"
+//	default = "workstation"
 //
 //	[[hosts]]
 //	name = "workstation"
@@ -30,10 +32,14 @@ type Host struct {
 	Address string `toml:"address"`
 }
 
-// File is the hosts file as read: the controller's orrery name and the remote hosts that it reaches, in file order.
+// File is the hosts file as read: the controller's orrery name, the default host and the remote hosts that it reaches,
+// in file order.
 type File struct {
-	Name  string `toml:"name"`
-	Hosts []Host `toml:"hosts"`
+	Name string `toml:"name"`
+	// Default is the host that work naming no host takes: the controller's name or a listed host. Empty means the
+	// controller.
+	Default string `toml:"default"`
+	Hosts   []Host `toml:"hosts"`
 }
 
 // Path returns the hosts file's path. It is $XDG_CONFIG_HOME/orrery/hosts.toml when XDG_CONFIG_HOME is set, else
@@ -54,8 +60,10 @@ func Path(getenv func(string) string) (string, error) {
 // without hosts reads as it did before hosts.toml existed. Any other file is refused, with an error that names the
 // file and the offending entry, when it does not parse, has a key that File does not declare, or breaks a rule: the
 // top-level name, when set, and each host's name must be lowercase letters, digits and hyphens; host names are unique
-// and none equals the top-level name; and each address is host:port with a non-empty host and a port from 1 to 65535.
-// Hosts are returned in file order.
+// and none equals the top-level name; each address is host:port with a non-empty host and a port from 1 to 65535; and
+// the default, when set, is lowercase letters, digits and hyphens and, when the top-level name is set, equals that name
+// or a listed host's name. With no top-level name the default may name any host, since Load cannot know the
+// controller's host name. Hosts are returned in file order.
 func Load(getenv func(string) string) (File, error) {
 	path, err := Path(getenv)
 	if err != nil {
@@ -109,7 +117,29 @@ func validate(path string, meta toml.MetaData, file File) error {
 			return fmt.Errorf("hosts file %s: host %q: %w", path, host.Name, err)
 		}
 	}
-	return nil
+	return checkDefault(path, file)
+}
+
+// checkDefault refuses a default that is not lowercase letters, digits and hyphens, or that names neither the
+// top-level name nor a listed host when the top-level name is set. An empty default is the controller and is not
+// checked.
+func checkDefault(path string, file File) error {
+	if file.Default == "" {
+		return nil
+	}
+	if !validName(file.Default) {
+		return fmt.Errorf("hosts file %s: default %q is not lowercase letters, digits and hyphens", path, file.Default)
+	}
+	if file.Name == "" || file.Default == file.Name {
+		return nil
+	}
+	for _, host := range file.Hosts {
+		if host.Name == file.Default {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"hosts file %s: default %q names neither the name %q nor a listed host", path, file.Default, file.Name)
 }
 
 // validName reports whether name is non-empty and made only of lowercase letters, digits and hyphens.

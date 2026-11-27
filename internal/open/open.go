@@ -69,7 +69,7 @@ func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 			return Target{}, fmt.Errorf("open: create directory: %w", err)
 		}
 	}
-	argv, err := stampedArgv(cfg, plan.Dir, claudeCommand(cfg.Claude, ""))
+	argv, err := stampedArgv(ctx, cfg, plan.Dir, claudeCommand(cfg.Claude, ""))
 	if err != nil {
 		return Target{}, err
 	}
@@ -191,8 +191,8 @@ func claudeCommand(claude, prompt string) []string {
 // stampedArgv returns the argv of a Claude pane in dir with the stamp in effect for dir, if any, inserted after the
 // claude binary: --settings and the stamp's whole env as one settings document. A folder with no stamp keeps argv.
 // A stamp that cannot be read is an error, so no pane starts without its settings.
-func stampedArgv(cfg Config, dir string, argv []string) ([]string, error) {
-	found, err := stamp.Find(cfg.Home, dir)
+func stampedArgv(ctx context.Context, cfg Config, dir string, argv []string) ([]string, error) {
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, cfg.Home, dir)
 	if err != nil {
 		return nil, fmt.Errorf("open: find stamp for %s: %w", dir, err)
 	}

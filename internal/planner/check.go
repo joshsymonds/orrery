@@ -275,6 +275,109 @@ func checkUnresolvable(ret Return) []string {
 	return refusals
 }
 
+// The reasons a refusal of a return's question calls gives.
+const (
+	reasonCallsNotArray  = "not a JSON array of objects with question, call and reason"
+	reasonNotQuestionRef = "not Q<n>"
+	reasonNoCall         = "has no call; call each open question a planner turn asked stands or overtaken in " +
+		"question_calls, or replace it with a new question"
+	reasonCalledEarlier = "is called by an earlier entry"
+	reasonNotPlanner    = "was not asked by a planner turn; only a question a planner turn asked takes a call"
+	reasonNotCall       = "not " + store.CallStands + " or " + store.CallOvertaken
+	reasonStandsAtEnd   = "stands beside outcome complete; a complete plan leaves no question waiting on its " +
+		"answer, so return outcome wait, or call the question overtaken"
+)
+
+// checkQuestionCalls returns the refusals of ret's question calls, against questions, the epic's questions when the step
+// started. Each question that was open then and that a planner turn asked, one with a turn above 0, takes exactly one
+// call, unless a question of ret replaces it, which is its call. When the string the calls were read from was not a JSON
+// array of objects, the calls are refused as a whole with one line and none is checked. Otherwise each entry gets one
+// line for a question that is not Q<n>, names no question of the epic, names a question no planner turn asked, names a
+// question that is not open, is called by an earlier entry, or is replaced by a question of ret; one for a call that is
+// not stands or overtaken; one for a blank reason; and one for a stands call beside outcome complete. Each line names
+// the entry by index, then the field. Then each question that takes a call and has none gets one line, in seq order.
+func checkQuestionCalls(ret Return, questions []store.EpicQuestion) []string {
+	if ret.QuestionCallsError != "" {
+		return []string{"question_calls: " + reasonCallsNotArray}
+	}
+	replaced := make(map[int64]int, len(ret.Questions))
+	for j, question := range ret.Questions {
+		if seq, ok := store.QuestionSeq(question.Replaces); ok {
+			replaced[seq] = j
+		}
+	}
+	var refusals []string
+	called := make(map[int64]bool, len(ret.QuestionCalls))
+	for i, call := range ret.QuestionCalls {
+		refusals = append(refusals, questionCallRefusals(i, call, ret.Outcome, questions, called, replaced)...)
+		if seq, ok := store.QuestionSeq(call.Question); ok {
+			called[seq] = true
+		}
+	}
+	for _, question := range questions {
+		_, replacedHere := replaced[question.Seq]
+		if takesCall(question) && !called[question.Seq] && !replacedHere {
+			refusals = append(refusals, fmt.Sprintf("question_calls: Q%d %s", question.Seq, reasonNoCall))
+		}
+	}
+	return refusals
+}
+
+// questionCallRefusals returns the refusals of call, entry i of a return whose outcome is outcome, as
+// checkQuestionCalls gives them, given the epic's questions, the questions earlier entries called, and the questions
+// the return replaces.
+func questionCallRefusals(
+	i int, call QuestionCall, outcome string, questions []store.EpicQuestion, called map[int64]bool,
+	replaced map[int64]int,
+) []string {
+	prefix := fmt.Sprintf("question_calls[%d]", i)
+	var refusals []string
+	seq, ok := store.QuestionSeq(call.Question)
+	if !ok {
+		refusals = append(refusals, prefix+" question: "+reasonNotQuestionRef)
+	} else if reason := calledQuestionReason(call.Question, seq, questions, called, replaced); reason != "" {
+		refusals = append(refusals, prefix+" question: "+reason)
+	}
+	if call.Call != store.CallStands && call.Call != store.CallOvertaken {
+		refusals = append(refusals, prefix+" call: "+reasonNotCall)
+	}
+	if strings.TrimSpace(call.Reason) == "" {
+		refusals = append(refusals, prefix+" reason: "+reasonEmpty)
+	}
+	if call.Call == store.CallStands && outcome == store.PlanOutcomeComplete {
+		refusals = append(refusals, prefix+" call: "+reasonStandsAtEnd)
+	}
+	return refusals
+}
+
+// takesCall reports whether question takes a call from each planner turn: it is open, and a planner turn asked it.
+func takesCall(question store.EpicQuestion) bool {
+	return question.State == questionOpen && question.Turn > 0
+}
+
+// calledQuestionReason returns why a call may not name ref, question seq, among questions, given the questions earlier
+// entries called and the questions the return replaces, by the index of the question that replaces each, or "" when it
+// may.
+func calledQuestionReason(
+	ref string, seq int64, questions []store.EpicQuestion, called map[int64]bool, replaced map[int64]int,
+) string {
+	i := slices.IndexFunc(questions, func(question store.EpicQuestion) bool { return question.Seq == seq })
+	switch {
+	case i < 0:
+		return ref + " names no question of the epic"
+	case questions[i].Turn == 0:
+		return ref + " " + reasonNotPlanner
+	case questions[i].State != questionOpen:
+		return fmt.Sprintf("%s is %s, not open", ref, questions[i].State)
+	case called[seq]:
+		return ref + " " + reasonCalledEarlier
+	}
+	if j, ok := replaced[seq]; ok {
+		return fmt.Sprintf("%s is replaced by questions[%d] of this return, which is its call", ref, j)
+	}
+	return ""
+}
+
 // checkSpentGaps returns one refusal for each rerun_review action of ret that names a reviewer whose gap, "reviewer:" and
 // the reviewer's name, has had store.GapTurnBound planner turns in turns, the planner turns each gap of the epic was
 // given before the checked turn. Such a gap goes to the owner, so the planner declares it in unresolvable instead. An

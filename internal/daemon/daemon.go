@@ -395,7 +395,7 @@ func (h *frameHandler) syncApplied(ctx context.Context, server tmuxctl.Server, p
 // effect for cwd under h.cfg.Home, or else that of baseURL. When the stamp cannot be read, the option is unset, so the
 // pane is left out of the intent call rather than given a context it may not hold.
 func (h *frameHandler) contextWrite(ctx context.Context, pane, cwd, baseURL string) tmuxctl.OptionWrite {
-	found, err := stamp.Find(h.cfg.Home, cwd)
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, h.cfg.Home, cwd)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "find context stamp", "pane", pane, "cwd", cwd, "error", err)
 		return tmuxctl.Unset(protocol.OptionContext)

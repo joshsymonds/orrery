@@ -79,7 +79,7 @@ func (l *Local) Launch(ctx context.Context, spec Spec) (*session.Session, error)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
 	}
-	settings, err := l.settings(spec)
+	settings, err := l.settings(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -109,12 +109,12 @@ func (l *Local) Launch(ctx context.Context, spec Spec) (*session.Session, error)
 // the Local's environment, which must be an absolute path. A step takes settings with the stamp's env and the owner's
 // CLAUDE.md excluded. Any other session takes the stamp's env and the PreToolUse hook on the cron tools when CronHook is
 // set, which runs holder.Binary(""), and one that cannot be resolved fails here, before claude runs.
-func (l *Local) settings(spec Spec) (string, error) {
+func (l *Local) settings(ctx context.Context, spec Spec) (string, error) {
 	home, err := StampHome(l.cfg.Environ)
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", spec.Dir, err)
 	}
-	found, err := stamp.Find(home, spec.Dir)
+	found, err := stamp.Find(ctx, stamp.OSFiles{}, home, spec.Dir)
 	if err != nil {
 		return "", fmt.Errorf("find stamp for %s: %w", spec.Dir, err)
 	}

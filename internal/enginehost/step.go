@@ -57,8 +57,9 @@ const stepDefaultModelLimit = 60 * time.Minute
 // with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
 // Caller is the session or pane that started the step, which the step is stored with (see store.StepAdd). A non-zero
 // Caller that names no sessions row is refused with ErrNoCaller, and a zero Caller is an in-process start.
-// Host is the orrery name of the host the caller arrived as, which the Steps service sets from the call's host header.
-// A start that names no stored Epic runs on Host, and an empty Host runs it on the Steps' own host (see startHost).
+// Host is the orrery name of the host the start names, which the Steps service sets from the call's host field. Arrived
+// is the orrery name of the host the call arrived as, which the service sets from its host header. A start runs on the
+// host startHost picks from its epic, Host, the default host, Arrived and the Steps' own host, in that order.
 //
 // ID, when set, is the step's id in place of a fresh one. It must be 32 lowercase hex digits, the form a fresh id has,
 // or the start is refused with ErrBadStepID. A start under an id that a stored step already has, or that another start
@@ -104,6 +105,10 @@ const stepDefaultModelLimit = 60 * time.Minute
 //
 // Purpose is the step's purpose, stored with it. Empty asks Haiku for one from the step's prompt, when a Haiku caller is
 // configured; the answer is stored once it arrives, and the start does not wait for it (see askStepPurpose).
+//
+// Carry names files on this controller that the step's prompt names by their absolute paths. A step that runs on
+// another host has each copied to the same path there before its session starts, so it reads what the prompt names; a
+// file that cannot be copied refuses the start, and nothing is stored. A step on the controller reads them in place.
 type StepStart struct {
 	ID          string
 	Agent       string
@@ -125,9 +130,11 @@ type StepStart struct {
 	Purpose     string
 	Caller      store.EpicCaller
 	Host        string
+	Arrived     string // the orrery name of the host the start call arrived as, or "" when it arrived as none
 	AgentGate   *gates.Gate
 	CommandGate *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
+	Carry       []string
 }
 
 // StepStore reads the step rows and listings Steps reports, the turn ends and finished blocks their sessions stored and
@@ -190,9 +197,12 @@ type StepsConfig struct {
 	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 	Stored       func()
 	EpicWake     func(epic string)
-	// Host is the host name each step Start makes is stamped with, unless the step has an epic, whose host it takes.
+	// Host is the Steps' own host name, which a start runs on when no epic, host, default or arrived host names another.
 	Host  string
 	Hosts hostexec.Hosts
+	// Placement places the host each start names, and names the default host that a start naming none takes. A nil
+	// Placement resolves a named host as hostNamed does, and has no default.
+	Placement HostPlacer
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -228,6 +238,7 @@ type Steps struct {
 	epicWake     func(epic string)
 	host         string
 	hosts        hostexec.Hosts
+	placement    HostPlacer
 
 	mu       sync.Mutex
 	loops    map[string]context.CancelFunc
@@ -274,6 +285,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 		epicWake:     cfg.EpicWake,
 		host:         cfg.Host,
 		hosts:        cfg.Hosts,
+		placement:    cfg.Placement,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
@@ -304,6 +316,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	hostName, host, err := s.startHost(ctx, start)
 	if err != nil {
 		return "", err
+	}
+	if prepErr := s.prepareHost(ctx, hostName, host, start); prepErr != nil {
+		return "", prepErr
 	}
 	start, gate, err := s.resolveStart(ctx, hostName, host, start)
 	if err != nil {
@@ -367,7 +382,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	} else {
 		cfg.dir = start.Workspace
 	}
-	if err = s.bindHaiku(&cfg, step.Dir); err != nil {
+	if err = s.bindHaiku(ctx, host, &cfg, step.Dir); err != nil {
 		return s.refuseStart(ctx, id, cfg.cleanup, err)
 	}
 
@@ -430,28 +445,79 @@ func (s *Steps) startPlace(ctx context.Context, host hostexec.Host, start StepSt
 	return commit, nil
 }
 
-// startHost returns the name of the host start runs on, and the Host of that name. The epic's stored host names it when
-// start names an epic that is stored. Otherwise start.Host, the host the caller arrived as, names it, and a start with an
-// empty Host takes the Steps' own host name. Any other read error is returned wrapped.
-func (s *Steps) startHost(ctx context.Context, start StepStart) (string, hostexec.Host, error) {
-	name := start.Host
-	if name == "" {
-		name = s.host
+// prepareHost readies host, the host named hostName that start runs on: start's workspace must be a directory there, and
+// a host other than the Steps' own gets a copy of each file start carries, at the same path.
+func (s *Steps) prepareHost(ctx context.Context, hostName string, host hostexec.Host, start StepStart) error {
+	if err := checkDirOn(ctx, host, start.Workspace); err != nil {
+		return err
 	}
-	if start.Epic != "" {
-		stored, err := s.store.EpicHost(ctx, start.Epic)
-		if err != nil && !errors.Is(err, store.ErrNoEpic) {
-			return "", nil, fmt.Errorf("read host of epic %s: %w", start.Epic, err)
-		}
-		if err == nil {
-			name = stored
-		}
+	if hostName == s.host || len(start.Carry) == 0 {
+		return nil
+	}
+	local, err := s.hostNamed(s.host)
+	if err != nil {
+		return err
+	}
+	if err = carryFiles(ctx, local, host, start.Carry); err != nil {
+		return fmt.Errorf("start step on host %s: %w", hostName, err)
+	}
+	return nil
+}
+
+// startHost returns the name of the host start runs on, and the Host of that name (see startHostName). A name that
+// resolves to no Host is returned wrapped with the name.
+func (s *Steps) startHost(ctx context.Context, start StepStart) (string, hostexec.Host, error) {
+	name, err := s.startHostName(ctx, start)
+	if err != nil {
+		return "", nil, err
 	}
 	host, err := s.hostNamed(name)
 	if err != nil {
 		return "", nil, err
 	}
 	return name, host, nil
+}
+
+// startHostName returns the orrery name of the host start runs on, in this order: the host of start's epic when start
+// names a stored epic, which a start.Host that differs from refuses; start.Host, placed by Placement; the default host,
+// when Placement names one; start.Arrived when it is set; else the Steps' own host. A nil Placement places nothing, so
+// start.Host is taken as it is named and has no default. Any other read error is returned wrapped.
+func (s *Steps) startHostName(ctx context.Context, start StepStart) (string, error) {
+	if start.Epic != "" {
+		stored, err := s.store.EpicHost(ctx, start.Epic)
+		if err != nil && !errors.Is(err, store.ErrNoEpic) {
+			return "", fmt.Errorf("read host of epic %s: %w", start.Epic, err)
+		}
+		if err == nil {
+			if start.Host != "" && start.Host != stored {
+				return "", fmt.Errorf("step names host %s, but epic %s runs on host %s", start.Host, start.Epic, stored)
+			}
+			return stored, nil
+		}
+	}
+	if start.Host != "" {
+		if s.placement == nil {
+			return start.Host, nil
+		}
+		return s.place(start.Host)
+	}
+	if s.placement != nil && s.placement.Default() != "" {
+		return s.place("")
+	}
+	if start.Arrived != "" {
+		return start.Arrived, nil
+	}
+	return s.host, nil
+}
+
+// place returns the name Placement places named on, wrapping its error with the placement. A named host that is unknown
+// or unreachable keeps its name at the end of the error.
+func (s *Steps) place(named string) (string, error) {
+	name, err := s.placement.Place(named)
+	if err != nil {
+		return "", fmt.Errorf("place host: %w", err)
+	}
+	return name, nil
 }
 
 // hostNamed returns the Host named name on the Steps' Hosts. A Steps with no Hosts, which a Steps built without
@@ -517,8 +583,9 @@ func (s *Steps) refuseStart(
 
 // bindHaiku sets cfg's haiku to the caller a step whose folder is folder makes its monitor and judge calls with. With
 // no Haiku it sets none. The stamp in effect for folder, found from the HOME entry of the Steps' environ, which must be
-// an absolute path, sets the env of each call's --settings. With no stamp, the caller is the Steps' Haiku as it is.
-func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
+// an absolute path, sets the env of each call's --settings. folder is on host, the step's host, so the stamp is read
+// through host's files. With no stamp, the caller is the Steps' Haiku as it is.
+func (s *Steps) bindHaiku(ctx context.Context, host hostexec.Files, cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
@@ -526,7 +593,7 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
-	found, err := stamp.Find(home, folder)
+	found, err := stamp.Find(ctx, host, home, folder)
 	if err != nil {
 		return fmt.Errorf("find step stamp: %w", err)
 	}
@@ -536,6 +603,53 @@ func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	}
 	cfg.haiku = s.haiku.withEnv(found.Env)
 	return nil
+}
+
+// bindHaikuLazily sets cfg's haiku, as bindHaiku does, to a caller that reads the stamp of folder through host at its
+// first call rather than now. A step re-adopted at a restart binds this way, so the re-adoption does not wait on a host
+// that is not answering; the first monitor or judge call waits for it instead, as any other call to that host does. The
+// HOME entry of the Steps' environ is checked now, since it needs no host: one that is not an absolute path fails.
+func (s *Steps) bindHaikuLazily(host hostexec.Files, cfg *stepRunConfig, folder string) error {
+	if s.haiku == nil {
+		return nil
+	}
+	if _, err := holderhost.StampHome(s.environ); err != nil {
+		return fmt.Errorf("find step stamp: %w", err)
+	}
+	cfg.haiku = &stampedHaiku{steps: s, host: host, folder: folder}
+	return nil
+}
+
+// stampedHaiku is the Haiku caller of a re-adopted step. Its first call binds the caller of the stamp in effect for
+// folder, read through host as bindHaiku reads it, and each call goes to that caller. A first call whose stamp cannot
+// be read fails, and the next call reads it again.
+type stampedHaiku struct {
+	steps  *Steps
+	host   hostexec.Files
+	folder string
+
+	mu    sync.Mutex
+	bound haikuCaller
+}
+
+// Call binds the caller when no call has bound it yet, then makes the call through it.
+func (h *stampedHaiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
+	h.mu.Lock()
+	bound := h.bound
+	if bound == nil {
+		var cfg stepRunConfig
+		if err := h.steps.bindHaiku(ctx, h.host, &cfg, h.folder); err != nil {
+			h.mu.Unlock()
+			return nil, err
+		}
+		bound, h.bound = cfg.haiku, cfg.haiku
+	}
+	h.mu.Unlock()
+	raw, err := bound.Call(ctx, schema, input)
+	if err != nil {
+		return nil, fmt.Errorf("haiku call from %s: %w", h.folder, err)
+	}
+	return raw, nil
 }
 
 // Status returns the step row with id. It returns an error matching store.ErrNoStep when no step has that id.
@@ -608,8 +722,9 @@ func (s *Steps) endLoop(id string) {
 	cancel()
 }
 
-// checkStepStart reports whether start's prompt, id, workspace and owned paths are usable, before anything is stored or
-// any worktree is added. A writing step that is not Unowned needs at least one owned path, because an empty list would
+// checkStepStart reports whether start's prompt, id, workspace path and owned paths are usable, before anything is
+// stored or any worktree is added. The workspace must be absolute here; Start checks that it exists on the step's host
+// once the host is resolved. A writing step that is not Unowned needs at least one owned path, because an empty list would
 // let it change nothing. Start checks the schema once the gate has set it.
 func checkStepStart(start StepStart) error {
 	if start.Prompt == "" {
@@ -618,7 +733,7 @@ func checkStepStart(start StepStart) error {
 	if start.ID != "" && checkID(start.ID) != nil {
 		return fmt.Errorf("%w: %q", ErrBadStepID, start.ID)
 	}
-	if err := checkDir(start.Workspace); err != nil {
+	if err := checkAbsDir(start.Workspace); err != nil {
 		return err
 	}
 	if !start.ReadOnly && !start.Unowned && len(start.Owned) == 0 {

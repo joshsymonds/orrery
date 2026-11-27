@@ -20,6 +20,7 @@ type epicCreateArgs struct {
 	Base      string             `json:"base,omitempty"      jsonschema:"the commit the epic starts from, in the contract's repository; optional: omitted, the epic starts at the base that accepting the contract stored, and a named base that differs from it is recorded as a decision"`
 	Decisions []epicDecisionArgs `json:"decisions,omitempty"`
 	Workflow  string             `json:"workflow,omitempty"  jsonschema:"the workflow the epic pins, read at base: a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"`
+	Host      string             `json:"host,omitempty"      jsonschema:"the host the epic runs on, a hosts.toml host or the controller; omitted, hosts.toml's default, else the controller; an unknown or unreachable host is refused"`
 }
 
 // epicDecisionArgs is one decision of epic_create's decisions.
@@ -169,7 +170,9 @@ func epicRecordTools(epics enginev1connect.EpicsClient, in epicInputs) []Tool {
 				"accepted version's words. base is the commit the epic starts from and is optional: omitted, the " +
 				"epic starts at the base that accepting the contract stored, and a named base that differs from it " +
 				"is recorded as a decision. decisions seeds the epic's " +
-				"recorded decisions. workflow names the workflow the epic pins, epic by default. Returns a short " +
+				"recorded decisions. workflow names the workflow the epic pins, epic by default. host names the " +
+				"host the epic runs on: omitted, hosts.toml's default, else the controller; an unknown or " +
+				"unreachable host is refused. Returns a short " +
 				"acknowledgement, not the stored epic: the epic id, its phase and one line naming what changed. " +
 				"Lint findings come back as warnings: a warning line for each, naming its field and reason, and the " +
 				"epic is still stored. A refusal names the field that failed.",

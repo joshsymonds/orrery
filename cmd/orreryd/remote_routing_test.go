@@ -17,6 +17,7 @@ import (
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -268,7 +269,7 @@ func startRoutingAgent(
 		Controller: routingNode, WhoIs: routingWhoIs{},
 		Holders:  routingHolders{Local: holders, host: name, log: log, planned: planned},
 		StateDir: stateDir,
-		Roots:    []string{env.root, managedDir}, ConfigDir: env.config, ClaudeDir: env.claudeDir,
+		Roots:    []string{env.root}, ConfigDir: env.config, ClaudeDir: env.claudeDir, ManagedDir: agents.ManagedDir,
 		Local: hostexec.NewLocal(), Secret: env.secret,
 	})
 	if err != nil {
@@ -305,6 +306,28 @@ type routingFixture struct {
 	log    *routingLog
 	// ended closes when the store ends the epic on host b, which is when that epic is released.
 	ended chan struct{}
+}
+
+// routingCarriedReads returns the path of each ReadFile among calls of a file under the evidence blobs of stateDir, the
+// controller's state directory: the reads that carry evidence to a judge on another host.
+func routingCarriedReads(calls []hostexectest.Call, stateDir string) []string {
+	blobs := filepath.Join(stateDir, "evidence", "blobs") + string(filepath.Separator)
+	var paths []string
+	for _, call := range calls {
+		if call.Op == "ReadFile" && strings.HasPrefix(call.Path, blobs) {
+			paths = append(paths, call.Path)
+		}
+	}
+	return paths
+}
+
+// routingControllerWork returns calls without the reads routingCarriedReads finds, which the controller makes for work on
+// another host because only it keeps the evidence blobs.
+func routingControllerWork(calls []hostexectest.Call, stateDir string) []hostexectest.Call {
+	carried := routingCarriedReads(calls, stateDir)
+	return slices.DeleteFunc(slices.Clone(calls), func(call hostexectest.Call) bool {
+		return call.Op == "ReadFile" && slices.Contains(carried, call.Path)
+	})
 }
 
 // newRoutingFixture starts the controller over a store of its own, with agents a and b listening on their loopback
@@ -876,8 +899,20 @@ func TestRemoteRouting(t *testing.T) {
 			t.Errorf("no evidence run of the epic passed under a judge that b launched: %d runs", len(runs))
 		}
 		// The epic on the controller is not seeded until its own subtest, so the controller's Local has no work of its own
-		// here: any call it recorded is work of the epic on b.
-		if calls := f.recorders[routingController].Calls(); len(calls) != 0 {
+		// here: any call it recorded is work of the epic on b. The judges on b carry the evidence blobs their prompts
+		// name, which only the controller keeps, so the controller reads each and b is written each.
+		carried := routingCarriedReads(f.recorders[routingController].Calls(), f.stateDir)
+		if len(carried) == 0 {
+			t.Errorf("the controller read no evidence blob for the judges on b")
+		}
+		for _, blob := range carried {
+			if !slices.ContainsFunc(f.recorders[routingHostB].Calls(), func(call hostexectest.Call) bool {
+				return call.Op == "WriteFile" && call.Path == blob
+			}) {
+				t.Errorf("the judges on b were not carried the evidence blob %s", blob)
+			}
+		}
+		if calls := routingControllerWork(f.recorders[routingController].Calls(), f.stateDir); len(calls) != 0 {
 			t.Errorf("the controller's Local recorded %d calls for the epic on b: %v", len(calls), calls)
 		}
 	})
@@ -909,7 +944,7 @@ func TestRemoteRouting(t *testing.T) {
 		if err = f.host.steps.Stop(ctx, id); err != nil {
 			t.Fatalf("stop the no-epic step %s: %v", id, err)
 		}
-		if calls := f.recorders[routingController].Calls(); len(calls) != 0 {
+		if calls := routingControllerWork(f.recorders[routingController].Calls(), f.stateDir); len(calls) != 0 {
 			t.Errorf("the controller's Local recorded %d calls for the no-epic step on b: %v", len(calls), calls)
 		}
 		if got := f.routingRows(t)[id]; got[0] != routingHostB {

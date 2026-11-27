@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/holderhost"
@@ -353,11 +354,18 @@ func (f *restartFixture) startAgent(t *testing.T) {
 	}
 	f.addr = ln.Addr().String()
 	agent, err := node.NewAgent(node.AgentConfig{
-		Controller: routingNode, WhoIs: routingWhoIs{},
-		Holders:  restartHolders{Local: f.holders, log: f.log},
-		StateDir: f.agentDir,
-		Roots:    []string{f.env.root, managedDir}, ConfigDir: f.env.config, ClaudeDir: f.env.claudeDir,
-		Local: hostexec.NewLocal(), Secret: f.env.secret,
+		Controller: routingNode,
+		WhoIs:      routingWhoIs{},
+		Holders:    restartHolders{Local: f.holders, log: f.log},
+		StateDir:   f.agentDir,
+		Roots: []string{
+			f.env.root,
+		},
+		ConfigDir:  f.env.config,
+		ClaudeDir:  f.env.claudeDir,
+		ManagedDir: agents.ManagedDir,
+		Local:      hostexec.NewLocal(),
+		Secret:     f.env.secret,
 	})
 	if err != nil {
 		t.Fatalf("new agent %s: %v", routingHostB, err)

@@ -117,12 +117,13 @@ func newStepHostRig(t *testing.T) stepHostRig {
 }
 
 // startOnHost starts a read-only step of the rig's repository whose prompt never ends its reply, so its loop runs until
-// the test ends. It names the host and epic that are given, and returns its id.
+// the test ends. The call arrives as the host that is given, and the step names the epic that is given. It returns its
+// id.
 func (f stepHostRig) startOnHost(t *testing.T, host, epic string) string {
 	t.Helper()
 	start := stepStartReadOnly(f.repo, "")
 	start.Prompt = "STALL"
-	start.Host = host
+	start.Arrived = host
 	start.Epic = epic
 	id, err := f.steps.Start(t.Context(), start)
 	if err != nil {
@@ -243,28 +244,34 @@ func TestStepSessionOnHostRefusesUnknownHost(t *testing.T) {
 	}
 }
 
-// TestStepSessionOnHostHeader covers the Steps service: the host header of a StartStep call becomes the start's Host, and
-// a call with no host header leaves Host empty, so the Steps' own host takes it.
+// TestStepSessionOnHostHeader covers the Steps service: the host header of a StartStep call becomes the start's
+// Arrived, and the call's host field becomes its Host. A call with no host header leaves Arrived empty, and one with no
+// host field leaves Host empty, so the epic, the default or the Steps' own host takes it.
 func TestStepSessionOnHostHeader(t *testing.T) {
 	t.Parallel()
 	fake := &fakeStepCommands{startID: stepA}
 	service := &stepService{steps: fake}
-	for _, host := range []string{"b", ""} {
+	cases := []struct{ field, header string }{{field: "", header: "b"}, {field: "a", header: ""}}
+	for _, tc := range cases {
 		req := connect.NewRequest(&v1.StartStepRequest{
-			Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
+			Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work", Host: tc.field,
 		})
 		req.Header().Set(protocol.HeaderSession, "session-7")
-		if host != "" {
-			req.Header().Set(protocol.HeaderHost, host)
+		if tc.header != "" {
+			req.Header().Set(protocol.HeaderHost, tc.header)
 		}
 		if _, err := service.StartStep(t.Context(), req); err != nil {
-			t.Fatalf("StartStep with host header %q: %v", host, err)
+			t.Fatalf("StartStep with host field %q and header %q: %v", tc.field, tc.header, err)
 		}
 	}
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
-	got := []string{fake.starts[0].Host, fake.starts[1].Host}
-	if want := []string{"b", ""}; !slices.Equal(got, want) {
-		t.Errorf("StartStep hosts = %q, want %q", got, want)
+	arrived := []string{fake.starts[0].Arrived, fake.starts[1].Arrived}
+	if want := []string{"b", ""}; !slices.Equal(arrived, want) {
+		t.Errorf("StartStep arrived hosts = %q, want %q", arrived, want)
+	}
+	named := []string{fake.starts[0].Host, fake.starts[1].Host}
+	if want := []string{"", "a"}; !slices.Equal(named, want) {
+		t.Errorf("StartStep named hosts = %q, want %q", named, want)
 	}
 }

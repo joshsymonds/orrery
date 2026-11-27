@@ -97,7 +97,7 @@ func TestProjectRelease_RefusesMalformedKind(t *testing.T) {
 			name:  "unknown kind",
 			text:  head + "kind = \"deploy\"\n",
 			field: "release.steps[0].kind",
-			reason: `unknown kind "deploy": a release step's kind is one of push-main, tag, pin-flake, update, ` +
+			reason: `unknown kind "deploy": a release step's kind is one of push-main, tag, pin-flake, update, hosts, ` +
 				"or empty for an agent step",
 		},
 		{
@@ -178,7 +178,7 @@ func TestCreateEpic_ContractReleaseStepKindIsChecked(t *testing.T) {
 			name: "unknown kind",
 			step: &v1.EpicReleaseStep{Step: "Synthetic.", Undo: "Synthetic undo.", Kind: "deploy"},
 			want: `release_steps[0].kind: unknown kind "deploy": a release step's kind is one of push-main, tag, ` +
-				"pin-flake, update, or empty for an agent step",
+				"pin-flake, update, hosts, or empty for an agent step",
 		},
 		{
 			name: "a parameter the kind needs is missing",

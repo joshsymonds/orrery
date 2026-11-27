@@ -120,8 +120,9 @@ func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 // gate step's gate is rebuilt by readoptAgentGate, and its run keeps the start its row stores. A named gate's grant is
 // requested from the pools of the row's workspace, and a read-only step's worktree is removed when the step ends. It
 // returns an error matching errStepAgentGateRestarted for an agent gate step that is not re-adopted, and an error when
-// the turn end or the blocks cannot be read, when the return check cannot be restored, or when the run's grant or haiku
-// caller cannot be bound.
+// the turn end or the blocks cannot be read, when the return check cannot be restored, or when the run's grant cannot be
+// bound or the Steps' HOME is not absolute. Its haiku caller reads the folder's stamp at its first call
+// (bindHaikuLazily), so a host that does not answer does not hold the re-adoption up.
 func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, error) {
 	var agent *gates.Gate
 	var err error
@@ -188,9 +189,8 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 			return nil, fmt.Errorf("return check of step %s: %w", row.ID, err)
 		}
 	}
-	err = s.bindHaiku(&cfg, folder)
-	if err != nil {
-		return nil, err
+	if bindErr := s.bindHaikuLazily(host, &cfg, folder); bindErr != nil {
+		return nil, bindErr
 	}
 	blocks, err := s.store.StepBlocks(ctx, row.ID, watchRecentLen)
 	if err != nil {

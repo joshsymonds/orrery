@@ -58,8 +58,8 @@ type closeEnd struct {
 // Each open question is overtaken, with its decision and its tell, as any write that ends an epic for good overtakes
 // them (overtakeQuestion), so the epic has none open; an owner close stores those tells told, so the owner gets no
 // notice of their own close and the steerer is still sent each. Its running turn ends free, which never counts toward a
-// park, and the triggers it claimed return to pending. Every pending trigger of the epic is then consumed, so the
-// planner has nothing to claim. Its running node runs end and its due resumes close. An evidence amendment of the epic
+// park, and the triggers it claimed return to pending. Every pending trigger of the epic is then consumed when its closed
+// phase is set, as a write that sets any final phase consumes them (setEpicPhase), so the planner has nothing to claim. Its running node runs end and its due resumes close. An evidence amendment of the epic
 // that is checking is refused, with the planner action that asked for it, and one that is capturing, whose item is
 // applied already, is applied. A planner close also adds one tell, which says the epic is closed and is the ending the
 // owner is told; an owner close adds no such tell.
@@ -140,7 +140,8 @@ func endClosedTurn(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) 
 }
 
 // closeEpicRows writes end in the caller's write: the overtaken questions, the open evidence amendments, the node runs,
-// the head, the phase, the triggers and the due resumes, and for a planner close the ending tell. The close overtakes
+// the head, the phase, which consumes the pending triggers (setEpicPhase), the due resumes, and for a planner close the
+// ending tell. The close overtakes
 // every open question itself, before setEpicPhase would, since the closer decides who is told: an owner close stores
 // its overtaken tells told, as it adds no ending tell, and an epic the owner closed has no report a notice could open on.
 func closeEpicRows(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) error {
@@ -164,9 +165,6 @@ func closeEpicRows(ctx context.Context, queries *sqlcgen.Queries, end closeEnd) 
 	}
 	if err := setEpicPhase(ctx, queries, end.epic, end.phase, end.at); err != nil {
 		return err
-	}
-	if err := queries.ConsumePendingEpicTriggers(ctx, end.epic); err != nil {
-		return fmt.Errorf("consume triggers of epic %s: %w", end.epic, err)
 	}
 	if err := resumeEpic(ctx, queries, end.epic); err != nil {
 		return err

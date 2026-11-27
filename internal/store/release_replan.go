@@ -120,7 +120,7 @@ func replanInWrite(
 	if startErr := insertNodeRuns(ctx, queries, epic, []NodeRun{plan}, at); startErr != nil {
 		return false, startErr
 	}
-	if triggerErr := insertNodeTrigger(ctx, queries, epic, trigger, at); triggerErr != nil {
+	if triggerErr := insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at); triggerErr != nil {
 		return false, triggerErr
 	}
 	if tellErr := insertTell(ctx, queries, epic, capTurnText(tell), at); tellErr != nil {

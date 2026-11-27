@@ -15,6 +15,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hostexec"
+	"github.com/joshsymonds/orrery/internal/hostrepo"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -76,14 +77,18 @@ type ServeConfig struct {
 	Accounts  *Accounts
 	// Fleet is the Fleet service's router and desk. A nil Fleet refuses every Fleet RPC as unavailable.
 	Fleet *Fleet
-	// Host is the name of the controller's host: each epic the Epics service creates is stamped with it, and its
-	// create checks run on the Host that Hosts resolves it to.
+	// Host is the name of the controller's host: its create checks run on the Host that Hosts resolves it to, and with
+	// no Placement each epic the Epics service creates is stamped with it.
 	Host string
 	// CallerHost is the orrery name of the host whose panes a call on this listener comes from. ServeWith sets it as the
 	// Orrery-Host of each request, over any Orrery-Host the request sent, and sends no Orrery-Host when it is empty.
 	CallerHost string
 	// Hosts resolves host names to the Hosts that run epic git. Nil resolves every name to this machine.
-	Hosts   hostexec.Hosts
+	Hosts hostexec.Hosts
+	// Placement places the work of each call on the host it names, and names the default host.
+	Placement HostPlacer
+	// Roots lists each remote host's roots by its orrery name, for the checkouts that work on that host fetches.
+	Roots   map[string]hostrepo.RootLister
 	Options []connect.HandlerOption
 }
 
@@ -143,6 +148,7 @@ func NewHandler(cfg ServeConfig) http.Handler {
 	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(
 		&epicService{
 			epics: cfg.Epics, steps: cfg.Steps, steering: cfg.Steering, hosts: cfg.Hosts, host: cfg.Host,
+			placement: cfg.Placement, roots: cfg.Roots,
 		}, opts...)
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: cfg.Pools}, opts...)
 	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(

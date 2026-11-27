@@ -73,7 +73,7 @@ func (r stepRefusedError) Unwrap() error { return r.err }
 // records the row failed and returns the error.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	defer m.calls.enter()()
-	if err := checkStep(step); err != nil {
+	if err := checkStep(ctx, step); err != nil {
 		return stepRefusedError{err}
 	}
 	if err := m.resolveStepAgent(ctx, step); err != nil {
@@ -149,12 +149,13 @@ func (m *Manager) Release(ctx context.Context, id string) error {
 	return nil
 }
 
-// checkStep reports whether a step's id, directory, prompt and agent are usable, before anything is stored.
-func checkStep(step StepSession) error {
+// checkStep reports whether a step's id, directory, prompt and agent are usable, before anything is stored. The
+// directory is stat'ed through step.Files, the file system of the step's host.
+func checkStep(ctx context.Context, step StepSession) error {
 	if err := checkID(step.ID); err != nil {
 		return err
 	}
-	if err := checkDir(step.Dir); err != nil {
+	if err := checkDirOn(ctx, step.Files, step.Dir); err != nil {
 		return err
 	}
 	if step.Prompt == "" {

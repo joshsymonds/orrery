@@ -61,6 +61,9 @@ type AgentConfig struct {
 	// ClaudeDir is Claude's directory, ~/.claude, where the Claude agent definitions live. The git, file, gate and
 	// leftover ops may name paths under it. Empty allows none.
 	ClaudeDir string
+	// ManagedDir is Claude Code's managed settings directory, agents.ManagedDir. The file ops that only read may name
+	// paths under it, so a controller can resolve a step's agents here. Empty allows none.
+	ManagedDir string
 	// Local is this machine's hostexec.Local, which the git, file, gate and leftover ops act on. Nil takes
 	// hostexec.NewLocal().
 	Local *hostexec.Local
@@ -348,7 +351,8 @@ func noRoot() Response {
 	return Response{Code: CodeFailed, Message: "agent has no root"}
 }
 
-// folders answers with the directories that rootFolders lists under each of the agent's Roots, sorted by path.
+// folders answers with the directories that rootFolders lists under each of the agent's Roots, sorted by path, and with
+// the Roots themselves, in the order they are configured.
 func (a *Agent) folders() Response {
 	if len(a.cfg.Roots) == 0 {
 		return noRoot()
@@ -358,7 +362,7 @@ func (a *Agent) folders() Response {
 		folders = append(folders, rootFolders(root)...)
 	}
 	slices.Sort(folders)
-	return Response{Folders: folders}
+	return Response{Folders: folders, Roots: slices.Clone(a.cfg.Roots)}
 }
 
 // folder answers with the resolved path of req.Dir, when checkFolder admits it under any of the agent's Roots. A dir

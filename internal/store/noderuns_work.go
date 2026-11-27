@@ -159,7 +159,7 @@ func (s *Store) EndNodesWaking(
 		if err := endNodeRuns(ctx, queries, epic, ends, at); err != nil {
 			return err
 		}
-		return insertNodeTrigger(ctx, queries, epic, trigger, at)
+		return insertTriggerOnce(ctx, queries, epic, trigger.ID, trigger.Cause, at)
 	})
 }
 

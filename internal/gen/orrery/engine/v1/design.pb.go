@@ -27,7 +27,9 @@ type CreateDesignRequest struct {
 	// The id the new design takes.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The design's title.
-	Title         string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// The orrery name of the host the design's steps run on. Empty takes hosts.toml's default host, else the controller.
+	Host          string `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -72,6 +74,13 @@ func (x *CreateDesignRequest) GetId() string {
 func (x *CreateDesignRequest) GetTitle() string {
 	if x != nil {
 		return x.Title
+	}
+	return ""
+}
+
+func (x *CreateDesignRequest) GetHost() string {
+	if x != nil {
+		return x.Host
 	}
 	return ""
 }
@@ -424,7 +433,9 @@ type StoredDesign struct {
 	// The design's state phrase, given by the server.
 	State string `protobuf:"bytes,6,opt,name=state,proto3" json:"state,omitempty"`
 	// The design's contracts, in position order.
-	Contracts     []*StoredDesignContract `protobuf:"bytes,7,rep,name=contracts,proto3" json:"contracts,omitempty"`
+	Contracts []*StoredDesignContract `protobuf:"bytes,7,rep,name=contracts,proto3" json:"contracts,omitempty"`
+	// The orrery name of the host the design's steps run on.
+	Host          string `protobuf:"bytes,8,opt,name=host,proto3" json:"host,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -506,6 +517,13 @@ func (x *StoredDesign) GetContracts() []*StoredDesignContract {
 		return x.Contracts
 	}
 	return nil
+}
+
+func (x *StoredDesign) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
 }
 
 // StoredDesignContract is a contract as its design holds it: its place in the start order and the contracts it starts
@@ -622,10 +640,11 @@ var File_orrery_engine_v1_design_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_design_proto_rawDesc = "" +
 	"\n" +
-	"\x1dorrery/engine/v1/design.proto\x12\x10orrery.engine.v1\";\n" +
+	"\x1dorrery/engine/v1/design.proto\x12\x10orrery.engine.v1\"O\n" +
 	"\x13CreateDesignRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
-	"\x05title\x18\x02 \x01(\tR\x05title\"N\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12\x12\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\"N\n" +
 	"\x14CreateDesignResponse\x126\n" +
 	"\x06design\x18\x01 \x01(\v2\x1e.orrery.engine.v1.StoredDesignR\x06design\"\"\n" +
 	"\x10GetDesignRequest\x12\x0e\n" +
@@ -640,7 +659,7 @@ const file_orrery_engine_v1_design_proto_rawDesc = "" +
 	"\bcontract\x18\x02 \x01(\tR\bcontract\x12\x14\n" +
 	"\x05after\x18\x03 \x03(\tR\x05after\"M\n" +
 	"\x13OrderDesignResponse\x126\n" +
-	"\x06design\x18\x01 \x01(\v2\x1e.orrery.engine.v1.StoredDesignR\x06design\"\xe5\x01\n" +
+	"\x06design\x18\x01 \x01(\v2\x1e.orrery.engine.v1.StoredDesignR\x06design\"\xf9\x01\n" +
 	"\fStoredDesign\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\"\n" +
@@ -648,7 +667,8 @@ const file_orrery_engine_v1_design_proto_rawDesc = "" +
 	"\acreated\x18\x04 \x01(\x03R\acreated\x12\x15\n" +
 	"\x06of_one\x18\x05 \x01(\bR\x05ofOne\x12\x14\n" +
 	"\x05state\x18\x06 \x01(\tR\x05state\x12D\n" +
-	"\tcontracts\x18\a \x03(\v2&.orrery.engine.v1.StoredDesignContractR\tcontracts\"\xd7\x01\n" +
+	"\tcontracts\x18\a \x03(\v2&.orrery.engine.v1.StoredDesignContractR\tcontracts\x12\x12\n" +
+	"\x04host\x18\b \x01(\tR\x04host\"\xd7\x01\n" +
 	"\x14StoredDesignContract\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x1e\n" +

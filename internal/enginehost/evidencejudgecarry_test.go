@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,5 +136,45 @@ func TestJudgeCarryPromptOtherItemIgnored(t *testing.T) {
 	prompt := carryTestPrompt(t, judged, []store.EvidenceRun{otherItem, otherSpec, judged})
 	if want := carryTestBare(t, judged); prompt != want {
 		t.Errorf("prompt = %q, want judgePrompt's with its facts alone, %q", prompt, want)
+	}
+}
+
+// TestJudgeStartCarriesTheBlobsItsPromptNames judges a green Requirement run after an earlier holds run. The judge's start
+// carries each blob its prompt names, the judged run's logs and kept artifact and the earlier run's logs, and nothing
+// else, so a judge on another host finds every file its prompt names at the same path there.
+func TestJudgeStartCarriesTheBlobsItsPromptNames(t *testing.T) {
+	t.Parallel()
+	holds := carryTestRun("run-1", "rev-1")
+	holds.Verdict, holds.JudgeReason = evidence.VerdictHolds, "the build passes at rev-1"
+	holds.LogHash, holds.StderrHash = judgeTestHash("1"), judgeTestHash("2")
+	judged := carryTestRun("run-2", "rev-2")
+	steps := &taskVersionRecordingSteps{
+		EvidenceSteps: &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}},
+	}
+	ev := &Evidence{
+		store: carryTestStore{runs: []store.EvidenceRun{holds, judged}}, steps: steps,
+		blobs: evidenceBlobs{dir: judgeTestBlobDir},
+	}
+	if _, reason := ev.startJudge(t.Context(), "/repo", judged, 1); reason != "" {
+		t.Fatalf("startJudge refused: %s", reason)
+	}
+	starts := steps.recorded()
+	if len(starts) != 1 {
+		t.Fatalf("%d judge steps started, want one", len(starts))
+	}
+	want := []string{
+		filepath.Join(judgeTestBlobDir, judgeTestHash("a")+".log"),
+		filepath.Join(judgeTestBlobDir, judgeTestHash("c")+".log"),
+		filepath.Join(judgeTestBlobDir, judgeTestHash("b")+".json"),
+		filepath.Join(judgeTestBlobDir, judgeTestHash("1")+".log"),
+		filepath.Join(judgeTestBlobDir, judgeTestHash("2")+".log"),
+	}
+	if got := starts[0].Carry; !slices.Equal(got, want) {
+		t.Errorf("judge start carries %v, want %v", got, want)
+	}
+	for _, path := range want {
+		if !strings.Contains(starts[0].Prompt, path) {
+			t.Errorf("carried %s, which the prompt does not name:\n%s", path, starts[0].Prompt)
+		}
 	}
 }

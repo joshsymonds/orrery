@@ -25,6 +25,9 @@ message CreateDesignRequest {
 
   // The design's title.
   string title = 2;
+
+  // The orrery name of the host the design's steps run on. Empty takes hosts.toml's default host, else the controller.
+  string host = 3;
 }
 
 // CreateDesignResponse carries the design stored by CreateDesign.
@@ -95,6 +98,9 @@ message StoredDesign {
 
   // The design's contracts, in position order.
   repeated StoredDesignContract contracts = 7;
+
+  // The orrery name of the host the design's steps run on.
+  string host = 8;
 }
 
 // StoredDesignContract is a contract as its design holds it: its place in the start order and the contracts it starts

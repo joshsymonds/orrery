@@ -131,16 +131,33 @@ func gateAlwaysNoteDownAndUp() migrationCheck {
 				t.Errorf("epic_gates after Down counts %d (err %v), want the two gates", gates, err)
 			}
 		},
+		// The Up's check reads the gate rows with SQL, since the store's reads name the newest schema's tables, which a
+		// store at version 121 does not hold.
 		up: func(t *testing.T, s *Store) {
 			t.Helper()
-			got, err := s.Epic(context.Background(), id)
+			rows, err := s.db.DB.Query(`SELECT name, always, note FROM epic_gates WHERE epic = ? ORDER BY position`, id)
 			if err != nil {
-				t.Fatalf("Epic: %v", err)
+				t.Fatalf("read gates after Up: %v", err)
 			}
-			for _, gate := range got.Gates {
-				if gate.Always || gate.Note != "" {
-					t.Errorf("gate %s after Down and Up = %+v, want not always and no note", gate.Name, gate)
+			defer rows.Close()
+			read := 0
+			for rows.Next() {
+				var name, note string
+				var always int
+				if err = rows.Scan(&name, &always, &note); err != nil {
+					t.Fatalf("scan gate after Up: %v", err)
 				}
+				read++
+				if always != 0 || note != "" {
+					t.Errorf("gate %s after Down and Up = always %d, note %q, want not always and no note", name,
+						always, note)
+				}
+			}
+			if err = rows.Err(); err != nil {
+				t.Fatalf("read gates after Up: %v", err)
+			}
+			if read != 2 {
+				t.Errorf("epic_gates after Down and Up holds %d gates, want the two gates", read)
 			}
 		},
 	}

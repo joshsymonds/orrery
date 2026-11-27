@@ -74,13 +74,15 @@ func (a *Agent) file(ctx context.Context, spec *FileSpec) Response {
 	return failed(err)
 }
 
-// checkFile returns nil when every path that spec names lies under one of the agent's allowed directories. A read rooted
-// names its root, which the read opens without following a symlink. A symlink names its link, and the path its target
-// points at.
+// checkFile returns nil when every path that spec names lies under one of the agent's allowed directories, or, for an op
+// that only reads, in a place checkRead allows. A read rooted names its root, which the read opens without following a
+// symlink. A symlink names its link, and the path its target points at.
 func (a *Agent) checkFile(spec *FileSpec) error {
 	switch spec.Op {
 	case FileReadRooted:
-		return a.checkPaths(spec.Root)
+		return a.checkRead(spec.Op, spec.Root)
+	case FileRead, FileStat, FileLstat, FileReadDir, FileEvalSymlinks:
+		return a.checkRead(spec.Op, spec.Path)
 	case FileSymlink:
 		if err := a.checkPaths(spec.Path); err != nil {
 			return err

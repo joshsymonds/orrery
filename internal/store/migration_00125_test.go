@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// This file checks migration 00124_drop_undo_none.sql, which drops planner_actions.undo_none and moves each epic parked
-// release_undo_none to release_step. A store at version 122 holds an epic parked release_undo_none, an epic parked
+// This file checks migration 00125_drop_undo_none.sql, which drops planner_actions.undo_none and moves each epic parked
+// release_undo_none to release_step. A store at version 124 holds an epic parked release_undo_none, an epic parked
 // release_step that the migration leaves as it is, and a pending planner action that names an undo-none position. Open
 // migrates it to the newest version: the column is gone, the action reads back with its other fields, and the epic
 // parked release_undo_none reads release_step while the other keeps its park class.
 
-func TestMigration00124DropsUndoNone(t *testing.T) {
+func TestMigration00125DropsUndoNone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
@@ -21,7 +21,7 @@ func TestMigration00124DropsUndoNone(t *testing.T) {
 		undoEpic = "orrery-0123456/parked-undo-none"
 		stepEpic = "orrery-0123456/parked-release-step"
 	)
-	fixture := openStoreAtVersion(t, path, 122)
+	fixture := openStoreAtVersion(t, path, 124)
 	for _, seed := range []struct{ id, parkClass string }{
 		{id: undoEpic, parkClass: "release_undo_none"},
 		{id: stepEpic, parkClass: "release_step"},
@@ -48,7 +48,7 @@ func TestMigration00124DropsUndoNone(t *testing.T) {
 
 	s, err := Open(ctx, path, noSync())
 	if err != nil {
-		t.Fatalf("Open at version 122: %v", err)
+		t.Fatalf("Open at version 124: %v", err)
 	}
 	defer s.Close()
 

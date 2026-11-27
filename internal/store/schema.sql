@@ -882,7 +882,7 @@ CREATE TABLE designs (
     title TEXT NOT NULL,
     conversation TEXT NOT NULL,    -- a sessions row id; no reference to sessions
     created INTEGER NOT NULL
-);
+, host TEXT NOT NULL DEFAULT '');
 CREATE TABLE design_contracts (
     contract TEXT PRIMARY KEY REFERENCES contracts (id),
     design TEXT NOT NULL REFERENCES designs (id),
@@ -1229,6 +1229,14 @@ CREATE TABLE gate_triages (
     created INTEGER NOT NULL,
     PRIMARY KEY (epic, check_id)
 );
+CREATE TABLE epic_question_calls (
+    epic TEXT NOT NULL,
+    question INTEGER NOT NULL,
+    turn INTEGER NOT NULL,
+    call TEXT NOT NULL CHECK (call IN ('stands', 'overtaken')),
+    reason TEXT NOT NULL,
+    PRIMARY KEY (epic, question, turn)
+);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (1,0,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (10,9,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (100,99,1);
@@ -1257,7 +1265,9 @@ INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (120,11
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (121,120,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (122,121,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (123,122,1);
-INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (124,124,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (124,123,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (125,124,1);
+INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (126,125,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (13,12,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (14,13,1);
 INSERT INTO "goose_db_version" ("id", "version_id", "is_applied") VALUES (15,14,1);
