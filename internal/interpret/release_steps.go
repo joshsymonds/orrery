@@ -344,9 +344,6 @@ func (r *Runner) originHeld(
 // passed is recorded with releaseDone.
 const releaseCheckFailed = "failed"
 
-// releaseReasonMax caps how many bytes of the last line a failed check wrote to its stderr the step's reason carries.
-const releaseReasonMax = 1024
-
 // recordKindStep records the release step at position of epic, which names a kind, once its check has ended. The step
 // passes when the check ran, did not time out and exited 0, which `orrery release-step` does only once it has checked
 // the step's postcondition in code and found it held. Its evidence is what the check wrote to its stdout, the facts that
@@ -385,9 +382,13 @@ func (r *Runner) recordKindStep(
 	return nil
 }
 
+// kindStepReasonLines is how many of the newest non-blank lines of each of a failed check's stdout and stderr its reason
+// keeps.
+const kindStepReasonLines = 20
+
 // kindStepReason returns why the check of a release step that names a kind did not pass, or "" when it did: the reason
-// it did not run, its limit when it ran past it, or the status it exited with and the last line it wrote to its stderr,
-// which is where the command says why the step failed.
+// it did not run, its limit when it ran past it, or the status it exited with, then the newest lines it wrote to its
+// stdout and to its stderr, where the command says why the step failed. A stream with no line to show is left out.
 func kindStepReason(check store.NodeCheck) string {
 	switch {
 	case check.NotRun != "":
@@ -395,24 +396,21 @@ func kindStepReason(check store.NodeCheck) string {
 	case check.TimedOut:
 		return fmt.Sprintf("the step ran past its limit of %ds", check.Limit)
 	case check.Exit != 0:
-		reason := fmt.Sprintf("the step exited %d", check.Exit)
-		if line := lastLine(check.Stderr); line != "" {
-			reason += ": " + line
-		}
-		return reason
+		return fmt.Sprintf("the step exited %d", check.Exit) +
+			outputBlock("stdout", check.Stdout) + outputBlock("stderr", check.Stderr)
 	}
 	return ""
 }
 
-// lastLine returns the last line of text that is not blank, trimmed and cut to releaseReasonMax bytes, or "" when every
-// line is blank.
-func lastLine(text string) string {
-	lines := strings.Split(strings.TrimSpace(text), "\n")
-	line := strings.TrimSpace(lines[len(lines)-1])
-	if len(line) > releaseReasonMax {
-		line = strings.ToValidUTF8(line[:releaseReasonMax], "")
+// outputBlock returns the block of a failed check's reason that shows the newest kindStepReasonLines non-blank lines of
+// text, which the check wrote to the stream name, under a line that names the stream. It is "" when text holds no
+// non-blank line.
+func outputBlock(name, text string) string {
+	lines := lastLines(text, kindStepReasonLines)
+	if lines == "" {
+		return ""
 	}
-	return line
+	return "\n" + name + ":\n" + lines
 }
 
 // releaseStepEnd returns the HEAD of the release step whose row is row, which ran in worktree wt on host from start, and

@@ -333,13 +333,13 @@ func TestReleaseSteps(t *testing.T) {
 			Action{Kind: ActStep, IDs: []string{attemptWorkID(2, "release 2")}, Items: []string{"release 2", "step-1"}},
 		},
 		{
-			"failed step of this attempt stops naming the step and its reason",
+			"failed step of this attempt stops naming the step by number and target, and its reason",
 			releaseNode(1, "", ""),
 			Rows{
 				Epic:     releasingEpic(steps...),
 				Releases: []store.ReleaseRun{candidate, failedFirst},
 			},
-			Action{Kind: ActStop, Output: "release step 1 (build the image) failed: push rejected"},
+			Action{Kind: ActStop, Output: "release step 1 (target main) failed:\nlanded: none\npush rejected"},
 		},
 		{
 			"failed step after a passed one stops naming the later step",
@@ -358,7 +358,10 @@ func TestReleaseSteps(t *testing.T) {
 					{Part: store.ReleasePartStep, Position: 2, Attempt: 1, Reason: "tag exists"},
 				},
 			},
-			Action{Kind: ActStop, Output: "release step 2 (push the tag) failed: tag exists"},
+			Action{
+				Kind:   ActStop,
+				Output: "release step 2 (target main) failed:\nlanded:\n- step 1 (target main), undo: rollback\ntag exists",
+			},
 		},
 		{
 			"running step gives none",
@@ -453,6 +456,39 @@ func TestReleaseSteps(t *testing.T) {
 		},
 	}
 	checkDecisions(t, Release{}, cases)
+}
+
+// TestStopSaysStepStopNamesLanded checks that the stop of a release step that failed at step 3 names the steps that
+// landed before it, steps 1 and 2, each with its target and undo, ahead of the failed run's reason. No step text comes
+// before the landed list, so a cut from the end loses only the reason's output lines.
+func TestStopSaysStepStopNamesLanded(t *testing.T) {
+	t.Parallel()
+	steps := []store.EpicReleaseStep{
+		{Step: "fast-forward main to the candidate", Target: "origin's main", Undo: "push a revert"},
+		{Step: "push a signed tag", Target: "origin's tags", Undo: "delete the tag on origin"},
+		{Step: "pin the flake input", Target: "nix-config's main", Undo: "commit the previous pin"},
+	}
+	failed := store.ReleaseRun{
+		Part: store.ReleasePartStep, Position: 3, Attempt: 1, Reason: "the step exited 1\nstderr:\nrefused",
+	}
+	checkDecisions(t, Release{}, []decideCase{{
+		"step 3 fails with steps 1 and 2 landed",
+		releaseNode(1, "", ""),
+		Rows{
+			Epic: releasingEpic(steps...),
+			Releases: []store.ReleaseRun{
+				candidateRun(1, "cand-1"),
+				{Part: store.ReleasePartStep, Position: 1, Attempt: 1, Head: "step-1", Passed: true},
+				{Part: store.ReleasePartStep, Position: 2, Attempt: 1, Head: "step-2", Passed: true},
+				failed,
+			},
+		},
+		Action{Kind: ActStop, Output: "release step 3 (target nix-config's main) failed:\n" +
+			"landed:\n" +
+			"- step 1 (target origin's main), undo: push a revert\n" +
+			"- step 2 (target origin's tags), undo: delete the tag on origin\n" +
+			"the step exited 1\nstderr:\nrefused"},
+	}})
 }
 
 // TestAnyStopReplansStepWithUndoNoneRunsAgain checks that a release step whose undo is none, which failed at attempt 0,

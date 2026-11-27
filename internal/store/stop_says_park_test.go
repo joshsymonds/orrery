@@ -68,8 +68,8 @@ func TestStopSaysOwnerStopOpensNoQuestion(t *testing.T) {
 }
 
 // TestStopSaysOwnerStopOfAStoppedReleaseTellsOnce checks that the owner's StopEpic of an epic whose release a step stopped
-// takes the release_owner_stop class with the park's reason kept, adds that reason as one tell with no question, and adds
-// no second tell when the owner repeats the stop.
+// takes the release_owner_stop class with the park's reason kept, adds that reason as a second tell with no question,
+// after the step stop's own tell, and adds no further tell when the owner repeats the stop.
 func TestStopSaysOwnerStopOfAStoppedReleaseTellsOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -86,8 +86,14 @@ func TestStopSaysOwnerStopOfAStoppedReleaseTellsOnce(t *testing.T) {
 	if epic := closeRow(t, s, claimEpic); epic.ParkClass != ParkClassReleaseOwnerStop || epic.Parked != reason {
 		t.Errorf("park of epic = %q %q, want %q %q", epic.ParkClass, epic.Parked, ParkClassReleaseOwnerStop, reason)
 	}
-	if tells := attentionTellsOf(t, s); len(tells) != 1 || tells[0].Text != reason || tells[0].Question != nil {
-		t.Errorf("tells = %+v, want one untold tell %q that carries no question", tells, reason)
+	tells := attentionTellsOf(t, s)
+	if len(tells) != 2 || tells[0].Text != reason || tells[1].Text != reason ||
+		tells[0].Question != nil || tells[1].Question != nil {
+		t.Errorf(
+			"tells = %+v, want two untold tells %q that carry no question: the step's, then the owner's",
+			tells,
+			reason,
+		)
 	}
 }
 

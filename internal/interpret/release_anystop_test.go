@@ -130,7 +130,7 @@ func anyStopCases() []anyStopCase {
 			name:     "failed release step",
 			setup:    anyStopSetup{steps: kindSteps},
 			stop:     stepStop,
-			fragment: "the step exited 1: origin refused the push",
+			fragment: "the step exited 1\nstderr:\norigin refused the push",
 		},
 		{
 			name:     "judge verdict",
@@ -485,7 +485,7 @@ func TestAnyStopReplansResumeRerunsStep(t *testing.T) {
 			t.Parallel()
 			w := newStopWorld(t, anyStopSetup{steps: c.steps})
 			stepStop(w)
-			w.requireStopped("the step exited 1: origin refused the push", 0)
+			w.requireStopped("the step exited 1\nstderr:\norigin refused the push", 0)
 			checks := len(w.fakes.checks.calls)
 			if c.owner {
 				if err := w.s.ReleaseEpic(
@@ -619,7 +619,7 @@ func TestAnyStopReplansThreeTimesInARow(t *testing.T) {
 			}
 		}
 		failStepOne(w)
-		reason := w.requireStopped("the step exited 1: origin refused the push", attempt)
+		reason := w.requireStopped("the step exited 1\nstderr:\norigin refused the push", attempt)
 		w.carryTurn(w.plannerTurn(nil, store.EpicActionInput{
 			Kind: store.ActionRetryEpic, Reason: "the release can run again",
 		}))
